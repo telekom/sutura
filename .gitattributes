@@ -1,0 +1,17 @@
+# Normalise to LF in the repository. The build, CI and the release image are all Linux;
+# a CRLF shell script fails there with "bad interpreter", and the pre-commit hook is a
+# shell script — so this file is what keeps the leak guard working on a fresh clone.
+* text=auto eol=lf
+
+# Never touch these.
+*.png binary
+*.jpg binary
+*.pdf binary
+*.woff2 binary
+*.parquet binary
+
+# Generated; keep diffs readable but do not let anyone hand-edit them.
+Cargo.lock  -diff linguist-generated
+pixi.lock   -diff linguist-generated
+devenv.lock -diff linguist-generated
+flake.lock  -diff linguist-generated
