@@ -26,6 +26,11 @@ zizmor = ">=1.9"
 python = ">=3.11,<3.14"
 actionlint = ">=1.7.12,<2"
 shellcheck = ">=0.11.0,<0.12"
+# The hook runner. In pixi rather than the dev shell because a git hook runs in whatever
+# environment the commit came from - and outside the shell a nix-provided prek is not on PATH,
+# so every hook failed with "prek: not found" and blocked the commit entirely. pixi's env lives
+# in the repo, so `pixi run prek` resolves from anywhere.
+prek = ">=0.4.14,<0.5"
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched
@@ -40,6 +45,9 @@ ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
 # `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
 # so the gate does not depend on opinions that change between releases.
 zizmor = "zizmor .github/workflows"
+# Installing the hooks and running them, so both go through the same prek.
+hooks-install = "prek install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg"
+hooks-run = "prek run --all-files"
 # actionlint and shellcheck were installed and locked but gated nothing: `just lint-ci` called a
 # `shellcheck-run` task that did not exist, so its second line could never succeed.
 actionlint = "actionlint"

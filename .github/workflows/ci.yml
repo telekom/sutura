@@ -139,6 +139,12 @@ jobs:
         if: steps.classify.outputs.deps == 'true'
         run: nix run .#deny
 
+      # The authoritative secret scan. The pre-commit hook is best-effort - it can be
+      # bypassed, and it cannot run on a host without the tool - so the enforcement point has
+      # to be here. Never gated on classification: a credential can be committed in any file.
+      - name: Secrets
+        run: nix run .#betterleaks -- dir . --redact --verbose
+
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
         run: nix run .#pixi -- run --frozen zizmor
@@ -172,6 +178,9 @@ jobs:
         run: |
           set -eu
           nix build .#sutura -L
+          # One executable and no toolchain in the closure. It shipped three binaries and a
+          # full cargo once; this is the assertion that stops that returning.
+          nix build .#checks.x86_64-linux.one-binary -L
           nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
           file result/bin/sutura result-aarch64/bin/sutura
 

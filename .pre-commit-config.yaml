@@ -82,12 +82,20 @@ repos:
         language: system
         stages: [commit-msg]
 
-      # Secret detection on the staged diff. From nixpkgs via the dev shell, so it needs no
-      # network at commit time. `--redact` keeps the finding out of the terminal scrollback
-      # and out of any CI log.
+      # Secret detection on the staged diff, when the tool is available. `--redact` keeps a
+      # finding out of terminal scrollback and out of any log.
+      #
+      # It says so and continues when betterleaks is absent, which is deliberate and is not a
+      # gate failing open: a hook is bypassable with `--no-verify`, so it was never the
+      # enforcement point. CI runs the scan over the whole tree ungated, and that is what
+      # decides. Blocking every commit on a host where the tool cannot be installed would only
+      # teach people to pass `--no-verify` habitually, which costs more than it saves.
       - id: betterleaks
-        name: detect hardcoded secrets
-        entry: betterleaks git --pre-commit --redact --staged --verbose
+        name: detect hardcoded secrets (CI is authoritative)
+        entry: >-
+          sh -c 'command -v betterleaks >/dev/null 2>&1 ||
+          { echo "betterleaks not on PATH - skipped here; CI enforces the scan"; exit 0; };
+          betterleaks git --pre-commit --redact --staged --verbose'
         language: system
         pass_filenames: false
 

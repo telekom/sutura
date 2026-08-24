@@ -88,5 +88,21 @@ jobs:
       group: pages
       cancel-in-progress: false
     steps:
+      # `deploy-pages` returns a bare `HttpError: Not Found` when Pages is not enabled for the
+      # repository, which reads like a token or permissions bug and is not one. This says what
+      # is actually wrong, because the fix is a setting no workflow can change.
+      - name: Is Pages enabled?
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          if ! gh api "repos/$GITHUB_REPOSITORY/pages" >/dev/null 2>&1; then
+            echo "::error::GitHub Pages is not enabled for this repository."
+            echo "Settings -> Pages -> Build and deployment -> Source: GitHub Actions."
+            echo "Until then the book builds on every push and publishes nowhere."
+            exit 1
+          fi
+          gh api "repos/$GITHUB_REPOSITORY/pages" --jq '"pages source: \(.build_type)  url: \(.html_url)"'
+
       - id: deployment
         uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

@@ -57,9 +57,6 @@ in
     # cites a task rather than a command line that drifts from the one people run.
     just
 
-    # Hook runner: a single Rust binary, so hooks need no Python runtime.
-    prek
-
     # Stacked branches - this plan is a chain of dependent changes by construction.
     # `stax` rebases a stack; `gh-stack` describes one (PR bodies and cross-links) for a
     # stack that was built by hand. See the `stacked-branches` skill.
@@ -127,7 +124,6 @@ in
     echo "  clippy     $(cargo clippy --version 2>/dev/null || echo MISSING)"
     echo "  nextest    $(cargo nextest --version 2>/dev/null || echo MISSING)"
     echo "  cargo-deny $(cargo deny --version 2>/dev/null || echo MISSING)"
-    echo "  prek       $(prek --version 2>/dev/null || echo MISSING)"
     echo "  pixi       $(pixi --version 2>/dev/null || echo MISSING)"
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
@@ -201,7 +197,7 @@ in
       echo "ship-check: $merge_base..HEAD"
 
       echo "== commit-stage hooks over the branch diff"
-      prek run --from-ref "$merge_base" --to-ref HEAD
+      pixi run --frozen prek run --from-ref "$merge_base" --to-ref HEAD
 
       echo "== the gates' own unit tests"
       # A gate with no test is a gate nobody has seen fail, and these are the checks
@@ -212,7 +208,7 @@ in
       cargo run -q -p xtask -- test-causality --since "$merge_base"
 
       echo "== pre-push hooks"
-      prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
+      pixi run --frozen prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
 
       echo "ship-check: green"
     '';

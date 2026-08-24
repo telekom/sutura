@@ -32,7 +32,7 @@ setup:
     fi
     # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
     # the expensive gates. Missing one means that stage silently never runs.
-    prek install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+    pixi run --frozen hooks-install
     echo "== python tooling (zizmor, actionlint, shellcheck)"
     pixi install --frozen
     echo "== building the dev CLI and the gates"
@@ -149,7 +149,7 @@ skills-relock:
 
 # Run the hooks over everything. Scope with `just hooks --files <path>` while iterating.
 hooks *args:
-    prek run {{ args }}
+    pixi run --frozen prek run {{ args }}
 
 # ------------------------------------------------------------------ dev flow ---
 
