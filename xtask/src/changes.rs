@@ -78,7 +78,13 @@ const DOCS_ONLY: &[&str] = &["**/*.md", "docs/**", "LICENSE", "NOTICE", ".gitatt
 
 /// CI configuration changes the pipeline itself, so nothing may be skipped on the strength
 /// of a classification the change may have just altered.
-const RUN_ALL_PATTERNS: &[&str] = &[".github/**", ".pre-commit-config.yaml"];
+const RUN_ALL_PATTERNS: &[&str] = &[
+    ".github/**",
+    ".pre-commit-config.yaml",
+    // This file. A commit that narrows `AREAS` would otherwise be the first thing judged by
+    // the narrowed table, which is the same mistake as the two above.
+    "xtask/src/changes.rs",
+];
 
 /// What a diff requires.
 #[derive(Default, Debug)]
@@ -178,7 +184,12 @@ fn apply_consumers(result: &mut Classification) {
 /// "run everything" rather than "nothing changed".
 fn changed_paths(since: &str) -> Option<Vec<String>> {
     let out = std::process::Command::new("git")
-        .args(["diff", "--name-only", "-z", since, "--"])
+        // `--no-renames` is load-bearing. With rename detection on - the default - a move is
+        // reported as its DESTINATION only, so moving a file out of `crates/` into `docs/`
+        // yields one docs path, classifies as docs-only, and skips the whole Rust chain:
+        // green CI over a workspace that no longer compiles. It also makes the result
+        // independent of the runner's `diff.renames` setting.
+        .args(["diff", "--name-only", "--no-renames", "-z", since, "--"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -490,6 +501,27 @@ mod tests {
         assert_eq!(r.unclassified.len(), 1);
         // And it must say why, or the fail-open is invisible and nobody adds the area.
         assert!(r.reasons.iter().any(|m| m.contains("matches no area")));
+    }
+
+    #[test]
+    fn a_file_moved_out_of_an_area_still_classifies_as_that_area() {
+        // The `--no-renames` case, at the classify level: git reports both sides, so the
+        // source path is present and pulls in `rust`. Without both sides this is docs-only and
+        // every Rust gate is skipped over a workspace that no longer compiles.
+        let both_sides = paths(&["crates/sutura-cli/src/main.rs", "docs/src/moved.md"]);
+        let r = classify(&both_sides);
+        assert!(r.needs("rust"), "the source side must still count: {:?}", r.reasons);
+
+        // And the destination alone - what rename detection would have given us - is exactly
+        // the wrong answer this guards against.
+        let destination_only = paths(&["docs/src/moved.md"]);
+        assert!(!classify(&destination_only).needs("rust"));
+    }
+
+    #[test]
+    fn a_change_to_the_classifier_runs_everything() {
+        let r = classify(&paths(&["xtask/src/changes.rs"]));
+        assert!(r.run_all, "the classifier cannot judge its own narrowing: {:?}", r.reasons);
     }
 
     #[test]

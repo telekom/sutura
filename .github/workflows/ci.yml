@@ -41,7 +41,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a run on the default branch. The next push's base is the previous push, so a
+  # cancelled run's commits get classified out of the following range and are never validated
+  # by any completed run - the same "green while actually red" shape as using the wrong base.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ci:
