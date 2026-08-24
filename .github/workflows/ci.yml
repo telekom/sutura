@@ -1,40 +1,50 @@
 # ORDER MATTERS, and it is why this uses explicit steps rather than one `nix flake check`.
 #
-#   0. classify — what does this change require?
-#   1. lints    — structural gates, formatting, clippy, supply chain
-#   2. tests    — the test suite
-#   3. build    — only then the release artifacts
-#
-# Steps 1-3 are gated on the classification, which FAILS OPEN: anything unrecognised runs
-# everything. The structural gates are never gated — they are what judge a docs-only change.
+#   0. classify - what does this change require?
+#   1. lints    - structural gates, formatting, clippy, supply chain
+#   2. tests    - the test suite, then red-before-green for changed tests
+#   3. build    - only then the release artifacts
 #
 # `nix flake check` runs its entries in ARBITRARY order, so the release build could be
 # realised before the lints meant to gate it. Sequential steps make the dependency real: a
 # failing lint stops the job before anything is built. `flake.nix`'s `checks` deliberately
 # excludes the package for the same reason.
 #
-# COMPILE BUDGET
+# Steps 1-3 are gated on the classification, which FAILS OPEN: anything unrecognised runs
+# everything. The structural gates are never gated - they are what judge a docs-only change.
 #
-# One job, because separate jobs cannot share a /nix/store and steps can. Every step reuses
-# ONE `cargoArtifacts` derivation (see flake.nix), so the dependency tree is compiled once
-# for lints, tests and the build together — not once per step. The image references the
-# native build rather than recompiling it; the host architecture is not cross-built at all
-# (`sutura-x86_64-unknown-linux-gnu` aliases the native derivation, since a "cross" x86_64
-# build on an x86_64 runner is a second full compile for a byte-identical result); and
-# magic-nix-cache carries the store across runs. Net: one native plus one aarch64
-# dependency build, and zero on a cache hit.
+# THIRD-PARTY ACTIONS: none. The only `uses:` here is `actions/checkout`, which is GitHub's
+# own. Everything else that used to be an action is a `run:` step:
+#
+#   installing Nix          the upstream installer script
+#   registry login          `docker login --password-stdin`
+#   release assets          `gh release upload`
+#
+# The reason is supply chain. A third-party action runs with the job's token and can be
+# retagged under a mutable tag; each one is an owner who can change what our CI executes.
+# The replacements are a handful of lines we can read, and they need no trust decision.
+#
+# COST OF THAT CHOICE, stated rather than hidden: dropping the binary-cache action means a
+# run compiles our own crates rather than fetching them. The dependency tree still comes from
+# the substituter, and every step shares ONE `cargoArtifacts` derivation (see flake.nix), so
+# the tree is compiled once per run - not once per step. Restoring a cross-run cache is a
+# separate decision, and it should not be paid for with an action that can rewrite itself.
 #
 # CRANELIFT is never used here, by construction: nothing in this workflow, in flake.nix or in
-# any tracked Cargo config enables it. It is a development-only codegen backend — a developer
+# any tracked Cargo config enables it. It is a development-only codegen backend - a developer
 # opts in via a gitignored override, and CI simply never does.
 #
-# No devenv: it is a dev-shell tool, and CI needs only `nix`. Every gate is a flake output.
+# No devenv either: it is a dev-shell tool, and CI needs only `nix`.
 name: ci
 
 on:
   push:
     branches: [main]
   pull_request:
+
+# Least privilege by default. A job that needs more says so.
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -43,33 +53,42 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          # The classifier diffs against the base commit, which a shallow clone lacks.
+          # The classifier and the causality gate diff against the base commit, which a
+          # shallow clone lacks.
           fetch-depth: 0
+          persist-credentials: false
 
-      - uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
+      # Replaces a third-party installer action. `--no-daemon` is enough for a single-user
+      # ephemeral runner and avoids needing systemd.
+      - name: Install Nix
+        run: |
+          set -eu
+          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
+            >> "$HOME/.config/nix/nix.conf"
 
-      # Carries /nix/store between runs. Without it every run recompiles from scratch,
-      # which is the same waste as duplicated jobs, just spread over time.
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
+      - name: Show the toolchain actually in use
+        run: |
+          set -eu
+          nix --version
+          # The pin is rust-toolchain.toml and nowhere else; print it so a mismatch is
+          # visible in the log rather than inferred from a failure.
+          cat rust-toolchain.toml
 
       # --------------------------------------------------------------- 0. classify ---
-      # What does this change actually require? A docs-only edit needs the structural gates
-      # and nothing else; a flake edit needs the whole chain.
+      # What does this change require? A docs-only edit needs the structural gates and
+      # nothing else; a flake edit needs the whole chain.
       #
       # It FAILS OPEN by construction: a path matching no area, an unusable base ref or an
       # empty diff all set `run_all`, and the step prints why. The failure mode guarded
-      # against is not a wasted minute — it is a new directory nobody classified being
+      # against is not a wasted minute - it is a new directory nobody classified being
       # silently skipped while this job reports green.
-      #
-      # Run through `nix run` because there is no cargo on the runner — that is the point of
-      # not installing devenv.
       - name: Classify the change
         id: classify
         run: |
@@ -87,12 +106,8 @@ jobs:
 
       # ------------------------------------------------------------------ 1. lints ---
       # Cheapest first: a stray CRLF, an over-long file or a dead dependency fails early
-      # rather than after a dependency build.
-      #
-      # NOTE: no devenv anywhere in this workflow. devenv is a dev-shell tool; CI needs
-      # only `nix`, and every gate below is a flake output that runs the same xtask binary
-      # a developer runs.
-      - name: Structural gates (line endings, max-lines, unused deps, boundaries)
+      # rather than after a dependency build. Never gated - these judge docs too.
+      - name: Structural gates (line endings, text hygiene, max-lines, unused deps, boundaries, skills)
         run: nix build .#checks.x86_64-linux.hygiene -L
 
       - name: Format
@@ -104,11 +119,19 @@ jobs:
         run: nix build .#checks.x86_64-linux.clippy -L
 
       # A flake app, not a check: it fetches the advisory database and a Nix build sandbox
-      # has no network. The app puts the PINNED cargo on PATH — `nix run nixpkgs#cargo-deny`
+      # has no network. The app puts the PINNED cargo on PATH - `nix run nixpkgs#cargo-deny`
       # does not, and would audit with whatever cargo the runner happens to ship.
       - name: Supply chain (advisories, licences, bans, sources)
         if: steps.classify.outputs.deps == 'true'
         run: nix run .#deny
+
+      # Workflow static analysis: template injection into `run:`, over-permissive tokens,
+      # untrusted checkout. From pixi, so no Rust build and no action.
+      - name: Workflow static analysis
+        if: steps.classify.outputs.run_all == 'true'
+        run: |
+          set -eu
+          nix run nixpkgs#pixi -- run --frozen zizmor
 
       # ------------------------------------------------------------------ 2. tests ---
       - name: Tests
@@ -117,13 +140,10 @@ jobs:
 
       # A changed test must be red against base behaviour and green with the change. A test
       # that passes both ways proves nothing and is worse than no test, because it reads as
-      # coverage. Where impl and test share a file the gate says so rather than guessing —
-      # see the task's output.
+      # coverage. Where impl and test share a file the gate says so rather than guessing.
       #
-      # Not a flake check: it builds twice, in a git worktree, so it needs git history and a
-      # writable tree and network-free cargo. `nix run .#causality` wraps the gate with the
-      # PINNED cargo and git on PATH — the xtask binary alone cannot run the tests it is
-      # comparing.
+      # Not a flake check: it compiles twice in a git worktree, so it needs git history, a
+      # writable tree and network-free cargo.
       - name: Test causality (red before green)
         if: steps.classify.outputs.rust == 'true'
         run: |
@@ -170,11 +190,14 @@ jobs:
           docker run --rm sutura:latest doctor
           docker image inspect sutura:latest --format 'digest: {{.Id}}'
 
-      - uses: actions/upload-artifact@v4
+      # No artifact upload. It needed a third-party-shaped dependency for something the
+      # build already guarantees: `nix build .#sutura` from this commit reproduces the same
+      # store path, so the binary is retrievable without CI keeping a copy. Tagged releases
+      # publish real assets - see release.yml.
+      - name: Report what was built
         if: steps.classify.outputs.build == 'true'
-        with:
-          name: sutura-binaries
-          path: |
-            result/bin/sutura
-            result-aarch64/bin/sutura
-          if-no-files-found: error
+        run: |
+          set -eu
+          printf 'native  : %s\n' "$(readlink -f result)"
+          printf 'aarch64 : %s\n' "$(readlink -f result-aarch64)"
+          printf 'image   : %s\n' "$(readlink -f result-oci)"

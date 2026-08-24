@@ -2,11 +2,11 @@
 #
 # `release-performance` is `release` plus fat LTO and a single codegen unit. That is minutes
 # of extra compile time for a binary worth shipping only once throughput has actually been
-# measured — so it is a separate, manually dispatched workflow rather than an input on the
+# measured - so it is a separate, manually dispatched workflow rather than an input on the
 # normal release. Nothing schedules it and no tag triggers it.
 #
 # WHAT IT DOES NOT DO: `target-cpu=native`. That is the obvious next optimisation and it is
-# deliberately absent, because these artifacts are *published* — a binary tuned for the
+# deliberately absent, because these artifacts are *published* - a binary tuned for the
 # runner's CPU would fault with SIGILL on an older one, and a Nix derivation hash does not
 # represent the CPU it was built on, so the mismatch would not even be visible. A build
 # pinned to a known deployment host can make that trade; a downloadable release cannot.
@@ -14,6 +14,8 @@
 # Names never collide with the normal release: assets are `-performance` and the image tag is
 # `<version>-performance`. `latest` is never moved, so nothing starts running an optimised
 # build by accident.
+#
+# THIRD-PARTY ACTIONS: none, for the same reason as release.yml.
 name: release-performance
 
 on:
@@ -29,9 +31,10 @@ on:
         default: false
         type: boolean
 
+# Nothing broad at the workflow level. `validate` reads a text input and needs no write
+# at all; only `build` publishes, and only when asked to.
 permissions:
-  contents: write   # attach assets to an existing release
-  packages: write   # push the image to GHCR
+  contents: read
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
@@ -58,30 +61,32 @@ jobs:
             echo "::error::publish=true requires a tag ref; got $REF"
             exit 1
           fi
-          echo "confirmed — ref $REF, publish=$PUBLISH"
+          echo "confirmed - ref $REF, publish=$PUBLISH"
 
-  binaries:
+  build:
     needs: [validate]
     runs-on: ubuntu-latest
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
+    timeout-minutes: 120
+    permissions:
+      contents: write   # attach assets to an existing release
+      packages: write   # push the image to GHCR
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Nix
+        run: |
+          set -eu
+          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
+            >> "$HOME/.config/nix/nix.conf"
 
       # Same rule as the normal release: nothing shippable is built before the gates pass.
       # These reuse the `release`-profile artifacts, which is why they are cheap here.
-      # No devenv — every gate is a flake output.
       - name: Lints and tests before building anything shippable
         run: |
           set -eu
@@ -91,102 +96,74 @@ jobs:
           nix run .#deny
           nix build .#checks.x86_64-linux.nextest -L
 
-      - name: Build ${{ matrix.target }} (release-performance)
-        run: nix build .#sutura-${{ matrix.target }}-performance -L
-
-      - name: Assert the binary is the architecture requested
+      - name: Build both targets (release-performance)
         run: |
           set -eu
-          bin="$(find ./result/bin -type f | head -1)"
-          file "$bin"
-          # A cross-compile that silently produced host binaries would otherwise pass.
-          case "${{ matrix.target }}" in
-            x86_64-*)  file "$bin" | grep -q 'x86-64' ;;
-            aarch64-*) file "$bin" | grep -qE 'aarch64|ARM aarch64' ;;
-          esac
+          nix build .#sutura-x86_64-unknown-linux-gnu-performance  -L -o result-x86_64
+          nix build .#sutura-aarch64-unknown-linux-gnu-performance -L -o result-aarch64
 
-      # The point of the profile is a different binary. If it is byte-identical in size to
-      # nothing and reports no version, something built the wrong thing.
+      - name: Assert each binary is the architecture requested
+        run: |
+          set -eu
+          file result-x86_64/bin/sutura result-aarch64/bin/sutura
+          file result-x86_64/bin/sutura  | grep -q 'x86-64'
+          file result-aarch64/bin/sutura | grep -qE 'aarch64|ARM aarch64'
+
+      # The point of the profile is a different binary. Print the sizes so the run is
+      # evidence of that rather than an assertion about it.
       - name: Report what was produced
         run: |
           set -eu
-          bin="$(find ./result/bin -type f | head -1)"
-          printf 'size: %s bytes\n' "$(wc -c < "$bin")"
-          if [ "${{ matrix.target }}" = "x86_64-unknown-linux-gnu" ]; then
-            "$bin" --version
-          else
-            echo "(aarch64: cannot execute on this runner)"
-          fi
+          for f in result-x86_64/bin/sutura result-aarch64/bin/sutura; do
+            printf '%-32s %s bytes\n' "$f" "$(wc -c < "$f")"
+          done
+          result-x86_64/bin/sutura --version
 
-      - name: Package with a checksum
+      - name: Package with checksums
         run: |
           set -eu
-          mkdir -p dist
-          install -m755 "$(find ./result/bin -type f | head -1)" "dist/sutura"
-          name="sutura-${{ matrix.target }}-performance"
-          tar -C dist -czf "${name}.tar.gz" sutura
-          sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256"
+          mkdir -p dist stage
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            case "$target" in
+              x86_64-*)  src=result-x86_64 ;;
+              aarch64-*) src=result-aarch64 ;;
+            esac
+            install -m755 "$src/bin/sutura" stage/sutura
+            name="sutura-${target}-performance"
+            tar -C stage -czf "dist/${name}.tar.gz" sutura
+            ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          done
+          ls -l dist
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: perf-${{ matrix.target }}
-          path: |
-            sutura-${{ matrix.target }}-performance.tar.gz
-            sutura-${{ matrix.target }}-performance.tar.gz.sha256
-          if-no-files-found: error
-
-  image:
-    needs: [validate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 90
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
-      - uses: DeterminateSystems/magic-nix-cache-action@v8
-
-      - name: Build the optimised image with Nix
-        run: nix build .#oci-performance -L
+      - name: Build the optimised image
+        run: nix build .#oci-performance -L -o result-oci
 
       - name: Load it and prove the binary runs
         run: |
           set -eu
-          ./result | docker load
+          ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker image inspect sutura:latest --format 'digest: {{.Id}}'
-
-      - uses: docker/login-action@v3
-        if: ${{ inputs.publish }}
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tagged `<version>-performance` and never `latest`: an optimised image must be opted
       # into by name, not inherited by anything already pulling `latest`.
       - name: Push as <version>-performance
         if: ${{ inputs.publish }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -eu
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           tag="${GITHUB_REF_NAME#v}"
           docker tag sutura:latest "${IMAGE}:${tag}-performance"
           docker push "${IMAGE}:${tag}-performance"
+          docker logout ghcr.io
 
-  publish:
-    needs: [binaries, image]
-    if: ${{ inputs.publish }}
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: perf-*
-          merge-multiple: true
       - name: Attach the optimised binaries to the existing release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            sutura-*-performance.tar.gz
-            sutura-*-performance.tar.gz.sha256
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

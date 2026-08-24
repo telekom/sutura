@@ -1,0 +1,81 @@
+# Supply-chain audit: on dependency change, and weekly regardless.
+#
+# The weekly run is the point of this file. `ci.yml` audits when the lock changes, which
+# catches a dependency we introduce - but most advisories arrive against a dependency we
+# already have. Without a schedule, a CVE published today stays invisible until somebody
+# happens to touch `Cargo.lock`, which on a stable dependency set can be months.
+#
+# So: the same check, on two triggers with different jobs to do.
+#   - dependency change -> did this change bring in something known-bad?
+#   - weekly            -> did the world change under a lock we did not touch?
+#
+# THIRD-PARTY ACTIONS: none, as everywhere else here.
+name: security-audit
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "deny.toml"
+      - "pixi.lock"
+      - "pixi.toml"
+      - ".github/workflows/security-audit.yml"
+  pull_request:
+    paths:
+      - "Cargo.lock"
+      - "Cargo.toml"
+      - "deny.toml"
+      - "pixi.lock"
+      - "pixi.toml"
+      - ".github/workflows/security-audit.yml"
+  schedule:
+    # Monday 06:17 UTC. Off the hour on purpose: scheduled jobs on the hour queue behind
+    # everyone else's, and a delayed audit is a less useful audit.
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install Nix
+        run: |
+          set -eu
+          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
+            >> "$HOME/.config/nix/nix.conf"
+
+      # advisories, bans, licences, sources - all four, against the current RustSec database.
+      # The flake app supplies the PINNED cargo, so the audit reads the same dependency graph
+      # the build does rather than whatever cargo the runner ships.
+      - name: cargo-deny
+        run: nix run .#deny
+
+      - name: Report the advisory database revision
+        if: always()
+        run: |
+          set -eu
+          # Which snapshot said "clean" is the part worth having in the log when an advisory
+          # turns out to have existed at the time.
+          db="$HOME/.cargo/advisory-db"
+          if [ -d "$db" ]; then
+            git -C "$db" log -1 --format='advisory-db %h %ad' --date=short || true
+          else
+            echo "advisory-db not cached locally; cargo-deny fetched it for this run"
+          fi

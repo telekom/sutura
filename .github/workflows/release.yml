@@ -1,8 +1,17 @@
 # Publish on a tag: plain cross-built binaries AND a container image.
 #
-# Both, deliberately. A plain binary is what someone drops on a host or into another
-# image; a container is what a platform schedules. Shipping only one of them forces every
-# consumer into the other's packaging model.
+# Both, deliberately. A plain binary is what someone drops on a host or into another image;
+# a container is what a platform schedules. Shipping only one forces every consumer into the
+# other's packaging model.
+#
+# THIRD-PARTY ACTIONS: none. `actions/checkout` is GitHub's own; the registry login and the
+# release upload are `run:` steps using `docker` and `gh`, both preinstalled on the runner.
+# A third-party action runs with this job's token - and this job's token can write packages
+# and releases - so each one would be an owner able to change what we publish.
+#
+# ONE JOB, not three. A matrix plus a publish job needed artifact upload/download to hand
+# files between jobs; building both targets in one job removes that entirely and uploads
+# straight to the release.
 name: release
 
 on:
@@ -10,36 +19,39 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Nothing at the workflow level: a default grant applies to every job a file ever gains,
+# including one added later that has no business writing packages. Each job asks for what it
+# needs.
 permissions:
-  contents: write   # create the release and upload assets
-  packages: write   # push the image to GHCR
+  contents: read
 
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  binaries:
+  release:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
+    timeout-minutes: 90
+    permissions:
+      contents: write   # create the release and upload assets
+      packages: write   # push the image to GHCR
     steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
+          fetch-depth: 0
+          persist-credentials: false
 
-      # The release profile is the cheap-to-build one by default; a release that needs
-      # maximum throughput builds `release-performance` instead, as a deliberate choice.
-      # A release must not ship something the gates never saw. Lints and tests first,
-      # reusing the same cargoArtifacts, then the artifact.
-      # No devenv: CI needs only `nix`. Every gate is a flake output running the same
-      # xtask binary a developer runs.
+      - name: Install Nix
+        run: |
+          set -eu
+          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
+          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          mkdir -p "$HOME/.config/nix"
+          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
+            >> "$HOME/.config/nix/nix.conf"
+
+      # A release must not ship something the gates never saw. These reuse one
+      # `cargoArtifacts`, so running them here is cheap relative to the build that follows.
       - name: Lints and tests before building anything shippable
         run: |
           set -eu
@@ -49,70 +61,69 @@ jobs:
           nix run .#deny
           nix build .#checks.x86_64-linux.nextest -L
 
-      - name: Build ${{ matrix.target }}
-        run: nix build .#sutura-${{ matrix.target }} -L
-
-      - name: Package with a checksum
+      # The `release` profile is the cheap-to-build one by default; a release that needs
+      # maximum throughput uses release-performance.yml instead, as a deliberate choice.
+      - name: Build both targets
         run: |
           set -eu
-          mkdir -p dist
-          install -m755 "$(find ./result/bin -type f | head -1)" "dist/sutura"
-          tar -C dist -czf "sutura-${{ matrix.target }}.tar.gz" sutura
-          sha256sum "sutura-${{ matrix.target }}.tar.gz" > "sutura-${{ matrix.target }}.tar.gz.sha256"
+          nix build .#sutura-x86_64-unknown-linux-gnu  -L -o result-x86_64
+          nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
 
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist-${{ matrix.target }}
-          path: |
-            sutura-${{ matrix.target }}.tar.gz
-            sutura-${{ matrix.target }}.tar.gz.sha256
-          if-no-files-found: error
+      - name: Assert each binary is the architecture requested
+        run: |
+          set -eu
+          file result-x86_64/bin/sutura result-aarch64/bin/sutura
+          # A cross-compile that silently produced host binaries would otherwise pass.
+          file result-x86_64/bin/sutura  | grep -q 'x86-64'
+          file result-aarch64/bin/sutura | grep -qE 'aarch64|ARM aarch64'
 
-  image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
+      - name: Package with checksums
+        run: |
+          set -eu
+          mkdir -p dist stage
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            case "$target" in
+              x86_64-*)  src=result-x86_64 ;;
+              aarch64-*) src=result-aarch64 ;;
+            esac
+            install -m755 "$src/bin/sutura" stage/sutura
+            tar -C stage -czf "dist/sutura-${target}.tar.gz" sutura
+            ( cd dist && sha256sum "sutura-${target}.tar.gz" > "sutura-${target}.tar.gz.sha256" )
+          done
+          ls -l dist
 
       - name: Build the image with Nix
-        run: nix build .#oci -L
+        run: nix build .#oci -L -o result-oci
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      # `created` is pinned in flake.nix, so the same source yields the same digest — which
+      # `created` is pinned in flake.nix, so the same source yields the same digest - which
       # is what makes "which build is running" an answerable question.
       - name: Load, tag, push
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
         run: |
           set -eu
-          ./result | docker load
+          ./result-oci | docker load
           docker run --rm sutura:latest --version
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           tag="${GITHUB_REF_NAME#v}"
           docker tag sutura:latest "${IMAGE}:${tag}"
           docker tag sutura:latest "${IMAGE}:latest"
           docker push "${IMAGE}:${tag}"
           docker push "${IMAGE}:latest"
           docker image inspect sutura:latest --format 'digest: {{.Id}}'
+          docker logout ghcr.io
 
-  publish:
-    needs: [binaries, image]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: dist-*
-          merge-multiple: true
-      - name: Attach the binaries to the GitHub release
-        uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            sutura-*.tar.gz
-            sutura-*.tar.gz.sha256
-          generate_release_notes: true
+      # `gh` is preinstalled on the runner, so the release needs no action. `--clobber` makes
+      # a re-run idempotent rather than a duplicate-asset error.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" --generate-notes --title "$tag"
+          fi
+          gh release upload "$tag" dist/* --clobber
