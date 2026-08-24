@@ -10,7 +10,7 @@ const FORBIDDEN_IN_DOMAIN: &[&str] = &["tokio", "axum", "rmcp", "datafusion", "a
 /// Assert the domain crate's dependency tree contains nothing framework-shaped.
 ///
 /// Reads `cargo metadata` rather than the manifest, so a dependency pulled in
-/// *transitively* is caught too — which is the case a manifest grep would miss.
+/// *transitively* is caught too - which is the case a manifest grep would miss.
 pub(crate) fn run() -> ExitCode {
     let meta = match crate::cargo_metadata(&[]) {
         Ok(value) => value,
@@ -46,14 +46,14 @@ pub(crate) fn run() -> ExitCode {
 
     if violations.is_empty() {
         println!(
-            "xtask check-boundaries: ok — sutura-domain has {} deps, none forbidden",
+            "xtask check-boundaries: ok - sutura-domain has {} deps, none forbidden",
             deps.len()
         );
         ExitCode::SUCCESS
     } else {
         eprintln!("xtask check-boundaries: FAILED");
         for v in violations {
-            eprintln!("  sutura-domain must not depend on `{v}` — it belongs in an adapter crate");
+            eprintln!("  sutura-domain must not depend on `{v}` - it belongs in an adapter crate");
         }
         ExitCode::FAILURE
     }

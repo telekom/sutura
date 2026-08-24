@@ -20,14 +20,15 @@ disagree, in either direction.
 | --- | --- |
 | write or change Rust in this workspace | `engineering/README.md` |
 | find out why something fails | `engineering/README.md` |
-| touch tokens, identity, or authorization | `engineering/README.md` |
+| validate a token or authorize on claims | `engineering/README.md` |
+| obtain a token: flow, PKCE, storage, logout | `engineering/README.md` |
 | decide between approaches, or check my own reasoning | `reasoning/README.md` |
 
 ## Groups
 
 | Group | Scope |
 | --- | --- |
-| `engineering/` | Rust in this workspace, debugging, OAuth 2.x / OIDC and token exchange. |
+| `engineering/` | Rust in this workspace, debugging, and both halves of OAuth 2.x / OIDC. |
 | `reasoning/` | Structured reasoning: making the argument explicit before acting on it. |
 
 `AGENTS.md` remains the root of trust for repo invariants. A skill refines *how* to work

@@ -115,6 +115,29 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.nextest -L
 
+      # A changed test must be red against base behaviour and green with the change. A test
+      # that passes both ways proves nothing and is worse than no test, because it reads as
+      # coverage. Where impl and test share a file the gate says so rather than guessing —
+      # see the task's output.
+      #
+      # Not a flake check: it builds twice, in a git worktree, so it needs git history and a
+      # writable tree and network-free cargo. `nix run .#causality` wraps the gate with the
+      # PINNED cargo and git on PATH — the xtask binary alone cannot run the tests it is
+      # comparing.
+      - name: Test causality (red before green)
+        if: steps.classify.outputs.rust == 'true'
+        run: |
+          set -eu
+          base="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
+          case "$base" in
+            0000000000000000000000000000000000000000|"") base="" ;;
+          esac
+          if [ -z "$base" ]; then
+            echo "no usable base ref; causality not checked for this run"
+            exit 0
+          fi
+          nix run .#causality -- --since "$base"
+
       # ------------------------------------------------------------------ 3. build ---
       # Only now, and reusing the dependency artifacts the steps above already realised.
       - name: Release build (native)

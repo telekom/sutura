@@ -3,9 +3,9 @@
 //! Tree-shaped discovery only saves tokens if the router is trustworthy. Two failure modes,
 //! both silent without a check:
 //!
-//! * a router entry naming a skill that was renamed or deleted — an agent follows the route
+//! * a router entry naming a skill that was renamed or deleted - an agent follows the route
 //!   and finds nothing;
-//! * a `SKILL.md` no route reaches — dead weight that still costs review, and a rule nobody
+//! * a `SKILL.md` no route reaches - dead weight that still costs review, and a rule nobody
 //!   will read while believing it is in force.
 //!
 //! So this checks BOTH directions, plus that each skill's frontmatter `name` matches its
@@ -128,10 +128,10 @@ pub(crate) fn run() -> ExitCode {
     if !router_path.is_file() {
         // Not an error: a repo need not have a skills tree. But a tree without a router is.
         if discovered(&root).is_empty() {
-            println!("xtask check-skills: ok — no skills tree");
+            println!("xtask check-skills: ok - no skills tree");
             return ExitCode::SUCCESS;
         }
-        eprintln!("xtask check-skills: FAILED — skills exist but {ROUTER} does not");
+        eprintln!("xtask check-skills: FAILED - skills exist but {ROUTER} does not");
         return ExitCode::FAILURE;
     }
 
@@ -143,7 +143,7 @@ pub(crate) fn run() -> ExitCode {
     let claimed = match routed(&text) {
         Ok(set) => set,
         Err(e) => {
-            eprintln!("xtask check-skills: FAILED — {e}");
+            eprintln!("xtask check-skills: FAILED - {e}");
             return ExitCode::FAILURE;
         }
     };
@@ -157,7 +157,7 @@ pub(crate) fn run() -> ExitCode {
     }
     for orphan in present_keys.difference(&claimed) {
         problems.push(format!(
-            "`{orphan}/SKILL.md` is in no route — unlisted skills are non-discoverable, so add it to {ROUTER} or delete it"
+            "`{orphan}/SKILL.md` is in no route - unlisted skills are non-discoverable, so add it to {ROUTER} or delete it"
         ));
     }
     for target in intent_targets(&text) {
@@ -184,13 +184,13 @@ pub(crate) fn run() -> ExitCode {
         }
         if !fm.contains_key("description") {
             problems.push(format!(
-                "`{rel}` has no `description` — that line is what a router uses to decide relevance"
+                "`{rel}` has no `description` - that line is what a router uses to decide relevance"
             ));
         }
     }
 
     if problems.is_empty() {
-        println!("xtask check-skills: ok — {} skill(s), router and tree agree", present.len());
+        println!("xtask check-skills: ok - {} skill(s), router and tree agree", present.len());
         return ExitCode::SUCCESS;
     }
 

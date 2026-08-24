@@ -2,13 +2,13 @@
 //!
 //! Why this is a gate and not a note: `devenv.nix` and `flake.nix` were once written with
 //! CRLF on a Windows checkout. Nix preserves a carriage return inside an `''…''` string,
-//! so every line of a shell script in there gained a trailing `\r` — which reached cargo
+//! so every line of a shell script in there gained a trailing `\r` - which reached cargo
 //! as part of the argument and produced errors whose "did you mean" suggestion was
 //! byte-indistinguishable from what was typed (`unknown lint: 'warnings\r'`, tip:
 //! `warnings`). It cost a red CI run and a confusing half hour.
 //!
 //! `.gitattributes` normalises what is COMMITTED. It does not normalise a working-tree
-//! file that a tool just wrote, and Nix reads the working tree — hence this check.
+//! file that a tool just wrote, and Nix reads the working tree - hence this check.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -56,11 +56,11 @@ pub(crate) fn run() -> ExitCode {
     }
 
     if offenders.is_empty() {
-        println!("xtask line-endings: ok — no CRLF in repo text files");
+        println!("xtask line-endings: ok - no CRLF in repo text files");
         return ExitCode::SUCCESS;
     }
 
-    eprintln!("xtask line-endings: FAILED — CRLF found in repo text files");
+    eprintln!("xtask line-endings: FAILED - CRLF found in repo text files");
     for (p, n) in &offenders {
         eprintln!("  {p}: {n} CRLF line ending(s)");
     }

@@ -1,6 +1,6 @@
 //! The sutura binary.
 //!
-//! M0 deliberately ships almost nothing: its purpose is to prove the machinery — that the
+//! M0 deliberately ships almost nothing: its purpose is to prove the machinery - that the
 //! toolchain resolves, the workspace compiles, the gates run, and a release image builds
 //! and runs. Behaviour arrives with the milestone that needs it.
 

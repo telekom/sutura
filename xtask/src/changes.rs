@@ -3,14 +3,14 @@
 //!
 //! Two entry points, one shared table:
 //!
-//! * `classify` — maps changed paths to areas and prints a verdict. Writes
+//! * `classify` - maps changed paths to areas and prints a verdict. Writes
 //!   `GITHUB_OUTPUT` when CI sets it, so a workflow can gate steps on the result.
-//! * `changed-packages` — maps changed `.rs` paths to the cargo packages that own them, so
+//! * `changed-packages` - maps changed `.rs` paths to the cargo packages that own them, so
 //!   a hook can check those packages instead of the workspace.
 //!
 //! THE SAFETY PROPERTY, which is the whole reason this is careful code: a path matching no
 //! area **fails open**. It sets `run_all` and says which path caused it. The failure mode
-//! worth engineering against is not a wasted CI minute — it is a new directory nobody added
+//! worth engineering against is not a wasted CI minute - it is a new directory nobody added
 //! to the table being silently excluded from every check while the pipeline reports green.
 //!
 //! The table is Rust rather than a config file on purpose. It needs no parser (xtask has one
@@ -102,20 +102,20 @@ impl Classification {
 pub(crate) fn classify(paths: &[String]) -> Classification {
     let mut result = Classification::default();
 
-    // An empty diff is not evidence that nothing is needed — it usually means the range was
+    // An empty diff is not evidence that nothing is needed - it usually means the range was
     // wrong. Fail open rather than skipping the whole pipeline on a bad base ref.
     if paths.is_empty() {
         result.run_all = true;
         result
             .reasons
-            .push(String::from("no changed paths supplied — running everything"));
+            .push(String::from("no changed paths supplied - running everything"));
         return result;
     }
 
     for path in paths {
         if RUN_ALL_PATTERNS.iter().any(|p| repo::matches(p, path)) {
             result.run_all = true;
-            result.reasons.push(format!("{path} changes CI itself — running everything"));
+            result.reasons.push(format!("{path} changes CI itself - running everything"));
             continue;
         }
 
@@ -142,7 +142,7 @@ pub(crate) fn classify(paths: &[String]) -> Classification {
         result.run_all = true;
         result
             .reasons
-            .push(format!("{path} matches no area — running everything (add it to AREAS)"));
+            .push(format!("{path} matches no area - running everything (add it to AREAS)"));
     }
 
     apply_consumers(&mut result);
@@ -245,7 +245,7 @@ fn print_report(paths: &[String], result: &Classification) {
     if result.run_all {
         println!("  verdict: RUN EVERYTHING");
     } else if result.areas.is_empty() {
-        println!("  verdict: docs only — no build or test work required");
+        println!("  verdict: docs only - no build or test work required");
     } else {
         let names: Vec<&str> = result.areas.iter().map(String::as_str).collect();
         println!("  verdict: areas {}", names.join(", "));
@@ -264,7 +264,7 @@ fn print_report(paths: &[String], result: &Classification) {
     }
 }
 
-/// `xtask classify [--since <ref>] [path...]` — the hook and CI entry point.
+/// `xtask classify [--since <ref>] [path...]` - the hook and CI entry point.
 pub(crate) fn run_classify(args: &[String]) -> ExitCode {
     let paths = match args.split_first() {
         Some((flag, rest)) if flag == "--since" => {
@@ -276,7 +276,7 @@ pub(crate) fn run_classify(args: &[String]) -> ExitCode {
                 found
             } else {
                 // A bad or unreachable base ref must not look like an empty diff.
-                println!("xtask classify: git could not diff against `{base}` — running everything");
+                println!("xtask classify: git could not diff against `{base}` - running everything");
                 let result = Classification {
                     run_all: true,
                     reasons: vec![format!("git diff against `{base}` failed")],
@@ -335,7 +335,7 @@ fn package_name(manifest: &str) -> Option<String> {
     None
 }
 
-/// `xtask changed-packages [path...]` — prints the owning packages, one per line.
+/// `xtask changed-packages [path...]` - prints the owning packages, one per line.
 ///
 /// A hook turns that into `cargo check -p a -p b`, so an edit to one crate does not pay for
 /// a workspace check. Prints nothing and succeeds when no Rust file changed.
@@ -399,7 +399,7 @@ fn packages_for(root: &std::path::Path, args: &[String]) -> Option<BTreeSet<Stri
     Some(packages)
 }
 
-/// `xtask check-changed [path...]` — `cargo check` for the packages that changed.
+/// `xtask check-changed [path...]` - `cargo check` for the packages that changed.
 ///
 /// The commit-time counterpart to CI's classification: editing one crate should not pay for
 /// a workspace check. Clippy over the workspace still runs as its own hook, so this is a
@@ -426,7 +426,7 @@ pub(crate) fn run_check_changed(args: &[String]) -> ExitCode {
             }
         }
         None => {
-            println!("xtask check-changed: a path belongs to no package — checking the workspace");
+            println!("xtask check-changed: a path belongs to no package - checking the workspace");
             command.arg("--workspace");
         }
     }

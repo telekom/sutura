@@ -135,6 +135,50 @@ in
       cargo run -q -p xtask -- check-skills
     '';
 
+    # The finishing sequence. One command, because a checklist in prose is a checklist
+    # somebody half-remembers, and because the hooks already encode what has to hold.
+    #
+    # It judges the COMMITTED branch diff, not the working tree: that is what a reviewer
+    # will see. Hence the clean-tree requirement — a dirty tree means the thing being
+    # checked is not the thing being proposed.
+    ship-check.exec = ''
+      set -eu
+      base="''${SHIP_CHECK_BASE_REF:-origin/main}"
+
+      if ! git rev-parse --verify --quiet "$base" >/dev/null; then
+        echo "ship-check: base ref '$base' does not exist locally." >&2
+        echo "  Fetch it, or set SHIP_CHECK_BASE_REF to a local ref." >&2
+        exit 1
+      fi
+      if [ -n "$(git status --porcelain)" ]; then
+        echo "ship-check: the working tree is dirty." >&2
+        git status --short >&2
+        echo >&2
+        echo "  Commit or stash first. For uncommitted work run \\`gates\\` instead;" >&2
+        echo "  ship-check validates the committed diff from the merge base." >&2
+        exit 1
+      fi
+
+      merge_base="$(git merge-base "$base" HEAD)"
+      echo "ship-check: $merge_base..HEAD"
+
+      echo "== commit-stage hooks over the branch diff"
+      prek run --from-ref "$merge_base" --to-ref HEAD
+
+      echo "== the gates' own unit tests"
+      # A gate with no test is a gate nobody has seen fail, and these are the checks
+      # everything else is trusted to.
+      cargo test -q -p xtask --all-features
+
+      echo "== red-before-green for changed tests"
+      cargo run -q -p xtask -- test-causality --since "$merge_base"
+
+      echo "== pre-push hooks"
+      prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
+
+      echo "ship-check: green"
+    '';
+
     # Spelled out rather than calling `hygiene`, so this list does not depend on another
     # script being on PATH first. Cheapest first: fail before paying for clippy.
     gates.exec = ''

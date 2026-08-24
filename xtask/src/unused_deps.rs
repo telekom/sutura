@@ -6,8 +6,8 @@
 //! rules are read off the manifests.
 //!
 //! Detection is a token scan of the crate's own `.rs` files for the dependency's Rust
-//! identifier. That is a heuristic — a crate reachable only through a re-exported macro
-//! would look unused — but it is the same heuristic that catches the real case, and it
+//! identifier. That is a heuristic - a crate reachable only through a re-exported macro
+//! would look unused - but it is the same heuristic that catches the real case, and it
 //! needs no nightly compiler and no extra tool in the shell.
 
 use crate::repo;
@@ -81,10 +81,10 @@ pub(crate) fn run() -> ExitCode {
 
 fn report(checked: usize, findings: &[Unused]) -> ExitCode {
     if findings.is_empty() {
-        println!("xtask unused-deps: ok — {checked} dependency declarations, all referenced");
+        println!("xtask unused-deps: ok - {checked} dependency declarations, all referenced");
         return ExitCode::SUCCESS;
     }
-    eprintln!("xtask unused-deps: FAILED — {} unused declaration(s)", findings.len());
+    eprintln!("xtask unused-deps: FAILED - {} unused declaration(s)", findings.len());
     for finding in findings {
         eprintln!("  {}: `{}` {}", finding.owner, finding.dependency, finding.reason);
     }
@@ -135,8 +135,8 @@ fn workspace_dependency_keys(manifest: &str) -> Vec<String> {
 /// Every identifier-shaped token in the crate's Rust sources. Tokenising beats a substring
 /// search: `alpha` must not be reported as used merely because `alpha_charlie` is.
 ///
-/// Comments count as source, so naming a real dependency anywhere in a crate — including in
-/// a doc comment like this one — is enough to make it look used. That is why the names in
+/// Comments count as source, so naming a real dependency anywhere in a crate - including in
+/// a doc comment like this one - is enough to make it look used. That is why the names in
 /// this module's prose and fixtures are fictional.
 fn rust_identifiers_in(root: &Path, crate_dir: &Path) -> BTreeSet<String> {
     let mut files = Vec::new();
@@ -172,7 +172,7 @@ mod tests {
     use super::{tokenize, workspace_dependency_keys};
 
     /// Fixture crate names are deliberately fictional. A fixture naming a real dependency
-    /// would put that name into this crate's own token set and mask a genuine finding —
+    /// would put that name into this crate's own token set and mask a genuine finding -
     /// the check would then be unable to fail on the crate that implements it.
     #[test]
     fn reads_the_workspace_table_and_stops_at_the_next_one() {

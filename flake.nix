@@ -295,6 +295,24 @@
           '');
         };
 
+        # `nix run .#causality -- --since <ref>` — the red-before-green gate.
+        #
+        # An app and not a check for three reasons: it needs git history (a build sandbox has
+        # no `.git`), it creates a worktree (a sandbox source is read-only), and it compiles
+        # the tree twice to compare behaviours.
+        #
+        # It wraps the gate with the PINNED cargo and git on PATH. The xtask binary alone
+        # cannot do the job — it runs `cargo test` to compare the two behaviours, so handing
+        # it whatever cargo the runner ships would compare using a different compiler than
+        # the one everything else is pinned to.
+        apps.causality = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
+            export PATH="${rustToolchain}/bin:${pkgs.git}/bin:$PATH"
+            exec cargo run --release -q -p xtask -- test-causality "$@"
+          '');
+        };
+
         formatter = pkgs.nixpkgs-fmt;
       });
 }

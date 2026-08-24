@@ -243,7 +243,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
     // HEAD must be green, or "red on base" means nothing.
     let (head_ok, head_out) = cargo_test(root);
     if !head_ok {
-        eprintln!("xtask test-causality: FAILED — the tests are not green on HEAD");
+        eprintln!("xtask test-causality: FAILED - the tests are not green on HEAD");
         eprintln!("{}", tail(&head_out, 30));
         return ExitCode::FAILURE;
     }
@@ -266,7 +266,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
         Ok(o) if o.status.success() => {
             let (base_ok, base_out) = cargo_test(&wt);
             if base_ok {
-                eprintln!("xtask test-causality: FAILED — green against base behaviour");
+                eprintln!("xtask test-causality: FAILED - green against base behaviour");
                 eprintln!();
                 eprintln!("The changed tests pass with the implementation reverted, so they");
                 eprintln!("do not test the change. Make the test exercise the new behaviour,");
@@ -275,7 +275,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
             } else {
                 println!("  base: red, as required");
                 println!("{}", tail(&base_out, 12));
-                println!("xtask test-causality: ok — red on base, green on head");
+                println!("xtask test-causality: ok - red on base, green on head");
                 ExitCode::SUCCESS
             }
         }
@@ -296,7 +296,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
     verdict
 }
 
-/// `xtask test-causality --since <base>` — the ship-check and CI entry point.
+/// `xtask test-causality --since <base>` - the ship-check and CI entry point.
 pub(crate) fn run(args: &[String]) -> ExitCode {
     let Some(base) = base_ref(args) else {
         eprintln!("xtask test-causality: usage: --since <base-ref>");
@@ -316,7 +316,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 
     match plan(&files) {
         Plan::NotRequired => {
-            println!("xtask test-causality: no changed tests — nothing to prove");
+            println!("xtask test-causality: no changed tests - nothing to prove");
             ExitCode::SUCCESS
         }
         Plan::NotSeparable { files } => report_not_separable(&files),

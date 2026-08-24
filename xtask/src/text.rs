@@ -2,7 +2,7 @@
 //!
 //! `.pre-commit-config.yaml` used to get these from `github.com/pre-commit/pre-commit-hooks`.
 //! That host is not reachable from every network this repo is developed on, and a hook that
-//! cannot be fetched is a hook that does not run — so the checks live in the repo, in the
+//! cannot be fetched is a hook that does not run - so the checks live in the repo, in the
 //! same binary as the other gates, with tests.
 //!
 //! Covered: merge-conflict markers, trailing whitespace, end-of-file newline, oversized
@@ -10,7 +10,7 @@
 //! reported; `--fix` rewrites what can be rewritten mechanically.
 //!
 //! NOT covered, deliberately: `check-yaml` and `check-toml`. Every YAML and TOML file here
-//! is already parsed by a tool in the gates — cargo reads the manifests, `cargo-deny` reads
+//! is already parsed by a tool in the gates - cargo reads the manifests, `cargo-deny` reads
 //! `deny.toml`, clippy reads `clippy.toml`, the toolchain file is read by rustup and by Nix,
 //! `zizmor` and the workflow parser read `.github/workflows`, and `prek` reads its own
 //! config. A syntax error in any of them already fails something. Adding a YAML and a TOML
@@ -155,7 +155,7 @@ fn text_extension(path: &Path) -> bool {
     )
 }
 
-/// `xtask text-hygiene [--fix]` — the hook and formatter entry point.
+/// `xtask text-hygiene [--fix]` - the hook and formatter entry point.
 pub(crate) fn run(args: &[String]) -> ExitCode {
     let fix = args.iter().any(|a| a == "--fix");
 
@@ -213,7 +213,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     }
 
     if offenders.is_empty() {
-        println!("xtask text-hygiene: ok — {checked} text file(s) checked");
+        println!("xtask text-hygiene: ok - {checked} text file(s) checked");
         return ExitCode::SUCCESS;
     }
 

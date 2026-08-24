@@ -1,12 +1,12 @@
 //! The file-length gate: no file over `DEFAULT_MAX_LINES` lines.
 //!
-//! A 2000-line file is not a style problem — it is a file nobody reviews, because the
+//! A 2000-line file is not a style problem - it is a file nobody reviews, because the
 //! diff never fits in a reviewer's head and the module boundary that should exist inside
 //! it was never drawn. The limit is deliberately blunt: a number a tool can check beats a
 //! judgement call nobody makes.
 //!
 //! Generated and vendored output is exempt via `.max-lines-ignore`. Hand-written source
-//! is not exemptable at all — see [`UNEXEMPTABLE_PREFIXES`].
+//! is not exemptable at all - see [`UNEXEMPTABLE_PREFIXES`].
 
 use crate::repo;
 use std::path::Path;
@@ -34,7 +34,7 @@ struct Ignores {
     /// Generated, vendored or lock-like. Never reported.
     silent: Vec<String>,
     /// Hand-written and over the limit, with a split in progress. Reported as WARN, does
-    /// not fail — visible debt rather than a silent exemption.
+    /// not fail - visible debt rather than a silent exemption.
     warn: Vec<String>,
 }
 
@@ -82,7 +82,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 
     let smuggled: Vec<&String> = ignores.all().filter(|p| is_unexemptable(p)).collect();
     if !smuggled.is_empty() {
-        eprintln!("xtask max-lines: FAILED — first-party source cannot be exempted");
+        eprintln!("xtask max-lines: FAILED - first-party source cannot be exempted");
         for pattern in smuggled {
             eprintln!("  {IGNORE_FILE}: `{pattern}` targets hand-written source; split the file instead");
         }
@@ -112,17 +112,17 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 
 fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String, usize)], max: usize) -> ExitCode {
     for (path, lines) in warnings {
-        println!("xtask max-lines: WARN {path} has {lines} lines (max {max}) — split pending");
+        println!("xtask max-lines: WARN {path} has {lines} lines (max {max}) - split pending");
     }
     if violations.is_empty() {
         println!(
-            "xtask max-lines: ok — {} files checked, none over {max} lines ({} warned)",
+            "xtask max-lines: ok - {} files checked, none over {max} lines ({} warned)",
             files.len(),
             warnings.len()
         );
         return ExitCode::SUCCESS;
     }
-    eprintln!("xtask max-lines: FAILED — {} file(s) over {max} lines", violations.len());
+    eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
     for (path, lines) in violations {
         eprintln!("  {path}: {lines} lines");
     }

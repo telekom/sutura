@@ -94,6 +94,12 @@ semicolon_inside_block      = "allow"
 semicolon_outside_block     = "allow"
 pub_with_shorthand          = "allow"
 pub_without_shorthand       = "allow"
+# `redundant_pub_crate` and `unreachable_pub` are the same contradiction: inside a private
+# module both `pub` and `pub(crate)` have identical effective visibility, so one lint asks
+# for `pub` and the other asks for `pub(crate)`. `unreachable_pub` is DENIED above, because
+# it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
+# This is the side that loses.
+redundant_pub_crate         = "allow"
 
 # --- restriction: fights idiomatic Rust ------------------------------------
 implicit_return          = "allow" # tail expressions are the language, not an omission
@@ -141,13 +147,18 @@ print_stdout = "allow" # the binary's output and every gate's verdict go to stdo
 print_stderr = "allow" # a failing gate explains itself on stderr
 use_debug    = "allow" # `{:?}` of a redacted type is the assertion, not a slip
 
-# --- restriction: misc, each because it fires on correct code -------------
-non_ascii_literal      = "allow" # gate messages use an em dash
-string_add             = "allow"
-string_add_assign      = "allow"
-redundant_pub_crate    = "allow"
-missing_assert_message = "allow" # the asserted expression is the message
-result_large_err       = "allow"
+# --- restriction: misc ----------------------------------------------------
+# `assert_eq!` prints both values on failure, so a message would restate the expression.
+# `assert!(cond)` without one is the case worth arguing about; it has not come up yet.
+missing_assert_message = "allow"
+#
+# DELIBERATELY NOT ALLOWED, though a blanket config would have been easy:
+#   non_ascii_literal   - output is ASCII. An em dash in a message is invisible in a diff,
+#                         breaks on a terminal without UTF-8, and is not worth either.
+#   string_add          - `push_str` says what it does; `+ &s` hides an allocation.
+#   string_add_assign
+#   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
+#                         know when the error half of every `Result` grows.
 
 # ------------------------------------------------------------- profiles ----
 # Debug: fast to compile OUR code. Dependencies and build scripts are optimised because

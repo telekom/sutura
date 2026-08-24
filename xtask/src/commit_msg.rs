@@ -2,7 +2,7 @@
 //!
 //! `.pre-commit-config.yaml` declares `commit-msg` in `default_install_hook_types`, and
 //! `AGENTS.md` states the convention. Neither of those *checks* anything, so this exists to
-//! make the convention a mechanism rather than a request — the repo history is read by
+//! make the convention a mechanism rather than a request - the repo history is read by
 //! humans and by release tooling, and a subject line that does not say what changed costs
 //! someone else the archaeology.
 //!
@@ -44,11 +44,11 @@ impl Verdict {
         match *self {
             Self::Ok | Self::Exempt => String::new(),
             Self::Empty => String::from("the subject line is empty"),
-            Self::NoColon => String::from("no `type: ` prefix — expected `feat: ...`"),
+            Self::NoColon => String::from("no `type: ` prefix - expected `feat: ...`"),
             Self::UnknownType(ref t) => {
-                format!("unknown type `{t}` — expected one of: {}", TYPES.join(", "))
+                format!("unknown type `{t}` - expected one of: {}", TYPES.join(", "))
             }
-            Self::EmptyScope => String::from("empty scope — write `feat(scope):` or `feat:`"),
+            Self::EmptyScope => String::from("empty scope - write `feat(scope):` or `feat:`"),
             Self::EmptySubject => String::from("nothing after the colon"),
             Self::NoSpaceAfterColon => String::from("missing space after the colon"),
             Self::TrailingPeriod => String::from("subject ends with `.`"),
@@ -137,7 +137,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             ExitCode::SUCCESS
         }
         other => {
-            eprintln!("xtask commit-msg: FAILED — {}", other.explain());
+            eprintln!("xtask commit-msg: FAILED - {}", other.explain());
             eprintln!("  subject: {subject}");
             eprintln!();
             eprintln!("Expected `<type>[(scope)][!]: <subject>`, at most {MAX_SUBJECT} chars.");
@@ -184,7 +184,7 @@ mod tests {
     fn rejects_a_subject_git_log_would_truncate() {
         let long = format!("feat: {}", "x".repeat(80));
         assert!(matches!(check_subject(&long), Verdict::TooLong(_)));
-        // Exactly at the limit is fine — an off-by-one here would be invisible and
+        // Exactly at the limit is fine - an off-by-one here would be invisible and
         // permanently annoying.
         let exact = format!("feat: {}", "x".repeat(72 - 6));
         assert_eq!(exact.chars().count(), 72);

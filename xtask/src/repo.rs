@@ -9,6 +9,10 @@ use std::path::{Path, PathBuf};
 /// Directories no gate ever descends into: build output, VCS internals, tool caches.
 const SKIP_DIRS: &[&str] = &[
     ".git",
+    // Written by crane inside the Nix build sandbox, not by us. The walk fallback would
+    // otherwise judge a generated cargo config as if it were a repo file - which failed CI
+    // once, since git never listed it and only the fallback can see it.
+    ".cargo-home",
     ".devenv",
     ".direnv",
     ".pixi",
@@ -19,7 +23,7 @@ const SKIP_DIRS: &[&str] = &[
 ];
 
 /// The workspace root, derived from this crate's manifest rather than from the current
-/// directory — so a gate behaves the same whether it is invoked by a hook, by CI, or by
+/// directory - so a gate behaves the same whether it is invoked by a hook, by CI, or by
 /// hand from a subdirectory.
 pub(crate) fn root() -> Option<PathBuf> {
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(Path::to_path_buf)
@@ -60,7 +64,7 @@ pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str], out: &
 ///
 /// Prefers `git ls-files` because tracked-only is the set a gate should judge: a build
 /// artefact somebody left lying around is not a repo problem. Falls back to walking the
-/// tree when git is unavailable or this is not a git checkout — which is exactly the case
+/// tree when git is unavailable or this is not a git checkout - which is exactly the case
 /// inside the Nix build sandbox, where the flake source is present but `.git` is not.
 ///
 /// The fallback still scans EVERYTHING, so it cannot turn a gate into a no-op; it can only
@@ -170,7 +174,7 @@ fn glob(pattern: &[char], path: &[char]) -> bool {
     }
 }
 
-/// `**` — consumes any number of characters, path separators included. `**/rest` also
+/// `**` - consumes any number of characters, path separators included. `**/rest` also
 /// matches `rest` with no leading directory, which is what makes `**/x.json` cover a
 /// root-level `x.json`.
 fn glob_double_star(pattern: &[char], after: &[char], path: &[char]) -> bool {
@@ -188,7 +192,7 @@ fn glob_double_star(pattern: &[char], after: &[char], path: &[char]) -> bool {
     }
 }
 
-/// `*` — consumes any number of characters except a path separator.
+/// `*` - consumes any number of characters except a path separator.
 fn glob_star(pattern: &[char], rest: &[char], path: &[char]) -> bool {
     if glob(rest, path) {
         return true;

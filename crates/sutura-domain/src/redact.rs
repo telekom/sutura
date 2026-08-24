@@ -2,7 +2,7 @@
 //!
 //! The redaction is the point, so it has a test. A secret that reaches a log through
 //! `{:?}` is not recoverable once shipped, and every structured-logging call site is a
-//! chance for it — so the type, not the call site, is where this is fixed.
+//! chance for it - so the type, not the call site, is where this is fixed.
 
 use std::fmt;
 
@@ -48,7 +48,7 @@ mod tests {
         assert_eq!(format!("{s:?}"), "Secret(REDACTED)");
     }
 
-    /// Redaction must not make the value unusable — otherwise people avoid the type.
+    /// Redaction must not make the value unusable - otherwise people avoid the type.
     #[test]
     fn expose_returns_the_value() {
         assert_eq!(Secret::new("v").expose(), "v");

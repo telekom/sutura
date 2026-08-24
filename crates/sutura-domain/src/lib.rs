@@ -1,4 +1,4 @@
-//! Types and port traits. Nothing here may depend on a framework — no async runtime, no
+//! Types and port traits. Nothing here may depend on a framework - no async runtime, no
 //! web server, no query engine. `cargo xtask check-boundaries` enforces it, because the
 //! rule is worth more as a check than as a sentence in a design document.
 

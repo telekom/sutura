@@ -7,7 +7,8 @@
       "skills": {
         "rust": "engineering/rust/SKILL.md",
         "debugging": "engineering/debugging/SKILL.md",
-        "oauth": "engineering/oauth/SKILL.md"
+        "oauth": "engineering/oauth/SKILL.md",
+        "oauth-flows": "engineering/oauth-flows/SKILL.md"
       }
     },
     "reasoning": {
@@ -21,7 +22,8 @@
   "intents": [
     { "intent": "write or change Rust in this workspace", "group": "engineering", "skill": "rust" },
     { "intent": "find out why something fails", "group": "engineering", "skill": "debugging" },
-    { "intent": "touch tokens, identity, or authorization", "group": "engineering", "skill": "oauth" },
+    { "intent": "validate an incoming token, or authorize on its claims", "group": "engineering", "skill": "oauth" },
+    { "intent": "obtain a token: pick a flow, PKCE, storage, logout", "group": "engineering", "skill": "oauth-flows" },
     { "intent": "decide between approaches, or check my own reasoning", "group": "reasoning", "skill": "autoreason" }
   ]
 }
