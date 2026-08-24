@@ -43,7 +43,7 @@ else is an adapter, and nothing depends on an adapter.
 | `sutura-cli` | The binary; composes adapters |
 | `xtask` | The repo gates: boundary check, file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
 
-Adapters are feature-gated and default-off, so `cargo test -p sutura-domain` compiles no heavy
+Adapters are feature-gated and default-off, so `cargo nextest run -p sutura-domain` compiles no heavy
 dependency. Keep it that way: its test suite should run in well under a second.
 
 ## Commands
@@ -233,7 +233,7 @@ Do not skip it silently.
   `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
   run everything and say why, because the expensive failure is a new directory being skipped
   silently, not a wasted CI minute. Each is
-  unit-tested by `cargo test --workspace`, because a gate with no test is a gate nobody has seen
+  unit-tested by `cargo nextest run --workspace`, because a gate with no test is a gate nobody has seen
   fail. They list files via `git ls-files` where git is available and fall back to walking the tree
   where it is not - the Nix sandbox has the source but no `.git`, and a gate that returned an empty
   file list there would pass while checking nothing.

@@ -144,6 +144,12 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.nextest -L
 
+      # nextest deliberately does not run doctests, so a `///` example that stops compiling
+      # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
+      - name: Doctests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.doctest -L
+
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
       - name: Test causality

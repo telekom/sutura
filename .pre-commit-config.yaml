@@ -81,6 +81,15 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # nextest does not run doctests. Separate hook so its absence is visible rather than
+      # assumed to be covered above.
+      - id: rust-doctests
+        name: doctests
+        entry: cargo test --doc --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: cargo-deny
         name: advisories, licences, bans, sources
         entry: cargo deny check

@@ -95,6 +95,7 @@ jobs:
           nix build .#checks.x86_64-linux.clippy -L
           nix run .#deny
           nix build .#checks.x86_64-linux.nextest -L
+          nix build .#checks.x86_64-linux.doctest -L
 
       - name: Build both targets (release-performance)
         run: |

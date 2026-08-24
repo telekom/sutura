@@ -251,6 +251,15 @@
             cargoNextestExtraArgs = "--workspace --all-features";
           });
 
+          # nextest deliberately does not run doctests. Zero exist today, so this is cheap
+          # now and stays honest as `///` examples appear.
+          doctest = craneLib.mkCargoDerivation (releaseArgs // {
+            inherit cargoArtifacts;
+            pnameSuffix = "-doctest";
+            doCheck = false;
+            buildPhaseCargoCommand = "cargo test --doc --workspace --all-features";
+          });
+
           fmt = craneLib.cargoFmt {
             inherit src;
             inherit (commonArgs) pname version;
@@ -322,7 +331,9 @@
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
-            export PATH="${rustToolchain}/bin:${pkgs.git}/bin:$PATH"
+            # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
+            # the run fails with "no such command" rather than a verdict.
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
             exec cargo run --release -q -p xtask -- test-causality "$@"
           '');
         };
@@ -336,6 +347,15 @@
         apps.betterleaks = {
           type = "app";
           program = "${pkgs.betterleaks}/bin/betterleaks";
+        };
+        # The pinned cargo, for the one workflow that has to touch Cargo.lock. `nix develop`
+        # was used here and could never have worked: this flake exposes no devShells.
+        apps.cargo = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-cargo" ''
+            export PATH="${rustToolchain}/bin:$PATH"
+            exec cargo "$@"
+          '');
         };
         apps.git-cliff = {
           type = "app";

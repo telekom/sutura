@@ -5,7 +5,7 @@
 //! instead of in a document is a rule that cannot rot unnoticed.
 //!
 //! Gates live in one binary rather than a script per check: one thing to install, one language
-//! to review, and they are unit-tested by `cargo test --workspace` like any other code.
+//! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
 mod boundaries;
 mod causality;

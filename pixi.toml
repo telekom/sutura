@@ -40,4 +40,8 @@ ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
 # `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
 # so the gate does not depend on opinions that change between releases.
 zizmor = "zizmor .github/workflows"
+# actionlint and shellcheck were installed and locked but gated nothing: `just lint-ci` called a
+# `shellcheck-run` task that did not exist, so its second line could never succeed.
+actionlint = "actionlint"
+shellcheck-run = "shellcheck .claude/hooks/ponytail-session-start.sh"
 zizmor-pedantic = "zizmor --persona pedantic .github/workflows"

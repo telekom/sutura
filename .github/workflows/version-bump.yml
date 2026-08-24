@@ -105,9 +105,10 @@ jobs:
           fi
           sed -i "s/^version = \".*\"/version = \"${plain}\"/" Cargo.toml
           grep -A1 '^\[workspace.package\]' Cargo.toml
-          # Cargo.lock records member versions, so it moves with the manifest. Offline, so
-          # a release cannot pick up a dependency update as a side effect.
-          nix develop --command cargo metadata --offline --format-version 1 >/dev/null 2>&1 \n            || echo "note: Cargo.lock not refreshed; the version bump only touched the manifest"
+          # Cargo.lock records member versions, so it has to move with the manifest or a
+          # `--locked` build fails on the very commit just tagged. `--offline` so a release
+          # cannot pick up a dependency update as a side effect.
+          nix run .#cargo -- metadata --offline --format-version 1 >/dev/null
 
       - name: Commit and tag
         if: steps.next.outputs.release == 'true'

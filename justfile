@@ -27,9 +27,11 @@ fmt:
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Run the tests.
+# Run the tests. nextest for the test suite; `--doc` separately because nextest does not
+# run doctests.
 test:
     cargo nextest run --workspace --all-features
+    cargo test --doc --workspace --all-features
 
 # ---------------------------------------------------------------- the gates ---
 
@@ -49,6 +51,7 @@ gates: hygiene
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo nextest run --workspace --all-features
+    cargo test --doc --workspace --all-features
     cargo deny check
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.

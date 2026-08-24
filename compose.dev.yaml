@@ -5,9 +5,14 @@
 # egress is configured OUTSIDE this repo rather than by editing tracked files. With no
 # `.env` present the public defaults apply and this still works.
 #
-# Two volumes carry the weight: a NAMED volume for /nix so the store survives container
-# restarts (without it every run re-downloads the toolchain), and one for the cargo
-# registry for the same reason.
+# NAMED VOLUMES CARRY THE PERFORMANCE, and one of them is the difference between usable and
+# not. `target-dir` mounts over `/work/target` INSIDE the bind mount: without it, cargo writes
+# its build output through a Windows bind mount, which is dramatically slower than a native
+# volume and is the single biggest local slowdown. Docker resolves the more specific mount
+# first, so the bind gives you the source and the volume gives you the output.
+#
+# The others exist so a container restart does not re-download: `/nix` for the toolchain and
+# the store, and cargo's registry and git checkouts for crate sources.
 services:
   dev:
     build:
@@ -26,7 +31,10 @@ services:
       - .:/work
       - nix-store:/nix
       - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
       - target-dir:/work/target
+      # pixi materialises a whole environment; rebuilding it per container start is minutes.
+      - pixi-env:/work/.pixi
     environment:
       HTTP_PROXY: ${HTTP_PROXY_URL:-}
       HTTPS_PROXY: ${HTTP_PROXY_URL:-}
@@ -37,4 +45,6 @@ services:
 volumes:
   nix-store:
   cargo-registry:
+  cargo-git:
   target-dir:
+  pixi-env:

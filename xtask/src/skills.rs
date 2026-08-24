@@ -209,6 +209,55 @@ fn library_count(root: &Path) -> usize {
         .sum()
 }
 
+/// Each agent's conventional skills directory, which must be a symlink to the one tree.
+///
+/// One canonical set, three products. Claimed in `.agents/skills/README.md` and in
+/// `.claude/settings.json`, and it stopped being true: the entries were added to the index and
+/// a later `git add -A` on a checkout with `core.symlinks=false` replaced them. Nothing
+/// noticed, because a claim in a README enforces nothing.
+const AGENT_SKILL_LINKS: &[&str] = &[".claude/skills", ".codex/skills", ".opencode/skills"];
+
+/// The symlink target the entries must have.
+const LINK_TARGET: &str = "../.agents/skills";
+
+/// Verify each agent directory still points at the canonical tree.
+///
+/// Checks the INDEX, not the working tree: on a platform without symlink support git stores
+/// mode 120000 and writes a pointer file, so the working tree looks like a regular file and
+/// only the index says what it is.
+fn link_problems(root: &Path) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .current_dir(root)
+        .args(["ls-files", "--stage", "--"])
+        .args(AGENT_SKILL_LINKS)
+        .output();
+    let Ok(out) = out else {
+        // No git: cannot judge. The other checks still ran.
+        return Vec::new();
+    };
+    let listing = String::from_utf8_lossy(&out.stdout);
+
+    let mut problems = Vec::new();
+    for link in AGENT_SKILL_LINKS {
+        let entry = listing.lines().find(|l| l.ends_with(link));
+        match entry {
+            None => problems.push(format!(
+                "`{link}` is missing - it must be a symlink to `{LINK_TARGET}` so every agent reads one tree"
+            )),
+            Some(line) if !line.starts_with("120000") => problems.push(format!(
+                "`{link}` is a regular file, not a symlink - `git add -A` on a checkout without symlink support does this"
+            )),
+            Some(_) => {
+                let target = std::fs::read_to_string(root.join(link)).unwrap_or_default();
+                if target.trim() != LINK_TARGET {
+                    problems.push(format!("`{link}` points at `{}`, not `{LINK_TARGET}`", target.trim()));
+                }
+            }
+        }
+    }
+    problems
+}
+
 /// Library skills are exempt from routing but not from provenance. An imported skill with no
 /// upstream recorded cannot be updated, audited for licence, or compared against upstream
 /// later - which is how a mirror silently becomes a fork nobody can reconcile.
@@ -301,6 +350,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     }
     problems.extend(library_problems(&root));
     problems.extend(lock_mismatches(&root));
+    problems.extend(link_problems(&root));
 
     // The frontmatter `name` is the identifier a route and an agent use; a mismatch makes the
     // route look right and read wrong.
@@ -327,9 +377,10 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
 
     if problems.is_empty() {
         println!(
-            "xtask check-skills: ok - {} routed, {} in the library, all with provenance",
+            "xtask check-skills: ok - {} routed, {} in the library, {} agent link(s)",
             present.len(),
-            library_count(&root)
+            library_count(&root),
+            AGENT_SKILL_LINKS.len()
         );
         return ExitCode::SUCCESS;
     }

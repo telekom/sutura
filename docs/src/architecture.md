@@ -28,7 +28,7 @@ in the binary.
 Consequences worth stating, because each is load-bearing rather than tidy:
 
 - The domain names no framework. No tokio, axum, rmcp, datafusion or arrow appears in its
-  manifest, so `cargo test -p sutura-domain` compiles no heavy dependency and its suite runs
+  manifest, so `cargo nextest run -p sutura-domain` compiles no heavy dependency and its suite runs
   in well under a second.
 - Adapters are feature-gated and default-off. That is why every lint and test entry point
   passes `--all-features`: a bare `cargo clippy --workspace` would inspect almost nothing

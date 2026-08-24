@@ -213,7 +213,7 @@ in
       echo "== the gates' own unit tests"
       # A gate with no test is a gate nobody has seen fail, and these are the checks
       # everything else is trusted to.
-      cargo test -q -p xtask --all-features
+      cargo nextest run -q -p xtask --all-features
 
       echo "== red-before-green for changed tests"
       cargo run -q -p xtask -- test-causality --since "$merge_base"
@@ -239,6 +239,7 @@ in
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features
+      cargo test --doc --workspace --all-features
       cargo deny check
     '';
   };

@@ -165,10 +165,16 @@ fn changed_with_additions(base: &str) -> Option<Vec<ChangedFile>> {
 }
 
 /// Run cargo in `dir`, returning whether it succeeded plus its combined output.
+/// Run the test suite in `dir` with nextest.
+///
+/// nextest, not `cargo test`, because this gate compares two runs and every other test
+/// invocation in the repo uses nextest: measuring "green on head" with a different runner than
+/// CI trusts would make the comparison meaningless. It also gives per-test process isolation,
+/// so one panicking test cannot take others down and skew the comparison.
 fn cargo_test(dir: &Path) -> (bool, String) {
     let out = Command::new("cargo")
         .current_dir(dir)
-        .args(["test", "--workspace", "--all-features"])
+        .args(["nextest", "run", "--workspace", "--all-features"])
         .output();
     match out {
         Ok(o) => {
@@ -234,6 +240,8 @@ pub(crate) fn classify_base(text: &str, succeeded: bool) -> BaseOutcome {
     if succeeded {
         return BaseOutcome::Green;
     }
+    // Order matters: a tree that did not build often ALSO prints "error: test run failed",
+    // so the compile check has to come first or a build failure reads as a real red.
     let compile_failure = text.contains("could not compile")
         || text.contains("error[E")
         || text.contains("error: cannot find")
@@ -241,7 +249,12 @@ pub(crate) fn classify_base(text: &str, succeeded: bool) -> BaseOutcome {
     if compile_failure {
         return BaseOutcome::DidNotCompile;
     }
-    if text.contains("test result: FAILED") || text.contains("panicked at") {
+    // nextest first, then the `cargo test` wording, so the classifier survives a runner swap.
+    let assertion_failure = text.contains("error: test run failed")
+        || text.contains("FAIL [")
+        || text.contains("test result: FAILED")
+        || text.contains("panicked at");
+    if assertion_failure {
         return BaseOutcome::RedByAssertion;
     }
     // Unknown failure: do not claim a proof we did not get.
@@ -551,8 +564,21 @@ mod tests {
     #[test]
     fn a_failed_assertion_is_the_evidence_wanted() {
         use super::{BaseOutcome, classify_base};
-        let failed = "running 3 tests\nthread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
-        assert_eq!(classify_base(failed, false), BaseOutcome::RedByAssertion);
+        // nextest's wording, which is what this now sees.
+        let nextest = "    FAIL [ 0.006s] xtask::bin/xtask a::b\n Summary 42 passed, 1 failed\nerror: test run failed";
+        assert_eq!(classify_base(nextest, false), BaseOutcome::RedByAssertion);
+        // And `cargo test`'s, so the classifier survives a runner swap.
+        let cargo = "running 3 tests\nthread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
+        assert_eq!(classify_base(cargo, false), BaseOutcome::RedByAssertion);
+    }
+
+    #[test]
+    fn a_build_failure_wins_over_a_test_run_failure_line() {
+        use super::{BaseOutcome, classify_base};
+        // nextest prints "error: test run failed" when the build failed too. Reading that as a
+        // real red is the false green this gate already had once.
+        let both = "error[E0433]: failed to resolve\nerror: could not compile\nerror: test run failed";
+        assert_eq!(classify_base(both, false), BaseOutcome::DidNotCompile);
     }
 
     #[test]
