@@ -61,6 +61,9 @@ fn is_rust(path: &str) -> bool {
         .is_some_and(|e| e.eq_ignore_ascii_case("rs"))
 }
 
+/// Changed files split by whether they exist at the base commit.
+type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
+
 /// A changed file and the lines the diff added to it.
 pub(crate) type ChangedFile = (String, Vec<String>);
 
@@ -177,6 +180,74 @@ fn cargo_test(dir: &Path) -> (bool, String) {
     }
 }
 
+/// Does `path` exist at `base`?
+///
+/// "Revert to base" means two different things depending on the answer. For a file that
+/// existed, it means check out the old content. For a file this branch ADDED, it means the file
+/// is not there - and `git checkout base -- <new file>` fails with "did not match any file(s)
+/// known to git", which is how this gate first broke in CI.
+fn base_has(root: &Path, base: &str, path: &str) -> bool {
+    let mut command = Command::new("git");
+    strip_git_env_for(&mut command);
+    command
+        .current_dir(root)
+        .arg("cat-file")
+        .arg("-e")
+        .arg(format!("{base}:{path}"))
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_ok_and(|s| s.success())
+}
+
+/// Git env vars that would point a subprocess at another repository.
+fn strip_git_env_for(command: &mut Command) {
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ] {
+        command.env_remove(name);
+    }
+}
+
+/// What the base run actually told us.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum BaseOutcome {
+    /// The changed tests passed without the change: they do not test it.
+    Green,
+    /// A test failed an assertion. This is the evidence the gate exists to collect.
+    RedByAssertion,
+    /// The tree did not build. Red, but it proves nothing about behaviour.
+    DidNotCompile,
+}
+
+/// Classify a base test run.
+///
+/// The distinction matters more than it looks. Before this existed, a base tree that failed to
+/// COMPILE counted as "red, as required" and the gate passed - a false green over exactly the
+/// changes it is supposed to judge. A test that does not compile has not been run.
+pub(crate) fn classify_base(text: &str, succeeded: bool) -> BaseOutcome {
+    if succeeded {
+        return BaseOutcome::Green;
+    }
+    let compile_failure = text.contains("could not compile")
+        || text.contains("error[E")
+        || text.contains("error: cannot find")
+        || text.contains("unresolved import");
+    if compile_failure {
+        return BaseOutcome::DidNotCompile;
+    }
+    if text.contains("test result: FAILED") || text.contains("panicked at") {
+        return BaseOutcome::RedByAssertion;
+    }
+    // Unknown failure: do not claim a proof we did not get.
+    BaseOutcome::DidNotCompile
+}
+
 /// Set up a detached worktree at HEAD under the given path.
 fn add_worktree(root: &Path, dir: &Path) -> Result<(), String> {
     let out = Command::new("git")
@@ -232,12 +303,33 @@ fn report_not_separable(files: &[String]) -> ExitCode {
 
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
 fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> ExitCode {
+    // Split by what "revert" means for each file. A file this branch added is not restored -
+    // it is removed, because absent is what the base state was.
+    let (restore, remove): Partitioned<'_> = revert.iter().partition(|f| base_has(root, base, f));
+
+    if restore.is_empty() {
+        println!("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST");
+        for f in remove {
+            println!("  {f} does not exist at {base}");
+        }
+        println!();
+        println!("Every changed implementation file is new here, so there is no old behaviour");
+        println!("for a test to be red against. Reverting them would leave a tree that does not");
+        println!("compile, and a test that fails to compile proves nothing about behaviour.");
+        println!("This gate has NOT verified causality for this change - state the evidence in");
+        println!("the handoff if it is a bug fix.");
+        return ExitCode::SUCCESS;
+    }
+
     println!("xtask test-causality: proving red-before-green");
     for f in test_files {
         println!("  test file: {f}");
     }
-    for f in revert {
-        println!("  revert:    {f}");
+    for f in &restore {
+        println!("  restore:   {f}");
+    }
+    for f in &remove {
+        println!("  remove:    {f}  (added in this branch)");
     }
 
     // HEAD must be green, or "red on base" means nothing.
@@ -256,44 +348,67 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
         return ExitCode::FAILURE;
     }
 
-    let mut restore = Command::new("git");
-    restore.current_dir(&wt).args(["checkout", base, "--"]);
-    for f in revert {
-        restore.arg(f);
-    }
+    let verdict = reconstruct_and_run(&wt, base, &restore, &remove);
+    remove_worktree(root, &wt);
+    verdict
+}
 
-    let verdict = match restore.output() {
-        Ok(o) if o.status.success() => {
-            let (base_ok, base_out) = cargo_test(&wt);
-            if base_ok {
-                eprintln!("xtask test-causality: FAILED - green against base behaviour");
-                eprintln!();
-                eprintln!("The changed tests pass with the implementation reverted, so they");
-                eprintln!("do not test the change. Make the test exercise the new behaviour,");
-                eprintln!("or say plainly that it is not a regression test.");
-                ExitCode::FAILURE
-            } else {
-                println!("  base: red, as required");
-                println!("{}", tail(&base_out, 12));
-                println!("xtask test-causality: ok - red on base, green on head");
-                ExitCode::SUCCESS
-            }
-        }
+/// Put the worktree into the base state for the implementation, then run the tests.
+fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String]) -> ExitCode {
+    let mut checkout = Command::new("git");
+    strip_git_env_for(&mut checkout);
+    checkout.current_dir(wt).args(["checkout", base, "--"]);
+    for f in restore {
+        checkout.arg(f);
+    }
+    match checkout.output() {
+        Ok(o) if o.status.success() => {}
         Ok(o) => {
             eprintln!(
                 "xtask test-causality: could not restore base files: {}",
-                String::from_utf8_lossy(&o.stderr)
+                String::from_utf8_lossy(&o.stderr).trim()
             );
-            ExitCode::FAILURE
+            return ExitCode::FAILURE;
         }
         Err(e) => {
             eprintln!("xtask test-causality: could not run git checkout: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+    for f in remove {
+        if let Err(e) = std::fs::remove_file(wt.join(f)) {
+            eprintln!("xtask test-causality: could not remove {f}: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
+
+    let (base_ok, base_out) = cargo_test(wt);
+    match classify_base(&base_out, base_ok) {
+        BaseOutcome::Green => {
+            eprintln!("xtask test-causality: FAILED - green against base behaviour");
+            eprintln!();
+            eprintln!("The changed tests pass with the implementation reverted, so they do not");
+            eprintln!("test the change. Make the test exercise the new behaviour, or say plainly");
+            eprintln!("that it is not a regression test.");
             ExitCode::FAILURE
         }
-    };
-
-    remove_worktree(root, &wt);
-    verdict
+        BaseOutcome::RedByAssertion => {
+            println!("  base: red by assertion, as required");
+            println!("{}", tail(&base_out, 12));
+            println!("xtask test-causality: ok - red on base, green on head");
+            ExitCode::SUCCESS
+        }
+        BaseOutcome::DidNotCompile => {
+            println!("  base: did not compile");
+            println!("{}", tail(&base_out, 12));
+            println!();
+            println!("xtask test-causality: INCONCLUSIVE - the base tree does not build.");
+            println!("That is red, but a test that never ran is not evidence about behaviour.");
+            println!("Usually it means the change is not separable at file level: the test and");
+            println!("what it needs arrived together. State the evidence in the handoff.");
+            ExitCode::SUCCESS
+        }
+    }
 }
 
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
@@ -422,6 +537,41 @@ mod tests {
             "#[derive(Debug)]",
             "#[cfg(test)]"
         ])));
+    }
+
+    #[test]
+    fn a_base_that_did_not_compile_is_not_a_proof() {
+        use super::{BaseOutcome, classify_base};
+        // The false green this replaced: `cargo test` failed, so the gate said "red, as
+        // required" and passed. A tree that does not build has run no tests.
+        let compile = "error[E0432]: unresolved import `crate::thing`\nerror: could not compile";
+        assert_eq!(classify_base(compile, false), BaseOutcome::DidNotCompile);
+    }
+
+    #[test]
+    fn a_failed_assertion_is_the_evidence_wanted() {
+        use super::{BaseOutcome, classify_base};
+        let failed = "running 3 tests\nthread 'x' panicked at src/lib.rs:9\ntest result: FAILED. 2 passed; 1 failed";
+        assert_eq!(classify_base(failed, false), BaseOutcome::RedByAssertion);
+    }
+
+    #[test]
+    fn a_passing_base_means_the_test_does_not_test_the_change() {
+        use super::{BaseOutcome, classify_base};
+        assert_eq!(
+            classify_base("test result: ok. 12 passed; 0 failed", true),
+            BaseOutcome::Green
+        );
+    }
+
+    #[test]
+    fn an_unrecognised_failure_claims_nothing() {
+        use super::{BaseOutcome, classify_base};
+        // Conservative on purpose: an unfamiliar failure is not evidence of causality.
+        assert_eq!(
+            classify_base("linker exited with signal 9", false),
+            BaseOutcome::DidNotCompile
+        );
     }
 
     #[test]

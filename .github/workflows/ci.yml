@@ -72,16 +72,49 @@ jobs:
           nix --version
           cat rust-toolchain.toml
 
+      # What to compare against. This gets its own step because getting it wrong is subtle
+      # and was wrong: `github.event.before` is the PREVIOUS PUSH on the branch, so a push
+      # whose last commit only touched docs classified as docs-only and skipped the Rust
+      # chain - reporting green while the branch itself was red. The whole branch is the unit
+      # of review, so the whole branch is the unit of comparison.
+      - name: Resolve the base to compare against
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            # The merge base, not the base tip: it is the whole PR even if the target moved.
+            base="$(git merge-base "$PR_BASE" HEAD || true)"
+          elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            # On the default branch, what is newly ON it is exactly the right scope.
+            base="$BEFORE"
+          else
+            # A push to a topic branch: judge the branch, not the push.
+            base="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
+          fi
+          # An all-zero SHA (new branch) or an empty value means fail open, not skip.
+          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -n "$base" ]; then
+            echo "comparing against $base ($(git rev-list --count "$base..HEAD" 2>/dev/null || echo '?') commit(s))"
+          else
+            echo "no usable base: everything will run"
+          fi
+
       # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
       # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
       - name: Classify the change
         id: classify
+        env:
+          BASE: ${{ steps.base.outputs.base }}
         run: |
           set -eu
-          base="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
-          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
-          if [ -n "$base" ]; then
-            nix run .#xtask -- classify --since "$base"
+          if [ -n "$BASE" ]; then
+            nix run .#xtask -- classify --since "$BASE"
           else
             nix run .#xtask -- classify
           fi
@@ -115,15 +148,15 @@ jobs:
       # twice in a worktree, so it needs git history and a writable tree.
       - name: Test causality
         if: steps.classify.outputs.rust == 'true'
+        env:
+          BASE: ${{ steps.base.outputs.base }}
         run: |
           set -eu
-          base="${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}"
-          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
-          if [ -z "$base" ]; then
+          if [ -z "$BASE" ]; then
             echo "no usable base ref; causality not checked"
             exit 0
           fi
-          nix run .#causality -- --since "$base"
+          nix run .#causality -- --since "$BASE"
 
       - name: Release build
         if: steps.classify.outputs.build == 'true'
