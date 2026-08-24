@@ -16,7 +16,17 @@ yanked = "deny"
 [licenses]
 version = 2
 # Permissive only. Anything copyleft is a deliberate decision, not a transitive surprise.
-allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+#
+# Exactly the licences the current graph uses, and no more. It also allowed BSD-2-Clause,
+# BSD-3-Clause, ISC and Zlib, which nothing used - cargo-deny warned about all four on every
+# run. A licence allowed "just in case" is pre-approval for a dependency nobody has reviewed,
+# and four warnings a run is how people learn to skim the output.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+
+# So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then
+# happens at the moment a dependency needs it, which is where the decision belongs.
+unused-allowed-license = "deny"
+
 confidence-threshold = 0.9
 
 [bans]
