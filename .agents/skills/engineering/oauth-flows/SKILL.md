@@ -1,15 +1,15 @@
 ---
 name: oauth-flows
-description: Choosing and implementing an OAuth 2.x / OIDC flow — grant selection, PKCE, state and nonce, redirect URIs, token storage, refresh rotation, discovery and logout.
+description: Choosing and implementing an OAuth 2.x / OIDC flow - grant selection, PKCE, state and nonce, redirect URIs, token storage, refresh rotation, discovery and logout.
 ---
 
 # Choosing and implementing a flow
 
-The companion to `oauth/SKILL.md`. That one is the **resource server** — validating an
+The companion to `oauth/SKILL.md`. That one is the **resource server** - validating an
 incoming token and authorizing on its claims. This one is the **client** side: obtaining a
 token in the first place, and the six decisions that go with it.
 
-Derived in part from public OAuth/OIDC agent skills — see `VENDOR.md`.
+Derived in part from public OAuth/OIDC agent skills - see `VENDOR.md`.
 
 ## Work in this order
 
@@ -30,9 +30,9 @@ Skipping to step 2 is how the wrong flow gets chosen and then defended.
 | Web app, mobile app, native app, SPA, CLI | **Authorization Code + PKCE** |
 | Service to service, no user present | **Client Credentials** |
 | Input-constrained device (TV, headless) | **Device Authorization** |
-| Acting on behalf of a subject downstream | **Token Exchange** (RFC 8693) — see `oauth/SKILL.md` |
-| — | **Implicit**: do not. Tokens in the URL fragment, no refresh, deprecated |
-| — | **Resource Owner Password**: only a legacy system with no alternative, and record why |
+| Acting on behalf of a subject downstream | **Token Exchange** (RFC 8693) - see `oauth/SKILL.md` |
+| - | **Implicit**: do not. Tokens in the URL fragment, no refresh, deprecated |
+| - | **Resource Owner Password**: only a legacy system with no alternative, and record why |
 
 **PKCE on every Authorization Code flow, including confidential clients.** It costs nothing
 and removes the authorization-code interception class outright. `S256`, never `plain`.
@@ -41,14 +41,14 @@ and removes the authorization-code interception class outright. `S256`, never `p
 
 Four checks, and each one is load-bearing:
 
-- **`state`** — always sent, random, single-use, bound to the user's session and verified on
+- **`state`** - always sent, random, single-use, bound to the user's session and verified on
   callback. Without it the callback accepts a code the user never requested: CSRF.
-- **`nonce`** — always sent for OIDC, and verified inside the ID token. `state` protects the
+- **`nonce`** - always sent for OIDC, and verified inside the ID token. `state` protects the
   callback; `nonce` protects the token. They are not interchangeable.
-- **Redirect URI** — registered and matched **exactly**. No wildcards, no prefix matching, no
+- **Redirect URI** - registered and matched **exactly**. No wildcards, no prefix matching, no
   open path suffix. This is the single most exploited misconfiguration in OAuth, because a
   loose match turns the authorization server into a code-delivery service for an attacker.
-- **`iss`** on the callback where the provider supports it — it defeats mix-up attacks when
+- **`iss`** on the callback where the provider supports it - it defeats mix-up attacks when
   more than one provider is configured.
 
 ## 4. Scopes
@@ -82,7 +82,7 @@ use RP-initiated logout where the provider offers it if the IdP session must end
 ## Never
 
 - Never write your own token validation or crypto. Use the pinned, maintained library.
-- Never skip exact redirect-URI matching, including in a development configuration — dev
+- Never skip exact redirect-URI matching, including in a development configuration - dev
   configuration is what gets copied to production.
 - Never omit `state`, and never reuse one.
 - Never log a token, a code, or a `code_verifier`.

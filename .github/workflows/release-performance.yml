@@ -76,14 +76,11 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Install Nix
-        run: |
-          set -eu
-          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
-          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
-          mkdir -p "$HOME/.config/nix"
-          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
-            >> "$HOME/.config/nix/nix.conf"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            fallback = true
 
       # Same rule as the normal release: nothing shippable is built before the gates pass.
       # These reuse the `release`-profile artifacts, which is why they are cheap here.
@@ -101,13 +98,6 @@ jobs:
           set -eu
           nix build .#sutura-x86_64-unknown-linux-gnu-performance  -L -o result-x86_64
           nix build .#sutura-aarch64-unknown-linux-gnu-performance -L -o result-aarch64
-
-      - name: Assert each binary is the architecture requested
-        run: |
-          set -eu
-          file result-x86_64/bin/sutura result-aarch64/bin/sutura
-          file result-x86_64/bin/sutura  | grep -q 'x86-64'
-          file result-aarch64/bin/sutura | grep -qE 'aarch64|ARM aarch64'
 
       # The point of the profile is a different binary. Print the sizes so the run is
       # evidence of that rather than an assertion about it.

@@ -7,7 +7,7 @@
 #
 #   1. Reproducible release artifacts. `nix build .#oci` yields the same image digest from
 #      the same source, so "which build is running in production?" is answerable. A
-#      Dockerfile gives you the same *recipe*, not the same *result* — `apt-get install`
+#      Dockerfile gives you the same *recipe*, not the same *result* - `apt-get install`
 #      resolves differently next Tuesday.
 #   2. One toolchain definition, not two. The dev shell and the release build both read
 #      `rust-toolchain.toml`. With a Dockerfile alongside a devenv you have two places to
@@ -17,14 +17,14 @@
 #      which is what makes shipping both Linux architectures cheap rather than a project.
 #
 # What it does NOT do: it is not the development environment (that is devenv.nix, which
-# this flake also exposes), and it is not required to hack on the code — plain `cargo
+# this flake also exposes), and it is not required to hack on the code - plain `cargo
 # build` works fine. It is required to *ship*.
 #
 # Cranelift: deliberately absent here. It is a development-only codegen backend (see
 # Cargo.toml); CI and every shipped artifact use the default backend, because a bug that
 # reproduces under one backend and not the other is a genuinely bad afternoon.
 {
-  description = "sutura — an identity-aware semantic data runtime for AI agents";
+  description = "sutura - an identity-aware semantic data runtime for AI agents";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
@@ -52,7 +52,7 @@
         # x86_64 builder `sutura` already IS the x86_64-linux binary, and building a
         # separate "cross" x86_64 derivation would compile the whole tree a second time
         # for a byte-identical result. `packages.sutura-x86_64-unknown-linux-gnu` is an
-        # alias to the native build instead — see `crossPackages` below.
+        # alias to the native build instead - see `crossPackages` below.
         crossTargets = [ "aarch64-unknown-linux-gnu" ];
 
         src = pkgs.lib.cleanSourceWith {
@@ -78,7 +78,7 @@
         commonArgs = {
           inherit src;
           # Named explicitly: the root manifest is a virtual workspace with no [package],
-          # so crane cannot infer these and would fall back to a placeholder — which shows
+          # so crane cannot infer these and would fall back to a placeholder - which shows
           # up as derivations called `cargo-package-*` and makes a build log say nothing
           # about what it built.
           pname = "sutura";
@@ -244,13 +244,13 @@
             inherit (commonArgs) pname version;
           };
 
-          # The structural gates, as a flake check so CI needs only `nix` — devenv is a
+          # The structural gates, as a flake check so CI needs only `nix` - devenv is a
           # DEV-SHELL tool, and installing it in CI just to reach these would add a
           # dependency the pipeline does not otherwise need. It runs the same xtask binary
           # a developer runs, so the two cannot drift.
           #
           # `src = ./.` and not the filtered source: these gates judge every file in the
-          # repo — workflows, Nix files, docs — and crane's filter keeps only Cargo inputs.
+          # repo - workflows, Nix files, docs - and crane's filter keeps only Cargo inputs.
           # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
           # to walking the tree instead of failing.
           #
@@ -272,11 +272,11 @@
           });
 
           # NOTE: cargo-deny is deliberately NOT a check here. It fetches the RustSec
-          # advisory database, and a Nix build sandbox has no network — as a check it could
+          # advisory database, and a Nix build sandbox has no network - as a check it could
           # only ever fail, or pass while silently auditing nothing. CI runs it as
           # `nix run nixpkgs#cargo-deny -- check`, which still needs nothing but `nix`.
         };
-        # `nix run .#deny` — the supply-chain gate.
+        # `nix run .#deny` - the supply-chain gate.
         #
         # An app and not a check because it fetches the RustSec advisory database, and a Nix
         # build sandbox has no network: as a check it could only fail, or pass while auditing
@@ -285,7 +285,7 @@
         # It wraps cargo-deny with the PINNED toolchain on PATH rather than relying on
         # `nix run nixpkgs#cargo-deny`, which was tried and does not work: cargo-deny shells
         # out to `cargo metadata`, and `nix run` puts only cargo-deny on PATH. On a runner
-        # that happens to ship Rust it would have silently audited using *that* cargo — a
+        # that happens to ship Rust it would have silently audited using *that* cargo - a
         # second, unpinned toolchain, which is the drift this flake exists to remove.
         apps.deny = {
           type = "app";
@@ -295,14 +295,14 @@
           '');
         };
 
-        # `nix run .#causality -- --since <ref>` — the red-before-green gate.
+        # `nix run .#causality -- --since <ref>` - the red-before-green gate.
         #
         # An app and not a check for three reasons: it needs git history (a build sandbox has
         # no `.git`), it creates a worktree (a sandbox source is read-only), and it compiles
         # the tree twice to compare behaviours.
         #
         # It wraps the gate with the PINNED cargo and git on PATH. The xtask binary alone
-        # cannot do the job — it runs `cargo test` to compare the two behaviours, so handing
+        # cannot do the job - it runs `cargo test` to compare the two behaviours, so handing
         # it whatever cargo the runner ships would compare using a different compiler than
         # the one everything else is pinned to.
         apps.causality = {

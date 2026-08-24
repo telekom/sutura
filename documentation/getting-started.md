@@ -9,12 +9,12 @@ Two supported ways in. Pick by what your machine can run natively.
 
 Both end up in the same environment, because both read the same `devenv.nix` and the same
 `rust-toolchain.toml`. If you are behind a corporate proxy or have no direct internet egress,
-read [enterprise-mirrors.md](enterprise-mirrors.md) **first** — every install below fetches
+read [enterprise-mirrors.md](enterprise-mirrors.md) **first** - every install below fetches
 something, and each fetch is redirectable.
 
 ---
 
-## Route 1 — Nix natively
+## Route 1 - Nix natively
 
 ### 1. Nix
 
@@ -27,7 +27,7 @@ curl -L https://nixos.org/nix/install | sh -s -- --daemon
 `--daemon` installs multi-user mode, which is what you want on a shared or long-lived
 machine. On macOS it is the only supported mode.
 
-Then enable flakes — this repo's build **is** a flake, so this is a prerequisite, not a
+Then enable flakes - this repo's build **is** a flake, so this is a prerequisite, not a
 preference:
 
 ```bash
@@ -44,8 +44,8 @@ nix flake --help       # must not say "unknown command"
 
 ### 2. devenv
 
-devenv provides the developer shell. It is **not** required to build or ship — `nix build`
-and plain `cargo build` work without it — but it is how you get the toolchain, the linker,
+devenv provides the developer shell. It is **not** required to build or ship - `nix build`
+and plain `cargo build` work without it - but it is how you get the toolchain, the linker,
 the gate commands and the hook runner in one place.
 
 ```bash
@@ -62,7 +62,7 @@ Without direnv you must remember to type `devenv shell`. With it, the environmen
 nix profile install nixpkgs#direnv
 ```
 
-Then hook it into your shell — direnv does nothing until you do, and this is the step people
+Then hook it into your shell - direnv does nothing until you do, and this is the step people
 skip:
 
 ```bash
@@ -93,12 +93,12 @@ gates                  # everything CI runs
 ```
 
 If `cargo` is missing after the shell loads, the shell evaluated but produced no toolchain.
-That is a real failure mode and not a mystery — check that `devenv.nix` resolves
+That is a real failure mode and not a mystery - check that `devenv.nix` resolves
 `rust-toolchain.toml` through rust-overlay.
 
 ---
 
-## Route 2 — the dev container
+## Route 2 - the dev container
 
 For Windows without WSL2, or anywhere you would rather not install Nix on the host.
 
@@ -111,7 +111,7 @@ The container has Nix, devenv and direnv, and its shell hook loads the environme
 `--target build` runs the gates and a release build instead of dropping you in a shell, which
 is the cheapest way to prove the container is actually usable.
 
-Every network-touching argument is a build `ARG` with a public default — see
+Every network-touching argument is a build `ARG` with a public default - see
 [enterprise-mirrors.md](enterprise-mirrors.md) for pointing them at a mirror. `compose.dev.yaml`
 reads them from a gitignored `.env`, so you configure once rather than per command.
 
@@ -119,7 +119,7 @@ reads them from a gitignored `.env`, so you configure once rather than per comma
 
 If you also build natively with `cargo` on Windows, keep the clone on a path your endpoint
 tooling permits to execute build scripts. Cargo compiles and runs `build.rs` and proc macros,
-and some managed configurations block execution from temp or profile directories — which
+and some managed configurations block execution from temp or profile directories - which
 surfaces as a confusing linker or permission error, not as "policy blocked this".
 
 ---
@@ -130,10 +130,10 @@ Knowing this saves you from bumping a version in the wrong file.
 
 | Concern | Owner |
 | --- | --- |
-| Rust compiler version | `rust-toolchain.toml` — read by rustup **and** by Nix, so there is one pin |
+| Rust compiler version | `rust-toolchain.toml` - read by rustup **and** by Nix, so there is one pin |
 | Dev shell, tool versions, task names | `devenv.nix` |
 | Release build, cross-compilation, the OCI image | `flake.nix` |
-| Python-delivered tooling | `pixi.toml` — and nothing else; pixi does not own the Rust toolchain |
+| Python-delivered tooling | `pixi.toml` - and nothing else; pixi does not own the Rust toolchain |
 | Hooks | `.pre-commit-config.yaml`, run by `prek` |
 | The repo gates | `xtask/` |
 

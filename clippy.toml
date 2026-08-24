@@ -6,7 +6,7 @@ allow-panic-in-tests = true
 allow-indexing-slicing-in-tests = true
 allow-dbg-in-tests = true
 
-# Stricter than clippy's defaults — flag complexity while it is still cheap to fix.
+# Stricter than clippy's defaults - flag complexity while it is still cheap to fix.
 cognitive-complexity-threshold = 15   # default 25
 too-many-arguments-threshold = 5      # default 7
 type-complexity-threshold = 100       # default 250

@@ -1,6 +1,6 @@
 ---
 name: debugging
-description: Root-cause a failing test, a red gate, a build error, or unexplained behaviour — evidence before hypothesis, and reproduce before fixing.
+description: Root-cause a failing test, a red gate, a build error, or unexplained behaviour - evidence before hypothesis, and reproduce before fixing.
 ---
 
 # Debugging
@@ -37,7 +37,7 @@ Ask, in order:
 1. **What changed?** `git diff`, `git log -p -- <file>`. `cargo xtask classify --since <base>`
    tells you what the diff touches.
 2. **Is the failure in the code or in the gate?** A gate that dies on an unreadable path or a
-   missing tool **fails open or fails wrong** — check whether the gate itself is broken
+   missing tool **fails open or fails wrong** - check whether the gate itself is broken
    before believing its verdict.
 3. **Does the mechanism exist?** A rule stated in prose is not enforced. If an invariant
    should have caught this and did not, the missing check is the bug.
@@ -58,7 +58,7 @@ Read these before spending an hour on a class of bug this repo has met.
 | --- | --- |
 | Error names a lint or flag that looks correct | CRLF in a `.nix` file; `\r` became part of the argument |
 | A gate passes locally, fails in the Nix sandbox | it used `git ls-files`; there is no `.git` there |
-| A gate passes in the sandbox but checks nothing | it listed files via an absent tool and got an empty list — fail open, loudly |
+| A gate passes in the sandbox but checks nothing | it listed files via an absent tool and got an empty list - fail open, loudly |
 | Clippy clean locally, fails in CI | you omitted `--all-features`; adapters are default-off |
 | `cargo-deny` cannot fetch advisories | a Nix build sandbox has no network; it runs as `nix run .#deny` |
 | A dependency compiled several times in one CI run | a check not sharing `cargoArtifacts` |

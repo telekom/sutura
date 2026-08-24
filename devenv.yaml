@@ -1,4 +1,4 @@
-# devenv inputs. `languages.rust.version` needs rust-overlay declared explicitly —
+# devenv inputs. `languages.rust.version` needs rust-overlay declared explicitly -
 # devenv fails the shell evaluation with the exact `devenv inputs add` command otherwise.
 inputs:
   nixpkgs:

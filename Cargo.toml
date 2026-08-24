@@ -1,8 +1,8 @@
-# sutura — workspace root.
+# sutura - workspace root.
 #
 # The directory layout IS the architecture: `crates/sutura-domain` holds types and port
 # traits only, every other crate is an adapter that depends on it, and nothing depends on
-# an adapter. That rule is machine-checked — `cargo xtask check-boundaries`.
+# an adapter. That rule is machine-checked - `cargo xtask check-boundaries`.
 #
 # Crates arrive with the milestone that needs them rather than as empty placeholders: an
 # empty crate is a compile target and a maintenance surface for no value.
@@ -37,7 +37,7 @@ dead_code = "deny"
 unused_must_use = "deny"
 # Visibility has to be honest. A `pub` item inside a private module is reachable from
 # nowhere outside the crate, and in a LIBRARY crate that same `pub` also suppresses
-# `dead_code` — which is precisely how an unused function survives review. `pub(crate)`
+# `dead_code` - which is precisely how an unused function survives review. `pub(crate)`
 # says what is true, and then the dead-code check can see it.
 unreachable_pub = "deny"
 # `forbid`, so a crate cannot re-allow it locally. No first-party `unsafe` exists and none
@@ -51,7 +51,7 @@ all         = { level = "deny", priority = -3 }
 nursery     = { level = "deny", priority = -3 }
 cargo       = { level = "deny", priority = -3 }
 pedantic    = { level = "warn", priority = -2 }
-# `restriction` is not a category of bugs — it is a menu of bans, most of which are wrong
+# `restriction` is not a category of bugs - it is a menu of bans, most of which are wrong
 # for most codebases. It is enabled anyway, at the lowest priority, because the handful
 # that matter here (`str_to_string`, `exit`, `dbg_macro`, `todo`, `unimplemented`,
 # `map_err_ignore`, `unwrap_in_result`, `mem_forget`, `format_push_string`) are the ones
@@ -171,7 +171,7 @@ lto = "off"
 codegen-units = 256
 # Cranelift: DEVELOPMENT ONLY, never CI and never a shipped artifact.
 #
-# It can cut debug codegen time substantially, but it CHANGES codegen — so a bug that
+# It can cut debug codegen time substantially, but it CHANGES codegen - so a bug that
 # reproduces under one backend and not the other is a real possibility. If CI validated a
 # cranelift build, it would be validating something we do not ship.
 #

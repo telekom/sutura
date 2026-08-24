@@ -18,12 +18,12 @@
 #   HTTP_PROXY / HTTPS_PROXY            routes flake-input fetches through a proxy
 #
 # Locally these point at an internal mirror; on public CI the defaults apply. Same file
-# either way — see .env.example and devenv.local.nix.
+# either way - see .env.example and devenv.local.nix.
 { pkgs, lib, config, inputs, ... }:
 
 let
   # The compiler pin lives in rust-toolchain.toml and is resolved the SAME way here as in
-  # flake.nix — rust-overlay reading the file directly. Going through
+  # flake.nix - rust-overlay reading the file directly. Going through
   # `languages.rust.{channel,version}` instead was tried and silently produced a shell
   # with no cargo on PATH, which is a worse failure than a loud one.
   rustPkgs = import inputs.nixpkgs {
@@ -52,7 +52,7 @@ in
     # Hook runner: a single Rust binary, so hooks need no Python runtime.
     prek
 
-    # Stacked branches — this plan is a chain of dependent changes by construction.
+    # Stacked branches - this plan is a chain of dependent changes by construction.
     stax
 
     # Python lives behind pixi only; this is just the launcher.
@@ -68,7 +68,7 @@ in
 
   # gh-axi is an npm package, not a nixpkgs one. Installed into the devenv state dir on
   # first entry rather than listed in `packages`, because a missing nixpkgs attribute
-  # breaks the entire shell — too high a price for a convenience tool.
+  # breaks the entire shell - too high a price for a convenience tool.
   env.NPM_CONFIG_PREFIX = "${config.devenv.state}/npm";
 
   # A broken pin should take two seconds to diagnose, not a mid-CI failure.
@@ -106,7 +106,7 @@ in
   # detail. `gates` is what CI runs and what a developer runs before pushing.
   scripts = {
     # Formatting includes line endings: rustfmt does not normalise CRLF, and a carriage
-    # return kept inside a Nix ''...'' string becomes part of a shell argument — which
+    # return kept inside a Nix ''...'' string becomes part of a shell argument - which
     # produces errors naming a lint or flag that looks byte-identical to the correct one.
     fmt.exec = ''
       set -e
@@ -139,7 +139,7 @@ in
     # somebody half-remembers, and because the hooks already encode what has to hold.
     #
     # It judges the COMMITTED branch diff, not the working tree: that is what a reviewer
-    # will see. Hence the clean-tree requirement — a dirty tree means the thing being
+    # will see. Hence the clean-tree requirement - a dirty tree means the thing being
     # checked is not the thing being proposed.
     ship-check.exec = ''
       set -eu

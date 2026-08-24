@@ -11,7 +11,7 @@ files instead of every skill in the repo.
 4. Open only the `SKILL.md` it routes you to.
 
 Do not open a `SKILL.md` you were not routed to. A skill absent from `skill-router.json` is
-non-discoverable by policy — `cargo xtask check-skills` fails if the router and the tree
+non-discoverable by policy - `cargo xtask check-skills` fails if the router and the tree
 disagree, in either direction.
 
 ## Intents

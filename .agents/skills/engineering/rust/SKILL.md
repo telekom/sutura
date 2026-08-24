@@ -1,6 +1,6 @@
 ---
 name: rust
-description: Rust in this workspace — the lint table, the panic ban, feature gating, and what the gates reject before review does.
+description: Rust in this workspace - the lint table, the panic ban, feature gating, and what the gates reject before review does.
 ---
 
 # Rust here
@@ -14,12 +14,12 @@ This workspace is stricter than default Rust. Most surprises come from four choi
 
 | You wrote | Use instead |
 | --- | --- |
-| `x.to_string()` | `String::from(x)` — `str_to_string` is denied |
-| `format!` into an existing `String` | `push_str` / `write!` — `format_push_string` |
+| `x.to_string()` | `String::from(x)` - `str_to_string` is denied |
+| `format!` into an existing `String` | `push_str` / `write!` - `format_push_string` |
 | `let _ = f()` on a `#[must_use]` | handle it, or `drop(f())` if truly discardable |
 | `use` after a statement | move it to the top of the module |
-| `#[allow(..)]` | `#[expect(.., reason = "..")]` — `allow_attributes` fails a bare allow |
-| `match x { Some(v) => v, None => .. }` | `if let` / `?` — clippy will name the lint |
+| `#[allow(..)]` | `#[expect(.., reason = "..")]` - `allow_attributes` fails a bare allow |
+| `match x { Some(v) => v, None => .. }` | `if let` / `?` - clippy will name the lint |
 
 Overrides live in the lint table, each with its reason. Disagree with a specific line there;
 do not add a blanket allow.
@@ -30,8 +30,8 @@ do not add a blanket allow.
 and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 `panic = "abort"`, so a panic is a process death, not an exception.
 
-Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` — not
-`deny` — so a crate cannot re-allow it locally.
+Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` - not
+`deny` - so a crate cannot re-allow it locally.
 
 ## 3. Features are default-off, so `--all-features` is mandatory
 
@@ -46,7 +46,7 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo nextest run --workspace --all-features
 ```
 
-`sutura-domain` must acquire **no** framework dependency — no tokio, axum, rmcp, datafusion,
+`sutura-domain` must acquire **no** framework dependency - no tokio, axum, rmcp, datafusion,
 arrow. `cargo xtask check-boundaries` enforces it.
 
 ## 4. The gates reject before review does
@@ -65,7 +65,7 @@ Run `gates` before you claim done. Individually:
 ## Conventions
 
 - Rust 2024. One version for the workspace; crates inherit with `version.workspace = true`.
-- The compiler pin is `rust-toolchain.toml` and nowhere else — rustup and Nix both read it.
+- The compiler pin is `rust-toolchain.toml` and nowhere else - rustup and Nix both read it.
 - Ports get **fakes**, not mocked HTTP. A test asserting on source text proves nothing.
 - Adding a dependency: `unused-deps` requires it to be referenced, and `cargo-deny` checks
   its licence and advisories. Both run in the gates.

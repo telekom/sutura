@@ -1,5 +1,5 @@
 # pixi owns tooling that ships as a conda or Python package, and nothing else. The Rust
-# toolchain and the build come from Nix — two owners for one version is one too many.
+# toolchain and the build come from Nix - two owners for one version is one too many.
 #
 # Channels here are public, because this repo is public. An internal mirror is configured in
 # pixi's GLOBAL config (~/.pixi/config.toml), so no internal URL is ever committed. See
@@ -13,13 +13,16 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "win-64", "osx-arm64"]
 
 [dependencies]
-# Static analysis for GitHub Actions: finds what a YAML schema check cannot — template
+# Static analysis for GitHub Actions: finds what a YAML schema check cannot - template
 # injection through `${{ }}` into `run:`, an over-permissive token, an unpinned action,
 # checkout of untrusted code under `pull_request_target`.
 # conda-forge rather than the PyPI wheel: one resolver, one lock.
 zizmor = ">=1.9"
 
 [tasks]
+# Regenerates the ms-rust skill from Microsoft's published guidelines. A no-op when the
+# content has not changed, so the recorded sha256 answers "is this current".
+ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
 # `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
 # so the gate does not depend on opinions that change between releases.
 zizmor = "zizmor .github/workflows"

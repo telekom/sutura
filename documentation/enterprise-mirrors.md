@@ -34,7 +34,7 @@ going through the proxy for something that has a mirror.
 
 ---
 
-## 1. Nix — the binary cache
+## 1. Nix - the binary cache
 
 Nix fetches prebuilt store paths from a **substituter**. Point it at your mirror:
 
@@ -50,7 +50,7 @@ Two things people get wrong here:
    by *upstream*, and merely relays them. Substituting your mirror's own key would reject
    every path. Only a cache that re-signs needs its own key.
 2. **In multi-user mode the daemon does the fetching.** Editing `~/.config/nix/nix.conf` and
-   seeing no change is the usual symptom — the setting belongs in `/etc/nix/nix.conf`, and the
+   seeing no change is the usual symptom - the setting belongs in `/etc/nix/nix.conf`, and the
    daemon needs a restart. Alternatively add yourself to `trusted-users` so your per-user
    substituters are honoured.
 
@@ -71,13 +71,13 @@ machine <repo-host>
 ```
 
 Use a scoped API/identity token, never your account password. A missing or unreadable netrc
-shows up as `HTTP error 401` on a `.narinfo` while `nix-cache-info` still succeeds — the
+shows up as `HTTP error 401` on a `.narinfo` while `nix-cache-info` still succeeds - the
 cache-info endpoint is often readable anonymously, which makes the failure look inconsistent
 until you know this.
 
 ### Flake inputs
 
-Flake inputs are fetched from their source forge, not from the binary cache — but once locked,
+Flake inputs are fetched from their source forge, not from the binary cache - but once locked,
 their unpacked source *is* a store path, and a substituter that mirrors the public cache
 usually serves it. So a locked build often needs no forge access at all. When it does, either
 allow the forge specifically, or use a generic remote:
@@ -92,7 +92,7 @@ access-tokens = <repo-host>=<token>
 
 ---
 
-## 2. Rust — crates and the toolchain
+## 2. Rust - crates and the toolchain
 
 ### The crates index and downloads
 
@@ -109,7 +109,7 @@ replace-with = "mirror"
 registry = "sparse+https://<repo-host>/<path-to>/<crates>/index/"
 ```
 
-The trailing slash matters, and `sparse+` is required for an HTTP index — without it cargo
+The trailing slash matters, and `sparse+` is required for an HTTP index - without it cargo
 expects a git index and fails with a confusing clone error.
 
 If it needs credentials:
@@ -146,10 +146,10 @@ specific version to exist on the mirror. A remote that lazily caches on first re
 
 ---
 
-## 3. Python — pip, conda, and pixi
+## 3. Python - pip, conda, and pixi
 
 This repo uses **pixi** for Python-delivered tooling. Pixi resolves conda packages through
-rattler and PyPI packages through uv, so it has its own configuration — and the cleanest place
+rattler and PyPI packages through uv, so it has its own configuration - and the cleanest place
 for it is pixi's *global* config, which keeps mirror URLs out of the repo entirely:
 
 ```toml
@@ -206,7 +206,7 @@ Registry mirrors are usually reached as a **hostname prefix** rather than a conf
 <docker-mirror-host>/nixos/nix:2.35.2           instead of   nixos/nix:2.35.2
 ```
 
-On such a network an unprefixed reference does not fall back — it fails. This is why every
+On such a network an unprefixed reference does not fall back - it fails. This is why every
 image in this repo is a build argument:
 
 ```bash
@@ -216,7 +216,7 @@ docker build --target dev -t sutura-dev \
   --build-arg CARGO_REGISTRY_URL=https://<repo-host>/<path-to>/<crates>/index .
 ```
 
-Or put the values in a gitignored `.env` and let `compose.dev.yaml` pass them — see
+Or put the values in a gitignored `.env` and let `compose.dev.yaml` pass them - see
 `.env.example` for the full list of names.
 
 ---
@@ -243,7 +243,7 @@ image if it must trust an interception CA.
 ## 6. Proxy variables, if you must
 
 When there is no mirror for something, a proxy is the fallback. Set the lowercase and
-uppercase forms — different tools read different ones — and always set `no_proxy`, or internal
+uppercase forms - different tools read different ones - and always set `no_proxy`, or internal
 hosts get sent to the proxy and fail:
 
 ```bash
@@ -281,4 +281,4 @@ docker pull <docker-mirror-host>/nixos/nix:2.35.2
 ```
 
 If `nix-cache-info` returns `200` but a build reports `401`, the cache is readable anonymously
-while artifacts are not — go back to the netrc step in §1.
+while artifacts are not - go back to the netrc step in §1.

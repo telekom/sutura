@@ -52,14 +52,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Install Nix
-        run: |
-          set -eu
-          curl -fsSL https://nixos.org/nix/install | sh -s -- --no-daemon
-          printf '%s\n' "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
-          mkdir -p "$HOME/.config/nix"
-          printf 'experimental-features = nix-command flakes\naccept-flake-config = true\n' \
-            >> "$HOME/.config/nix/nix.conf"
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            fallback = true
 
       # advisories, bans, licences, sources - all four, against the current RustSec database.
       # The flake app supplies the PINNED cargo, so the audit reads the same dependency graph

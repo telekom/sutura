@@ -1,4 +1,4 @@
-# Hooks, run by `prek` (a single Rust binary — no Python runtime needed to lint Rust).
+# Hooks, run by `prek` (a single Rust binary - no Python runtime needed to lint Rust).
 # The config format is pre-commit's, so it stays reversible: `pre-commit` runs it too.
 #
 # Tiered by cost on purpose. A hook that takes 40 s on every commit gets disabled by the
@@ -99,7 +99,7 @@ repos:
 
       # Was `github.com/pre-commit/pre-commit-hooks`. That host is not reachable from every
       # network this repo is developed on, and an unfetchable hook is a hook that does not
-      # run — so conflict markers, trailing whitespace, final newlines and file size are
+      # run - so conflict markers, trailing whitespace, final newlines and file size are
       # checked by our own binary. `fmt` fixes the mechanical ones, including CRLF.
       #
       # check-yaml / check-toml are not reimplemented: every YAML and TOML file here is

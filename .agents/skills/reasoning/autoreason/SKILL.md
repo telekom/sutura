@@ -1,6 +1,6 @@
 ---
 name: autoreason
-description: Make the argument explicit before acting on it — state the claim, what would falsify it, and check it against the repo rather than against memory.
+description: Make the argument explicit before acting on it - state the claim, what would falsify it, and check it against the repo rather than against memory.
 ---
 
 # Autoreason
@@ -10,7 +10,7 @@ Skip it for mechanical work.
 
 ## The loop
 
-**1. State the claim as one sentence.** If you cannot, you do not have one yet — you have a
+**1. State the claim as one sentence.** If you cannot, you do not have one yet - you have a
 direction. Say that instead.
 
 **2. Say what would falsify it.** A claim with no falsifier is a preference. Write the
@@ -19,7 +19,7 @@ not exist, an error the system would emit.
 
 **3. Check the falsifier against the repo, not your memory.** Read the file. Run the command.
 Paste the pinned version. Prompt text, task notes and recall are routing information, not
-evidence — this is the step that most often flips the answer.
+evidence - this is the step that most often flips the answer.
 
 **4. Name the strongest alternative and why it loses.** Not a straw version. If you cannot
 state a real one, you have not looked.
@@ -41,7 +41,7 @@ plainly that nothing enforces it.
 
 ## Reporting
 
-Give the conclusion first, then the evidence, then what remains unverified — explicitly.
+Give the conclusion first, then the evidence, then what remains unverified - explicitly.
 "Verified X by running Y; Z is untested because W" is a usable answer. "Done" is not, unless
 everything was actually checked.
 
