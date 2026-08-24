@@ -70,6 +70,15 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
+      # finding in a file committed long ago reaches CI unseen - which is exactly what happened.
+      - id: secret-sweep
+        name: secrets, whole tree (as CI scans it)
+        entry: bash nix/run-gate.sh secrets
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: cargo-deny
         name: advisories, licences, bans, sources
         entry: bash nix/run-gate.sh supply-chain
@@ -99,7 +108,7 @@ repos:
         entry: >-
           sh -c 'command -v betterleaks >/dev/null 2>&1 ||
           { echo "betterleaks not on PATH - skipped here; CI enforces the scan"; exit 0; };
-          betterleaks git --pre-commit --redact --staged --verbose'
+          betterleaks git --pre-commit --config .gitleaks.toml --redact --staged --verbose'
         language: system
         pass_filenames: false
 

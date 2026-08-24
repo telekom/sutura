@@ -188,7 +188,7 @@ in
     check-guidance.exec = onStable "cargo run -q -p xtask -- check-guidance";
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
-    secrets.exec = "betterleaks dir . --redact --verbose";
+    secrets.exec = "betterleaks dir . --config .gitleaks.toml --redact --verbose";
     check-docs.exec = onStable "cargo run -q -p xtask -- check-docs";
     unused-deps.exec = onStable "cargo run -q -p xtask -- unused-deps";
 

@@ -1,0 +1,25 @@
+# betterleaks configuration.
+#
+# `useDefault = true` is load-bearing: a config file REPLACES the default rule set unless it
+# extends it, so omitting this would leave a scanner that reports nothing and a gate that
+# always passes - the worst possible failure mode for a secret check.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Vendored documentation: illustrative code, not credentials"
+# Scoped to PATHS rather than to a rule or a regex. `.agents/skills/**` is imported prose
+# whose sha256 `cargo xtask check-skills` verifies, so the usual escape hatch - a
+# `betterleaks:allow` comment on the offending line - is unavailable here: editing a
+# mirrored file to silence a scanner would make the recorded hash a lie.
+#
+# What actually tripped: 09_universal_guidelines.md in the Microsoft Rust guidelines shows
+# `let key = "REDACTED";` as an example of what NOT to write, and the `generic-api-key` rule
+# matched the literal. The file is documentation about avoiding hardcoded secrets.
+#
+# Deliberately narrow. Our own code and configuration are still scanned, which is the
+# point: this exempts imported prose, not the repository.
+paths = [
+    '''\.agents/skills/engineering/ms-rust/.*''',
+    '''\.agents/skill-library/.*''',
+]

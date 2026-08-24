@@ -184,7 +184,7 @@ docs-list:
 
 # Scan the whole worktree for secrets. The hook already covers each commit.
 secrets:
-    betterleaks dir . --redact --verbose
+    betterleaks dir . --config .gitleaks.toml --redact --verbose
 
 # Static analysis of the workflows.
 #

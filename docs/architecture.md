@@ -54,10 +54,9 @@ are the near-term targets. DuckDB covers local development and single-file work,
 is a Parquet file and there is no server to authenticate against. The trait is named
 `Warehouse`, which is the port's name and not a claim about what sits behind it.
 
-These are adapters. The core is the plan: a projection, a `GROUP BY`, a bounded date predicate,
-parameterized values and quoted identifiers, wrapped around a pinned statement that is spliced
-in without being parsed. What differs per data system is dialect, connection and how an
-identity is presented. What a metric means does not differ.
+These are adapters. What differs per data system is dialect, connection and how an identity is
+presented. Neither the plan nor what a metric means differs;
+[the semantic compiler](#the-semantic-compiler) decides both.
 
 A plan resolves to exactly one data system. Federation across two is not a smaller version of
 the same problem, it is a second identity to satisfy, and a plan that cannot run as one subject
@@ -87,19 +86,158 @@ result cache. Under row-level security, a cache keyed on the query text is a cro
 language from wherever the user found it, a manipulated agent is the expected case rather than
 the disaster case. The defence is not detecting the manipulation. It is that the most an
 attacker can make the agent emit is a different certified question, asked as the same caller,
-over the same pinned definitions, against the same authorization. There is no field in which
-"and also read the payroll table" can be written. The blast radius of a fully manipulated agent
-is the set of questions its caller could already ask.
+over the same pinned definitions, against the same authorization. The blast radius of a fully
+manipulated agent is the set of questions its caller could already ask.
 
 **Returned content is untrusted input.** Rows, column descriptions and glossary text are all
 authored by somebody else, and any of it can contain something shaped like an instruction. A
 delimiter does not separate instruction from data, because the content can contain the
-delimiter; nor does a prefix, a marker, or a preamble announcing that what follows is
-untrusted. So the boundary is a constraint on the wire format rather than a convention in
-prose. Results leave as Arrow, in their own frame, with provenance in the schema metadata: a
-typed field a caller reads deliberately, never a string concatenated into the channel that
-carries instructions. Descriptive text from the catalogue travels the same way. Both wire
-envelopes share one encoder, so neither transport can grow a text-blob shortcut on its own.
+delimiter, and neither does a preamble announcing that what follows is untrusted. So the
+boundary is a constraint on the wire format rather than a convention in prose. Results leave as
+Arrow, in their own frame, with provenance in the schema metadata: a typed field a caller reads
+deliberately, never a string concatenated into the channel that carries instructions.
+Descriptive text from the catalogue travels the same way. Both wire envelopes share one encoder,
+so neither transport can grow a text-blob shortcut on its own.
+
+## The semantic compiler
+
+`sutura-semantic` turns a modelled question into one statement for one data system. It does not
+exist yet: the crate is in the table in `AGENTS.md` and nothing compiles it. The stages below are
+the design.
+
+A question names a metric, some dimensions, a grain and a bounded time range. Dimension values
+are arguments, checked against an allowlist in the pinned bundle. What comes out is a statement
+and the values bound to it. Nothing in between is text a caller wrote.
+
+**Resolve.** Every name in the question is looked up in the pinned snapshot. The metric has to
+exist, each dimension has to be one that metric declares, the grain has to be one it supports,
+the range has to be bounded. The lookup goes to the pinned bundle and never to a live catalogue
+read, which is what makes the answer independent of what the catalogue says at the moment of
+asking. Out comes a set of definitions, or a refusal naming the argument that failed.
+
+**Plan.** The resolved question becomes a plan: which data system owns the metric, the
+projection, the grouping keys, the date predicate and its bounds, and which values become bind
+parameters. Two things are settled here and nowhere else. The plan names exactly one source, so
+a question that would need two identities is refused before anything runs rather than half
+executed. And every value from the question becomes a parameter, so no caller-supplied value
+reaches the next stage as text. The plan holds no SQL: no quoting, no function names, no dialect.
+
+**Generate.** The plan becomes one statement in one dialect. The dialect decides identifier
+quoting, placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only
+stage that emits SQL, and what it emits is a wrapper: a projection, a `GROUP BY`, a bounded date
+predicate, parameterized values, quoted identifiers. That is all of it.
+
+### The splice
+
+The certified statement is spliced into that wrapper as a derived table, byte for byte, without
+being parsed. It is the decision that separates this from a SQL generator.
+
+The statement is authored upstream by the semantic layer that renders it, and it arrives as text
+with a digest. sutura puts it in the `FROM ( ... )` position and generates around it. It does not
+read it, rewrite it, transpile it, or push a predicate into it.
+
+Parsing it would mean re-emitting it, and re-emitting it substitutes our reading of the statement
+for the author's. Every round trip through an AST is a chance to change the number quietly: a
+window frame read slightly differently, a null ordering normalized, an implicit cast made
+explicit. The digest would not move, because it covers the text we were handed rather than the
+SQL we produced, so the change would be invisible in the one place this design exists to make
+visible. Byte-for-byte passthrough is what keeps "certified" true after compilation.
+
+The cost is real and worth stating. Nothing is optimized across the splice boundary: a predicate
+in the wrapper filters the statement's output, not its input. The statement's column types are
+not known without asking the data system. And the statement has to be valid in the dialect it
+will run in, because the splice does not translate it, which makes the data system part of what
+the definition means rather than a deployment choice.
+
+The paragraph above is not what holds any of this. SQL goldens are regenerated and reviewed as a
+diff rather than typed, and they assert the passthrough byte for byte. An anchor test re-executes
+each pinned statement in CI and at startup, and a failure there fails readiness. One gap is open
+and recorded in `AGENTS.md`: no lint yet bans a transpile call on the query path, so review is
+what catches one until a lint does.
+
+## Where the parts come from
+
+Every system of this kind runs the same line: **semantic layer, plan, federation, dialect,
+execution**. The projects worth reading sit at different points on it. The last stage is the one
+none of them covers.
+
+```mermaid
+flowchart TB
+    Q["a modelled question<br>metric, dimensions, grain, range"]
+    SL["semantic layer<br>what the metric means<br>upstream; Wren is the reference shape"]
+    PL["plan<br>one source, projection, grouping,<br>bounds, parameters<br>DataFusion is the natural substrate"]
+    FD["federation<br>which subplan its owner runs<br>datafusion-federation, as Spice uses it"]
+    DI["dialect<br>quoting, placeholders, date arithmetic<br>polyglot"]
+    EX["execution<br>as the calling principal<br>nothing above provides this"]
+    ST(["the certified statement,<br>spliced in as a derived table,<br>never parsed"])
+    A["Arrow, with provenance in the schema"]
+
+    Q --> SL --> PL --> FD --> DI --> EX --> A
+    SL -.->|bytes| ST
+    ST -.-> DI
+```
+
+**The semantic layer decides what a question means.** [Wren](https://github.com/Canner/WrenAI) is
+the reference for that shape: a modelling language, an engine that analyses and plans against it,
+and MCP as the way an agent asks. Wren models the tables and derives a metric's SQL from the
+model. We take the metric's statement as given and refuse to look inside it, which is a narrower
+job and a different guarantee. Wren also carries access rules in the model, and that is a policy
+copy in the middle tier - the thing
+[this design declines to keep](#security-is-the-reason-for-the-shape).
+
+**The plan is where a question stops being text.** [DataFusion](https://datafusion.apache.org/)
+is what Wren and Spice both build on: a logical plan representation, an optimizer you extend with
+rules, execution over Arrow, and extension points for table providers and functions. We do not
+use it. `sutura-domain` names no framework - not tokio, not arrow, not datafusion - and the query
+path is not built, so the first plan will be a small type in `sutura-semantic`. DataFusion is the
+natural substrate for the stage after that, and what would make it worth adopting is the
+optimizer and the federation rule below, not the SQL frontend. Which is worth noticing: the half
+of DataFusion most projects reach for first is the half we would leave switched off, because
+accepting SQL is the thing this system refuses to do.
+
+**Federation decides where a subplan runs, and here that is a security question.**
+[datafusion-federation](https://github.com/datafusion-contrib/datafusion-federation) registers an
+optimizer rule that finds the largest subplan a single remote source can execute and hands it to
+that source to run. The property we want is not latency. A predicate pushed into ClickHouse or
+Postgres is evaluated by ClickHouse or Postgres, under the caller's own grants, row-level
+policies and column masking. Rows excluded there never enter this process, so there is nothing
+here to re-authorize, which is how
+[authorization stays in the data system](#security-is-the-reason-for-the-shape) once a question
+reaches more than one table. Pull the rows up and filter them locally and the filtering is ours,
+and a second implementation of a policy is what we said we would not keep. So federation arrives
+after per-leg identity rather than before it:
+[a plan resolves to one data system](#data-systems-are-behind-a-second-port) today, and a
+federated plan whose legs cannot all run as one subject is refused rather than run partly as
+somebody else.
+
+**The dialect stage is one plan and many adapters.**
+[polyglot](https://github.com/tobilg/polyglot) is a Rust transpiler between more than thirty SQL
+dialects, MIT-licensed, with ClickHouse, Postgres and DuckDB all on its list. The wrapper is
+exactly its shape of problem: a projection, a `GROUP BY` and a date predicate, rendered per data
+system. It must not touch the splice. A transpiler is a parse followed by a re-emit, and that is
+the one operation the certified statement is never subjected to, so the boundary is that polyglot
+may render what we generated while the pinned bytes pass through untouched. Today that boundary
+is a review rule, not a lint.
+
+**Execution is where the caller's identity has to arrive.**
+[Spice](https://github.com/spiceai/spiceai) comes closest to everything above it: Rust,
+Apache-2.0, DataFusion-based, federating across thirty-odd connectors and accelerating them by
+materializing into Arrow, DuckDB, SQLite or Postgres on an interval, a trigger or a change
+stream. The federation half is what we want, and better exercised than anything we will write
+soon. The acceleration half is what we cannot take: a materialized copy is read under whoever
+refreshed it, so under row-level security it is a cross-user leak with a refresh schedule. That
+is the same reason there is no result cache. Spice's front door is also SQL, where ours has no
+field for it.
+
+| Stage | Decided there | Ours or theirs |
+| --- | --- | --- |
+| Semantic layer | what a metric means | Neither. Authored upstream, arriving pinned; Wren is the reference shape |
+| Plan | source, projection, grouping, bounds, parameters | Build first, adopt later: a type in `sutura-semantic`, DataFusion when a type stops being enough |
+| Federation | which subplan its owner runs | Adopt, once a credential exists per leg |
+| Dialect | quoting, placeholders, date arithmetic | Adopt for the wrapper, never for the splice |
+| Execution | the connection, and which principal the data system sees | Build. One adapter per data system, and the per-request credential is the part nothing above provides |
+
+That last row is why this is a repository rather than a configuration file for one of the others.
 
 ## Hexagonal by construction
 

@@ -20,6 +20,7 @@ mod repo;
 mod skills;
 mod text;
 mod unused_deps;
+mod workflows;
 
 use std::process::ExitCode;
 
@@ -129,6 +130,12 @@ const TASKS: &[Task] = &[
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene,
         run: guidance::run,
+    },
+    Task {
+        name: "check-workflows",
+        description: "every flake output a workflow names exists",
+        kind: Kind::Hygiene,
+        run: workflows::run,
     },
     Task {
         name: "check-docs",
