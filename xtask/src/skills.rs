@@ -19,6 +19,9 @@ use crate::repo;
 
 const SKILLS_DIR: &str = ".agents/skills";
 const ROUTER: &str = ".agents/skills/skill-router.json";
+/// The non-discoverable tier. Not routed by design, so `check-skills` cannot demand a route -
+/// but it can demand the one thing that makes an import maintainable.
+const LIBRARY_DIR: &str = ".agents/skill-library";
 
 /// `name` and `description` from a `SKILL.md` YAML frontmatter block.
 ///
@@ -118,6 +121,61 @@ fn intent_targets(text: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// How many library skills there are, for the verdict line.
+fn library_count(root: &Path) -> usize {
+    let Ok(groups) = std::fs::read_dir(root.join(LIBRARY_DIR)) else {
+        return 0;
+    };
+    groups
+        .flatten()
+        .filter_map(|g| std::fs::read_dir(g.path()).ok())
+        .map(|skills| skills.flatten().filter(|s| s.path().join("SKILL.md").is_file()).count())
+        .sum()
+}
+
+/// Library skills are exempt from routing but not from provenance. An imported skill with no
+/// upstream recorded cannot be updated, audited for licence, or compared against upstream
+/// later - which is how a mirror silently becomes a fork nobody can reconcile.
+fn library_problems(root: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+    let dir = root.join(LIBRARY_DIR);
+    let Ok(groups) = std::fs::read_dir(&dir) else {
+        return problems;
+    };
+    for group in groups.flatten() {
+        if !group.file_type().is_ok_and(|t| t.is_dir()) {
+            continue;
+        }
+        let Ok(skills) = std::fs::read_dir(group.path()) else {
+            continue;
+        };
+        for skill in skills.flatten() {
+            let manifest = skill.path().join("SKILL.md");
+            if !manifest.is_file() {
+                continue;
+            }
+            let rel = format!(
+                "{}/{}",
+                group.file_name().to_string_lossy(),
+                skill.file_name().to_string_lossy()
+            );
+            let Ok(body) = std::fs::read_to_string(&manifest) else {
+                problems.push(format!("could not read `{LIBRARY_DIR}/{rel}/SKILL.md`"));
+                continue;
+            };
+            if !body.contains("## Provenance") {
+                problems.push(format!(
+                    "`{LIBRARY_DIR}/{rel}/SKILL.md` has no `## Provenance` section - record the upstream, licence and local status"
+                ));
+            }
+            if !frontmatter(&body).contains_key("name") {
+                problems.push(format!("`{LIBRARY_DIR}/{rel}/SKILL.md` has no `name` in its frontmatter"));
+            }
+        }
+    }
+    problems
+}
+
 pub(crate) fn run() -> ExitCode {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-skills: could not determine the repo root");
@@ -165,6 +223,7 @@ pub(crate) fn run() -> ExitCode {
             problems.push(format!("an intent routes to `{target}`, which no group lists"));
         }
     }
+    problems.extend(library_problems(&root));
 
     // The frontmatter `name` is the identifier a route and an agent use; a mismatch makes the
     // route look right and read wrong.
@@ -190,7 +249,11 @@ pub(crate) fn run() -> ExitCode {
     }
 
     if problems.is_empty() {
-        println!("xtask check-skills: ok - {} skill(s), router and tree agree", present.len());
+        println!(
+            "xtask check-skills: ok - {} routed, {} in the library, all with provenance",
+            present.len(),
+            library_count(&root)
+        );
         return ExitCode::SUCCESS;
     }
 

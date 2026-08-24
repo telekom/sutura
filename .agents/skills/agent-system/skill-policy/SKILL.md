@@ -7,7 +7,7 @@ description: When an external skill belongs in this repo, how to record its prov
 
 ## Provenance
 
-- Upstream: `jubust`'s `agent-system/jubust-external-skill-policy` (private repo)
+- Upstream: an external-skill policy from a sibling private repo
 - Local status: **adapted** - the classification and provenance rules are upstream's idea; the
   inclusion bar, the two-tier layout and the enforcement are ours
 

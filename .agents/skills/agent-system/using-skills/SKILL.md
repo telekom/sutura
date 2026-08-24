@@ -7,8 +7,8 @@ description: How to pick a skill and how to behave regardless of which one is lo
 
 ## Provenance
 
-- Upstream: `github.com/addyosmani/agent-skills`, `skills/using-agent-skills/SKILL.md`, via
-  `jubust`'s normalized copy
+- Upstream: `github.com/addyosmani/agent-skills`, `skills/using-agent-skills/SKILL.md`, via a
+  normalized copy in a sibling private repo
 - Licence: MIT
 - Local status: **adapted** - the phase-routing idea and the operating behaviours are
   upstream's; the routing table is this repo's, and the "prove it" rules are ours

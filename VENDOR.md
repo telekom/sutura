@@ -19,5 +19,7 @@ documentation, guidance, fixtures - which no dependency check can see.
 | `.agents/skills/agent-system/skill-policy/SKILL.md` | a private repo's external-skill policy | - | - | 2026-08-24 | **adapted.** Classification and provenance rules are the upstream idea; the two-tier layout, the inclusion bar and the `check-skills` enforcement are ours. |
 | `.github/pull_request_template.md`, `.github/ISSUE_TEMPLATE/*` | a private repo's PR template | - | - | 2026-08-24 | **adapted.** The review-snapshot / what / why / how-to-review / validation shape is the upstream idea. Dropped its visual-evidence machinery (no UI here); added the test-causality and invariants sections, which are this repo's distinctive requirements. |
 
+| `.agents/skill-library/**/SKILL.md` (20 skills) | `github.com/addyosmani/agent-skills` | MIT | `5a5ea45e806f82273549fd85e60adb95d55f510d` | 2026-08-21 | **mirror.** Imported as-is into the non-discoverable library tier, each with its own `## Provenance` block; `cargo xtask check-skills` fails if one lacks it. Not imported, deliberately: `frontend-ui-engineering` and `browser-testing-with-devtools` (no UI here), `using-agent-skills` (adapted into the active tier instead), `interview-me` (personal rather than repo workflow). |
+
 No source code is vendored at present. When it is, record the upstream commit here and keep
 the upstream licence text alongside the code, not only in this table.
