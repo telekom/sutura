@@ -22,6 +22,7 @@ disagree, in either direction.
 | find out why something fails | `engineering/README.md` |
 | validate a token or authorize on claims | `engineering/README.md` |
 | obtain a token: flow, PKCE, storage, logout | `engineering/README.md` |
+| split dependent changes into reviewable PRs | `git-ops/README.md` |
 | decide between approaches, or check my own reasoning | `reasoning/README.md` |
 
 ## Groups
@@ -29,6 +30,7 @@ disagree, in either direction.
 | Group | Scope |
 | --- | --- |
 | `engineering/` | Rust in this workspace, debugging, and both halves of OAuth 2.x / OIDC. |
+| `git-ops/` | Stacked branches: dependent changes as separate reviewable PRs. |
 | `reasoning/` | Structured reasoning: making the argument explicit before acting on it. |
 
 `AGENTS.md` remains the root of trust for repo invariants. A skill refines *how* to work

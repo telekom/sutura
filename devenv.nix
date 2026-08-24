@@ -53,7 +53,13 @@ in
     prek
 
     # Stacked branches - this plan is a chain of dependent changes by construction.
+    # `stax` rebases a stack; `gh-stack` describes one (PR bodies and cross-links) for a
+    # stack that was built by hand. See the `stacked-branches` skill.
     stax
+    gh-stack
+
+    # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
+    gh
 
     # Python lives behind pixi only; this is just the launcher.
     pixi
