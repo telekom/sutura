@@ -87,7 +87,7 @@ prek run --all-files                                 # hooks (config: .pre-commi
 nix build .#oci                                      # the release image
 nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
 nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
-pixi run <task>                                      # hooks and skill sync only
+pixi run --frozen <task>                                    # hooks and skill sync only
 just update                                          # bump flake.lock, pixi.lock, Cargo.lock
 stax                                                 # stacked branches / PRs
 ```

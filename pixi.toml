@@ -56,6 +56,13 @@ python = ">=3.13,<3.14"
 # could then move a gate's version. Separate solve, separate env, no interaction.
 [feature.docs.dependencies]
 # The site generator and the theme.
+#
+# The `<2` ceiling is a DECISION, not caution. Material for MkDocs prints a warning on every
+# build about what MkDocs 2.0 does, and three of its points rule it out here: the plugin system
+# is removed, so mike and every extension we use stop working; there is no migration path; and
+# it is currently UNLICENSED, which a public Apache-2.0 repo cannot depend on at all. There is
+# also no Material release targeting it. Raise this ceiling only when Material itself does.
+# https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
 mkdocs = ">=1.6.1,<2"
 mkdocs-material = ">=9.7,<10"
 # The versioned publisher. mike writes each version into its own directory on `gh-pages`,

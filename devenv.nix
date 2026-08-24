@@ -199,8 +199,8 @@ in
     # proves the nav and the files on disk agree in both directions.
     # Through pixi's isolated `docs` environment - see the note in flake.nix beside
     # `apps.pixi`. The toolchain is Python and pixi is the one resolver for Python.
-    docs.exec = "pixi run -e docs docs";
-    docs-serve.exec = "pixi run -e docs docs-serve";
+    docs.exec = "pixi run --frozen -e docs docs";
+    docs-serve.exec = "pixi run --frozen -e docs docs-serve";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
     # dead dependency should fail in seconds, not after clippy and the test suite.

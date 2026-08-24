@@ -424,7 +424,7 @@
           program = "${pkgs.git-cliff}/bin/git-cliff";
         };
         # No mkdocs or mike app, deliberately. The docs toolchain is Python, and it lives in
-        # pixi's isolated `docs` environment - `pixi run -e docs docs` / `docs-deploy`.
+        # pixi's isolated `docs` environment - `pixi run --frozen -e docs docs`.
         #
         # It WAS here, as a `python3.withPackages`, and it did not work: mike shells out to
         # `mkdocs`, and the composed environment produced an mkdocs that ran but could not

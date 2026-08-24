@@ -139,7 +139,7 @@ so a proxy exported in your shell changes nothing. It belongs in the daemon's en
 curl -fsS https://<host>/<path>/<nix-cache>/nix-cache-info
 nix build --print-out-paths nixpkgs#hello        # the part that needs credentials
 curl -fsS https://<host>/<path>/<crates>/index/config.json
-pixi run python -c "print('ok')"
+pixi run --frozen python -c "print('ok')"
 docker pull <docker-mirror>/nixos/nix:2.35.2
 ```
 

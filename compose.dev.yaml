@@ -43,6 +43,16 @@ services:
       HTTP_PROXY: ${HTTP_PROXY_URL:-}
       HTTPS_PROXY: ${HTTP_PROXY_URL:-}
       NO_PROXY: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
+      # A GitHub token, if the host has one. `gh`, `stax`, `gh-axi` and zizmor all read these,
+      # and without the passthrough each is unauthenticated inside the container while working
+      # fine outside it.
+      #
+      # NO VALUE, deliberately. `${GH_TOKEN:-}` was written first and it sets the variable to
+      # an EMPTY STRING when the host has none - and empty is not the same as absent: zizmor
+      # exits with `invalid value '' for '--gh-token'`. A bare key passes the host value
+      # through when it exists and leaves the variable unset when it does not.
+      GH_TOKEN:
+      GITHUB_TOKEN:
     stdin_open: true
     tty: true
 

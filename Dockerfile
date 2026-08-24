@@ -85,6 +85,17 @@ ENV PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/
 # already exported above, so apt inherits them.
 RUN set -eu;     apt-get update;     apt-get install -y --no-install-recommends       ca-certificates       curl       git       xz-utils;     rm -rf /var/lib/apt/lists/*
 
+# PATH for LOGIN shells too. `ENV PATH` above covers every process Docker starts, but
+# Debian's /etc/profile ASSIGNS PATH rather than appending, so `bash -l` - this container's
+# CMD, and what `docker compose run ... bash -lc` asks for - dropped the nix entries and
+# reported `nix: command not found`. The nixos/nix image carried these in its own profile,
+# so nothing had to say it there.
+RUN set -eu; \
+    { \
+      echo 'export PATH="/root/.nix-profile/bin:/nix/var/nix/profiles/default/bin:/nix/var/nix/profiles/default/sbin:$PATH"'; \
+      echo 'export NIX_SSL_CERT_FILE=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt'; \
+    } > /etc/profile.d/nix.sh
+
 ARG HTTP_PROXY_URL=""
 ARG NO_PROXY_LIST="localhost,127.0.0.1,::1"
 # ONE substituter, deliberately. A second was added here on the theory that nixpkgs `devenv`

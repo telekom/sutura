@@ -79,7 +79,7 @@ gates                   # hygiene + fmt + clippy + tests + deny
 ship-check              # the finishing sequence, on the committed branch diff
 prek run --all-files    # the hooks
 nix build .#oci         # the release image
-pixi run zizmor         # workflow static analysis
+nix run .#zizmor        # workflow static analysis (nix pins it, not pixi)
 ```
 
 `--all-features` is not optional: adapters are feature-gated and default-off, so a bare

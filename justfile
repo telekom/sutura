@@ -165,20 +165,20 @@ build-all:
 # could not import pymdownx from the mkdocs it subprocessed - two resolvers, one interpreter.
 # The env is isolated so mkdocs-material's dependency tree cannot perturb the linters' solve.
 docs:
-    pixi run -e docs docs
+    pixi run --frozen -e docs docs
 
 # Serve the site with live reload.
 docs-serve:
-    pixi run -e docs docs-serve
+    pixi run --frozen -e docs docs-serve
 
 # Publish one version to gh-pages. CI does this on push and on a tag; this reproduces it
 # locally, and `--push` is deliberately absent so a local run cannot publish by accident.
 docs-deploy version="local":
-    pixi run -e docs docs-deploy {{ version }}
+    pixi run --frozen -e docs docs-deploy {{ version }}
 
 # What is published, per mike.
 docs-list:
-    pixi run -e docs docs-list
+    pixi run --frozen -e docs docs-list
 
 # ------------------------------------------------------------------ tooling ---
 
