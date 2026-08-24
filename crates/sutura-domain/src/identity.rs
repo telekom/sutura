@@ -1,17 +1,31 @@
-//! Credential-shaped values whose `Debug` never reveals them.
+//! Who a request runs as, and the credential material that proves it.
 //!
-//! The redaction is the point, so it has a test. A secret that reaches a log through
-//! `{:?}` is not recoverable once shipped, and every structured-logging call site is a
-//! chance for it - so the type, not the call site, is where this is fixed.
+//! Named for the concept rather than for the mechanism it currently uses. `redact` was the
+//! earlier name, and it described one property of one type - so the module could not hold
+//! the principal chain, the request context or the `CredentialBroker` port that belong beside
+//! it, and every one of those would have arrived somewhere else.
+//!
+//! The redaction is the point of [`Secret`], so it has a test. A secret that reaches a log
+//! through `{:?}` is not recoverable once shipped, and every structured-logging call site is
+//! a chance for it - so the type, not the call site, is where this is fixed.
 
 use std::fmt;
 
 /// An opaque secret. `Debug` prints a placeholder; the value is reachable only by an
 /// explicit, greppable call to [`Secret::expose`].
-#[derive(Clone, PartialEq, Eq)]
+///
+/// Deliberately NOT `PartialEq`/`Eq`. A derived comparison on credential material is a
+/// byte-wise one that returns early on the first difference, which is a timing oracle at
+/// whatever call site adds it later - and the call site is where it would be invisible.
+/// Nothing here needs to compare secrets; when something does, it arrives with a
+/// constant-time implementation and a name that says so, not with a derive. Until then the
+/// absence of the impl is the enforcement: `a == b` on a `Secret` does not compile.
+#[derive(Clone)]
 pub struct Secret(String);
 
 impl Secret {
+    /// Infallible on purpose: every string is a valid secret. There is no invariant here
+    /// beyond opacity, and a constructor that returned `Result` would be inventing one.
     pub fn new(value: impl Into<String>) -> Self {
         Self(value.into())
     }

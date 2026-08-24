@@ -4,7 +4,7 @@
 //! toolchain resolves, the workspace compiles, the gates run, and a release image builds
 //! and runs. Behaviour arrives with the milestone that needs it.
 
-use sutura_domain::redact::Secret;
+use sutura_domain::identity::Secret;
 
 fn main() {
     let mut args = std::env::args().skip(1);

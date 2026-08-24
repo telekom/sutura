@@ -1,4 +1,13 @@
-//! The dependency-boundary gate: the domain crate acquires no framework dependency.
+//! The architecture-boundary gate. Two halves, because the hexagon's boundary has two sides
+//! and only one of them was ever checked:
+//!
+//! * which way dependencies point - the domain crate acquires no framework dependency (here)
+//! * what the crossing looks like - a library's types and errors are a typed contract, not a
+//!   struct with public fields returning `Result<_, String>` (`api_shape`)
+//!
+//! One gate rather than two, because both answer "is the boundary real?", and because a rule
+//! in its own task has to be transcribed into the justfile, twice into devenv.nix, into
+//! flake.nix and into a hook before it runs anywhere.
 //!
 //! An ALLOWLIST over the whole transitive tree, not a denylist over direct dependencies. Two
 //! corrections to how this started, both found by review:
@@ -9,6 +18,8 @@
 //! * A denylist only catches what somebody thought to name. `tower`, `tonic`, `rustls`,
 //!   `sqlx` and everything else were permitted. Inverting it means a new dependency is a
 //!   one-line diff to the list below - visible, arguable, and impossible to miss.
+
+mod api_shape;
 
 use std::collections::BTreeSet;
 
@@ -95,6 +106,19 @@ fn violations(tree: &BTreeSet<String>) -> Vec<&String> {
 }
 
 pub(crate) fn run(_args: &[String]) -> Verdict {
+    // Both halves run even when the first fails. They are independent findings, and a gate
+    // that stops early makes the second violation look like it appeared after the first fix.
+    let direction = dependency_direction();
+    let surface = typed_surface();
+    if direction == Verdict::Pass && surface == Verdict::Pass {
+        Verdict::Pass
+    } else {
+        Verdict::Fail
+    }
+}
+
+/// Which way dependencies point: nothing framework-shaped is reachable from the domain.
+fn dependency_direction() -> Verdict {
     // `--all-features` for the same reason every other gate uses it: adapters are default-off,
     // so the default graph is nearly empty and would hide exactly what this checks.
     let meta = match crate::cargo_metadata(&["--all-features"]) {
@@ -127,11 +151,38 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("  {name}");
     }
     eprintln!();
-    eprintln!("The domain holds types and ports. A dependency it can reach - directly or");
-    eprintln!("transitively - is one every domain test pays for and one the hexagon leaks.");
-    eprintln!("If it genuinely belongs, add it to ALLOWED_IN_DOMAIN with the reason: that is");
-    eprintln!("an architecture decision and should be a visible diff.");
+    eprintln!("The domain holds the types, and the port traits that arrive with the first");
+    eprintln!("adapter. A dependency it can reach - directly or transitively - is one every");
+    eprintln!("domain test pays for and one the hexagon leaks. If it genuinely belongs, add it");
+    eprintln!("to ALLOWED_IN_DOMAIN with the reason: that is an architecture decision and");
+    eprintln!("should be a visible diff.");
     Verdict::Fail
+}
+
+/// What the crossing looks like: a library's types and errors are a typed contract.
+fn typed_surface() -> Verdict {
+    match api_shape::check() {
+        Err(message) => {
+            eprintln!("xtask check-boundaries: {message}");
+            Verdict::Fail
+        }
+        Ok(report) if report.problems.is_empty() => {
+            println!(
+                "xtask check-boundaries: ok - {} library source file(s), typed surface intact",
+                report.files
+            );
+            Verdict::Pass
+        }
+        Ok(report) => {
+            eprintln!("xtask check-boundaries: FAILED - a library crate's contract is not typed:");
+            for problem in &report.problems {
+                eprintln!("  {problem}");
+            }
+            eprintln!();
+            api_shape::explain();
+            Verdict::Fail
+        }
+    }
 }
 
 #[cfg(test)]

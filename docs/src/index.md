@@ -56,5 +56,4 @@ yet - see [Architecture](architecture.md) for what exists on disk versus what is
 | Set up a machine and run the checks | [Getting started](getting-started.md) |
 | Build behind a proxy or with no direct egress | [Enterprise mirrors](enterprise-mirrors.md) |
 | Understand the crate layout | [Architecture](architecture.md) |
-| Know what is guaranteed, and by what | [Invariants](invariants.md) |
-| Know what CI will reject | [The gates](gates.md) |
+| Know what is guaranteed, and by what | `AGENTS.md` in the repository |

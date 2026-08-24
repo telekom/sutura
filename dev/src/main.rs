@@ -314,7 +314,7 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
 
     println!();
     if missing_required {
-        println!("Something required is missing. See documentation/getting-started.md.");
+        println!("Something required is missing. See docs/src/getting-started.md.");
         return ExitCode::FAILURE;
     }
     println!("Ready. `sutura-dev ports` shows this worktree's service ports.");

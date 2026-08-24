@@ -7,7 +7,7 @@ license.workspace = true
 repository.workspace = true
 # Not published to a registry: sutura ships as an OCI image, not as crates.
 publish = false
-description = "Types and port traits. No framework dependencies, by design and by CI check."
+description = "Domain types today, port traits with the first adapter. No framework dependencies, by CI check."
 
 [dependencies]
 serde = { workspace = true }

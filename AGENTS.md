@@ -28,12 +28,14 @@ case - it cannot catch a paraphrase. **The control is not writing it down here.*
 
 ## Layout
 
-The directory structure is the architecture: `sutura-domain` holds types and ports, everything
-else is an adapter, and nothing depends on an adapter.
+The directory structure is the architecture: `sutura-domain` is the hexagon's interior, everything
+else is an adapter, and nothing depends on an adapter. It holds the domain types today; each port
+trait arrives with the adapter that implements it, because a trait with no implementor is a guess
+at a signature and `pub` hides it from `dead_code`.
 
 | Crate | Role |
 | --- | --- |
-| `sutura-domain` | Types + port traits. No framework deps - no tokio, axum, rmcp, datafusion, arrow |
+| `sutura-domain` | Domain types; a port trait per adapter, as adapters land. No framework deps - no tokio, axum, rmcp, datafusion, arrow |
 | `sutura-semantic` | `Query` → plan → `GeneratedQuery` |
 | `sutura-app` | The service; generic over ports, holds no framework types |
 | `sutura-catalog-local` / `-datahub` | `SemanticCatalog` adapters (git YAML / catalog) |
@@ -41,7 +43,7 @@ else is an adapter, and nothing depends on an adapter.
 | `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
 | `sutura-mcp` / `sutura-http` | Transport only, no business logic |
 | `sutura-cli` | The binary; composes adapters |
-| `xtask` | The repo gates: boundary check, file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
+| `xtask` | The repo gates: boundary check (dependency direction, and the typed surface of a library crate), file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
 
 Adapters are feature-gated and default-off, so `cargo nextest run -p sutura-domain` compiles no heavy
 dependency. Keep it that way: its test suite should run in well under a second.
@@ -120,7 +122,10 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | No result cache | Under row-level security a query-keyed cache is a cross-user leak. *No mechanism can prove an absence: adding any cache of rows is an architecture decision, keyed on subject first or not at all* |
 | No panic path reachable from input | `unwrap_used` / `expect_used` / `panic` / `indexing_slicing` denied for library crates in `clippy.toml`, exempt in tests; `panic = "abort"` on shipped profiles |
 | A credential cannot be logged by accident | Credential-shaped types are newtypes with a hand-written `Debug`, plus a unit test asserting the secret is absent from `{:?}` |
-| The domain acquires no framework dependency | The dependency-boundary check in `xtask`, run by `gates` and in CI |
+| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` on one does not compile. A derived comparison is byte-wise and returns on the first difference, which is a timing oracle at whatever call site adds it - and the call site is where it would be invisible. A real comparison arrives with a constant-time implementation and a name that says so |
+| The domain acquires no framework dependency | The dependency-boundary half of the boundary check in `xtask`, run by `gates` and in CI. An **allowlist** over the whole transitive tree, so a framework reached through an innocuous crate fails it too |
+| A newtype's invariant cannot be walked around | The field is private and the constructor is the only way in, so a violating value is unrepresentable rather than merely rejected. The typed-surface half of the boundary check fails a `pub` field on a `pub struct` in a library crate. `serde` is routed through the constructor with `#[serde(try_from = ..)]`, because a derived `Deserialize` writes past it - *Gap: that routing is not itself checked; review catches it until a gate does* |
+| A library crate's errors are typed, not prose | The typed-surface half of the boundary check fails a `Result<.., String>` or a declared dynamic-error crate (`anyhow`, `eyre`) in any crate with a `[lib]` target. Binaries are deliberately exempt: there the error's audience is a human reading stderr. *Gap: it is line-scoped, so a signature wrapped across lines escapes it* |
 | No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `.max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
 | No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody - an entry nothing inherits pins nothing |
 | No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
@@ -218,6 +223,13 @@ Do not skip it silently.
 - Rust 2024, linting via pre-commit hooks
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `test:`, `docs:`)
 - Ports get **fakes**, not mocked HTTP - that is what lets the whole tool surface, refusals included, be tested without a warehouse. A test asserting on source text proves nothing.
+- Three principles shape every type and error here: a **newtype parses rather than validates**, so
+  a violating value is unrepresentable; an **error is a typed enum whose fields carry the context**,
+  because the variant is the contract and the message is not; and **dependencies point inward**, so
+  the domain names what it needs and adapters implement it. The parts with a mechanism are rows in
+  the Invariants table above. The rest is **advisory - review catches it or nothing does**, and
+  `.agents/skills/engineering/rust/SKILL.md` marks which is which, line by line, with the source
+  each rule comes from.
 
 ## Where Detailed Guidance Lives
 
@@ -228,7 +240,8 @@ Do not skip it silently.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.
 - `.max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
-- `xtask/` - the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`,
+- `xtask/` - the gates: `check-boundaries` (two halves: which way dependencies point, and whether a
+  library crate's types and errors are a typed contract), `max-lines`, `unused-deps`, `line-endings`,
   `text-hygiene`, `commit-msg`, `check-skills`, `check-docs`, `test-causality`, plus `classify` /
   `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
   run everything and say why, because the expensive failure is a new directory being skipped

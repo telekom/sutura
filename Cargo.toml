@@ -1,11 +1,14 @@
 # sutura - workspace root.
 #
-# The directory layout IS the architecture: `crates/sutura-domain` holds types and port
-# traits only, every other crate is an adapter that depends on it, and nothing depends on
-# an adapter. That rule is machine-checked - `cargo xtask check-boundaries`.
+# The directory layout IS the architecture: `crates/sutura-domain` is the hexagon's interior -
+# domain types today, plus a port trait for each adapter as adapters land - every other crate
+# is an adapter that depends on it, and nothing depends on an adapter. That rule is
+# machine-checked - `cargo xtask check-boundaries`, which also fails a library crate whose
+# types or errors stop being a typed contract.
 #
 # Crates arrive with the milestone that needs them rather than as empty placeholders: an
-# empty crate is a compile target and a maintenance surface for no value.
+# empty crate is a compile target and a maintenance surface for no value. So does a port
+# trait: with no adapter to invert, its signature is a guess.
 
 [workspace]
 resolver = "3"

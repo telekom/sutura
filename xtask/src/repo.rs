@@ -80,22 +80,52 @@ pub(crate) struct RepoFiles {
 
 pub(crate) fn all_files() -> Option<RepoFiles> {
     let root = root()?;
-    // `--stage` rather than a bare listing, because the mode is needed: a symlink must be
-    // skipped. Its content is a target path, so it has no line endings to police and no final
-    // newline to add - adding one would break the link. On a checkout without symlink support
-    // the working tree shows a regular file, so only the index can say what it is.
-    if let Ok(out) = std::process::Command::new("git")
+    // TRACKED plus UNTRACKED-BUT-NOT-IGNORED, which is what git would publish.
+    //
+    // Tracked-only was wrong in a way that is hard to see: a brand-new file is invisible until
+    // it is staged, so a gate reports `ok` having checked less than it appears to. The only
+    // tell was the file count in the verdict line. A hook path is unaffected - pre-commit
+    // stages first - but `cargo xtask hygiene` on new work checked nothing of it.
+    //
+    // Two calls because they answer different questions. `--stage` carries the mode, which is
+    // needed to skip a symlink: its content is a target path, so there are no line endings to
+    // police and adding a final newline would break the link, and on a checkout without
+    // symlink support only the index can say what it is. `--others --exclude-standard` has no
+    // mode, but an untracked symlink is rare enough that the walk's own symlink check covers
+    // it in the fallback path.
+    let tracked = std::process::Command::new("git")
         .args(["ls-files", "--stage", "-z"])
         .current_dir(&root)
-        .output()
-        && out.status.success()
+        .output();
+    let untracked = std::process::Command::new("git")
+        .args(["ls-files", "--others", "--exclude-standard", "-z"])
+        .current_dir(&root)
+        .output();
+
+    if let Ok(tracked) = tracked
+        && tracked.status.success()
     {
-        let files: Vec<String> = out
+        let mut files: Vec<String> = tracked
             .stdout
             .split(|b| *b == 0)
             .filter(|raw| !raw.is_empty())
             .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
             .collect();
+
+        if let Ok(untracked) = untracked
+            && untracked.status.success()
+        {
+            files.extend(
+                untracked
+                    .stdout
+                    .split(|b| *b == 0)
+                    .filter(|raw| !raw.is_empty())
+                    .map(|raw| String::from(String::from_utf8_lossy(raw))),
+            );
+        }
+
+        files.sort_unstable();
+        files.dedup();
         if !files.is_empty() {
             return Some(RepoFiles { root, files });
         }
