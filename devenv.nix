@@ -49,6 +49,10 @@ in
     cargo-deny
     cargo-nextest
 
+    # Task runner. `just` is the one name humans and agents both use, so documentation
+    # cites a task rather than a command line that drifts from the one people run.
+    just
+
     # Hook runner: a single Rust binary, so hooks need no Python runtime.
     prek
 
@@ -60,6 +64,10 @@ in
 
     # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
     gh
+
+    # The documentation site. A Nix tool, not a Python one, so it belongs here rather than
+    # in pixi.toml. CI builds the same book with `nix run nixpkgs#mdbook`.
+    mdbook
 
     # Python lives behind pixi only; this is just the launcher.
     pixi
@@ -128,7 +136,15 @@ in
     line-endings.exec = "cargo run -q -p xtask -- line-endings";
     check-skills.exec = "cargo run -q -p xtask -- check-skills";
     check-guidance.exec = "cargo run -q -p xtask -- check-guidance";
+    check-secrets.exec = "cargo run -q -p xtask -- check-secrets";
+    check-docs.exec = "cargo run -q -p xtask -- check-docs";
     unused-deps.exec = "cargo run -q -p xtask -- unused-deps";
+
+    # The book. `docs` renders to docs/book (gitignored); `docs-serve` watches and reloads.
+    # The gate above is what proves it is complete - mdbook builds an unreachable page just
+    # as happily as a linked one.
+    docs.exec = "mdbook build docs";
+    docs-serve.exec = "mdbook serve docs";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
     # dead dependency should fail in seconds, not after clippy and the test suite.
@@ -141,6 +157,8 @@ in
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
       cargo run -q -p xtask -- check-guidance
+      cargo run -q -p xtask -- check-secrets
+      cargo run -q -p xtask -- check-docs
     '';
 
     # The finishing sequence. One command, because a checklist in prose is a checklist
@@ -198,6 +216,8 @@ in
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
       cargo run -q -p xtask -- check-guidance
+      cargo run -q -p xtask -- check-secrets
+      cargo run -q -p xtask -- check-docs
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features

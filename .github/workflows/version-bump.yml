@@ -1,0 +1,110 @@
+# On push to main: work out the next version from the commit subjects, write CHANGELOG.md,
+# and tag. The tag is what triggers release.yml, so this file publishes nothing itself.
+#
+# The bump is DERIVED, not chosen: `feat` gives a minor, `fix` and the rest give a patch, and a
+# `!` or a BREAKING CHANGE footer gives a major. That works only because the commit subject is
+# already a gate (`cargo xtask commit-msg`) - a bump computed from unconstrained subjects would
+# be a guess with a version number attached.
+#
+# Nothing happens when no commit since the last tag would change the version, so a
+# docs-or-chore-only push does not produce a release.
+name: version-bump
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # Never two bumps at once: they would race to compute "next" from the same tag.
+  group: version-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write   # commit the changelog, push the tag
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # git-cliff reads history; a shallow clone gives it one commit and a wrong answer.
+          fetch-depth: 0
+          persist-credentials: true
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            fallback = true
+
+      - name: Compute the next version
+        id: next
+        run: |
+          set -eu
+          # git-cliff prints a bare version (0.2.0). release.yml triggers on `v*`, so the
+          # tag MUST carry the prefix - without it the tag lands and nothing publishes.
+          # Both sides are normalised before comparing, or `0.1.0` != `v0.1.0` forever and
+          # every push re-releases.
+          next_raw="$(nix run nixpkgs#git-cliff -- --bumped-version 2>/dev/null || true)"
+          prev_raw="$(git describe --tags --abbrev=0 2>/dev/null || true)"
+          next="v${next_raw#v}"
+          prev="v${prev_raw#v}"
+          echo "previous: ${prev_raw:-none}"
+          echo "next:     ${next_raw:-none}"
+          if [ -z "$next_raw" ] || [ "$next" = "$prev" ]; then
+            echo "no version change: nothing to release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+            echo "version=$next" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Write the changelog
+        if: steps.next.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: nix run nixpkgs#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+
+      # The manifest version must match the tag, or a built binary reports one version
+      # while the release says another.
+      - name: Set the workspace version
+        if: steps.next.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -eu
+          plain="${VERSION#v}"
+          # `^version = ` matches exactly one line in Cargo.toml: the workspace's. Crates
+          # inherit it with `version.workspace = true` and the profile tables have no version
+          # key, so a global substitution is unambiguous. Asserted rather than assumed:
+          count="$(grep -c '^version = ' Cargo.toml)"
+          if [ "$count" != "1" ]; then
+            echo "::error::expected one workspace version line in Cargo.toml, found $count"
+            exit 1
+          fi
+          sed -i "s/^version = \".*\"/version = \"${plain}\"/" Cargo.toml
+          grep -A1 '^\[workspace.package\]' Cargo.toml
+          # Cargo.lock records member versions, so it moves with the manifest. Offline, so
+          # a release cannot pick up a dependency update as a side effect.
+          nix run nixpkgs#cargo -- metadata --offline --format-version 1 >/dev/null
+
+      - name: Commit and tag
+        if: steps.next.outputs.release == 'true'
+        env:
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -eu
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md Cargo.toml Cargo.lock
+          # `chore(release)` is skipped by cliff.toml, so the release commit never appears in
+          # the next changelog as an entry about itself.
+          git commit -m "chore(release): ${VERSION}"
+          git tag -a "${VERSION}" -m "${VERSION}"
+          git push origin HEAD:main
+          git push origin "${VERSION}"

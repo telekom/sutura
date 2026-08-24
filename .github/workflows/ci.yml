@@ -9,10 +9,32 @@
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: ci
 
+# Prose-only changes do not start a run at all. `classify` inside the job can skip work but
+# not the runner, the Nix install or the cache restore; `paths-ignore` skips those too.
+#
+# What still runs for those paths: docs.yml, which builds the book and runs the text and
+# documentation gates. Nothing about a markdown edit goes unchecked - it is checked by the
+# cheaper workflow.
+#
+# `.json` and `.toml` are NOT ignored, so a change to skill-router.json or a manifest brings
+# the full chain back.
+#
+# If CI is ever made a required check, add a skip-equivalent job here: a required check that
+# never runs blocks the merge.
 on:
   push:
     branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
   pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
 
 permissions:
   contents: read

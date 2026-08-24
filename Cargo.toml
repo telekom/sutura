@@ -9,7 +9,7 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/sutura-domain", "crates/sutura-cli", "xtask"]
+members = ["crates/sutura-domain", "crates/sutura-cli", "xtask", "dev"]
 
 [workspace.package]
 version = "0.1.0"

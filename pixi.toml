@@ -3,7 +3,7 @@
 #
 # Channels here are public, because this repo is public. An internal mirror is configured in
 # pixi's GLOBAL config (~/.pixi/config.toml), so no internal URL is ever committed. See
-# documentation/enterprise-mirrors.md.
+# docs/src/enterprise-mirrors.md.
 
 [workspace]
 name = "sutura-tooling"
@@ -24,6 +24,8 @@ zizmor = ">=1.9"
 # For the skill-sync script. The only Python this repo runs, and it runs at maintenance time
 # rather than on the query path - see the no-interpreter invariant in AGENTS.md.
 python = ">=3.11,<3.14"
+actionlint = ">=1.7.12,<2"
+shellcheck = ">=0.11.0,<0.12"
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched

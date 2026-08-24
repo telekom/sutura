@@ -1,0 +1,89 @@
+# The documentation site: build the book, and publish it on main.
+#
+# This is the workflow that covers what `ci.yml` deliberately ignores. `ci.yml` skips a
+# prose-only change entirely - `paths-ignore` on `**/*.md`, `docs/**`, LICENSE and NOTICE -
+# so those paths trigger THIS workflow instead, and it runs the structural gates as well as
+# the build. A markdown edit is therefore checked by the cheap workflow rather than by none.
+#
+# Two jobs, because they need different tokens. `build` reads the repo and produces the
+# artifact; `deploy` publishes it and is the only thing holding `pages: write`. Permissions
+# are set per job for that reason: a workflow-level grant would hand the build job a token
+# that can publish, which is precisely what it must not have.
+#
+# Every action is pinned by commit. A tag is mutable and these run with the job's token.
+name: docs
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/docs.yml"
+  pull_request:
+    paths:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+      - ".github/workflows/docs.yml"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    concurrency:
+      group: docs-build-${{ github.ref }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            fallback = true
+
+      # Carries /nix/store between runs. Without it every run recompiles from scratch.
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      # The gates judge prose too, and this is the only workflow a prose-only change starts.
+      # `check-docs` is in here: it rejects a chapter with no file and a page in no chapter,
+      # and the build below would happily render the second one.
+      - name: Structural gates
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      # mdbook comes from nixpkgs rather than from an action, so the book is built by the
+      # same tool the dev shell provides and no third-party action is involved.
+      - name: Build the book
+        run: nix run nixpkgs#mdbook -- build docs
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: docs/book
+
+  # Only on main. A pull request proves the book builds; it does not get to publish.
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    # Not cancel-in-progress: a half-cancelled deployment is worse than a queued one.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0

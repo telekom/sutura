@@ -11,10 +11,12 @@ mod boundaries;
 mod causality;
 mod changes;
 mod commit_msg;
+mod docs;
 mod guidance;
 mod line_endings;
 mod max_lines;
 mod repo;
+mod secrets;
 mod skills;
 mod text;
 mod unused_deps;
@@ -67,9 +69,19 @@ const TASKS: &[Task] = &[
         run: skills::run,
     },
     Task {
+        name: "check-secrets",
+        description: "no credential-shaped value is about to be committed",
+        run: secrets::run,
+    },
+    Task {
         name: "check-guidance",
         description: "docs and comments still describe this repo",
         run: guidance::run,
+    },
+    Task {
+        name: "check-docs",
+        description: "the book's summary and the pages under docs/src agree",
+        run: docs::run,
     },
     Task {
         name: "commit-msg",

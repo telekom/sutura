@@ -115,6 +115,16 @@ repos:
         files: ^\.agents/skills/
         pass_filenames: false
 
+      # The book renders only what SUMMARY.md links, and builds an unreachable page just as
+      # happily as a linked one - so the completeness of the nav is checked here, in both
+      # directions, rather than trusted to the build.
+      - id: check-docs
+        name: the book's summary and its pages agree
+        entry: cargo run -q -p xtask -- check-docs
+        language: system
+        files: ^docs/
+        pass_filenames: false
+
       # Docs and comments describing a repo we no longer have. Every rule in this gate
       # exists because the mistake was already made here.
       - id: check-guidance

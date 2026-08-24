@@ -1,0 +1,64 @@
+# git-cliff: CHANGELOG.md from conventional commits.
+#
+# This only works because the commit subject is already a gate (`cargo xtask commit-msg`), so
+# every commit on main parses. A changelog generator over unconstrained subjects produces a
+# list nobody reads.
+
+[changelog]
+header = """
+# Changelog
+
+Generated from conventional commit subjects by git-cliff. Do not edit by hand: the next
+release overwrites it. Fix a wrong entry by fixing the commit message convention, not the file.
+
+"""
+body = """
+{% if version %}\
+## {{ version | trim_start_matches(pat="v") }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## Unreleased
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | upper_first }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}**: {% endif %}{{ commit.message | upper_first }}\
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+
+[git]
+conventional_commits = true
+# A non-conventional subject is dropped rather than guessed at. The commit-msg gate means the
+# only ones that exist predate it.
+filter_unconventional = true
+protect_breaking_commits = true
+split_commits = false
+topo_order = false
+sort_commits = "newest"
+
+# Order matters: the first pattern that matches wins, so `feat!` is breaking before it is a
+# feature.
+commit_parsers = [
+  { message = "^.*!:", group = "Breaking changes" },
+  { body = ".*BREAKING CHANGE", group = "Breaking changes" },
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Tests" },
+  { message = "^ci", group = "CI" },
+  { message = "^build", group = "Build" },
+  # Housekeeping is real work and still noise in a changelog. Dropped, not hidden in a
+  # collapsed section nobody expands.
+  { message = "^chore", skip = true },
+  { message = "^style", skip = true },
+]
+
+[bump]
+# What a commit does to the version. `feat` is a minor bump, `fix` and everything else is a
+# patch, and `!` or a BREAKING CHANGE footer is a major bump - which for 0.x means minor,
+# per SemVer's pre-1.0 rule.
+features_always_bump_minor = true
+breaking_always_bump_major = false

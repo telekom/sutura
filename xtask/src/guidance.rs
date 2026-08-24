@@ -5,6 +5,9 @@
 //! compiler version two releases old - each read as current, and each cost someone the time
 //! to find out otherwise.
 //!
+//! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`).
+//! Rust source is deliberately out of scope - see the filter in `run`.
+//!
 //! Three checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
@@ -90,7 +93,7 @@ const PINS: &[Pin] = &[Pin {
     name: "Rust toolchain",
     source: "rust-toolchain.toml",
     key: "channel = ",
-    mentioned_in: &["documentation/**", "AGENTS.md", ".agents/skills/**", "README.md"],
+    mentioned_in: &["docs/**", "AGENTS.md", ".agents/skills/**", "README.md"],
     // A line that names the pin file and a version is claiming what the pin is.
     marker: "rust-toolchain.toml",
 }];
@@ -277,7 +280,12 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     // Only text we might make a claim in.
     let text_files: Vec<String> = files
         .into_iter()
-        .filter(|f| has_ext(f, &["md", "nix", "yml", "yaml", "toml", "rs", "sh"]))
+        // Documentation and configuration, NOT Rust source. Two reasons, and the second is
+        // the one that matters: a rule table written in Rust contains the very phrases it
+        // forbids, so scanning `.rs` makes this gate report itself - and the only fix would
+        // be an exclusion list, which is a hole anything can be added to. The narrower scope
+        // is honest instead. A stale comment beside Rust code is reviewed with that code.
+        .filter(|f| has_ext(f, &["md", "nix", "yml", "yaml", "toml", "sh"]))
         // Mirrored upstream material makes claims about ITS repo, not ours.
         .filter(|f| !f.starts_with(".agents/skill-library/"))
         .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/0"))

@@ -269,6 +269,8 @@
               cargo run --release -q -p xtask -- check-boundaries
               cargo run --release -q -p xtask -- check-skills
               cargo run --release -q -p xtask -- check-guidance
+              cargo run --release -q -p xtask -- check-secrets
+              cargo run --release -q -p xtask -- check-docs
             '';
           });
 

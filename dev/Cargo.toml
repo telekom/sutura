@@ -1,0 +1,21 @@
+[package]
+name = "sutura-dev"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+description = "Developer workflow: isolated worktrees and the per-worktree service scope."
+
+# Deliberately NOT named `sutura`. The shipped binary is one thing with no development
+# machinery in it - the image holds a single executable and the tool surface is the governance
+# boundary. A dev command that could be mistaken for the service is a bad afternoon.
+[[bin]]
+name = "sutura-dev"
+path = "src/main.rs"
+
+[dependencies]
+sha2 = { workspace = true }
+
+[lints]
+workspace = true

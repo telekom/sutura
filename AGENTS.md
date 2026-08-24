@@ -65,6 +65,8 @@ hygiene                                              # line endings, max-lines, 
 cargo xtask classify --since origin/main             # what does this change require?
 cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
 gates                                                # hygiene + fmt, clippy, tests, deny
+docs                                                 # render the book to docs/book
+docs-serve                                           # the book with live reload
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
 nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
@@ -227,7 +229,7 @@ Do not skip it silently.
 - `.max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
 - `xtask/` - the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`,
-  `text-hygiene`, `commit-msg`, `check-skills`, `test-causality`, plus `classify` /
+  `text-hygiene`, `commit-msg`, `check-skills`, `check-docs`, `test-causality`, plus `classify` /
   `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
   run everything and say why, because the expensive failure is a new directory being skipped
   silently, not a wasted CI minute. Each is
@@ -240,6 +242,9 @@ Do not skip it silently.
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
   LTO). None of them installs devenv.
 - `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
-- `documentation/` - installing the environment, and pointing every fetch at an internal mirror.
+- `docs/` - the published book (mdBook: `docs/book.toml`, pages in `docs/src/`). Installing the
+  environment, building without direct egress, the layout, the invariants and the gates.
+  `cargo xtask check-docs` fails if a page is unreachable from `docs/src/SUMMARY.md` or a
+  chapter names a file that is not there.
 - `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
 - `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.

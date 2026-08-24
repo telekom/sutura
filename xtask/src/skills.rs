@@ -390,16 +390,11 @@ mod tests {
         assert!(intent_targets("{}").is_empty());
     }
 
-    /// The real tree must pass, or the gate is only exercised by fixtures.
-    #[test]
-    fn the_actual_router_agrees_with_the_actual_tree() {
-        let root = crate::repo::root().expect("repo root");
-        let text = std::fs::read_to_string(root.join(super::ROUTER)).expect("router file");
-        let claimed = routed(&text).expect("router parses");
-        let present: std::collections::BTreeSet<String> = super::discovered(&root).keys().cloned().collect();
-        assert_eq!(claimed, present, "router and tree disagree");
-        for target in intent_targets(&text) {
-            assert!(claimed.contains(&target), "intent routes nowhere: {target}");
-        }
-    }
+    // NOTE: there is deliberately no test here that reads the real router and the real
+    // tree. That property is enforced by `cargo xtask check-skills`, which runs in the
+    // hooks and in the `hygiene` flake check - and `hygiene` is the check given the whole
+    // repository as its source. A unit test cannot do it: the `nextest` check gets
+    // crane's Cargo-only source filter, so `.agents/` is not there, and it failed in CI
+    // for exactly that reason. Widening the test derivation to the whole repo would make
+    // every documentation edit invalidate the test build.
 }

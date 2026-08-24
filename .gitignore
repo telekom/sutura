@@ -31,3 +31,6 @@ devenv.local.nix
 
 # Ponytail activation flag: local, per-developer.
 .ponytail-active
+
+# The rendered book. `mdbook build docs` writes it; the markdown in docs/src is the source.
+/docs/book
