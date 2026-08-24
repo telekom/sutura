@@ -28,7 +28,7 @@ serde_json = "1"
 thiserror = "2"
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
-sha2 = "0.10"
+sha2 = "0.11"
 
 # ---------------------------------------------------------------- lints ----
 # A misspelled or removed lint name in the tables below is a silent no-op: it warns on
