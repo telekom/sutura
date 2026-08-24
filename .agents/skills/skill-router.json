@@ -1,0 +1,27 @@
+{
+  "_comment": "Checked routing data. `cargo xtask check-skills` verifies this against the filesystem in BOTH directions: no entry may name a missing skill, and no SKILL.md may be absent from here. A skill nobody can route to is dead weight that still costs review.",
+  "groups": {
+    "engineering": {
+      "readme": "engineering/README.md",
+      "scope": "Rust in this workspace, debugging, OAuth 2.x / OIDC and token exchange.",
+      "skills": {
+        "rust": "engineering/rust/SKILL.md",
+        "debugging": "engineering/debugging/SKILL.md",
+        "oauth": "engineering/oauth/SKILL.md"
+      }
+    },
+    "reasoning": {
+      "readme": "reasoning/README.md",
+      "scope": "Structured reasoning: making the argument explicit before acting on it.",
+      "skills": {
+        "autoreason": "reasoning/autoreason/SKILL.md"
+      }
+    }
+  },
+  "intents": [
+    { "intent": "write or change Rust in this workspace", "group": "engineering", "skill": "rust" },
+    { "intent": "find out why something fails", "group": "engineering", "skill": "debugging" },
+    { "intent": "touch tokens, identity, or authorization", "group": "engineering", "skill": "oauth" },
+    { "intent": "decide between approaches, or check my own reasoning", "group": "reasoning", "skill": "autoreason" }
+  ]
+}

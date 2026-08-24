@@ -105,6 +105,16 @@ repos:
       # check-yaml / check-toml are not reimplemented: every YAML and TOML file here is
       # already parsed by a tool in these gates (cargo, cargo-deny, clippy, zizmor, prek),
       # so a syntax error already fails something.
+      # Tree-shaped skill discovery only saves tokens if the router is trustworthy: an
+      # entry pointing at a deleted skill routes an agent nowhere, and a SKILL.md in no
+      # route is a rule nobody reads while believing it is in force.
+      - id: check-skills
+        name: skill router and skill tree agree
+        entry: cargo run -q -p xtask -- check-skills
+        language: system
+        files: ^\.agents/skills/
+        pass_filenames: false
+
       - id: text-hygiene
         name: conflict markers, whitespace, final newline, file size
         entry: cargo run -q -p xtask -- text-hygiene

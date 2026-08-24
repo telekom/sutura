@@ -146,6 +146,51 @@ whether it feels safe — it is which mechanism would fail if it were not.
 A change that cannot be tied to one of these mechanisms is unproven — say so rather than asserting
 it is fine. Adding the missing check beats adding a sentence to this file.
 
+## Skills
+
+Task-specific guidance lives in `.agents/skills/`, discovered as a **tree** so you read three
+small files rather than every skill in the repo:
+
+1. `.agents/skills/README.md` — pick one intent.
+2. that group's `README.md`.
+3. only the `SKILL.md` it routes you to.
+
+`skill-router.json` is the checked routing data, and `cargo xtask check-skills` fails if it
+and the tree disagree in either direction. **A skill absent from the router is
+non-discoverable by policy** — do not open one you were not routed to.
+
+Current groups: `engineering/` (Rust here, debugging, OAuth and token exchange) and
+`reasoning/` (autoreason). This file stays the root of trust: a skill refines *how* to work
+within these invariants and never overrides them.
+
+## Finishing A Change
+
+`ship-check` is the finishing sequence, and it is a command rather than a checklist so it
+costs no tokens to follow and cannot be half-remembered:
+
+```bash
+ship-check                      # hooks over the branch diff, gate self-tests, causality
+```
+
+It requires a clean tree and a reachable base ref, then runs the commit-stage hooks over the
+merge-base range, the pre-push hooks, and the test-causality proof below. Run it before
+saying a change is done.
+
+### Tests must be shown to test something
+
+A new or changed test has to be **red against the base behaviour and green with your change**.
+A test that passes both ways proves nothing and is worse than no test, because it looks like
+coverage.
+
+`cargo xtask test-causality --since <base>` checks this mechanically: it re-runs changed tests
+against the base version of the non-test sources and requires at least one to fail, with no
+unrelated failures, then requires them green on your head. It runs in `ship-check` and in CI.
+
+When the change is not separable that way — impl and test in the same file, or a change with
+no behavioural difference such as a rename — the gate says so and asks you to state the
+evidence instead: the command you ran, the failure you saw before the fix, and the pass after.
+Do not skip it silently.
+
 ## Agent Operating Contract
 
 1. **Inspect the workspace before acting.** Read the source, run the tests, check the actual pinned
@@ -160,7 +205,8 @@ it is fine. Adding the missing check beats adding a sentence to this file.
    prose a human or agent is expected to remember. A rule with no mechanism is a wish.
 5. **Never commit unless asked.** Never force-push a shared branch unless asked.
 6. **Prove the result before claiming completion.** Paste the command and its output. "Should work"
-   is not a result; a green run is.
+   is not a result; a green run is. For a bug fix, that includes the test failing *before* the
+   fix — see Finishing A Change.
 7. **Report honestly.** If tests fail, say so with the output. If you skipped a step, say which. If
    a claim of yours turns out wrong, correct it plainly and continue.
 8. **If guidance here is wrong, fix this file** when the correction is clear — and prefer adding a
@@ -182,8 +228,8 @@ it is fine. Adding the missing check beats adding a sentence to this file.
 - `.max-lines-ignore` — the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
 - `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`,
-  `commit-msg`, plus `classify` / `check-changed` / `changed-packages`, which decide what a diff
-  requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
+  `text-hygiene`, `commit-msg`, `check-skills`, `test-causality`, plus `classify` /
+  `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
   run everything and say why, because the expensive failure is a new directory being skipped
   silently, not a wasted CI minute. Each is
   unit-tested by `cargo test --workspace`, because a gate with no test is a gate nobody has seen
@@ -194,4 +240,7 @@ it is fine. Adding the missing check beats adding a sentence to this file.
   build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
   LTO). None of them installs devenv.
+- `.agents/skills/` — task guidance, entered through the router. Not a substitute for this file.
+- `documentation/` — installing the environment, and pointing every fetch at an internal mirror.
+- `VENDOR.md` — third-party material adapted here, with upstream, licence, commit and changes.
 - `docs/adr/` — sutura's decisions, in sutura's own numbering. Cite nothing external.

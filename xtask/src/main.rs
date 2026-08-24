@@ -9,11 +9,13 @@
 //! `cargo test --workspace` like any other code.
 
 mod boundaries;
+mod causality;
 mod changes;
 mod commit_msg;
 mod line_endings;
 mod max_lines;
 mod repo;
+mod skills;
 mod text;
 mod unused_deps;
 
@@ -43,6 +45,8 @@ fn main() -> ExitCode {
         Some("max-lines") => max_lines::run(rest),
         Some("unused-deps") => unused_deps::run(),
         Some("line-endings") => line_endings::run(),
+        Some("test-causality") => causality::run(rest),
+        Some("check-skills") => skills::run(),
         Some("text-hygiene") => text::run(rest),
         Some("commit-msg") => commit_msg::run(rest),
         Some("classify") => changes::run_classify(rest),

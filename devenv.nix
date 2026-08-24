@@ -120,6 +120,7 @@ in
     boundaries.exec = "cargo run -q -p xtask -- check-boundaries";
     max-lines.exec = "cargo run -q -p xtask -- max-lines";
     line-endings.exec = "cargo run -q -p xtask -- line-endings";
+    check-skills.exec = "cargo run -q -p xtask -- check-skills";
     unused-deps.exec = "cargo run -q -p xtask -- unused-deps";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
@@ -131,6 +132,7 @@ in
       cargo run -q -p xtask -- text-hygiene
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
+      cargo run -q -p xtask -- check-skills
     '';
 
     # Spelled out rather than calling `hygiene`, so this list does not depend on another
@@ -142,6 +144,7 @@ in
       cargo run -q -p xtask -- text-hygiene
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
+      cargo run -q -p xtask -- check-skills
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features

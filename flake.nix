@@ -267,6 +267,7 @@
               cargo run --release -q -p xtask -- max-lines
               cargo run --release -q -p xtask -- unused-deps
               cargo run --release -q -p xtask -- check-boundaries
+              cargo run --release -q -p xtask -- check-skills
             '';
           });
 
