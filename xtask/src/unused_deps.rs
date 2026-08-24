@@ -22,7 +22,7 @@ struct Unused {
     reason: &'static str,
 }
 
-pub(crate) fn run() -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> ExitCode {
     let Some(root) = repo::root() else {
         eprintln!("xtask unused-deps: could not locate the repo root");
         return ExitCode::FAILURE;

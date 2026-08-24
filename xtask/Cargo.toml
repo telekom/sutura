@@ -9,6 +9,7 @@ description = "Repo automation: the dependency-boundary, file-length and unused-
 
 [dependencies]
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 
 [lints]
 workspace = true

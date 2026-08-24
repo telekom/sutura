@@ -5,12 +5,14 @@
 # pixi's GLOBAL config (~/.pixi/config.toml), so no internal URL is ever committed. See
 # documentation/enterprise-mirrors.md.
 
-[project]
+[workspace]
 name = "sutura-tooling"
 version = "0.1.0"
 description = "Workflow static analysis for sutura."
 channels = ["conda-forge"]
-platforms = ["linux-64", "win-64", "osx-arm64"]
+# linux-aarch64 included because the release cross-builds for it: tooling that cannot resolve
+# on a platform we ship to is tooling nobody can run there.
+platforms = ["linux-64", "linux-aarch64", "win-64", "osx-arm64"]
 
 [dependencies]
 # Static analysis for GitHub Actions: finds what a YAML schema check cannot - template
@@ -19,9 +21,19 @@ platforms = ["linux-64", "win-64", "osx-arm64"]
 # conda-forge rather than the PyPI wheel: one resolver, one lock.
 zizmor = ">=1.9"
 
+# For the skill-sync script. The only Python this repo runs, and it runs at maintenance time
+# rather than on the query path - see the no-interpreter invariant in AGENTS.md.
+python = ">=3.11,<3.14"
+
 [tasks]
-# Regenerates the ms-rust skill from Microsoft's published guidelines. A no-op when the
-# content has not changed, so the recorded sha256 answers "is this current".
+# Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched
+# at their pinned ref; `adapted` skills are never overwritten; ms-rust is regenerated. The
+# lock is what makes "has anyone edited a mirror?" answerable - `cargo xtask check-skills`
+# compares its hashes against what is on disk.
+skills-refresh = "python .agents/skills-sync.py"
+# Re-hash what is checked out without fetching, for a network with no egress.
+skills-relock = "python .agents/skills-sync.py --offline"
+# Just the Microsoft guidelines. A no-op when their content has not changed.
 ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
 # `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
 # so the gate does not depend on opinions that change between releases.

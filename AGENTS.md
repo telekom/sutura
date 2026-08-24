@@ -60,8 +60,7 @@ gate in one place only and the omission shows up as a diff.
 ```bash
 cargo check -p sutura-domain --no-default-features   # fast inner loop
 cargo nextest run                                    # tests
-cargo clippy --workspace --all-targets -- -D warnings
-cargo xtask dump-schemas                             # regenerate the generated contracts
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 hygiene                                              # line endings, max-lines, unused deps, boundaries
 cargo xtask classify --since origin/main             # what does this change require?
 cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
@@ -95,7 +94,7 @@ regeneration is checked rather than trusted.
 | Artefact | Owner | Rule |
 | --- | --- | --- |
 | Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) - **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
-| MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: `cargo xtask dump-schemas` writes them and CI byte-compares. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
+| MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
 | The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
 | Compiler version | `rust-toolchain.toml` | One pin; do not add a second in CI or in the image |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |

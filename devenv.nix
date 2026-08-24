@@ -127,6 +127,7 @@ in
     max-lines.exec = "cargo run -q -p xtask -- max-lines";
     line-endings.exec = "cargo run -q -p xtask -- line-endings";
     check-skills.exec = "cargo run -q -p xtask -- check-skills";
+    check-guidance.exec = "cargo run -q -p xtask -- check-guidance";
     unused-deps.exec = "cargo run -q -p xtask -- unused-deps";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
@@ -139,6 +140,7 @@ in
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
+      cargo run -q -p xtask -- check-guidance
     '';
 
     # The finishing sequence. One command, because a checklist in prose is a checklist
@@ -195,6 +197,7 @@ in
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
+      cargo run -q -p xtask -- check-guidance
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features

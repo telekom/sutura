@@ -22,6 +22,8 @@ const ROUTER: &str = ".agents/skills/skill-router.json";
 /// The non-discoverable tier. Not routed by design, so `check-skills` cannot demand a route -
 /// but it can demand the one thing that makes an import maintainable.
 const LIBRARY_DIR: &str = ".agents/skill-library";
+/// Written by `pixi run skills-refresh`. Records what each imported skill was, and its hash.
+const LOCK: &str = ".agents/skills.lock.json";
 
 /// `name` and `description` from a `SKILL.md` YAML frontmatter block.
 ///
@@ -121,6 +123,80 @@ fn intent_targets(text: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Every locked skill whose file no longer hashes to what the lock recorded.
+///
+/// This is what makes `mirror` mean something. Without it, an edit to an imported skill leaves
+/// it claiming to be a mirror while being a fork - and the next refresh silently reverts the
+/// edit, or silently keeps it, depending on which side moved.
+///
+/// Hashed with LF normalised, so a checkout on a CRLF platform is not a false positive.
+fn lock_mismatches(root: &Path) -> Vec<String> {
+    let Ok(text) = std::fs::read_to_string(root.join(LOCK)) else {
+        // No lock is not a failure: a repo need not import anything. An import WITHOUT a lock
+        // is caught by the provenance check instead.
+        return Vec::new();
+    };
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        return vec![format!("{LOCK} is not valid JSON")];
+    };
+    let Some(skills) = value.get("skills").and_then(serde_json::Value::as_array) else {
+        return vec![format!("{LOCK} has no `skills` array")];
+    };
+
+    let mut problems = Vec::new();
+    for entry in skills {
+        let Some(local) = entry.get("local_path").and_then(serde_json::Value::as_str) else {
+            problems.push(format!("{LOCK}: an entry has no `local_path`"));
+            continue;
+        };
+        let Some(expected) = entry.get("sha256").and_then(serde_json::Value::as_str) else {
+            problems.push(format!("{LOCK}: `{local}` has no `sha256`"));
+            continue;
+        };
+        let path = root.join(".agents").join(local).join("SKILL.md");
+        let Ok(bytes) = std::fs::read(&path) else {
+            problems.push(format!("{LOCK}: `{local}/SKILL.md` is locked but missing"));
+            continue;
+        };
+        if sha256_lf(&bytes) != expected {
+            let status = entry.get("status").and_then(serde_json::Value::as_str).unwrap_or("imported");
+            problems.push(format!("`{local}/SKILL.md` no longer matches the lock (status `{status}`)"));
+        }
+    }
+    problems
+}
+
+/// SHA-256 with CRLF normalised to LF, matching what the sync script records.
+///
+/// Normalised so a checkout on a CRLF platform is not a false positive: the lock is about
+/// content, and a line ending is not content.
+fn sha256_lf(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+
+    // Numeric, not char literals: this is a byte-level normaliser, and the numbers say so.
+    const CR: u8 = 13;
+    const LF: u8 = 10;
+
+    let mut normalised = Vec::with_capacity(bytes.len());
+    let mut iter = bytes.iter().copied().peekable();
+    while let Some(byte) = iter.next() {
+        // Drop the CR of a CRLF pair; the LF arrives next iteration. A lone CR is content.
+        if byte == CR && iter.peek() == Some(&LF) {
+            continue;
+        }
+        normalised.push(byte);
+    }
+
+    let mut hex = String::with_capacity(64);
+    for byte in sha2::Sha256::digest(&normalised) {
+        use std::fmt::Write as _;
+        if write!(hex, "{byte:02x}").is_err() {
+            return String::new();
+        }
+    }
+    hex
+}
+
 /// How many library skills there are, for the verdict line.
 fn library_count(root: &Path) -> usize {
     let Ok(groups) = std::fs::read_dir(root.join(LIBRARY_DIR)) else {
@@ -176,7 +252,7 @@ fn library_problems(root: &Path) -> Vec<String> {
     problems
 }
 
-pub(crate) fn run() -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> ExitCode {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-skills: could not determine the repo root");
         return ExitCode::FAILURE;
@@ -224,6 +300,7 @@ pub(crate) fn run() -> ExitCode {
         }
     }
     problems.extend(library_problems(&root));
+    problems.extend(lock_mismatches(&root));
 
     // The frontmatter `name` is the identifier a route and an agent use; a mismatch makes the
     // route look right and read wrong.
@@ -260,6 +337,11 @@ pub(crate) fn run() -> ExitCode {
     eprintln!("xtask check-skills: FAILED");
     for p in &problems {
         eprintln!("  {p}");
+    }
+    if problems.iter().any(|p| p.contains("no longer matches the lock")) {
+        eprintln!();
+        eprintln!("Edited an import on purpose? `pixi run skills-relock` records the new hash.");
+        eprintln!("Otherwise it is a local fork: `pixi run skills-refresh` restores upstream.");
     }
     ExitCode::FAILURE
 }

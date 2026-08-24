@@ -11,7 +11,7 @@ const FORBIDDEN_IN_DOMAIN: &[&str] = &["tokio", "axum", "rmcp", "datafusion", "a
 ///
 /// Reads `cargo metadata` rather than the manifest, so a dependency pulled in
 /// *transitively* is caught too - which is the case a manifest grep would miss.
-pub(crate) fn run() -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> ExitCode {
     let meta = match crate::cargo_metadata(&[]) {
         Ok(value) => value,
         Err(message) => {

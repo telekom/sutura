@@ -1,17 +1,17 @@
 //! Repo automation. Run as `cargo xtask <task>`, or `cargo run -q -p xtask -- <task>`.
 //!
-//! These are gates, not conveniences: each one answers "what fails if this rule is
-//! violated?" with a non-zero exit code and a count, not with a paragraph of guidance. A
-//! rule that lands here instead of in a document is a rule that cannot rot unnoticed.
+//! These are gates, not conveniences: each answers "what fails if this rule is violated?"
+//! with a non-zero exit and a count, not with a paragraph of guidance. A rule that lands here
+//! instead of in a document is a rule that cannot rot unnoticed.
 //!
-//! Gates live in `xtask` rather than in a script per check because there is then one thing
-//! to install (the workspace), one language to review, and the checks are unit-tested by
-//! `cargo test --workspace` like any other code.
+//! Gates live in one binary rather than a script per check: one thing to install, one language
+//! to review, and they are unit-tested by `cargo test --workspace` like any other code.
 
 mod boundaries;
 mod causality;
 mod changes;
 mod commit_msg;
+mod guidance;
 mod line_endings;
 mod max_lines;
 mod repo;
@@ -21,46 +21,105 @@ mod unused_deps;
 
 use std::process::ExitCode;
 
-/// Every task, with the one-line description printed by `--help` and on a bad invocation.
-const TASKS: &[(&str, &str)] = &[
-    ("check-boundaries", "the domain crate depends on no framework"),
-    ("max-lines", "no file over 1000 lines (exemptions: .max-lines-ignore)"),
-    ("unused-deps", "every declared dependency is actually used"),
-    ("line-endings", "every text file in the repo uses LF, not CRLF"),
-    (
-        "text-hygiene",
-        "conflict markers, trailing whitespace, final newline, file size; --fix",
-    ),
-    (
-        "commit-msg",
-        "the commit subject is a conventional commit (hook passes the file)",
-    ),
+/// What a gate does: read the repo, print a verdict, exit non-zero on a violation.
+type Gate = fn(&[String]) -> ExitCode;
+
+/// A task: the name, the `--help` line, and the code it runs.
+///
+/// The handler is IN the table, so `--help` and dispatch cannot disagree. They did once - six
+/// dispatched tasks were missing from the list, so `--help` lied and `check-guidance` reported
+/// every mention of them as a deleted gate. A table plus a separate `match` is two lists.
+struct Task {
+    name: &'static str,
+    description: &'static str,
+    run: Gate,
+}
+
+const TASKS: &[Task] = &[
+    Task {
+        name: "check-boundaries",
+        description: "the domain crate depends on no framework",
+        run: boundaries::run,
+    },
+    Task {
+        name: "max-lines",
+        description: "no file over 1000 lines (exemptions: .max-lines-ignore)",
+        run: max_lines::run,
+    },
+    Task {
+        name: "unused-deps",
+        description: "every declared dependency is actually used",
+        run: unused_deps::run,
+    },
+    Task {
+        name: "line-endings",
+        description: "every text file uses LF, not CRLF",
+        run: line_endings::run,
+    },
+    Task {
+        name: "text-hygiene",
+        description: "conflict markers, whitespace, final newline, file size; --fix",
+        run: text::run,
+    },
+    Task {
+        name: "check-skills",
+        description: "the skill router and the skill tree agree",
+        run: skills::run,
+    },
+    Task {
+        name: "check-guidance",
+        description: "docs and comments still describe this repo",
+        run: guidance::run,
+    },
+    Task {
+        name: "commit-msg",
+        description: "the commit subject is a conventional commit (the hook passes the file)",
+        run: commit_msg::run,
+    },
+    Task {
+        name: "classify",
+        description: "what a diff requires; --since <ref>, or paths (fails open)",
+        run: changes::run_classify,
+    },
+    Task {
+        name: "changed-packages",
+        description: "the cargo packages owning the given .rs paths",
+        run: changes::run_changed_packages,
+    },
+    Task {
+        name: "check-changed",
+        description: "cargo check, narrowed to the packages that changed",
+        run: changes::run_check_changed,
+    },
+    Task {
+        name: "test-causality",
+        description: "a changed test is red on base, green on head; --since <ref>",
+        run: causality::run,
+    },
 ];
+
+/// Every task name. `check-guidance` reads this to reject a doc citing a task that is gone.
+pub(crate) fn task_names() -> impl Iterator<Item = &'static str> {
+    TASKS.iter().map(|t| t.name)
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let rest = args.split_first().map(|(_, rest)| rest).unwrap_or_default();
+
     match args.first().map(String::as_str) {
-        Some("check-boundaries") => boundaries::run(),
-        Some("max-lines") => max_lines::run(rest),
-        Some("unused-deps") => unused_deps::run(),
-        Some("line-endings") => line_endings::run(),
-        Some("test-causality") => causality::run(rest),
-        Some("check-skills") => skills::run(),
-        Some("text-hygiene") => text::run(rest),
-        Some("commit-msg") => commit_msg::run(rest),
-        Some("classify") => changes::run_classify(rest),
-        Some("changed-packages") => changes::run_changed_packages(rest),
-        Some("check-changed") => changes::run_check_changed(rest),
         Some("--help" | "-h" | "help") => {
             usage();
             ExitCode::SUCCESS
         }
-        Some(other) => {
-            eprintln!("xtask: unknown task `{other}`");
-            usage();
-            ExitCode::from(2)
-        }
+        Some(requested) => TASKS.iter().find(|t| t.name == requested).map_or_else(
+            || {
+                eprintln!("xtask: unknown task `{requested}`");
+                usage();
+                ExitCode::from(2)
+            },
+            |task| (task.run)(rest),
+        ),
         None => {
             usage();
             ExitCode::from(2)
@@ -70,15 +129,15 @@ fn main() -> ExitCode {
 
 fn usage() {
     eprintln!("usage: cargo xtask <task>");
-    for (name, description) in TASKS {
-        eprintln!("  {name:<18} {description}");
+    for task in TASKS {
+        eprintln!("  {:<18} {}", task.name, task.description);
     }
 }
 
 /// `cargo metadata` as JSON, with `extra` appended (for example `--no-deps`).
 ///
-/// One place, because three gates read the workspace graph and each of them wants the same
-/// `--locked` guarantee: a gate must not be the thing that rewrites `Cargo.lock`.
+/// One place, because three gates read the workspace graph and each wants the same `--locked`
+/// guarantee: a gate must not be the thing that rewrites `Cargo.lock`.
 fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
     let output = std::process::Command::new(env!("CARGO"))
         .args(["metadata", "--format-version", "1", "--locked"])
@@ -93,18 +152,26 @@ fn cargo_metadata(extra: &[&str]) -> Result<serde_json::Value, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::TASKS;
+    use super::{TASKS, task_names};
 
-    /// The usage text and the dispatch table are the same list, so a task cannot be added
-    /// without becoming discoverable.
     #[test]
-    fn every_task_is_documented_once() {
-        let mut names: Vec<&str> = TASKS.iter().map(|(name, _)| *name).collect();
-        names.sort_unstable();
+    fn task_names_are_unique() {
+        let mut names: Vec<&str> = task_names().collect();
         let count = names.len();
+        names.sort_unstable();
         names.dedup();
         assert_eq!(names.len(), count, "duplicate task name in TASKS");
-        assert!(names.contains(&"max-lines"));
+    }
+
+    #[test]
+    fn every_task_is_dispatchable() {
+        // Trivially true now that the handler lives in the table - which is the point. This
+        // asserts the shape that makes it true, so a refactor back to a separate `match`
+        // fails here rather than silently reintroducing the drift.
+        for task in TASKS {
+            assert!(!task.name.is_empty());
+            assert!(!task.description.is_empty(), "{} has no --help line", task.name);
+        }
     }
 
     #[test]

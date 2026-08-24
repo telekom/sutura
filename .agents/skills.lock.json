@@ -1,0 +1,235 @@
+{
+  "version": 1,
+  "skills": [
+    {
+      "name": "ms-rust",
+      "catalog": "active",
+      "status": "generated",
+      "local_path": "skills/engineering/ms-rust",
+      "repo": "https://microsoft.github.io/rust-guidelines",
+      "ref": "agents/all.txt",
+      "upstream_path": "-",
+      "sha256": "f20b4e423c39777948bb7e248bc1d8c90d51a8de78cd087037d16af26194835b"
+    },
+    {
+      "name": "oauth",
+      "catalog": "active",
+      "status": "adapted",
+      "local_path": "skills/engineering/oauth",
+      "repo": "https://github.com/curityio/oauth-developer-skills",
+      "ref": "d411f195ab0d03bc68de6b16504036b6f7533244",
+      "upstream_path": "skills/oauth-api-developer",
+      "sha256": "7f1d0c0704196c13e8e82f43607c80011aac58c5f2c7cae03f97cf04d58781d6"
+    },
+    {
+      "name": "ponytail",
+      "catalog": "active",
+      "status": "adapted",
+      "local_path": "skills/engineering/ponytail",
+      "repo": "https://github.com/DietrichGebert/ponytail",
+      "ref": "2ed6c52c9d7e5e56942508591085fd45dea277d3",
+      "upstream_path": ".openclaw/skills/ponytail",
+      "sha256": "63088bc29794aaef1275c7ee757bf224a7c0b07eebc8884ddaa3a07374b3ab35"
+    },
+    {
+      "name": "api-and-interface-design",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/api-and-interface-design",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/api-and-interface-design",
+      "sha256": "71cdfc841e18cc8d09cde626eeb36f5bba761212a71be7425a867c2caf9285a2"
+    },
+    {
+      "name": "ci-cd-and-automation",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/git-ops/ci-cd-and-automation",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/ci-cd-and-automation",
+      "sha256": "fe8db7cc018f277148084183b587b6a726f5d8ce14f99c5e513a26ac4fadf042"
+    },
+    {
+      "name": "code-review-and-quality",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/project-management/code-review-and-quality",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/code-review-and-quality",
+      "sha256": "d5dd66c8e7f7c623c848190b45cdc55c3a7ba47102caf1fb71ccefa4b0e2ff49"
+    },
+    {
+      "name": "code-simplification",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/code-simplification",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/code-simplification",
+      "sha256": "5d9b6d936ba24a1f25c621e17728c56c4dfc2fb165fb74e783d1b908b67412df"
+    },
+    {
+      "name": "context-engineering",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/agent-system/context-engineering",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/context-engineering",
+      "sha256": "05b98efd206a135d013a98a2017829f7c9c571aa02bc0d2d1a03c36faa180a70"
+    },
+    {
+      "name": "debugging-and-error-recovery",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/debugging-and-error-recovery",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/debugging-and-error-recovery",
+      "sha256": "b34d7c509c6728a7eca96351dceb8cc7a3d7adc063676d2cf48da41d51cc5d9a"
+    },
+    {
+      "name": "deprecation-and-migration",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/deprecation-and-migration",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/deprecation-and-migration",
+      "sha256": "8981b52cc7c03efbb63c533c4d06db965b211156c9d86767a32d74bf3a18895e"
+    },
+    {
+      "name": "documentation-and-adrs",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/project-management/documentation-and-adrs",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/documentation-and-adrs",
+      "sha256": "6626ae2fa0e26f08e3f31c9295d3861d04087eb381e8dd72830f3dc347fa220c"
+    },
+    {
+      "name": "doubt-driven-development",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/planning/doubt-driven-development",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/doubt-driven-development",
+      "sha256": "b5331144f2920a2ce068c9a970b9e69507c7625cebb086882b1714745a15728b"
+    },
+    {
+      "name": "git-workflow-and-versioning",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/git-ops/git-workflow-and-versioning",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/git-workflow-and-versioning",
+      "sha256": "9695d9e79b0c83f8d817cfaa4a7068a43c083c42a0d1704f078a120976d01f2e"
+    },
+    {
+      "name": "idea-refine",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/planning/idea-refine",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/idea-refine",
+      "sha256": "40c75d9e9714b5f799346650f450966c20af560889ab6ec9d3d2ba534e32cc43"
+    },
+    {
+      "name": "incremental-implementation",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/incremental-implementation",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/incremental-implementation",
+      "sha256": "f609e85b870091b809c8df336130b7f6b32cb860cea1d4b728fb162b24a8f8b6"
+    },
+    {
+      "name": "observability-and-instrumentation",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/observability-and-instrumentation",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/observability-and-instrumentation",
+      "sha256": "1aac201b3828d8bd7e8355e94ead12ccf0fe68fb5068e6a60ba3055e6325a616"
+    },
+    {
+      "name": "performance-optimization",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/performance-optimization",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/performance-optimization",
+      "sha256": "e6e5917af2c0ea791911bbc87fcb609a3e8f2cf9db106e5f579bf94603a59b29"
+    },
+    {
+      "name": "planning-and-task-breakdown",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/planning/planning-and-task-breakdown",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/planning-and-task-breakdown",
+      "sha256": "733a731b72cc06dc15a6b4d7b8e57019b54ac68f897fde679f05749c9ec1d188"
+    },
+    {
+      "name": "security-and-hardening",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/security-and-hardening",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/security-and-hardening",
+      "sha256": "4ca3d45b73eaf2454cad9f7fb54b5ca2dc089d3d0598835ee364d9798fe5e2ad"
+    },
+    {
+      "name": "shipping-and-launch",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/project-management/shipping-and-launch",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/shipping-and-launch",
+      "sha256": "fe8593687e3fcfc8ece76ac92d0e2877f8c4b1615e96141df7b17bc4c11b7c83"
+    },
+    {
+      "name": "source-driven-development",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/engineering/source-driven-development",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/source-driven-development",
+      "sha256": "d9b4d56df60758ede63025c028923551c0c5c46f09da2b8b5cccbb70c20070ca"
+    },
+    {
+      "name": "spec-driven-development",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/planning/spec-driven-development",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/spec-driven-development",
+      "sha256": "389f30e297c032e615335fe74bbc382f4a4e47293caae9086069d2c07b421f2c"
+    },
+    {
+      "name": "test-driven-development",
+      "catalog": "library",
+      "status": "mirror",
+      "local_path": "skill-library/testing/test-driven-development",
+      "repo": "https://github.com/addyosmani/agent-skills",
+      "ref": "5a5ea45e806f82273549fd85e60adb95d55f510d",
+      "upstream_path": "skills/test-driven-development",
+      "sha256": "d86a93d231b25e492e8fc43dabb850c554a14201efe23f6cf80899c953ad3b4f"
+    }
+  ]
+}

@@ -31,7 +31,7 @@ const TEXT_EXT: &[&str] = &[
     "gitattributes",
 ];
 
-pub(crate) fn run() -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> ExitCode {
     let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
         eprintln!("xtask line-endings: could not determine the repo root");
         return ExitCode::FAILURE;

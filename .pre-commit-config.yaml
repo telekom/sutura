@@ -115,6 +115,15 @@ repos:
         files: ^\.agents/skills/
         pass_filenames: false
 
+      # Docs and comments describing a repo we no longer have. Every rule in this gate
+      # exists because the mistake was already made here.
+      - id: check-guidance
+        name: docs still describe this repo
+        entry: cargo run -q -p xtask -- check-guidance
+        language: system
+        pass_filenames: false
+        always_run: true
+
       - id: text-hygiene
         name: conflict markers, whitespace, final newline, file size
         entry: cargo run -q -p xtask -- text-hygiene
