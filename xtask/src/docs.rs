@@ -14,8 +14,8 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::ExitCode;
 
+use crate::Verdict;
 use crate::repo;
 
 /// The book root: `book.toml` plus `src/`.
@@ -98,10 +98,10 @@ fn problems(linked: &BTreeSet<String>, present: &BTreeSet<String>) -> Vec<String
     problems
 }
 
-pub(crate) fn run(_args: &[String]) -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-docs: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let present = pages(&root);
@@ -110,15 +110,15 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
         // Not an error: a repo need not have a book. Pages with no summary are.
         if present.is_empty() {
             println!("xtask check-docs: ok - no book");
-            return ExitCode::SUCCESS;
+            return Verdict::Pass;
         }
         eprintln!("xtask check-docs: FAILED - pages exist under {SRC_DIR} but {SUMMARY} does not");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     }
 
     let Ok(text) = std::fs::read_to_string(&summary_path) else {
         eprintln!("xtask check-docs: could not read {SUMMARY}");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let chapters = linked(&text);
@@ -133,7 +133,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
             chapters.len(),
             present.len()
         );
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     eprintln!("xtask check-docs: FAILED");
@@ -142,7 +142,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     }
     eprintln!();
     eprintln!("The book is what a reader sees, so a page it does not reach is a rule nobody reads.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 #[cfg(test)]

@@ -111,6 +111,15 @@
           let args = commonArgs // { CARGO_PROFILE = profile; };
           in craneLib.buildPackage (args // {
             cargoArtifacts = craneLib.buildDepsOnly args;
+            # ONE package. Without this, crane builds the whole workspace and the result held
+            # three binaries - `sutura`, `sutura-dev` and `xtask` - which made two stated
+            # invariants false: the image is supposed to hold one executable, and xtask's
+            # compile-time `CARGO` reference pulled the whole cargo store path into the runtime
+            # closure. It also broke reproducibility, because that path differs between builds.
+            #
+            # On the attrset and not on `args`: `buildDepsOnly` above must stay unscoped, or
+            # the shared dependency build stops being shared with the checks.
+            cargoExtraArgs = "--package sutura-cli";
             # Tests run as their own check below, sharing the same artifacts.
             doCheck = false;
           });
@@ -137,7 +146,11 @@
               strictDeps = true;
             };
           in
-          crossLib.buildPackage (args // { cargoArtifacts = crossLib.buildDepsOnly args; });
+          crossLib.buildPackage (args // {
+            cargoArtifacts = crossLib.buildDepsOnly args;
+            # One package, and the target. Same reasoning as `nativeFor`.
+            cargoExtraArgs = "--package sutura-cli --target ${target}";
+          });
 
         # Nix system -> Rust target triple. Needed because the alias below must be named
         # after the RUST target CI asks for, not after the Nix system.
@@ -251,6 +264,27 @@
             cargoNextestExtraArgs = "--workspace --all-features";
           });
 
+          # The image is supposed to hold one executable and no toolchain. It held three and
+          # a full cargo, so this is a check rather than a sentence in a comment. Reads the
+          # closure, so a compile-time store-path reference cannot sneak back in either.
+          one-binary = pkgs.runCommand "sutura-one-binary" { } ''
+            set -eu
+            count="$(ls ${sutura}/bin | wc -l)"
+            if [ "$count" != "1" ]; then
+              echo "the shipped package holds $count binaries, expected 1:" >&2
+              ls ${sutura}/bin >&2
+              exit 1
+            fi
+            # A toolchain in the closure means something baked a build-time path into the
+            # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
+            if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ sutura ]; }}/store-paths; then
+              echo "a Rust toolchain is in the runtime closure:" >&2
+              grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ sutura ]; }}/store-paths >&2
+              exit 1
+            fi
+            touch $out
+          '';
+
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
           doctest = craneLib.mkCargoDerivation (releaseArgs // {
@@ -283,14 +317,7 @@
             pnameSuffix = "-hygiene";
             doCheck = false;
             buildPhaseCargoCommand = ''
-              cargo run --release -q -p xtask -- line-endings
-              cargo run --release -q -p xtask -- text-hygiene
-              cargo run --release -q -p xtask -- max-lines
-              cargo run --release -q -p xtask -- unused-deps
-              cargo run --release -q -p xtask -- check-boundaries
-              cargo run --release -q -p xtask -- check-skills
-              cargo run --release -q -p xtask -- check-guidance
-              cargo run --release -q -p xtask -- check-docs
+              cargo run --release -q -p xtask -- hygiene
             '';
           });
 

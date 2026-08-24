@@ -17,29 +17,8 @@
 //! parser to this crate to re-check what is already checked would buy nothing and cost two
 //! dependencies.
 
-use std::path::Path;
-use std::process::ExitCode;
-
+use crate::Verdict;
 use crate::repo;
-
-/// Extensions treated as text. Anything else is skipped: a trailing-whitespace rule applied
-/// to a binary is nonsense.
-const TEXT_EXT: &[&str] = &[
-    "rs",
-    "toml",
-    "nix",
-    "md",
-    "yml",
-    "yaml",
-    "sh",
-    "json",
-    "lock",
-    "example",
-    "envrc",
-    "txt",
-    "gitignore",
-    "gitattributes",
-];
 
 /// Anything larger is almost certainly not source. The pre-commit default is 500 kB; this
 /// matches the 512 kB the removed hook was configured with.
@@ -160,25 +139,13 @@ pub(crate) fn fixed(text: &str) -> String {
 /// One file and everything wrong with it.
 type Offender = (String, Vec<Finding>);
 
-fn text_extension(path: &Path) -> bool {
-    path.extension().and_then(std::ffi::OsStr::to_str).map_or_else(
-        || {
-            // Dotfiles with no extension: `.envrc`, `.gitignore`.
-            path.file_name()
-                .and_then(std::ffi::OsStr::to_str)
-                .is_some_and(|f| f.starts_with('.'))
-        },
-        |e| TEXT_EXT.contains(&e),
-    )
-}
-
 /// `xtask text-hygiene [--fix]` - the hook and formatter entry point.
-pub(crate) fn run(args: &[String]) -> ExitCode {
+pub(crate) fn run(args: &[String]) -> Verdict {
     let fix = args.iter().any(|a| a == "--fix");
 
     let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
         eprintln!("xtask text-hygiene: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let mut offenders: Vec<Offender> = Vec::new();
@@ -187,7 +154,6 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 
     for rel in files {
         let path = root.join(&rel);
-        let p = Path::new(&rel);
 
         // The size check applies to every file, text or not: a 40 MB binary in git is the
         // problem this catches.
@@ -198,7 +164,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
             findings.push(Finding::TooLarge(meta.len()));
         }
 
-        if text_extension(p)
+        if repo::is_text_file(&path)
             && let Ok(text) = std::fs::read_to_string(&path)
         {
             {
@@ -231,7 +197,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
 
     if offenders.is_empty() {
         println!("xtask text-hygiene: ok - {checked} text file(s) checked");
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     eprintln!("xtask text-hygiene: FAILED");
@@ -243,7 +209,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     eprintln!();
     eprintln!("Run `cargo xtask text-hygiene --fix` for the mechanical ones (whitespace and");
     eprintln!("final newlines). Conflict markers and oversized files need a decision.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 #[cfg(test)]

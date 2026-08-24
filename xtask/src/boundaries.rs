@@ -11,7 +11,8 @@
 //!   one-line diff to the list below - visible, arguable, and impossible to miss.
 
 use std::collections::BTreeSet;
-use std::process::ExitCode;
+
+use crate::Verdict;
 
 /// The complete transitive dependency tree `sutura-domain` is permitted.
 ///
@@ -93,14 +94,14 @@ fn violations(tree: &BTreeSet<String>) -> Vec<&String> {
         .collect()
 }
 
-pub(crate) fn run(_args: &[String]) -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> Verdict {
     // `--all-features` for the same reason every other gate uses it: adapters are default-off,
     // so the default graph is nearly empty and would hide exactly what this checks.
     let meta = match crate::cargo_metadata(&["--all-features"]) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     };
 
@@ -108,7 +109,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
         Ok(names) => names,
         Err(message) => {
             eprintln!("xtask check-boundaries: {message}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     };
 
@@ -118,7 +119,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
             "xtask check-boundaries: ok - {DOMAIN}'s whole tree is {} crate(s), all allowlisted",
             tree.len()
         );
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     eprintln!("xtask check-boundaries: FAILED - {DOMAIN} reaches crates it may not:");
@@ -130,7 +131,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     eprintln!("transitively - is one every domain test pays for and one the hexagon leaks.");
     eprintln!("If it genuinely belongs, add it to ALLOWED_IN_DOMAIN with the reason: that is");
     eprintln!("an architecture decision and should be a visible diff.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 #[cfg(test)]

@@ -13,8 +13,8 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
-use std::process::ExitCode;
 
+use crate::Verdict;
 use crate::repo;
 
 const SKILLS_DIR: &str = ".agents/skills";
@@ -301,10 +301,10 @@ fn library_problems(root: &Path) -> Vec<String> {
     problems
 }
 
-pub(crate) fn run(_args: &[String]) -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-skills: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let router_path = root.join(ROUTER);
@@ -312,22 +312,22 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
         // Not an error: a repo need not have a skills tree. But a tree without a router is.
         if discovered(&root).is_empty() {
             println!("xtask check-skills: ok - no skills tree");
-            return ExitCode::SUCCESS;
+            return Verdict::Pass;
         }
         eprintln!("xtask check-skills: FAILED - skills exist but {ROUTER} does not");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     }
 
     let Ok(text) = std::fs::read_to_string(&router_path) else {
         eprintln!("xtask check-skills: could not read {ROUTER}");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let claimed = match routed(&text) {
         Ok(set) => set,
         Err(e) => {
             eprintln!("xtask check-skills: FAILED - {e}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     };
     let present = discovered(&root);
@@ -382,7 +382,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
             library_count(&root),
             AGENT_SKILL_LINKS.len()
         );
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     eprintln!("xtask check-skills: FAILED");
@@ -394,7 +394,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
         eprintln!("Edited an import on purpose? `pixi run skills-relock` records the new hash.");
         eprintln!("Otherwise it is a local fork: `pixi run skills-refresh` restores upstream.");
     }
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 #[cfg(test)]

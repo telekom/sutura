@@ -19,8 +19,8 @@
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
-use std::process::ExitCode;
 
+use crate::Verdict;
 use crate::repo;
 
 /// One area of the repo, and what depends on it.
@@ -265,12 +265,12 @@ fn print_report(paths: &[String], result: &Classification) {
 }
 
 /// `xtask classify [--since <ref>] [path...]` - the hook and CI entry point.
-pub(crate) fn run_classify(args: &[String]) -> ExitCode {
+pub(crate) fn run_classify(args: &[String]) -> Verdict {
     let paths = match args.split_first() {
         Some((flag, rest)) if flag == "--since" => {
             let Some(base) = rest.first() else {
                 eprintln!("xtask classify: --since needs a git ref");
-                return ExitCode::from(2);
+                return Verdict::Usage;
             };
             if let Some(found) = changed_paths(base) {
                 found
@@ -283,7 +283,7 @@ pub(crate) fn run_classify(args: &[String]) -> ExitCode {
                     ..Classification::default()
                 };
                 write_github_output(&result);
-                return ExitCode::SUCCESS;
+                return Verdict::Pass;
             }
         }
         _ => args.to_vec(),
@@ -292,7 +292,7 @@ pub(crate) fn run_classify(args: &[String]) -> ExitCode {
     let result = classify(&paths);
     print_report(&paths, &result);
     write_github_output(&result);
-    ExitCode::SUCCESS
+    Verdict::Pass
 }
 
 /// The cargo package owning `path`: the nearest ancestor directory with a `Cargo.toml` that
@@ -339,10 +339,10 @@ fn package_name(manifest: &str) -> Option<String> {
 ///
 /// A hook turns that into `cargo check -p a -p b`, so an edit to one crate does not pay for
 /// a workspace check. Prints nothing and succeeds when no Rust file changed.
-pub(crate) fn run_changed_packages(args: &[String]) -> ExitCode {
+pub(crate) fn run_changed_packages(args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask changed-packages: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let rust: Vec<&String> = args
@@ -355,7 +355,7 @@ pub(crate) fn run_changed_packages(args: &[String]) -> ExitCode {
         .collect();
     if rust.is_empty() {
         println!("xtask changed-packages: no Rust files changed");
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     let mut packages = BTreeSet::new();
@@ -378,13 +378,13 @@ pub(crate) fn run_changed_packages(args: &[String]) -> ExitCode {
         }
         eprintln!("  falling back to the whole workspace");
         println!("--workspace");
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     for name in &packages {
         println!("{name}");
     }
-    ExitCode::SUCCESS
+    Verdict::Pass
 }
 
 /// The packages owning the given `.rs` paths, or `None` to mean "the whole workspace".
@@ -404,10 +404,10 @@ fn packages_for(root: &std::path::Path, args: &[String]) -> Option<BTreeSet<Stri
 /// The commit-time counterpart to CI's classification: editing one crate should not pay for
 /// a workspace check. Clippy over the workspace still runs as its own hook, so this is a
 /// fast-feedback narrowing, never the only thing that sees the code.
-pub(crate) fn run_check_changed(args: &[String]) -> ExitCode {
+pub(crate) fn run_check_changed(args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-changed: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let mut command = std::process::Command::new("cargo");
@@ -416,7 +416,7 @@ pub(crate) fn run_check_changed(args: &[String]) -> ExitCode {
     match packages_for(&root, args) {
         Some(packages) if packages.is_empty() => {
             println!("xtask check-changed: no Rust files changed");
-            return ExitCode::SUCCESS;
+            return Verdict::Pass;
         }
         Some(packages) => {
             let names: Vec<&str> = packages.iter().map(String::as_str).collect();
@@ -432,11 +432,11 @@ pub(crate) fn run_check_changed(args: &[String]) -> ExitCode {
     }
 
     match command.status() {
-        Ok(status) if status.success() => ExitCode::SUCCESS,
-        Ok(_) => ExitCode::FAILURE,
+        Ok(status) if status.success() => Verdict::Pass,
+        Ok(_) => Verdict::Fail,
         Err(e) => {
             eprintln!("xtask check-changed: could not run cargo: {e}");
-            ExitCode::FAILURE
+            Verdict::Fail
         }
     }
 }

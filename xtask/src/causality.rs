@@ -21,8 +21,9 @@
 //! report green over exactly the cases most likely to hide a vacuous test.
 
 use std::path::Path;
-use std::process::{Command, ExitCode};
+use std::process::Command;
 
+use crate::Verdict;
 use crate::repo;
 
 /// What the gate concluded, so the shape is testable without git or cargo.
@@ -301,7 +302,7 @@ fn base_ref(args: &[String]) -> Option<String> {
 
 /// Explain the inseparable case. Loud, and deliberately not a failure: the change may be
 /// entirely legitimate, but the gate has not verified it and must not read as green.
-fn report_not_separable(files: &[String]) -> ExitCode {
+fn report_not_separable(files: &[String]) -> Verdict {
     println!("xtask test-causality: NOT MECHANICALLY SEPARABLE");
     for f in files {
         println!("  {f} changes behaviour and adds tests in one file");
@@ -311,11 +312,11 @@ fn report_not_separable(files: &[String]) -> ExitCode {
     println!("implementation would remove the test too. State the evidence in the");
     println!("handoff instead: the command you ran, the failure before the fix, and");
     println!("the pass after. This gate has NOT verified causality for this change.");
-    ExitCode::SUCCESS
+    Verdict::Pass
 }
 
 /// Reconstruct the baseline in a worktree and require the changed tests to fail there.
-fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> ExitCode {
+fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> Verdict {
     // Split by what "revert" means for each file. A file this branch added is not restored -
     // it is removed, because absent is what the base state was.
     let (restore, remove): Partitioned<'_> = revert.iter().partition(|f| base_has(root, base, f));
@@ -331,7 +332,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
         println!("compile, and a test that fails to compile proves nothing about behaviour.");
         println!("This gate has NOT verified causality for this change - state the evidence in");
         println!("the handoff if it is a bug fix.");
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     println!("xtask test-causality: proving red-before-green");
@@ -350,7 +351,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
     if !head_ok {
         eprintln!("xtask test-causality: FAILED - the tests are not green on HEAD");
         eprintln!("{}", tail(&head_out, 30));
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     }
     println!("  head: green");
 
@@ -358,7 +359,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
     remove_worktree(root, &wt);
     if let Err(e) = add_worktree(root, &wt) {
         eprintln!("xtask test-causality: could not create a worktree: {e}");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     }
 
     let verdict = reconstruct_and_run(&wt, base, &restore, &remove);
@@ -367,7 +368,7 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> E
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.
-fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String]) -> ExitCode {
+fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String]) -> Verdict {
     let mut checkout = Command::new("git");
     strip_git_env_for(&mut checkout);
     checkout.current_dir(wt).args(["checkout", base, "--"]);
@@ -381,17 +382,17 @@ fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&St
                 "xtask test-causality: could not restore base files: {}",
                 String::from_utf8_lossy(&o.stderr).trim()
             );
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
         Err(e) => {
             eprintln!("xtask test-causality: could not run git checkout: {e}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     }
     for f in remove {
         if let Err(e) = std::fs::remove_file(wt.join(f)) {
             eprintln!("xtask test-causality: could not remove {f}: {e}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     }
 
@@ -403,13 +404,13 @@ fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&St
             eprintln!("The changed tests pass with the implementation reverted, so they do not");
             eprintln!("test the change. Make the test exercise the new behaviour, or say plainly");
             eprintln!("that it is not a regression test.");
-            ExitCode::FAILURE
+            Verdict::Fail
         }
         BaseOutcome::RedByAssertion => {
             println!("  base: red by assertion, as required");
             println!("{}", tail(&base_out, 12));
             println!("xtask test-causality: ok - red on base, green on head");
-            ExitCode::SUCCESS
+            Verdict::Pass
         }
         BaseOutcome::DidNotCompile => {
             println!("  base: did not compile");
@@ -419,33 +420,33 @@ fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&St
             println!("That is red, but a test that never ran is not evidence about behaviour.");
             println!("Usually it means the change is not separable at file level: the test and");
             println!("what it needs arrived together. State the evidence in the handoff.");
-            ExitCode::SUCCESS
+            Verdict::Pass
         }
     }
 }
 
 /// `xtask test-causality --since <base>` - the ship-check and CI entry point.
-pub(crate) fn run(args: &[String]) -> ExitCode {
+pub(crate) fn run(args: &[String]) -> Verdict {
     let Some(base) = base_ref(args) else {
         eprintln!("xtask test-causality: usage: --since <base-ref>");
-        return ExitCode::from(2);
+        return Verdict::Usage;
     };
 
     let Some(root) = repo::root() else {
         eprintln!("xtask test-causality: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let Some(files) = changed_with_additions(&base) else {
         // Same rule as classify: an unusable base ref is not evidence of nothing to do.
         eprintln!("xtask test-causality: could not diff against `{base}`");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     match plan(&files) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
-            ExitCode::SUCCESS
+            Verdict::Pass
         }
         Plan::NotSeparable { files } => report_not_separable(&files),
         Plan::Separable { revert, test_files } => {
@@ -454,7 +455,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
                 println!("  Nothing to revert, so there is no old behaviour to be red against.");
                 println!("  If this is a new test for existing behaviour, say so; it is not a");
                 println!("  regression test and this gate cannot prove it is causal.");
-                return ExitCode::SUCCESS;
+                return Verdict::Pass;
             }
             prove(&root, &base, &revert, &test_files)
         }

@@ -28,13 +28,12 @@ repos:
         files: \.(rs|toml)$
         pass_filenames: false
 
-      # CRLF has broken this repo more than once: Nix keeps a carriage return inside an
-      # `''...''` string, so it becomes part of a shell argument and the error names a
-      # lint or a flag that looks byte-identical to the correct one. Cheap, so it runs on
-      # every commit and over the whole repo.
-      - id: line-endings
-        name: LF line endings only
-        entry: cargo run -q -p xtask -- line-endings
+      # Every cheap structural gate, in one hook. It was eight, and all eight walk the
+      # whole repo regardless of `files:` scoping - so eight hooks meant eight redundant
+      # tree walks. xtask owns which gates these are (`Kind::Hygiene`).
+      - id: hygiene
+        name: structural gates
+        entry: cargo run -q -p xtask -- hygiene
         language: system
         pass_filenames: false
         always_run: true
@@ -49,29 +48,6 @@ repos:
         language: system
         files: \.rs$
         pass_filenames: true
-
-      - id: boundaries
-        name: domain crate has no framework dependency
-        entry: cargo run -q -p xtask -- check-boundaries
-        language: system
-        files: (Cargo\.(toml|lock)|\.rs)$
-        pass_filenames: false
-
-      # Whole-repo scan on purpose, and cheap enough to afford: it costs milliseconds and
-      # it also catches a file that grew in a commit that does not touch it.
-      - id: max-lines
-        name: no file over 1000 lines
-        entry: cargo run -q -p xtask -- max-lines
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: unused-deps
-        name: every declared dependency is used
-        entry: cargo run -q -p xtask -- unused-deps
-        language: system
-        files: (Cargo\.(toml|lock)|\.rs)$
-        pass_filenames: false
 
       # --- on push: the expensive gates -------------------------------------
       - id: rust-tests
@@ -106,34 +82,6 @@ repos:
         language: system
         stages: [commit-msg]
 
-      # Was `github.com/pre-commit/pre-commit-hooks`. That host is not reachable from every
-      # network this repo is developed on, and an unfetchable hook is a hook that does not
-      # run - so conflict markers, trailing whitespace, final newlines and file size are
-      # checked by our own binary. `fmt` fixes the mechanical ones, including CRLF.
-      #
-      # check-yaml / check-toml are not reimplemented: every YAML and TOML file here is
-      # already parsed by a tool in these gates (cargo, cargo-deny, clippy, zizmor, prek),
-      # so a syntax error already fails something.
-      # Tree-shaped skill discovery only saves tokens if the router is trustworthy: an
-      # entry pointing at a deleted skill routes an agent nowhere, and a SKILL.md in no
-      # route is a rule nobody reads while believing it is in force.
-      - id: check-skills
-        name: skill router and skill tree agree
-        entry: cargo run -q -p xtask -- check-skills
-        language: system
-        files: ^\.agents/skills/
-        pass_filenames: false
-
-      # The book renders only what SUMMARY.md links, and builds an unreachable page just as
-      # happily as a linked one - so the completeness of the nav is checked here, in both
-      # directions, rather than trusted to the build.
-      - id: check-docs
-        name: the book's summary and its pages agree
-        entry: cargo run -q -p xtask -- check-docs
-        language: system
-        files: ^docs/
-        pass_filenames: false
-
       # Secret detection on the staged diff. From nixpkgs via the dev shell, so it needs no
       # network at commit time. `--redact` keeps the finding out of the terminal scrollback
       # and out of any CI log.
@@ -142,22 +90,6 @@ repos:
         entry: betterleaks git --pre-commit --redact --staged --verbose
         language: system
         pass_filenames: false
-
-      # Docs and comments describing a repo we no longer have. Every rule in this gate
-      # exists because the mistake was already made here.
-      - id: check-guidance
-        name: docs still describe this repo
-        entry: cargo run -q -p xtask -- check-guidance
-        language: system
-        pass_filenames: false
-        always_run: true
-
-      - id: text-hygiene
-        name: conflict markers, whitespace, final newline, file size
-        entry: cargo run -q -p xtask -- text-hygiene
-        language: system
-        pass_filenames: false
-        always_run: true
 
       # Workflow static analysis: template injection into `run:`, over-permissive tokens,
       # untrusted checkout. From pixi, so it needs no Rust build.

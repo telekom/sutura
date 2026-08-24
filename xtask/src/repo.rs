@@ -80,8 +80,12 @@ pub(crate) struct RepoFiles {
 
 pub(crate) fn all_files() -> Option<RepoFiles> {
     let root = root()?;
+    // `--stage` rather than a bare listing, because the mode is needed: a symlink must be
+    // skipped. Its content is a target path, so it has no line endings to police and no final
+    // newline to add - adding one would break the link. On a checkout without symlink support
+    // the working tree shows a regular file, so only the index can say what it is.
     if let Ok(out) = std::process::Command::new("git")
-        .args(["ls-files", "-z"])
+        .args(["ls-files", "--stage", "-z"])
         .current_dir(&root)
         .output()
         && out.status.success()
@@ -90,7 +94,7 @@ pub(crate) fn all_files() -> Option<RepoFiles> {
             .stdout
             .split(|b| *b == 0)
             .filter(|raw| !raw.is_empty())
-            .map(|raw| String::from(String::from_utf8_lossy(raw)))
+            .filter_map(|raw| staged_path(&String::from_utf8_lossy(raw)))
             .collect();
         if !files.is_empty() {
             return Some(RepoFiles { root, files });
@@ -125,6 +129,90 @@ fn collect_all(root: &Path, dir: &Path, out: &mut Vec<String>) {
         if let Some(rel) = relative(root, &path) {
             out.push(rel);
         }
+    }
+}
+
+/// The path from one `git ls-files --stage` entry, or `None` for a symlink.
+///
+/// The format is `<mode> <sha> <stage>\t<path>`. Mode 120000 is a symlink: skipped, because a
+/// symlink has no content of its own to check.
+fn staged_path(entry: &str) -> Option<String> {
+    let (meta, path) = entry.split_once('\t')?;
+    let mode = meta.split_whitespace().next()?;
+    if mode == "120000" {
+        return None;
+    }
+    Some(String::from(path))
+}
+
+/// Every text file under `dir`, as repo-relative paths.
+///
+/// The content-based sibling of [`collect_files`], for gates that should judge every text file
+/// rather than a named set of extensions.
+pub(crate) fn collect_text_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if file_type.is_dir() {
+            if !SKIP_DIRS.contains(&name.as_str()) {
+                collect_text_files(root, &path, out);
+            }
+            continue;
+        }
+        if is_text_file(&path)
+            && let Some(rel) = relative(root, &path)
+        {
+            out.push(rel);
+        }
+    }
+}
+
+/// How much of a file to inspect before deciding whether it is text.
+///
+/// A NUL in the first few KiB is the standard binary heuristic and is what git itself uses.
+/// Bounded so a large file costs a single read rather than a full decode.
+const SNIFF_BYTES: usize = 8 * 1024;
+
+/// Is this file text?
+///
+/// Decided by CONTENT, not by an extension list. Three gates each carried their own list of 14,
+/// 14 and 11 extensions, and a file with no extension and no leading dot was invisible to all
+/// three - which meant `justfile` and `Dockerfile`, the two files most likely to reintroduce
+/// the CRLF-in-a-shell-string bug the line-endings gate exists for, were exactly the two it
+/// could not see. Content-based detection has no list to forget: a new file type is covered
+/// the day it appears.
+///
+/// Text means no NUL byte in the first [`SNIFF_BYTES`] and that prefix decodes as UTF-8. A
+/// file that cannot be read is not text, because nothing can be said about it.
+pub(crate) fn is_text_file(path: &Path) -> bool {
+    use std::io::Read as _;
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    let mut head = vec![0_u8; SNIFF_BYTES];
+    let Ok(read) = file.read(&mut head) else {
+        return false;
+    };
+    head.truncate(read);
+
+    if head.contains(&0) {
+        return false;
+    }
+    // A multi-byte character can straddle the cutoff, so an incomplete tail is not evidence of
+    // binary. Only an error before the last few bytes is.
+    match std::str::from_utf8(&head) {
+        Ok(_) => true,
+        Err(e) => e.valid_up_to() + 4 >= head.len(),
     }
 }
 
@@ -206,6 +294,53 @@ fn glob_star(pattern: &[char], rest: &[char], path: &[char]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::matches;
+
+    #[test]
+    fn a_symlink_entry_is_skipped_but_a_regular_file_is_not() {
+        use super::staged_path;
+        // A symlink's content is its target: no line endings to police, and adding a final
+        // newline would break the link. The working tree cannot show this on a checkout
+        // without symlink support, so the index mode is the only source.
+        assert_eq!(staged_path("120000 abc123 0\t.claude/skills"), None);
+        assert_eq!(staged_path("100644 abc123 0\tjustfile").as_deref(), Some("justfile"));
+        // An executable file is still a file.
+        assert_eq!(
+            staged_path("100755 abc123 0\thooks/thing.sh").as_deref(),
+            Some("hooks/thing.sh")
+        );
+        assert_eq!(staged_path("malformed"), None);
+    }
+
+    #[test]
+    fn text_detection_is_by_content_not_extension() {
+        use std::io::Write as _;
+
+        let dir = std::env::temp_dir().join("sutura-is-text-test");
+        drop(std::fs::create_dir_all(&dir));
+
+        // No extension at all - the case three extension lists all missed.
+        let extensionless = dir.join("justfile");
+        let mut f = std::fs::File::create(&extensionless).expect("create");
+        f.write_all(b"default:\n    echo hi\n").expect("write");
+        assert!(super::is_text_file(&extensionless));
+
+        // A NUL byte makes it binary whatever it is called.
+        let fake_text = dir.join("looks-like.md");
+        let mut f = std::fs::File::create(&fake_text).expect("create");
+        f.write_all(b"header\x00\x01\x02binary").expect("write");
+        assert!(!super::is_text_file(&fake_text));
+
+        // Multi-byte UTF-8 is text.
+        let utf8 = dir.join("utf8.txt");
+        let mut f = std::fs::File::create(&utf8).expect("create");
+        f.write_all("a non-ASCII character: \u{00e4}\n".as_bytes()).expect("write");
+        assert!(super::is_text_file(&utf8));
+
+        // A path that does not exist is not text: nothing can be said about it.
+        assert!(!super::is_text_file(&dir.join("absent")));
+
+        drop(std::fs::remove_dir_all(&dir));
+    }
 
     #[test]
     fn literal_and_basename() {

@@ -16,8 +16,8 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::ExitCode;
 
+use crate::Verdict;
 use crate::repo;
 
 /// A phrase that should not appear, and what to write instead.
@@ -304,10 +304,10 @@ fn version_mismatches(root: &Path, files: &[String]) -> Vec<String> {
     problems
 }
 
-pub(crate) fn run(_args: &[String]) -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
         eprintln!("xtask check-guidance: could not determine the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     // Only text we might make a claim in.
@@ -337,7 +337,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
             FORBIDDEN.len(),
             PINS.len()
         );
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
 
     eprintln!("xtask check-guidance: FAILED");
@@ -347,7 +347,7 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     eprintln!();
     eprintln!("Guidance that no longer matches the repo is read as current. Fix the text, or");
     eprintln!("if the rule itself is wrong, change it in xtask/src/guidance.rs with a reason.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 #[cfg(test)]

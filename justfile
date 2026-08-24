@@ -12,6 +12,29 @@
 default:
     @just --list --unsorted
 
+# It exists because the alternative is a README section people skip, and the failure mode is
+# silent - an uninstalled hook does not complain, it just never runs. `prek install` is the
+# important line: without it every gate in this file is advisory.
+
+# Everything a fresh clone needs. Idempotent: run it again any time.
+setup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "== git hooks"
+    # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
+    # the expensive gates. Missing one means that stage silently never runs.
+    prek install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
+    echo "== python tooling (zizmor, actionlint, shellcheck)"
+    pixi install --frozen
+    echo "== building the dev CLI and the gates"
+    # Warms the target directory so the first hook run is not a cold compile, and fails here
+    # rather than inside a git hook if something is wrong.
+    cargo build -q -p xtask -p sutura-dev
+    echo "== checking the environment"
+    cargo run -q -p sutura-dev -- doctor
+    echo
+    echo 'Ready. just lists the tasks; just gates is what CI runs.'
+
 # ---------------------------------------------------------------- inner loop ---
 
 # Fast check of the domain crate only. Should stay sub-second.
@@ -23,28 +46,29 @@ fmt:
     cargo fmt --all
     cargo run -q -p xtask -- text-hygiene --fix
 
-# Lint everything. `--all-features` is not optional: adapters are default-off.
+# `--all-features` is not optional here: adapters are default-off, so without it clippy
+# inspects almost nothing and still reports success.
+
+# Lint everything.
 lint:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Run the tests. nextest for the test suite; `--doc` separately because nextest does not
-# run doctests.
+# `--doc` is separate because nextest does not run doctests.
+
+# Run the tests.
 test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
 # ---------------------------------------------------------------- the gates ---
 
+# One line, because xtask owns the list (`Kind::Hygiene` in its task table). It used to be
+# transcribed here, twice in devenv.nix, in flake.nix and as eight hooks - and the order
+# differed in three of them. `check-guidance` catches a renamed gate, never a forgotten one.
+
 # The cheap structural gates. Seconds, not minutes.
 hygiene:
-    cargo run -q -p xtask -- line-endings
-    cargo run -q -p xtask -- text-hygiene
-    cargo run -q -p xtask -- max-lines
-    cargo run -q -p xtask -- unused-deps
-    cargo run -q -p xtask -- check-boundaries
-    cargo run -q -p xtask -- check-skills
-    cargo run -q -p xtask -- check-docs
-    cargo run -q -p xtask -- check-guidance
+    cargo run -q -p xtask -- hygiene
 
 # Everything CI runs. What to run before pushing.
 gates: hygiene

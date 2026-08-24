@@ -8,9 +8,9 @@
 //! Generated and vendored output is exempt via `.max-lines-ignore`. Hand-written source
 //! is not exemptable at all - see [`UNEXEMPTABLE_PREFIXES`].
 
+use crate::Verdict;
 use crate::repo;
 use std::path::Path;
-use std::process::ExitCode;
 
 /// The limit. Blunt on purpose.
 const DEFAULT_MAX_LINES: usize = 1000;
@@ -18,11 +18,6 @@ const DEFAULT_MAX_LINES: usize = 1000;
 /// Ignore patterns live in a file, not in this source, so adding an exemption is a
 /// reviewable one-line diff next to the reason for it.
 const IGNORE_FILE: &str = ".max-lines-ignore";
-
-/// Text we own or review. Binary blobs and images are not line-counted.
-const CHECKED_EXTENSIONS: &[&str] = &[
-    "rs", "toml", "md", "nix", "yaml", "yml", "json", "sql", "py", "sh", "lock", "rb", "ts", "js",
-];
 
 /// Hand-written source. An ignore pattern pointing here is rejected outright and the gate
 /// fails: the fix for a 1200-line module is to split it, and an exemption list that can
@@ -64,17 +59,17 @@ impl Ignores {
 }
 
 /// Run the gate. `args` are the arguments after the task name.
-pub(crate) fn run(args: &[String]) -> ExitCode {
+pub(crate) fn run(args: &[String]) -> Verdict {
     let max = match parse_max_lines(args) {
         Ok(max) => max,
         Err(message) => {
             eprintln!("xtask max-lines: {message}");
-            return ExitCode::from(2);
+            return Verdict::Usage;
         }
     };
     let Some(root) = repo::root() else {
         eprintln!("xtask max-lines: could not locate the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let ignore_path = root.join(IGNORE_FILE);
@@ -86,11 +81,13 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
         for pattern in smuggled {
             eprintln!("  {IGNORE_FILE}: `{pattern}` targets hand-written source; split the file instead");
         }
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     }
 
     let mut files = Vec::new();
-    repo::collect_files(&root, &root, CHECKED_EXTENSIONS, &mut files);
+    // Every text file, decided by content: an extension list is a list to forget, and a
+    // 5000-line generated file with an unlisted extension is exactly what this should catch.
+    repo::collect_text_files(&root, &root, &mut files);
     files.sort();
 
     let mut violations: Vec<(String, usize)> = Vec::new();
@@ -110,7 +107,7 @@ pub(crate) fn run(args: &[String]) -> ExitCode {
     report(&files, &violations, &warnings, max)
 }
 
-fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String, usize)], max: usize) -> ExitCode {
+fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String, usize)], max: usize) -> Verdict {
     for (path, lines) in warnings {
         println!("xtask max-lines: WARN {path} has {lines} lines (max {max}) - split pending");
     }
@@ -120,14 +117,14 @@ fn report(files: &[String], violations: &[(String, usize)], warnings: &[(String,
             files.len(),
             warnings.len()
         );
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
     eprintln!("xtask max-lines: FAILED - {} file(s) over {max} lines", violations.len());
     for (path, lines) in violations {
         eprintln!("  {path}: {lines} lines");
     }
     eprintln!("  split the file. Generated or vendored output belongs in {IGNORE_FILE}, nothing else does.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 /// The only argument is `--max-lines N`, and it exists so the gate can be *demonstrated*

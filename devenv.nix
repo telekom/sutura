@@ -170,14 +170,7 @@ in
     # dead dependency should fail in seconds, not after clippy and the test suite.
     hygiene.exec = ''
       set -e
-      cargo run -q -p xtask -- max-lines
-      cargo run -q -p xtask -- line-endings
-      cargo run -q -p xtask -- text-hygiene
-      cargo run -q -p xtask -- unused-deps
-      cargo run -q -p xtask -- check-boundaries
-      cargo run -q -p xtask -- check-skills
-      cargo run -q -p xtask -- check-guidance
-      cargo run -q -p xtask -- check-docs
+      cargo run -q -p xtask -- hygiene
     '';
 
     # The finishing sequence. One command, because a checklist in prose is a checklist
@@ -228,14 +221,7 @@ in
     # script being on PATH first. Cheapest first: fail before paying for clippy.
     gates.exec = ''
       set -e
-      cargo run -q -p xtask -- max-lines
-      cargo run -q -p xtask -- line-endings
-      cargo run -q -p xtask -- text-hygiene
-      cargo run -q -p xtask -- unused-deps
-      cargo run -q -p xtask -- check-boundaries
-      cargo run -q -p xtask -- check-skills
-      cargo run -q -p xtask -- check-guidance
-      cargo run -q -p xtask -- check-docs
+      cargo run -q -p xtask -- hygiene
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features

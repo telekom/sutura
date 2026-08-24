@@ -10,10 +10,10 @@
 //! would look unused - but it is the same heuristic that catches the real case, and it
 //! needs no nightly compiler and no extra tool in the shell.
 
+use crate::Verdict;
 use crate::repo;
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::process::ExitCode;
 
 /// A finding: one dependency declaration that nothing refers to.
 struct Unused {
@@ -22,22 +22,22 @@ struct Unused {
     reason: &'static str,
 }
 
-pub(crate) fn run(_args: &[String]) -> ExitCode {
+pub(crate) fn run(_args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask unused-deps: could not locate the repo root");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let metadata = match crate::cargo_metadata(&["--no-deps"]) {
         Ok(value) => value,
         Err(message) => {
             eprintln!("xtask unused-deps: {message}");
-            return ExitCode::FAILURE;
+            return Verdict::Fail;
         }
     };
     let Some(packages) = metadata.get("packages").and_then(|p| p.as_array()) else {
         eprintln!("xtask unused-deps: cargo metadata had no `packages` array");
-        return ExitCode::FAILURE;
+        return Verdict::Fail;
     };
 
     let mut findings: Vec<Unused> = Vec::new();
@@ -79,17 +79,17 @@ pub(crate) fn run(_args: &[String]) -> ExitCode {
     report(checked, &findings)
 }
 
-fn report(checked: usize, findings: &[Unused]) -> ExitCode {
+fn report(checked: usize, findings: &[Unused]) -> Verdict {
     if findings.is_empty() {
         println!("xtask unused-deps: ok - {checked} dependency declarations, all referenced");
-        return ExitCode::SUCCESS;
+        return Verdict::Pass;
     }
     eprintln!("xtask unused-deps: FAILED - {} unused declaration(s)", findings.len());
     for finding in findings {
         eprintln!("  {}: `{}` {}", finding.owner, finding.dependency, finding.reason);
     }
     eprintln!("  remove the declaration, or use it. It comes back with the code that needs it.");
-    ExitCode::FAILURE
+    Verdict::Fail
 }
 
 /// `[workspace.dependencies]` entries that no member crate inherits. The table is a
