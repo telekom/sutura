@@ -19,12 +19,36 @@ repos:
         files: \.rs$
         pass_filenames: false
 
+      # `--all-features` is not optional here: the adapters are feature-gated and
+      # default-off, so without it clippy inspects almost nothing and reports success.
       - id: rust-clippy
-        name: cargo clippy (-D warnings)
-        entry: cargo clippy --workspace --all-targets -- -D warnings
+        name: cargo clippy (-D warnings, all features)
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
+
+      # CRLF has broken this repo more than once: Nix keeps a carriage return inside an
+      # `''...''` string, so it becomes part of a shell argument and the error names a
+      # lint or a flag that looks byte-identical to the correct one. Cheap, so it runs on
+      # every commit and over the whole repo.
+      - id: line-endings
+        name: LF line endings only
+        entry: cargo run -q -p xtask -- line-endings
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Narrowed by the changed files pre-commit passes us: editing one crate should not
+      # pay for a workspace check. Clippy below still sees the whole workspace, so this is
+      # fast feedback, never the only thing that inspects the code. A path that belongs to
+      # no package widens to `--workspace` rather than checking less than was asked.
+      - id: rust-check-changed
+        name: cargo check (changed packages only)
+        entry: cargo run -q -p xtask -- check-changed
+        language: system
+        files: \.rs$
+        pass_filenames: true
 
       - id: boundaries
         name: domain crate has no framework dependency
@@ -51,8 +75,8 @@ repos:
 
       # --- on push: the expensive gates -------------------------------------
       - id: rust-tests
-        name: cargo nextest
-        entry: cargo nextest run --workspace
+        name: cargo nextest (all features)
+        entry: cargo nextest run --workspace --all-features
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -64,13 +88,35 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v5.0.0
-    hooks:
-      - id: check-merge-conflict
-      - id: check-added-large-files
-        args: ["--maxkb=512"]
-      - id: end-of-file-fixer
-      - id: trailing-whitespace
-      - id: check-yaml
-      - id: check-toml
+      # --- on commit-msg ------------------------------------------------------
+      # `default_install_hook_types` above declares `commit-msg`, and AGENTS.md states the
+      # convention. Until this hook existed, neither of those checked anything.
+      - id: commit-msg
+        name: conventional commit subject
+        entry: cargo run -q -p xtask -- commit-msg
+        language: system
+        stages: [commit-msg]
+
+      # Was `github.com/pre-commit/pre-commit-hooks`. That host is not reachable from every
+      # network this repo is developed on, and an unfetchable hook is a hook that does not
+      # run — so conflict markers, trailing whitespace, final newlines and file size are
+      # checked by our own binary. `fmt` fixes the mechanical ones, including CRLF.
+      #
+      # check-yaml / check-toml are not reimplemented: every YAML and TOML file here is
+      # already parsed by a tool in these gates (cargo, cargo-deny, clippy, zizmor, prek),
+      # so a syntax error already fails something.
+      - id: text-hygiene
+        name: conflict markers, whitespace, final newline, file size
+        entry: cargo run -q -p xtask -- text-hygiene
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Workflow static analysis: template injection into `run:`, over-permissive tokens,
+      # untrusted checkout. From pixi, so it needs no Rust build.
+      - id: zizmor
+        name: GitHub Actions static analysis
+        entry: pixi run --frozen zizmor
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false

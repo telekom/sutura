@@ -105,9 +105,18 @@ in
   # Task names are the stable interface; what they shell out to is an implementation
   # detail. `gates` is what CI runs and what a developer runs before pushing.
   scripts = {
-    fmt.exec = "cargo fmt --all";
-    lint.exec = "cargo clippy --workspace --all-targets -- -D warnings";
-    test.exec = "cargo nextest run --workspace";
+    # Formatting includes line endings: rustfmt does not normalise CRLF, and a carriage
+    # return kept inside a Nix ''...'' string becomes part of a shell argument — which
+    # produces errors naming a lint or flag that looks byte-identical to the correct one.
+    fmt.exec = ''
+      set -e
+      cargo fmt --all
+      cargo run -q -p xtask -- text-hygiene --fix
+    '';
+    # `--all-features` because the adapters are feature-gated and default-off: without it
+    # these commands lint and test almost nothing and still pass.
+    lint.exec = "cargo clippy --workspace --all-targets --all-features -- -D warnings";
+    test.exec = "cargo nextest run --workspace --all-features";
     boundaries.exec = "cargo run -q -p xtask -- check-boundaries";
     max-lines.exec = "cargo run -q -p xtask -- max-lines";
     line-endings.exec = "cargo run -q -p xtask -- line-endings";
@@ -119,6 +128,7 @@ in
       set -e
       cargo run -q -p xtask -- max-lines
       cargo run -q -p xtask -- line-endings
+      cargo run -q -p xtask -- text-hygiene
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
     '';
@@ -129,11 +139,12 @@ in
       set -e
       cargo run -q -p xtask -- max-lines
       cargo run -q -p xtask -- line-endings
+      cargo run -q -p xtask -- text-hygiene
       cargo run -q -p xtask -- unused-deps
       cargo run -q -p xtask -- check-boundaries
       cargo fmt --all -- --check
-      cargo clippy --workspace --all-targets -- -D warnings
-      cargo nextest run --workspace
+      cargo clippy --workspace --all-targets --all-features -- -D warnings
+      cargo nextest run --workspace --all-features
       cargo deny check
     '';
   };

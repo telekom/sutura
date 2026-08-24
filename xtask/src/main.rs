@@ -9,9 +9,12 @@
 //! `cargo test --workspace` like any other code.
 
 mod boundaries;
+mod changes;
+mod commit_msg;
 mod line_endings;
 mod max_lines;
 mod repo;
+mod text;
 mod unused_deps;
 
 use std::process::ExitCode;
@@ -22,6 +25,14 @@ const TASKS: &[(&str, &str)] = &[
     ("max-lines", "no file over 1000 lines (exemptions: .max-lines-ignore)"),
     ("unused-deps", "every declared dependency is actually used"),
     ("line-endings", "every text file in the repo uses LF, not CRLF"),
+    (
+        "text-hygiene",
+        "conflict markers, trailing whitespace, final newline, file size; --fix",
+    ),
+    (
+        "commit-msg",
+        "the commit subject is a conventional commit (hook passes the file)",
+    ),
 ];
 
 fn main() -> ExitCode {
@@ -32,6 +43,11 @@ fn main() -> ExitCode {
         Some("max-lines") => max_lines::run(rest),
         Some("unused-deps") => unused_deps::run(),
         Some("line-endings") => line_endings::run(),
+        Some("text-hygiene") => text::run(rest),
+        Some("commit-msg") => commit_msg::run(rest),
+        Some("classify") => changes::run_classify(rest),
+        Some("changed-packages") => changes::run_changed_packages(rest),
+        Some("check-changed") => changes::run_check_changed(rest),
         Some("--help" | "-h" | "help") => {
             usage();
             ExitCode::SUCCESS

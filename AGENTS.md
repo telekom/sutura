@@ -63,6 +63,8 @@ cargo nextest run                                    # tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo xtask dump-schemas                             # regenerate the generated contracts
 hygiene                                              # line endings, max-lines, unused deps, boundaries
+cargo xtask classify --since origin/main             # what does this change require?
+cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
 gates                                                # hygiene + fmt, clippy, tests, deny
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
@@ -72,8 +74,15 @@ pixi run <task>                                      # Python tooling only
 stax                                                 # stacked branches / PRs
 ```
 
-- Hooks are tiered by cost: fmt, clippy, the leak guard and the commit-message check run on commit;
-  tests and slow scans on push. Scope hook runs to touched files while iterating, sweep before a PR.
+- Hooks are tiered by cost: fmt, clippy `--all-features`, the structural gates and the
+  conventional-commit subject check run on commit; tests and `cargo-deny` on push. Scope hook runs
+  to touched files while iterating, sweep before a PR.
+- `--all-features` is not thoroughness for its own sake. Adapters are feature-gated and default-off,
+  so a bare `cargo clippy --workspace` inspects almost nothing and still reports success. Every lint
+  and test entry point passes it; a scoped `-p sutura-domain --no-default-features` run is the fast
+  inner loop, not the gate.
+- The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo — a file
+  here enumerating what we avoid naming would itself be the disclosure — so it runs from there.
 - `rust-toolchain.toml` pins the compiler and Nix reads it via `fromTOML` — one pin everywhere.
 - Use `rg` to search and `fd` to find files.
 - If tooling is missing, report the exact install command and ask before installing it.
@@ -166,13 +175,17 @@ it is fine. Adding the missing check beats adding a sentence to this file.
 ## Where Detailed Guidance Lives
 
 - `devenv.nix` — the shell, the tool pins, and the task names used above.
-- `.pre-commit-config.yaml`, `.githooks/` — what runs on commit versus on push.
+- `.pre-commit-config.yaml` — what runs on commit, on commit-msg and on push.
 - `clippy.toml` and the workspace lint table — the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` — advisories, licence allowlist, duplicate versions.
 - `.max-lines-ignore` — the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
-- `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`. Each is
+- `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`,
+  `commit-msg`, plus `classify` / `check-changed` / `changed-packages`, which decide what a diff
+  requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
+  run everything and say why, because the expensive failure is a new directory being skipped
+  silently, not a wasted CI minute. Each is
   unit-tested by `cargo test --workspace`, because a gate with no test is a gate nobody has seen
   fail. They list files via `git ls-files` where git is available and fall back to walking the tree
   where it is not — the Nix sandbox has the source but no `.git`, and a gate that returned an empty

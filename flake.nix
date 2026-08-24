@@ -197,6 +197,17 @@
 
           sutura-performance = nativeFor "release-performance";
 
+          # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
+          # nothing but `nix` on the runner. It reuses `cargoArtifacts`, so exposing it
+          # costs no extra dependency build.
+          xtask = craneLib.buildPackage (releaseArgs // {
+            inherit cargoArtifacts;
+            pname = "xtask";
+            cargoExtraArgs = "--package xtask";
+            doCheck = false;
+            meta.mainProgram = "xtask";
+          });
+
           # `nix build .#oci` -> a loadable image tarball.
           #
           # streamLayeredImage, not buildLayeredImage: it avoids materialising a
@@ -214,13 +225,18 @@
         # arbitrary order, and the release build must come AFTER lints and tests, not
         # alongside them. CI builds the package as an explicit later step.
         checks = {
+          # `--all-features` is load-bearing, not thoroughness for its own sake: the
+          # adapters are feature-gated and default-off, so the default feature set is
+          # nearly empty. Without it, clippy and the tests would cover none of them and
+          # would still report success.
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
-            cargoClippyExtraArgs = "--workspace --all-targets -- -D warnings";
+            cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
           nextest = craneLib.cargoNextest (commonArgs // {
             inherit cargoArtifacts;
+            cargoNextestExtraArgs = "--workspace --all-features";
           });
 
           fmt = craneLib.cargoFmt {
@@ -247,6 +263,7 @@
             doCheck = false;
             buildPhaseCargoCommand = ''
               cargo run --release -q -p xtask -- line-endings
+              cargo run --release -q -p xtask -- text-hygiene
               cargo run --release -q -p xtask -- max-lines
               cargo run --release -q -p xtask -- unused-deps
               cargo run --release -q -p xtask -- check-boundaries
