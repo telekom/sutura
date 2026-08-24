@@ -41,7 +41,7 @@ else is an adapter, and nothing depends on an adapter.
 | `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
 | `sutura-mcp` / `sutura-http` | Transport only, no business logic |
 | `sutura-cli` | The binary; composes adapters |
-| `xtask` | Schema dump, drift check, boundary check |
+| `xtask` | The repo gates: boundary check, file-length check, unused-dependency check. Schema dump and drift check arrive with the schemas |
 
 Adapters are feature-gated and default-off, so `cargo test -p sutura-domain` compiles no heavy
 dependency. Keep it that way: its test suite should run in well under a second.
@@ -57,7 +57,8 @@ cargo check -p sutura-domain --no-default-features   # fast inner loop
 cargo nextest run                                    # tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo xtask dump-schemas                             # regenerate the generated contracts
-gates                                                # fmt, clippy, tests, deny, boundary, leak guard
+hygiene                                              # max-lines, unused deps, crate boundaries
+gates                                                # hygiene + fmt, clippy, tests, deny
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
 pixi run <task>                                      # Python tooling only
@@ -103,6 +104,11 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | No panic path reachable from input | `unwrap_used` / `expect_used` / `panic` / `indexing_slicing` denied for library crates in `clippy.toml`, exempt in tests; `panic = "abort"` on shipped profiles |
 | A credential cannot be logged by accident | Credential-shaped types are newtypes with a hand-written `Debug`, plus a unit test asserting the secret is absent from `{:?}` |
 | The domain acquires no framework dependency | The dependency-boundary check in `xtask`, run by `gates` and in CI |
+| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `.max-lines-ignore`; anything under `crates/` or `xtask/` is not — the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
+| No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody — an entry nothing inherits pins nothing |
+| No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
+| Dead code does not accumulate, and cannot hide behind `pub` | `dead_code`, `unused_must_use` and `unreachable_pub` are `deny` rather than the default `warn`, so a plain `cargo build` fails on them. `unreachable_pub` is what stops an unused item from being kept alive by a `pub` that reaches nowhere |
+| A suppression cannot outlive its cause | `clippy::allow_attributes` is on, so a bare `#[allow]` is a lint error: `#[expect(.., reason = "..")]` is required and fails once the underlying warning stops firing |
 | No interpreter in the query path | Python is build-time tooling only; the image from `nix build .#oci` holds one binary, so a query-path dependency could not ship |
 | A result cannot be separated from what defined it | Provenance rides in the Arrow schema metadata, and both wire envelopes share one encoder |
 | Every call is attributable, refusals included | `AuditSink` records the whole principal chain before the outcome is returned |
@@ -154,7 +160,11 @@ it is fine. Adding the missing check beats adding a sentence to this file.
 
 - `devenv.nix` — the shell, the tool pins, and the task names used above.
 - `.pre-commit-config.yaml`, `.githooks/` — what runs on commit versus on push.
-- `clippy.toml` and the workspace lint table — the bans, each with its reason.
+- `clippy.toml` and the workspace lint table — the bans, each with its reason. The whole
+  `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` — advisories, licence allowlist, duplicate versions.
-- `xtask/` — schema dump, drift check, dependency-boundary check.
+- `.max-lines-ignore` — the only place a file can be exempted from the 1000-line limit, and
+  the list of what may not be.
+- `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`. Each is unit-tested by
+  `cargo test --workspace`, because a gate with no test is a gate nobody has seen fail.
 - `docs/adr/` — sutura's decisions, in sutura's own numbering. Cite nothing external.

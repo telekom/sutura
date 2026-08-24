@@ -17,3 +17,8 @@ disallowed-types = [
   { path = "std::sync::Mutex",  reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
   { path = "std::sync::RwLock", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
 ]
+
+# Nothing here is published to a registry, so there is no exported API to break. Clippy
+# suppresses a whole family of pedantic lints on public items by default to protect
+# semver; turning that off is what makes them apply to the surface that actually matters.
+avoid-breaking-exported-api = false

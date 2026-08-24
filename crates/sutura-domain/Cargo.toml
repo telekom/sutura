@@ -10,7 +10,6 @@ publish = false
 description = "Types and port traits. No framework dependencies, by design and by CI check."
 
 [dependencies]
-schemars = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 

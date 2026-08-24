@@ -48,9 +48,12 @@
         # file cannot disagree with the dev shell or with a bare rustup fallback.
         rustToolchainFile = ./rust-toolchain.toml;
 
-        # Targets we publish. Both Linux architectures, because "cross-built for linux and
-        # linux aarch64" is a release requirement, not a nice-to-have.
-        crossTargets = [ "x86_64-unknown-linux-gnu" "aarch64-unknown-linux-gnu" ];
+        # Targets we CROSS-build. Deliberately excludes the host architecture: on an
+        # x86_64 builder `sutura` already IS the x86_64-linux binary, and building a
+        # separate "cross" x86_64 derivation would compile the whole tree a second time
+        # for a byte-identical result. `packages.sutura-x86_64-unknown-linux-gnu` is an
+        # alias to the native build instead — see `crossPackages` below.
+        crossTargets = [ "aarch64-unknown-linux-gnu" ];
 
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
@@ -71,14 +74,25 @@
         commonArgs = {
           inherit src;
           strictDeps = true;
+          # .cargo/config.toml selects clang + lld for the linux targets. The Nix build
+          # sandbox has neither unless we say so, and a flake that linked differently from
+          # the dev shell would reintroduce exactly the drift this flake exists to remove.
+          nativeBuildInputs = [ pkgs.clang pkgs.lld ];
           # `release`, not `release-performance`: the default shipped profile is cheap to
           # build on purpose. Opt into the slow one when throughput has been measured.
           CARGO_PROFILE = "release";
         };
 
+        # Dependencies, compiled ONCE and reused by the build and by every check. This is
+        # the reason to use crane rather than a plain buildRustPackage: a naive layout
+        # recompiles the dependency tree for clippy, for the tests and for the build, and
+        # on this dependency set that is most of the wall clock.
+        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
         sutura = craneLib.buildPackage (commonArgs // {
-          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
-          doCheck = true;
+          inherit cargoArtifacts;
+          # Tests run as their own check below, sharing the same artifacts.
+          doCheck = false;
         });
 
         # One cross-compiled package per target. `cargoExtraArgs` pins the target and the
@@ -102,8 +116,22 @@
           in
           crossLib.buildPackage (args // { cargoArtifacts = crossLib.buildDepsOnly args; });
 
+        # Nix system -> Rust target triple. Needed because the alias below must be named
+        # after the RUST target CI asks for, not after the Nix system.
+        hostRustTarget = {
+          "x86_64-linux" = "x86_64-unknown-linux-gnu";
+          "aarch64-linux" = "aarch64-unknown-linux-gnu";
+          "x86_64-darwin" = "x86_64-apple-darwin";
+          "aarch64-darwin" = "aarch64-apple-darwin";
+        }.${system} or null;
+
         crossPackages = builtins.listToAttrs
-          (map (t: { name = "sutura-${t}"; value = crossFor t; }) crossTargets);
+          (map (t: { name = "sutura-${t}"; value = crossFor t; })
+            # Never cross-build the host triple: it would compile the whole tree a second
+            # time for a byte-identical result.
+            (builtins.filter (t: t != hostRustTarget) crossTargets))
+          // (if hostRustTarget == null then { }
+              else { "sutura-${hostRustTarget}" = sutura; });
       in
       {
         packages = crossPackages // {
@@ -133,7 +161,22 @@
           };
         };
 
-        checks = { inherit sutura; };
+        # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
+        # dependency tree is built once for the whole set, not once per check.
+        checks = {
+          inherit sutura;
+
+          clippy = craneLib.cargoClippy (commonArgs // {
+            inherit cargoArtifacts;
+            cargoClippyExtraArgs = "--workspace --all-targets -- -D warnings";
+          });
+
+          nextest = craneLib.cargoNextest (commonArgs // {
+            inherit cargoArtifacts;
+          });
+
+          fmt = craneLib.cargoFmt { inherit src; };
+        };
         formatter = pkgs.nixpkgs-fmt;
       });
 }

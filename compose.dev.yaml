@@ -1,28 +1,36 @@
-# Convenience wrapper for the dev container. `docker compose -f compose.dev.yaml run --rm dev`
+# Convenience wrapper for the dev container:
+#   docker compose -f compose.dev.yaml run --rm dev
 #
-# Two volumes that matter: the source bind-mount, and a NAMED volume for /nix so the Nix
-# store survives container restarts. Without the second one, every `docker run` re-downloads
-# the toolchain and the container stops being useful.
+# Every mirror/proxy value comes from a gitignored `.env`, so a network without direct
+# egress is configured OUTSIDE this repo rather than by editing tracked files. With no
+# `.env` present the public defaults apply and this still works.
+#
+# Two volumes carry the weight: a NAMED volume for /nix so the store survives container
+# restarts (without it every run re-downloads the toolchain), and one for the cargo
+# registry for the same reason.
 services:
   dev:
     build:
       context: .
-      dockerfile: Dockerfile.dev
-      target: devshell
+      dockerfile: Dockerfile
+      target: dev
       args:
-        # Override these for a build that goes through an internal mirror or proxy.
-        BASE_IMAGE: ${BASE_IMAGE:-debian:trixie-slim}
+        BASE_IMAGE: ${BASE_IMAGE:-nixos/nix:2.35.2}
         HTTP_PROXY_URL: ${HTTP_PROXY_URL:-}
+        NO_PROXY_LIST: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
+        NIX_SUBSTITUTER: ${NIX_SUBSTITUTER:-https://cache.nixos.org}
+        NIX_TRUSTED_KEY: ${NIX_TRUSTED_KEY:-cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=}
+        CARGO_REGISTRY_URL: ${CARGO_REGISTRY_URL:-}
     working_dir: /work
     volumes:
       - .:/work
       - nix-store:/nix
-      - cargo-registry:/root/.cargo/registry
+      - cargo-registry:/usr/local/cargo/registry
       - target-dir:/work/target
     environment:
-      # The leak guard is deliberately not vendored into this repo; point at it to enable
-      # the pre-commit hook inside the container.
-      SUTURA_LEAK_GUARD: ${SUTURA_LEAK_GUARD:-}
+      HTTP_PROXY: ${HTTP_PROXY_URL:-}
+      HTTPS_PROXY: ${HTTP_PROXY_URL:-}
+      NO_PROXY: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
     stdin_open: true
     tty: true
 

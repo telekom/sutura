@@ -33,6 +33,22 @@ repos:
         files: (Cargo\.(toml|lock)|\.rs)$
         pass_filenames: false
 
+      # Whole-repo scan on purpose, and cheap enough to afford: it costs milliseconds and
+      # it also catches a file that grew in a commit that does not touch it.
+      - id: max-lines
+        name: no file over 1000 lines
+        entry: cargo run -q -p xtask -- max-lines
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      - id: unused-deps
+        name: every declared dependency is used
+        entry: cargo run -q -p xtask -- unused-deps
+        language: system
+        files: (Cargo\.(toml|lock)|\.rs)$
+        pass_filenames: false
+
       # --- on push: the expensive gates -------------------------------------
       - id: rust-tests
         name: cargo nextest

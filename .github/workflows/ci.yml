@@ -1,5 +1,21 @@
-# CI enters the SAME devenv shell developers use. If it installed tools its own way,
-# "works on my machine" would simply reappear as "works in CI".
+# COMPILE BUDGET — the thing this file is organised around.
+#
+# A naive layout (a cargo gates job + one job per target + an image job) compiles the
+# dependency tree four or more times. Three of those are waste. So:
+#
+#   * ONE job. Separate jobs cannot share a /nix/store; separate steps can.
+#   * `nix flake check` is the gate. fmt, clippy and the tests are crane derivations that
+#     all reuse the same `cargoArtifacts`, so dependencies are compiled ONCE for the whole
+#     set rather than once per check (see flake.nix).
+#   * The image reuses the native build's derivation — referenced, not recompiled.
+#   * The host architecture is NOT cross-built: on an x86_64 runner the native build IS
+#     the x86_64-linux binary, and `packages.sutura-x86_64-unknown-linux-gnu` aliases it.
+#     Only aarch64 is a genuine second compile, because it is a genuinely different target.
+#   * A persistent Nix store cache carries derivations across runs, so an unchanged
+#     dependency tree is not recompiled at all.
+#
+# Net: one native dependency build plus one aarch64 dependency build, and zero on a cache
+# hit.
 name: ci
 
 on:
@@ -13,12 +29,12 @@ concurrency:
 
 env:
   # Cranelift is a DEVELOPMENT-only codegen backend: it changes codegen, so a bug that
-  # reproduces under one backend and not the other is a real possibility. CI and every
-  # shipped artifact use the default backend, always.
+  # reproduces under one backend and not the other is possible. CI and every shipped
+  # artifact use the default backend, always.
   SUTURA_CODEGEN_BACKEND: default
 
 jobs:
-  gates:
+  ci:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -29,67 +45,65 @@ jobs:
             accept-flake-config = true
             experimental-features = nix-command flakes
 
-      - name: Install devenv
-        run: nix profile install nixpkgs#devenv
+      # Carries /nix/store between runs. Without it every run recompiles from scratch,
+      # which is the same waste as duplicated jobs, just spread over time.
+      - uses: DeterminateSystems/magic-nix-cache-action@v8
 
-      # One command, the same one a developer runs. Each gate asserts a value or a count,
-      # never merely a zero exit code.
-      - name: gates
-        run: devenv shell gates
+      # fmt + clippy + tests + the package, sharing one dependency build.
+      - name: nix flake check
+        run: nix flake check -L
 
-  # Cross-built binaries for linux x86_64 and aarch64, on every PR — so a
-  # cross-compilation break is found now rather than at release time.
-  binaries:
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - x86_64-unknown-linux-gnu
-          - aarch64-unknown-linux-gnu
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
+      # Reuses the derivation `flake check` just realised — a reference, not a rebuild.
+      - name: Build native
+        run: nix build .#sutura -L
 
-      - name: Build ${{ matrix.target }}
-        run: nix build .#sutura-${{ matrix.target }} -L
+      - name: Build the aarch64 binary
+        run: nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
 
-      - name: Prove it is the architecture we asked for
+      - name: Assert each binary is the architecture requested
         run: |
           set -eu
-          bin=$(find ./result/bin -type f | head -1)
-          file "$bin"
-          file "$bin" | grep -qiE "$( [ '${{ matrix.target }}' = 'aarch64-unknown-linux-gnu' ] && echo 'aarch64|ARM aarch64' || echo 'x86-64' )"
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sutura-${{ matrix.target }}
-          path: result/bin/sutura
-          if-no-files-found: error
-
-  # M0's acceptance is not "the workflow exists" — it is that an artifact exists and runs.
-  release-image:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: cachix/install-nix-action@v30
-        with:
-          extra_nix_config: |
-            accept-flake-config = true
-            experimental-features = nix-command flakes
+          file result/bin/sutura result-aarch64/bin/sutura
+          # A cross-compile that silently produced host binaries would otherwise pass.
+          file result/bin/sutura         | grep -q 'x86-64'
+          file result-aarch64/bin/sutura | grep -qE 'aarch64|ARM aarch64'
 
       - name: Build the OCI image
-        run: nix build .#oci -L
+        run: nix build .#oci -L -o result-oci
 
       - name: Load it and prove the binary runs
         run: |
-          ./result | docker load
+          set -eu
+          ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+          docker image inspect sutura:latest --format 'digest: {{.Id}}'
 
-      - name: Record the digest
-        run: docker image inspect sutura:latest --format '{{.Id}}'
+      # Not crane derivations: cargo-deny reads the lockfile and xtask is a tiny binary, so
+      # neither is worth a separate dependency build. Run in the dev shell instead.
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # The structural gates, as their own named step so a failure is attributable from the
+      # job list without opening the log. `hygiene` is defined in devenv.nix, so CI and a
+      # developer run the identical list:
+      #
+      #   max-lines   — no file over 1000 lines. Exemptions live in .max-lines-ignore, and
+      #                 anything under crates/ or xtask/ cannot be exempted at all: the
+      #                 gate fails on such a pattern instead of honouring it.
+      #   unused-deps — every declared dependency is referenced by the crate declaring it,
+      #                 and every [workspace.dependencies] entry is inherited by someone.
+      #   boundaries  — the domain crate depends on no framework.
+      - name: Repo hygiene gates (max-lines 1000, unused deps, crate boundaries)
+        run: devenv shell hygiene
+
+      - name: Supply-chain gate
+        run: devenv shell -- cargo deny check
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sutura-binaries
+          path: |
+            result/bin/sutura
+            result-aarch64/bin/sutura
+          if-no-files-found: error
