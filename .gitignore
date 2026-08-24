@@ -1,0 +1,26 @@
+/target
+**/*.rs.bk
+*.pdb
+
+# pixi manages the Python environment; the materialised env is not source.
+/.pixi
+__pycache__/
+
+# Local editor / OS noise
+.idea/
+.vscode/
+.DS_Store
+
+# Nix / devenv / direnv
+/result
+/result-*
+.direnv/
+.devenv/
+.devenv.flake.nix
+# Personal, uncommitted devenv overrides — the escape hatch that stops people
+# editing devenv.nix to make their own machine work.
+devenv.local.nix
+
+# prek / pre-commit hook caches
+.pre-commit-cache/
+.prek-cache/
