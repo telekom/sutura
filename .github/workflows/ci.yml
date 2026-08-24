@@ -1,0 +1,185 @@
+# Order: classify -> lints -> tests -> build. Explicit steps rather than one
+# `nix flake check`, because flake checks run in arbitrary order and the release build must
+# come after the lints meant to gate it. `flake.nix` excludes the package from `checks` for
+# the same reason.
+#
+# Steps are gated on the classification, which fails open. The structural gates never are:
+# they judge docs too.
+#
+# Every action is pinned by commit. A tag is mutable and these run with the job's token.
+name: ci
+
+# Prose-only changes do not start a run at all. `classify` inside the job can skip work but
+# not the runner, the Nix install or the cache restore; `paths-ignore` skips those too.
+#
+# What still runs for those paths: docs.yml, which builds the book and runs the text and
+# documentation gates. Nothing about a markdown edit goes unchecked - it is checked by the
+# cheaper workflow.
+#
+# `.json` and `.toml` are NOT ignored, so a change to skill-router.json or a manifest brings
+# the full chain back.
+#
+# If CI is ever made a required check, add a skip-equivalent job here: a required check that
+# never runs blocks the merge.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+  pull_request:
+    paths-ignore:
+      - "**/*.md"
+      - "docs/**"
+      - "LICENSE"
+      - "NOTICE"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  # Never cancel a run on the default branch. The next push's base is the previous push, so a
+  # cancelled run's commits get classified out of the following range and are never validated
+  # by any completed run - the same "green while actually red" shape as using the wrong base.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # classify and the causality gate diff against the base commit.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
+          extra_nix_config: |
+            fallback = true
+
+      # Carries /nix/store between runs. Without it every run recompiles from scratch.
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      - name: Toolchain in use
+        run: |
+          set -eu
+          nix --version
+          cat rust-toolchain.toml
+
+      # What to compare against. This gets its own step because getting it wrong is subtle
+      # and was wrong: `github.event.before` is the PREVIOUS PUSH on the branch, so a push
+      # whose last commit only touched docs classified as docs-only and skipped the Rust
+      # chain - reporting green while the branch itself was red. The whole branch is the unit
+      # of review, so the whole branch is the unit of comparison.
+      - name: Resolve the base to compare against
+        id: base
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          BEFORE: ${{ github.event.before }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          if [ "$EVENT" = "pull_request" ]; then
+            # The merge base, not the base tip: it is the whole PR even if the target moved.
+            base="$(git merge-base "$PR_BASE" HEAD || true)"
+          elif [ "$GITHUB_REF_NAME" = "$DEFAULT_BRANCH" ]; then
+            # On the default branch, what is newly ON it is exactly the right scope.
+            base="$BEFORE"
+          else
+            # A push to a topic branch: judge the branch, not the push.
+            base="$(git merge-base "origin/$DEFAULT_BRANCH" HEAD || true)"
+          fi
+          # An all-zero SHA (new branch) or an empty value means fail open, not skip.
+          case "$base" in 0000000000000000000000000000000000000000|"") base="" ;; esac
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          if [ -n "$base" ]; then
+            echo "comparing against $base ($(git rev-list --count "$base..HEAD" 2>/dev/null || echo '?') commit(s))"
+          else
+            echo "no usable base: everything will run"
+          fi
+
+      # A docs-only edit needs the structural gates and nothing else; a flake edit needs the
+      # whole chain. An unmapped path, a bad base ref or an empty diff all run everything.
+      - name: Classify the change
+        id: classify
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -eu
+          if [ -n "$BASE" ]; then
+            nix run .#xtask -- classify --since "$BASE"
+          else
+            nix run .#xtask -- classify
+          fi
+
+      - name: Structural gates
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      - name: Format
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.fmt -L
+
+      - name: Clippy
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.clippy -L
+
+      # An app, not a check: it fetches the advisory database and a build sandbox has no
+      # network. The app also supplies the pinned cargo.
+      - name: Supply chain
+        if: steps.classify.outputs.deps == 'true'
+        run: nix run .#deny
+
+      - name: Workflow static analysis
+        if: steps.classify.outputs.run_all == 'true'
+        run: nix run .#pixi -- run --frozen zizmor
+
+      - name: Tests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.nextest -L
+
+      # nextest deliberately does not run doctests, so a `///` example that stops compiling
+      # would pass unnoticed. A separate check, so the gap is visible rather than assumed.
+      - name: Doctests
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.doctest -L
+
+      # A changed test must fail against base behaviour and pass with the change. Compiles
+      # twice in a worktree, so it needs git history and a writable tree.
+      - name: Test causality
+        if: steps.classify.outputs.rust == 'true'
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -eu
+          if [ -z "$BASE" ]; then
+            echo "no usable base ref; causality not checked"
+            exit 0
+          fi
+          nix run .#causality -- --since "$BASE"
+
+      - name: Release build
+        if: steps.classify.outputs.build == 'true'
+        run: |
+          set -eu
+          nix build .#sutura -L
+          nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
+          file result/bin/sutura result-aarch64/bin/sutura
+
+      - name: Image
+        if: steps.classify.outputs.build == 'true'
+        run: |
+          set -eu
+          nix build .#oci -L -o result-oci
+          ./result-oci | docker load
+          docker run --rm sutura:latest --version
+          docker run --rm sutura:latest doctor

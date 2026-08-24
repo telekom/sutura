@@ -1,0 +1,21 @@
+# The documentation site. `mdbook build docs` renders `src/` into `book/`, which is
+# gitignored - the HTML is a build artefact, the markdown is the source.
+#
+# Kept minimal on purpose: every option here has to work from nixpkgs' `mdbook` with no
+# preprocessor or renderer plugin, because CI builds it with `nix run nixpkgs#mdbook`
+# and a plugin that is not in that closure fails the build rather than degrading.
+
+[book]
+title = "sutura"
+src = "src"
+language = "en"
+
+[build]
+# mdBook's default is to CREATE a file named in SUMMARY.md that does not exist, so a typo
+# publishes an empty page instead of failing. `cargo xtask check-docs` rejects the same
+# thing earlier and in both directions; this closes the loop for a build run by hand.
+create-missing = false
+
+[output.html]
+git-repository-url = "https://github.com/telekom/sutura"
+edit-url-template = "https://github.com/telekom/sutura/edit/main/docs/{path}"

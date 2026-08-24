@@ -1,0 +1,221 @@
+# sutura - workspace root.
+#
+# The directory layout IS the architecture: `crates/sutura-domain` is the hexagon's interior -
+# domain types today, plus a port trait for each adapter as adapters land - every other crate
+# is an adapter that depends on it, and nothing depends on an adapter. That rule is
+# machine-checked - `cargo xtask check-boundaries`, which also fails a library crate whose
+# types or errors stop being a typed contract.
+#
+# Crates arrive with the milestone that needs them rather than as empty placeholders: an
+# empty crate is a compile target and a maintenance surface for no value. So does a port
+# trait: with no adapter to invert, its signature is a guess.
+
+[workspace]
+resolver = "3"
+members = ["crates/sutura-domain", "crates/sutura-cli", "xtask", "dev"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/telekom/sutura"
+
+[workspace.dependencies]
+sutura-domain = { path = "crates/sutura-domain" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+# For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
+# `indexing_slicing` ban, to reimplement something audited.
+sha2 = "0.10"
+
+# ---------------------------------------------------------------- lints ----
+# A misspelled or removed lint name in the tables below is a silent no-op: it warns on
+# every build and the suppression it was meant to express never applied. Fail instead.
+[workspace.lints.rust]
+unknown_lints = "deny"
+unused_imports = "deny"
+# `deny`, not the default `warn`: a plain `cargo build` should fail on these too, not only
+# the `-D warnings` gate. Dead code is either wanted (then it is used or `pub`) or it is
+# not (then it goes), and an ignored `Result` is the bug class this project cares about.
+dead_code = "deny"
+unused_must_use = "deny"
+# Visibility has to be honest. A `pub` item inside a private module is reachable from
+# nowhere outside the crate, and in a LIBRARY crate that same `pub` also suppresses
+# `dead_code` - which is precisely how an unused function survives review. `pub(crate)`
+# says what is true, and then the dead-code check can see it.
+unreachable_pub = "deny"
+# `forbid`, so a crate cannot re-allow it locally. No first-party `unsafe` exists and none
+# is planned: every FFI-shaped dependency (arrow, duckdb) is consumed through its own safe
+# wrapper. Needing `unsafe` here is an architecture decision, and lifting a `forbid` is
+# exactly the size of diff that decision deserves.
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all         = { level = "deny", priority = -3 }
+nursery     = { level = "deny", priority = -3 }
+cargo       = { level = "deny", priority = -3 }
+pedantic    = { level = "warn", priority = -2 }
+# `restriction` is not a category of bugs - it is a menu of bans, most of which are wrong
+# for most codebases. It is enabled anyway, at the lowest priority, because the handful
+# that matter here (`str_to_string`, `exit`, `dbg_macro`, `todo`, `unimplemented`,
+# `map_err_ignore`, `unwrap_in_result`, `mem_forget`, `format_push_string`) are the ones
+# nobody notices in review. The cost is the override list below; it is paid once and every
+# entry carries the reason it exists, so a future reader can disagree with a specific line
+# rather than with the whole idea.
+restriction = { level = "warn", priority = -1 }
+
+# Panics reachable from caller input are availability bugs, not robustness niceties.
+# `clippy.toml` exempts test code so asserts stay readable. Listed explicitly at default
+# priority so they stay `deny` regardless of what the categories above do.
+unwrap_used      = "deny"
+expect_used      = "deny"
+panic            = "deny"
+indexing_slicing = "deny"
+# Silently dropping a Result is the bug class this project cares about most.
+let_underscore_must_use = "deny"
+
+# --- cargo category overrides ----------------------------------------------
+cargo_common_metadata   = "allow" # internal binaries; nothing is published to a registry
+multiple_crate_versions = "allow" # transitive, outside our control
+
+# --- pedantic overrides ----------------------------------------------------
+module_name_repetitions = "allow" # `domain::DomainError` reads better than the alternative
+missing_errors_doc      = "allow" # the error type IS the documentation (typed, exhaustive)
+missing_panics_doc      = "allow" # panics are denied above, so the section is vacuous
+must_use_candidate      = "allow" # noisy on newtype accessors
+
+# --- restriction: the meta-lint that fires for enabling the category -------
+blanket_clippy_restriction_lints = "allow"
+
+# --- restriction: contradictory pairs, so style stays a choice -------------
+# Each pair bans the opposite of the other. Allowing both sides is the only coherent
+# position; picking one would be a style edict enforced by a lint nobody agreed to.
+mod_module_files            = "allow"
+self_named_module_files     = "allow"
+separated_literal_suffix    = "allow"
+unseparated_literal_suffix  = "allow"
+semicolon_inside_block      = "allow"
+semicolon_outside_block     = "allow"
+pub_with_shorthand          = "allow"
+pub_without_shorthand       = "allow"
+# `redundant_pub_crate` and `unreachable_pub` are the same contradiction: inside a private
+# module both `pub` and `pub(crate)` have identical effective visibility, so one lint asks
+# for `pub` and the other asks for `pub(crate)`. `unreachable_pub` is DENIED above, because
+# it is what stops an unused item from being kept alive by a `pub` that reaches nowhere.
+# This is the side that loses.
+redundant_pub_crate         = "allow"
+
+# --- restriction: fights idiomatic Rust ------------------------------------
+implicit_return          = "allow" # tail expressions are the language, not an omission
+question_mark_used       = "allow" # `?` is the error-handling story this repo uses
+min_ident_chars          = "allow" # `f` for a Formatter is clearer than a paraphrase
+single_char_lifetime_names = "allow"
+shadow_reuse             = "allow" # `let raw = raw.into();` is a narrowing, not a bug
+shadow_same              = "allow"
+shadow_unrelated         = "allow"
+single_call_fn           = "allow" # a named helper is documentation; inlining it is not
+else_if_without_else     = "allow"
+pattern_type_mismatch    = "allow"
+ref_patterns             = "allow"
+wildcard_enum_match_arm  = "allow"
+impl_trait_in_params     = "allow" # `impl Into<String>` at a constructor is the API
+pub_use                  = "allow"
+inline_modules           = "allow" # `mod tests` belongs next to what it tests
+absolute_paths           = "allow" # `std::fs::read_to_string` beats a `use` for one call
+arbitrary_source_item_ordering = "allow" # alphabetical order destroys meaningful grouping
+
+# --- restriction: documentation and API shape not useful in a binary -------
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
+missing_trait_methods         = "allow"
+partial_pub_fields            = "allow"
+field_scoped_visibility_modifiers = "allow"
+error_impl_error              = "allow"
+# Nothing here is a published library, so `#[non_exhaustive]` buys no compatibility
+# guarantee and costs a match arm at every use site.
+exhaustive_structs = "allow"
+exhaustive_enums   = "allow"
+
+# --- restriction: numeric strictness that is ~all noise -------------------
+arithmetic_side_effects = "allow" # `panic = "abort"` plus debug overflow checks cover this
+default_numeric_fallback = "allow"
+as_conversions           = "allow"
+
+# --- restriction: only meaningful for no_std crates -----------------------
+std_instead_of_core   = "allow"
+std_instead_of_alloc  = "allow"
+alloc_instead_of_core = "allow"
+
+# --- restriction: this repo ships a CLI ------------------------------------
+print_stdout = "allow" # the binary's output and every gate's verdict go to stdout
+print_stderr = "allow" # a failing gate explains itself on stderr
+use_debug    = "allow" # `{:?}` of a redacted type is the assertion, not a slip
+
+# --- restriction: misc ----------------------------------------------------
+# `assert_eq!` prints both values on failure, so a message would restate the expression.
+# `assert!(cond)` without one is the case worth arguing about; it has not come up yet.
+missing_assert_message = "allow"
+#
+# DELIBERATELY NOT ALLOWED, though a blanket config would have been easy:
+#   non_ascii_literal   - output is ASCII. An em dash in a message is invisible in a diff,
+#                         breaks on a terminal without UTF-8, and is not worth either.
+#   string_add          - `push_str` says what it does; `+ &s` hides an allocation.
+#   string_add_assign
+#   result_large_err    - a service whose public surface is `ToolOutcome::Refusal` wants to
+#                         know when the error half of every `Result` grows.
+
+# ------------------------------------------------------------- profiles ----
+# Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
+# they are compiled once and executed many times, so paying for them is free.
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+lto = "off"
+codegen-units = 256
+# Cranelift: DEVELOPMENT ONLY, never CI and never a shipped artifact.
+#
+# It can cut debug codegen time substantially, but it CHANGES codegen - so a bug that
+# reproduces under one backend and not the other is a real possibility. If CI validated a
+# cranelift build, it would be validating something we do not ship.
+#
+# Enable it per-developer in an uncommitted `.cargo/config.toml` override or
+# `devenv.local.nix`, not here:
+#     [unstable]
+#     codegen-backend = true
+#     [profile.dev]
+#     codegen-backend = "cranelift"
+# CI pins SUTURA_CODEGEN_BACKEND=default and never sets it.
+
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
+
+# Release: the DEFAULT shipped profile, deliberately cheap to build. Optimising every CI
+# build at opt-level 3 with full LTO buys latency nobody measured.
+[profile.release]
+opt-level = 1
+debug = false
+strip = true
+lto = "thin"
+codegen-units = 16
+panic = "abort"
+
+# Release, optimised: only when throughput has actually been measured.
+[profile.release-performance]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# For local installs of I/O-bound helpers: compile speed over runtime speed.
+[profile.fast-install]
+inherits = "dev"
+opt-level = 0
+debug = false
+strip = true
+panic = "abort"

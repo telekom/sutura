@@ -1,0 +1,50 @@
+# Convenience wrapper for the dev container:
+#   docker compose -f compose.dev.yaml run --rm dev
+#
+# Every mirror/proxy value comes from a gitignored `.env`, so a network without direct
+# egress is configured OUTSIDE this repo rather than by editing tracked files. With no
+# `.env` present the public defaults apply and this still works.
+#
+# NAMED VOLUMES CARRY THE PERFORMANCE, and one of them is the difference between usable and
+# not. `target-dir` mounts over `/work/target` INSIDE the bind mount: without it, cargo writes
+# its build output through a Windows bind mount, which is dramatically slower than a native
+# volume and is the single biggest local slowdown. Docker resolves the more specific mount
+# first, so the bind gives you the source and the volume gives you the output.
+#
+# The others exist so a container restart does not re-download: `/nix` for the toolchain and
+# the store, and cargo's registry and git checkouts for crate sources.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: dev
+      args:
+        BASE_IMAGE: ${BASE_IMAGE:-nixos/nix:2.35.2}
+        HTTP_PROXY_URL: ${HTTP_PROXY_URL:-}
+        NO_PROXY_LIST: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
+        NIX_SUBSTITUTER: ${NIX_SUBSTITUTER:-https://cache.nixos.org}
+        NIX_TRUSTED_KEY: ${NIX_TRUSTED_KEY:-cache.nixos.org-1:6NCHdD59X431o0gWypbMrAURkbJ16ZPMQFGspcDShjY=}
+        CARGO_REGISTRY_URL: ${CARGO_REGISTRY_URL:-}
+    working_dir: /work
+    volumes:
+      - .:/work
+      - nix-store:/nix
+      - cargo-registry:/usr/local/cargo/registry
+      - cargo-git:/usr/local/cargo/git
+      - target-dir:/work/target
+      # pixi materialises a whole environment; rebuilding it per container start is minutes.
+      - pixi-env:/work/.pixi
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY_URL:-}
+      HTTPS_PROXY: ${HTTP_PROXY_URL:-}
+      NO_PROXY: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
+    stdin_open: true
+    tty: true
+
+volumes:
+  nix-store:
+  cargo-registry:
+  cargo-git:
+  target-dir:
+  pixi-env:

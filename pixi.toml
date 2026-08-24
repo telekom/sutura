@@ -1,0 +1,47 @@
+# pixi owns tooling that ships as a conda or Python package, and nothing else. The Rust
+# toolchain and the build come from Nix - two owners for one version is one too many.
+#
+# Channels here are public, because this repo is public. An internal mirror is configured in
+# pixi's GLOBAL config (~/.pixi/config.toml), so no internal URL is ever committed. See
+# docs/src/enterprise-mirrors.md.
+
+[workspace]
+name = "sutura-tooling"
+version = "0.1.0"
+description = "Workflow static analysis for sutura."
+channels = ["conda-forge"]
+# linux-aarch64 included because the release cross-builds for it: tooling that cannot resolve
+# on a platform we ship to is tooling nobody can run there.
+platforms = ["linux-64", "linux-aarch64", "win-64", "osx-arm64"]
+
+[dependencies]
+# Static analysis for GitHub Actions: finds what a YAML schema check cannot - template
+# injection through `${{ }}` into `run:`, an over-permissive token, an unpinned action,
+# checkout of untrusted code under `pull_request_target`.
+# conda-forge rather than the PyPI wheel: one resolver, one lock.
+zizmor = ">=1.9"
+
+# For the skill-sync script. The only Python this repo runs, and it runs at maintenance time
+# rather than on the query path - see the no-interpreter invariant in AGENTS.md.
+python = ">=3.11,<3.14"
+actionlint = ">=1.7.12,<2"
+shellcheck = ">=0.11.0,<0.12"
+
+[tasks]
+# Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched
+# at their pinned ref; `adapted` skills are never overwritten; ms-rust is regenerated. The
+# lock is what makes "has anyone edited a mirror?" answerable - `cargo xtask check-skills`
+# compares its hashes against what is on disk.
+skills-refresh = "python .agents/skills-sync.py"
+# Re-hash what is checked out without fetching, for a network with no egress.
+skills-relock = "python .agents/skills-sync.py --offline"
+# Just the Microsoft guidelines. A no-op when their content has not changed.
+ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
+# `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
+# so the gate does not depend on opinions that change between releases.
+zizmor = "zizmor .github/workflows"
+# actionlint and shellcheck were installed and locked but gated nothing: `just lint-ci` called a
+# `shellcheck-run` task that did not exist, so its second line could never succeed.
+actionlint = "actionlint"
+shellcheck-run = "shellcheck .claude/hooks/ponytail-session-start.sh"
+zizmor-pedantic = "zizmor --persona pedantic .github/workflows"

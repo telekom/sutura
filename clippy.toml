@@ -1,0 +1,24 @@
+# Test code is exempt from the strict lints: forcing `?`-ceremony into an assert makes
+# tests worse, and a test is not attack surface.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-indexing-slicing-in-tests = true
+allow-dbg-in-tests = true
+
+# Stricter than clippy's defaults - flag complexity while it is still cheap to fix.
+cognitive-complexity-threshold = 15   # default 25
+too-many-arguments-threshold = 5      # default 7
+type-complexity-threshold = 100       # default 250
+enum-variant-name-threshold = 2       # default 3
+
+# A ban without a reason gets reverted by the next person who trips over it.
+disallowed-types = [
+  { path = "std::sync::Mutex",  reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
+  { path = "std::sync::RwLock", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
+]
+
+# Nothing here is published to a registry, so there is no exported API to break. Clippy
+# suppresses a whole family of pedantic lints on public items by default to protect
+# semver; turning that off is what makes them apply to the surface that actually matters.
+avoid-breaking-exported-api = false

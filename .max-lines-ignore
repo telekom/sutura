@@ -1,0 +1,35 @@
+# Exemptions from the 1000-line file limit enforced by `cargo xtask max-lines`.
+#
+# One glob per line; `#` starts a comment. `*` stays inside one path segment, `**` crosses
+# segments, and a pattern with no `/` matches that file name at any depth.
+#
+# Two sections, and the difference between them is the whole point:
+#
+#   [silent]  Generated, vendored or lock-like output. Nobody hand-edits it and a line
+#             budget could only be met by deleting the thing it describes. No output.
+#   [warn]    Hand-written files over the limit with a split already agreed. Prints WARN
+#             on every run and does NOT fail — visible debt, not an exemption.
+#
+# What cannot be listed here at all: anything under `crates/` or `xtask/`. The gate
+# rejects such a pattern and fails, because an exemption list that can swallow first-party
+# source is a gate that has quietly stopped gating. Split the file instead.
+
+[silent]
+
+# Lockfiles. Their length is a function of the dependency graph, and they are regenerated
+# by their own tools rather than edited.
+Cargo.lock
+devenv.lock
+flake.lock
+pixi.lock
+
+# Dumped contracts: the MCP tool schemas and the OpenAPI spec are written by
+# `cargo xtask dump-schemas` from the `schemars` derives and byte-compared in CI. Their
+# length is a function of the domain types.
+docs/generated/*
+
+[warn]
+
+# Empty on purpose: every hand-written file in this repo is under the limit. An entry here
+# is a promise to split a file, not a way to silence the gate — and it keeps printing until
+# somebody keeps that promise.

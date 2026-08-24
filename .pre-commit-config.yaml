@@ -1,0 +1,101 @@
+# Hooks, run by `prek` (a single Rust binary - no Python runtime needed to lint Rust).
+# The config format is pre-commit's, so it stays reversible: `pre-commit` runs it too.
+#
+# Tiered by cost on purpose. A hook that takes 40 s on every commit gets disabled by the
+# team inside a week, so fast checks run on commit and slow ones on push.
+default_stages: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+minimum_pre_commit_version: "3.0.0"
+
+repos:
+  - repo: local
+    hooks:
+      # --- on commit: fast, and scoped to the touched area -------------------
+      - id: rust-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        args: ["--check"]
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      # `--all-features` is not optional here: the adapters are feature-gated and
+      # default-off, so without it clippy inspects almost nothing and reports success.
+      - id: rust-clippy
+        name: cargo clippy (-D warnings, all features)
+        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        language: system
+        files: \.(rs|toml)$
+        pass_filenames: false
+
+      # Every cheap structural gate, in one hook. It was eight, and all eight walk the
+      # whole repo regardless of `files:` scoping - so eight hooks meant eight redundant
+      # tree walks. xtask owns which gates these are (`Kind::Hygiene`).
+      - id: hygiene
+        name: structural gates
+        entry: cargo run -q -p xtask -- hygiene
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # Narrowed by the changed files pre-commit passes us: editing one crate should not
+      # pay for a workspace check. Clippy below still sees the whole workspace, so this is
+      # fast feedback, never the only thing that inspects the code. A path that belongs to
+      # no package widens to `--workspace` rather than checking less than was asked.
+      - id: rust-check-changed
+        name: cargo check (changed packages only)
+        entry: cargo run -q -p xtask -- check-changed
+        language: system
+        files: \.rs$
+        pass_filenames: true
+
+      # --- on push: the expensive gates -------------------------------------
+      - id: rust-tests
+        name: cargo nextest (all features)
+        entry: cargo nextest run --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # nextest does not run doctests. Separate hook so its absence is visible rather than
+      # assumed to be covered above.
+      - id: rust-doctests
+        name: doctests
+        entry: cargo test --doc --workspace --all-features
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: cargo-deny
+        name: advisories, licences, bans, sources
+        entry: cargo deny check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      # --- on commit-msg ------------------------------------------------------
+      # `default_install_hook_types` above declares `commit-msg`, and AGENTS.md states the
+      # convention. Until this hook existed, neither of those checked anything.
+      - id: commit-msg
+        name: conventional commit subject
+        entry: cargo run -q -p xtask -- commit-msg
+        language: system
+        stages: [commit-msg]
+
+      # Secret detection on the staged diff. From nixpkgs via the dev shell, so it needs no
+      # network at commit time. `--redact` keeps the finding out of the terminal scrollback
+      # and out of any CI log.
+      - id: betterleaks
+        name: detect hardcoded secrets
+        entry: betterleaks git --pre-commit --redact --staged --verbose
+        language: system
+        pass_filenames: false
+
+      # Workflow static analysis: template injection into `run:`, over-permissive tokens,
+      # untrusted checkout. From pixi, so it needs no Rust build.
+      - id: zizmor
+        name: GitHub Actions static analysis
+        entry: pixi run --frozen zizmor
+        language: system
+        files: ^\.github/workflows/.*\.ya?ml$
+        pass_filenames: false

@@ -1,0 +1,31 @@
+# Repo-local stax config. It OVERLAYS `~/.config/stax/config.toml`, setting only these keys.
+#
+# It exists because a global config is per-machine, and a machine set up for an internal
+# forge would otherwise try to submit this repo's stacks there. `origin` is
+# github.com/telekom/sutura, so the forge is stated here, in the repo, where it cannot be
+# wrong for the repo.
+#
+# Overlay applies only when STAX_CONFIG_DIR is unset. If you set that variable, you have
+# taken over and this file is ignored.
+
+[remote]
+name = "origin"
+base_url = "https://github.com/"
+forge = "github"
+
+[auth]
+# `gh` is in the dev shell and already authenticated there; GITHUB_TOKEN is read from the
+# environment or a gitignored `.env` (see devenv.nix) and never committed.
+use_gh_cli = true
+allow_github_token_env = true
+
+[submit]
+# The stack overview goes in a comment rather than the PR body: the body is the author's
+# description of the change, and a tool rewriting it loses edits.
+stack_links = "comment"
+
+[branch]
+# Dated branch names, so a stack of dependent changes stays orderable at a glance.
+date = true
+date_format = "%m-%d"
+replacement = "-"

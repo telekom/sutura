@@ -1,0 +1,112 @@
+# Publish on a tag: cross-built binaries and a container image. Both, because a binary is
+# what you drop on a host and an image is what a platform schedules.
+#
+# One job, so nothing has to be handed between jobs. Actions pinned by commit.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+# Nothing broad at the workflow level: a default grant applies to every job the file gains.
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: write   # create the release, upload assets
+      packages: write   # push to GHCR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
+          extra_nix_config: |
+            fallback = true
+
+      # No shared cache on the release path, deliberately: zizmor flags cache poisoning,
+      # and a published binary must not be built from a cache a PR run could have written
+      # to. ci.yml keeps the cache, where the win is real and nothing is published.
+
+      # A release must not ship what the gates never saw. These reuse one cargoArtifacts.
+      - name: Gates
+        run: |
+          set -eu
+          nix build .#checks.x86_64-linux.hygiene -L
+          nix build .#checks.x86_64-linux.fmt -L
+          nix build .#checks.x86_64-linux.clippy -L
+          nix run .#deny
+          nix build .#checks.x86_64-linux.nextest -L
+          nix build .#checks.x86_64-linux.doctest -L
+
+      # `release`, not `release-performance`: the default shipped profile is the cheap one.
+      # release-performance.yml builds the other, on request.
+      - name: Build and package
+        run: |
+          set -eu
+          mkdir -p dist stage
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            nix build ".#sutura-${target}" -L -o "result-${target}"
+            file "result-${target}/bin/sutura"
+            install -m755 "result-${target}/bin/sutura" stage/sutura
+            tar -C stage -czf "dist/sutura-${target}.tar.gz" sutura
+            ( cd dist && sha256sum "sutura-${target}.tar.gz" > "sutura-${target}.tar.gz.sha256" )
+          done
+          ls -l dist
+
+      # Only from a tag, and only from a tag that looks like a release. Without this a
+      # `workflow_dispatch` on any branch computed a tag from the branch name and moved
+      # `:latest`, which is what consumers pull - unreviewed content, published.
+      - name: Image
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -eu
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::refusing to publish from ref $GITHUB_REF_NAME"; exit 1 ;;
+          esac
+          nix build .#oci -L -o result-oci
+          ./result-oci | docker load
+          docker run --rm sutura:latest --version
+          # Prove the non-root default actually works rather than assuming it.
+          docker run --rm --user 65532:65532 sutura:latest --version
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          tag="${GITHUB_REF_NAME#v}"
+          docker tag sutura:latest "${IMAGE}:${tag}"
+          docker tag sutura:latest "${IMAGE}:latest"
+          docker push "${IMAGE}:${tag}"
+          docker push "${IMAGE}:latest"
+          # The digest is the only durable answer to "which build is running". Recorded as a
+          # release asset, because a checksum an uploader can also rewrite proves little.
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}" 2>/dev/null || true)"
+          printf '%s\n' "${digest:-unknown}" > dist/image-digest.txt
+          echo "image digest: ${digest:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+          docker logout ghcr.io
+
+      # `gh` is preinstalled. `--clobber` makes a re-run idempotent.
+      - name: Publish
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes --title "$tag"
+          gh release upload "$tag" dist/* --clobber

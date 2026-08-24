@@ -1,0 +1,10 @@
+sutura
+Copyright the sutura authors
+
+Licensed under the Apache License, Version 2.0 (the "License"); see LICENSE.
+
+Third-party code
+----------------
+Code derived from an upstream project retains its original licence header and is recorded
+in VENDOR.md with the upstream repository, commit, date and the local modifications made.
+Nothing is currently vendored.

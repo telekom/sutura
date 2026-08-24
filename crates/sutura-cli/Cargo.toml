@@ -1,0 +1,20 @@
+[package]
+name = "sutura-cli"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The sutura binary. Composes adapters; contains no business logic."
+
+[[bin]]
+name = "sutura"
+path = "src/main.rs"
+
+[dependencies]
+sutura-domain = { workspace = true }
+
+[lints]
+workspace = true

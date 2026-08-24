@@ -1,0 +1,24 @@
+# Review is the mechanism for the parts no gate can judge: intent.
+#
+# The paths here are the ones where a wrong change is expensive and a gate cannot see it - the
+# governance boundary, the release path, the supply-chain policy, and the file the invariants
+# are stated in. Everything else needs one approval like any change.
+
+# Default.
+*                       @telekom/sutura-maintainers
+
+# The governance boundary. A widened tool surface or a relaxed refusal is not a lint failure.
+/crates/sutura-domain/  @telekom/sutura-maintainers
+
+# Anything that can publish, or that decides what CI trusts.
+/.github/workflows/     @telekom/sutura-maintainers
+/flake.nix              @telekom/sutura-maintainers
+/flake.lock             @telekom/sutura-maintainers
+/deny.toml              @telekom/sutura-maintainers
+/Dockerfile             @telekom/sutura-maintainers
+/.dockerignore          @telekom/sutura-maintainers
+
+# The root of trust, and the gates that enforce it.
+/AGENTS.md              @telekom/sutura-maintainers
+/xtask/                 @telekom/sutura-maintainers
+/.pre-commit-config.yaml @telekom/sutura-maintainers

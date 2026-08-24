@@ -1,0 +1,44 @@
+# Supply chain and licence policy. On from M0, not later: this is also what keeps the
+# attribution obligation from rotting once code is derived from an upstream project.
+
+# Adapters are feature-gated and default-off, so the DEFAULT graph is nearly empty. Without
+# this, the first adapter's dependency tree - its HTTP client, TLS stack and token library -
+# becomes invisible to advisories, licences and source checks, and the weekly audit keeps
+# reporting clean. Same reasoning as `--all-features` for clippy.
+[graph]
+all-features = true
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# Permissive only. Anything copyleft is a deliberate decision, not a transitive surprise.
+#
+# Exactly the licences the current graph uses, and no more. It also allowed BSD-2-Clause,
+# BSD-3-Clause, ISC and Zlib, which nothing used - cargo-deny warned about all four on every
+# run. A licence allowed "just in case" is pre-approval for a dependency nobody has reviewed,
+# and four warnings a run is how people learn to skim the output.
+allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+
+# So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then
+# happens at the moment a dependency needs it, which is where the decision belongs.
+unused-allowed-license = "deny"
+
+confidence-threshold = 0.9
+
+[bans]
+# A duplicated dependency tree is both a compile-time and a supply-chain cost. Warn rather
+# than deny for now: the first real adapter crate will surface duplicates we do not yet
+# have an opinion on, and a gate that blocks work on day one gets disabled.
+multiple-versions = "warn"
+wildcards = "deny"
+# Intra-workspace path dependencies have no version by design; flagging them would make
+# this gate fire on a correct pattern, and a gate that fails on correct code gets disabled.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

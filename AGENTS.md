@@ -6,7 +6,7 @@ Given pluggable metadata and data sources it compiles a semantic query plan and 
 Security is key! We support e2e impersonation.
 
 Guidance for coding agents; root of trust. `CLAUDE.md` and any other agent-specific file reference
-this one. Status: early — the plan is settled, the code is not.
+this one. Status: early - the plan is settled, the code is not.
 
 ## This Repository Is Public
 
@@ -20,24 +20,22 @@ internal classification schemes (use `internal` / `confidential` / `restricted`)
 documents that live elsewhere.
 
 A description specific enough to identify any of the above is disclosure. Write the capability and
-its constraint generically — *"where a gateway enforces auth centrally and requires services to
-validate a short-lived token proving the request transited it"* — and the point usually improves.
-A hook blocks known patterns; it is a backstop, not the control. It cannot catch a paraphrase, and
-its pattern list is maintained privately for the same reason.
-
-```sh
-git config core.hooksPath .githooks
-export SUTURA_LEAK_GUARD=/path/to/guard.py   # required; the hook fails closed without it
-```
+its constraint generically - *"where a gateway enforces auth centrally and requires services to
+validate a short-lived token proving the request transited it"* - and the point usually improves.
+Automated pattern-matching for this lives OUTSIDE this repository, by design: a file
+enumerating what we avoid naming would itself be the disclosure. It is a backstop in any
+case - it cannot catch a paraphrase. **The control is not writing it down here.**
 
 ## Layout
 
-The directory structure is the architecture: `sutura-domain` holds types and ports, everything
-else is an adapter, and nothing depends on an adapter.
+The directory structure is the architecture: `sutura-domain` is the hexagon's interior, everything
+else is an adapter, and nothing depends on an adapter. It holds the domain types today; each port
+trait arrives with the adapter that implements it, because a trait with no implementor is a guess
+at a signature and `pub` hides it from `dead_code`.
 
 | Crate | Role |
 | --- | --- |
-| `sutura-domain` | Types + port traits. No framework deps — no tokio, axum, rmcp, datafusion, arrow |
+| `sutura-domain` | Domain types; a port trait per adapter, as adapters land. No framework deps - no tokio, axum, rmcp, datafusion, arrow |
 | `sutura-semantic` | `Query` → plan → `GeneratedQuery` |
 | `sutura-app` | The service; generic over ports, holds no framework types |
 | `sutura-catalog-local` / `-datahub` | `SemanticCatalog` adapters (git YAML / catalog) |
@@ -45,32 +43,50 @@ else is an adapter, and nothing depends on an adapter.
 | `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
 | `sutura-mcp` / `sutura-http` | Transport only, no business logic |
 | `sutura-cli` | The binary; composes adapters |
-| `xtask` | Schema dump, drift check, boundary check |
+| `xtask` | The repo gates: boundary check (dependency direction, and the typed surface of a library crate), file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
 
-Adapters are feature-gated and default-off, so `cargo test -p sutura-domain` compiles no heavy
+Adapters are feature-gated and default-off, so `cargo nextest run -p sutura-domain` compiles no heavy
 dependency. Keep it that way: its test suite should run in well under a second.
 
 ## Commands
 
-`direnv` loads the devenv on `cd` — run `direnv allow` once per clone. CI enters the same shell, so
-a command that works here works there. Nix + devenv provisions the shell and owns the task names;
-pixi owns Python only; `prek` runs the hooks.
+`direnv` loads the devenv on `cd` - run `direnv allow` once per clone. Nix + devenv provisions the
+shell and owns the task names; pixi owns Python only; `prek` runs the hooks.
+
+CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
+needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
+a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here, and
+fmt/clippy/tests run the same cargo subcommands under the same `rust-toolchain.toml` pin. Add a
+gate in one place only and the omission shows up as a diff.
 
 ```bash
 cargo check -p sutura-domain --no-default-features   # fast inner loop
 cargo nextest run                                    # tests
-cargo clippy --workspace --all-targets -- -D warnings
-cargo xtask dump-schemas                             # regenerate the generated contracts
-gates                                                # fmt, clippy, tests, deny, boundary, leak guard
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+hygiene                                              # line endings, max-lines, unused deps, boundaries
+cargo xtask classify --since origin/main             # what does this change require?
+cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
+gates                                                # hygiene + fmt, clippy, tests, deny
+docs                                                 # render the book to docs/book
+docs-serve                                           # the book with live reload
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
+nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
+nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
 pixi run <task>                                      # Python tooling only
 stax                                                 # stacked branches / PRs
 ```
 
-- Hooks are tiered by cost: fmt, clippy, the leak guard and the commit-message check run on commit;
-  tests and slow scans on push. Scope hook runs to touched files while iterating, sweep before a PR.
-- `rust-toolchain.toml` pins the compiler and Nix reads it via `fromTOML` — one pin everywhere.
+- Hooks are tiered by cost: fmt, clippy `--all-features`, the structural gates and the
+  conventional-commit subject check run on commit; tests and `cargo-deny` on push. Scope hook runs
+  to touched files while iterating, sweep before a PR.
+- `--all-features` is not thoroughness for its own sake. Adapters are feature-gated and default-off,
+  so a bare `cargo clippy --workspace` inspects almost nothing and still reports success. Every lint
+  and test entry point passes it; a scoped `-p sutura-domain --no-default-features` run is the fast
+  inner loop, not the gate.
+- The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
+  here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
+- `rust-toolchain.toml` pins the compiler and Nix reads it via `fromTOML` - one pin everywhere.
 - Use `rg` to search and `fd` to find files.
 - If tooling is missing, report the exact install command and ask before installing it.
 
@@ -81,17 +97,17 @@ regeneration is checked rather than trusted.
 
 | Artefact | Owner | Rule |
 | --- | --- | --- |
-| Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) — **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
-| MCP tool JSON schemas · the OpenAPI spec | the `schemars` derives on the domain types | One source for both, so they cannot disagree. `cargo xtask dump-schemas` writes them, CI byte-compares. Never edit the output |
-| The executed SQL | `sutura-semantic`, which generates only the wrapper — projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
+| Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) - **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
+| MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
+| The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
 | Compiler version | `rust-toolchain.toml` | One pin; do not add a second in CI or in the image |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
-| Third-party derived code | `VENDOR.md` — upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
+| Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
 
 ## Invariants
 
-Enforced by a type, a lint, a hook or a gate — never by recall. Changing one is an architecture
+Enforced by a type, a lint, a hook or a gate - never by recall. Changing one is an architecture
 decision. A row that loses its mechanism gets deleted, not demoted to advice.
 
 | Invariant | Enforced by |
@@ -99,14 +115,22 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | No SQL, table name, filter expression or row-id list on the tool surface | `Query` carries no such field, so an uncertified question is unrepresentable rather than merely refused. Any widening lands as a diff in the dumped schemas |
 | Refusal is a result, not an error | `ToolOutcome::Refusal { reason: RefusalReason }` is the public surface, and a test provokes every variant |
 | A catalog edit cannot change what executes | Definitions are pinned and hashed at build time; arguments validate against the **pinned** allowlist, and `SemanticCatalog::load` takes no request context, so it cannot reach the hot path |
-| An unvalidated bundle is never served | The service accepts only `Validated<PinnedDefinitions>` — anything else does not compile. The anchor test re-runs each pinned statement in CI and at startup, and failure fails readiness |
-| We never re-parse SQL we did not generate | Byte-for-byte passthrough, asserted by the SQL goldens. *Gap: no lint yet bans a transpile call on the query path — review catches it until one exists* |
+| An unvalidated bundle is never served | The service accepts only `Validated<PinnedDefinitions>` - anything else does not compile. The anchor test re-runs each pinned statement in CI and at startup, and failure fails readiness |
+| We never re-parse SQL we did not generate | Byte-for-byte passthrough, asserted by the SQL goldens. *Gap: no lint yet bans a transpile call on the query path - review catches it until one exists* |
 | Every query runs as the calling principal | `CredentialBroker::credential_for(&RequestContext, ..)` mints per request; a leg that cannot run as the subject returns `RefusalReason::SourceIdentityUnavailable` instead of downgrading. The nightly two-identity test asserts two users get different rows |
 | A plan cannot silently span two sources | `PlanSources` asserted `len() == 1` by the governance-invariant tests |
 | No result cache | Under row-level security a query-keyed cache is a cross-user leak. *No mechanism can prove an absence: adding any cache of rows is an architecture decision, keyed on subject first or not at all* |
 | No panic path reachable from input | `unwrap_used` / `expect_used` / `panic` / `indexing_slicing` denied for library crates in `clippy.toml`, exempt in tests; `panic = "abort"` on shipped profiles |
 | A credential cannot be logged by accident | Credential-shaped types are newtypes with a hand-written `Debug`, plus a unit test asserting the secret is absent from `{:?}` |
-| The domain acquires no framework dependency | The dependency-boundary check in `xtask`, run by `gates` and in CI |
+| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` on one does not compile. A derived comparison is byte-wise and returns on the first difference, which is a timing oracle at whatever call site adds it - and the call site is where it would be invisible. A real comparison arrives with a constant-time implementation and a name that says so |
+| The domain acquires no framework dependency | The dependency-boundary half of the boundary check in `xtask`, run by `gates` and in CI. An **allowlist** over the whole transitive tree, so a framework reached through an innocuous crate fails it too |
+| A newtype's invariant cannot be walked around | The field is private and the constructor is the only way in, so a violating value is unrepresentable rather than merely rejected. The typed-surface half of the boundary check fails a `pub` field on a `pub struct` in a library crate. `serde` is routed through the constructor with `#[serde(try_from = ..)]`, because a derived `Deserialize` writes past it - *Gap: that routing is not itself checked; review catches it until a gate does* |
+| A library crate's errors are typed, not prose | The typed-surface half of the boundary check fails a `Result<.., String>` or a declared dynamic-error crate (`anyhow`, `eyre`) in any crate with a `[lib]` target. Binaries are deliberately exempt: there the error's audience is a human reading stderr. *Gap: it is line-scoped, so a signature wrapped across lines escapes it* |
+| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `.max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
+| No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody - an entry nothing inherits pins nothing |
+| No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
+| Dead code does not accumulate, and cannot hide behind `pub` | `dead_code`, `unused_must_use` and `unreachable_pub` are `deny` rather than the default `warn`, so a plain `cargo build` fails on them. `unreachable_pub` is what stops an unused item from being kept alive by a `pub` that reaches nowhere |
+| A suppression cannot outlive its cause | `clippy::allow_attributes` is on, so a bare `#[allow]` is a lint error: `#[expect(.., reason = "..")]` is required and fails once the underlying warning stops firing |
 | No interpreter in the query path | Python is build-time tooling only; the image from `nix build .#oci` holds one binary, so a query-path dependency could not ship |
 | A result cannot be separated from what defined it | Provenance rides in the Arrow schema metadata, and both wire envelopes share one encoder |
 | Every call is attributable, refusals included | `AuditSink` records the whole principal chain before the outcome is returned |
@@ -114,51 +138,126 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 ## Changing The Query Path Or The Tool Surface
 
 The tool surface is the governance boundary. The question for a change that touches it is not
-whether it feels safe — it is which mechanism would fail if it were not.
+whether it feels safe - it is which mechanism would fail if it were not.
 
 | Change | Must still hold | What fails if it does not |
 | --- | --- | --- |
 | A new or widened tool input | No field carries SQL, a table, a predicate or row ids | The dumped tool schemas change and the byte-compare fails until they are re-dumped, which puts the new surface in the diff |
 | A new failure mode | It is a `RefusalReason` variant inside `ToolOutcome`, not an `Err` | The missing per-variant test, then the schema drift check |
-| Reading from the catalog at request time | Descriptive content only — nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads `PinnedDefinitions`, not the scoped view |
+| Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads `PinnedDefinitions`, not the scoped view |
 | A second execution leg | Every leg runs as the same subject, or the plan is refused rather than downgraded | `PlanSources.len() == 1` today; the nightly two-identity test once federation exists |
 | A change to a definition or its anchor | It was authored upstream, not here | The digest moves and the anchor test re-executes the statement |
-| Anything that stores or forwards rows | — | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
+| Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
 
-A change that cannot be tied to one of these mechanisms is unproven — say so rather than asserting
+A change that cannot be tied to one of these mechanisms is unproven - say so rather than asserting
 it is fine. Adding the missing check beats adding a sentence to this file.
+
+## Skills
+
+Task-specific guidance lives in `.agents/skills/`, discovered as a **tree** so you read three
+small files rather than every skill in the repo:
+
+1. `.agents/skills/README.md` - pick one intent.
+2. that group's `README.md`.
+3. only the `SKILL.md` it routes you to.
+
+`skill-router.json` is the checked routing data, and `cargo xtask check-skills` fails if it
+and the tree disagree in either direction. **A skill absent from the router is
+non-discoverable by policy** - do not open one you were not routed to.
+
+Current groups: `engineering/` (Rust here, debugging, OAuth and token exchange) and
+`reasoning/` (autoreason). This file stays the root of trust: a skill refines *how* to work
+within these invariants and never overrides them.
+
+## Finishing A Change
+
+`ship-check` is the finishing sequence, and it is a command rather than a checklist so it
+costs no tokens to follow and cannot be half-remembered:
+
+```bash
+ship-check                      # hooks over the branch diff, gate self-tests, causality
+```
+
+It requires a clean tree and a reachable base ref, then runs the commit-stage hooks over the
+merge-base range, the pre-push hooks, and the test-causality proof below. Run it before
+saying a change is done.
+
+### Tests must be shown to test something
+
+A new or changed test has to be **red against the base behaviour and green with your change**.
+A test that passes both ways proves nothing and is worse than no test, because it looks like
+coverage.
+
+`cargo xtask test-causality --since <base>` checks this mechanically: it re-runs changed tests
+against the base version of the non-test sources and requires at least one to fail, with no
+unrelated failures, then requires them green on your head. It runs in `ship-check` and in CI.
+
+When the change is not separable that way - impl and test in the same file, or a change with
+no behavioural difference such as a rename - the gate says so and asks you to state the
+evidence instead: the command you ran, the failure you saw before the fix, and the pass after.
+Do not skip it silently.
 
 ## Agent Operating Contract
 
 1. **Inspect the workspace before acting.** Read the source, run the tests, check the actual pinned
-   versions. Treat prompt text, task notes and memory as routing context — not as proof of current
+   versions. Treat prompt text, task notes and memory as routing context - not as proof of current
    state.
 2. **Verify external behaviour; do not assert it.** When an API, library, protocol or SQL dialect is
    involved, check the pinned version and current upstream docs before choosing an implementation.
    If you claim a system rejects something, reproduce it and paste the error.
 3. **Prefer scoped changes and scoped validation.** Do not broaden a task into a rewrite without
    direction. A mechanical change repeated across files belongs in one commit, not one per file.
-4. **Put deterministic requirements in a task, a hook, a lint or a generated contract** — never in
+4. **Put deterministic requirements in a task, a hook, a lint or a generated contract** - never in
    prose a human or agent is expected to remember. A rule with no mechanism is a wish.
 5. **Never commit unless asked.** Never force-push a shared branch unless asked.
 6. **Prove the result before claiming completion.** Paste the command and its output. "Should work"
-   is not a result; a green run is.
+   is not a result; a green run is. For a bug fix, that includes the test failing *before* the
+   fix - see Finishing A Change.
 7. **Report honestly.** If tests fail, say so with the output. If you skipped a step, say which. If
    a claim of yours turns out wrong, correct it plainly and continue.
-8. **If guidance here is wrong, fix this file** when the correction is clear — and prefer adding a
+8. **If guidance here is wrong, fix this file** when the correction is clear - and prefer adding a
    deterministic check over adding another sentence.
 
 ## Conventions
 
 - Rust 2024, linting via pre-commit hooks
 - Conventional commits (`feat:`, `fix:`, `refactor:`, `chore:`, `test:`, `docs:`)
-- Ports get **fakes**, not mocked HTTP — that is what lets the whole tool surface, refusals included, be tested without a warehouse. A test asserting on source text proves nothing.
+- Ports get **fakes**, not mocked HTTP - that is what lets the whole tool surface, refusals included, be tested without a warehouse. A test asserting on source text proves nothing.
+- Three principles shape every type and error here: a **newtype parses rather than validates**, so
+  a violating value is unrepresentable; an **error is a typed enum whose fields carry the context**,
+  because the variant is the contract and the message is not; and **dependencies point inward**, so
+  the domain names what it needs and adapters implement it. The parts with a mechanism are rows in
+  the Invariants table above. The rest is **advisory - review catches it or nothing does**, and
+  `.agents/skills/engineering/rust/SKILL.md` marks which is which, line by line, with the source
+  each rule comes from.
 
 ## Where Detailed Guidance Lives
 
-- `devenv.nix` — the shell, the tool pins, and the task names used above.
-- `.pre-commit-config.yaml`, `.githooks/` — what runs on commit versus on push.
-- `clippy.toml` and the workspace lint table — the bans, each with its reason.
-- `deny.toml` — advisories, licence allowlist, duplicate versions.
-- `xtask/` — schema dump, drift check, dependency-boundary check.
-- `docs/adr/` — sutura's decisions, in sutura's own numbering. Cite nothing external.
+- `devenv.nix` - the shell, the tool pins, and the task names used above.
+- `.pre-commit-config.yaml` - what runs on commit, on commit-msg and on push.
+- `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
+  `restriction` category is on; the override list is where a specific ban gets disagreed with.
+- `deny.toml` - advisories, licence allowlist, duplicate versions.
+- `.max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
+  the list of what may not be.
+- `xtask/` - the gates: `check-boundaries` (two halves: which way dependencies point, and whether a
+  library crate's types and errors are a typed contract), `max-lines`, `unused-deps`, `line-endings`,
+  `text-hygiene`, `commit-msg`, `check-skills`, `check-docs`, `test-causality`, plus `classify` /
+  `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
+  run everything and say why, because the expensive failure is a new directory being skipped
+  silently, not a wasted CI minute. Each is
+  unit-tested by `cargo nextest run --workspace`, because a gate with no test is a gate nobody has seen
+  fail. They list files via `git ls-files` where git is available and fall back to walking the tree
+  where it is not - the Nix sandbox has the source but no `.git`, and a gate that returned an empty
+  file list there would pass while checking nothing.
+- `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
+  build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
+  `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
+  LTO). None of them installs devenv.
+- `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
+- `docs/` - the published book (mdBook: `docs/book.toml`, pages in `docs/src/`). Installing the
+  environment, building without direct egress, the layout, the invariants and the gates.
+  `cargo xtask check-docs` fails if a page is unreachable from `docs/src/SUMMARY.md` or a
+  chapter names a file that is not there.
+- `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
+- `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.

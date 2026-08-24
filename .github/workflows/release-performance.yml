@@ -1,0 +1,163 @@
+# The optimised build, on request only.
+#
+# `release-performance` is `release` plus fat LTO and a single codegen unit. That is minutes
+# of extra compile time for a binary worth shipping only once throughput has actually been
+# measured - so it is a separate, manually dispatched workflow rather than an input on the
+# normal release. Nothing schedules it and no tag triggers it.
+#
+# WHAT IT DOES NOT DO: `target-cpu=native`. That is the obvious next optimisation and it is
+# deliberately absent, because these artifacts are *published* - a binary tuned for the
+# runner's CPU would fault with SIGILL on an older one, and a Nix derivation hash does not
+# represent the CPU it was built on, so the mismatch would not even be visible. A build
+# pinned to a known deployment host can make that trade; a downloadable release cannot.
+#
+# Names never collide with the normal release: assets are `-performance` and the image tag is
+# `<version>-performance`. `latest` is never moved, so nothing starts running an optimised
+# build by accident.
+#
+# THIRD-PARTY ACTIONS: none, for the same reason as release.yml.
+name: release-performance
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "build" to confirm the optimised build'
+        required: true
+        type: string
+      publish:
+        description: "Attach to the release and push the image (requires a tag ref)"
+        required: false
+        default: false
+        type: boolean
+
+# Nothing broad at the workflow level. `validate` reads a text input and needs no write
+# at all; only `build` publishes, and only when asked to.
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  # A 20-minute build should not start because someone clicked the wrong button.
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require explicit confirmation
+        env:
+          CONFIRM: ${{ inputs.confirm }}
+          PUBLISH: ${{ inputs.publish }}
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          if [ "$CONFIRM" != "build" ]; then
+            echo '::error::Type "build" to confirm the optimised build.'
+            exit 1
+          fi
+          # Publishing writes to a release and to GHCR, so it needs a tag to write *to*.
+          if [ "$PUBLISH" = "true" ] && ! printf '%s' "$REF" | grep -q '^refs/tags/'; then
+            echo "::error::publish=true requires a tag ref; got $REF"
+            exit 1
+          fi
+          echo "confirmed - ref $REF, publish=$PUBLISH"
+
+  build:
+    needs: [validate]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write   # attach assets to an existing release
+      packages: write   # push the image to GHCR
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
+          extra_nix_config: |
+            fallback = true
+
+      # Same rule as the normal release: nothing shippable is built before the gates pass.
+      # These reuse the `release`-profile artifacts, which is why they are cheap here.
+      - name: Lints and tests before building anything shippable
+        run: |
+          set -eu
+          nix build .#checks.x86_64-linux.hygiene -L
+          nix build .#checks.x86_64-linux.fmt -L
+          nix build .#checks.x86_64-linux.clippy -L
+          nix run .#deny
+          nix build .#checks.x86_64-linux.nextest -L
+          nix build .#checks.x86_64-linux.doctest -L
+
+      - name: Build both targets (release-performance)
+        run: |
+          set -eu
+          nix build .#sutura-x86_64-unknown-linux-gnu-performance  -L -o result-x86_64
+          nix build .#sutura-aarch64-unknown-linux-gnu-performance -L -o result-aarch64
+
+      # The point of the profile is a different binary. Print the sizes so the run is
+      # evidence of that rather than an assertion about it.
+      - name: Report what was produced
+        run: |
+          set -eu
+          for f in result-x86_64/bin/sutura result-aarch64/bin/sutura; do
+            printf '%-32s %s bytes\n' "$f" "$(wc -c < "$f")"
+          done
+          result-x86_64/bin/sutura --version
+
+      - name: Package with checksums
+        run: |
+          set -eu
+          mkdir -p dist stage
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+            case "$target" in
+              x86_64-*)  src=result-x86_64 ;;
+              aarch64-*) src=result-aarch64 ;;
+            esac
+            install -m755 "$src/bin/sutura" stage/sutura
+            name="sutura-${target}-performance"
+            tar -C stage -czf "dist/${name}.tar.gz" sutura
+            ( cd dist && sha256sum "${name}.tar.gz" > "${name}.tar.gz.sha256" )
+          done
+          ls -l dist
+
+      - name: Build the optimised image
+        run: nix build .#oci-performance -L -o result-oci
+
+      - name: Load it and prove the binary runs
+        run: |
+          set -eu
+          ./result-oci | docker load
+          docker run --rm sutura:latest --version
+          docker image inspect sutura:latest --format 'digest: {{.Id}}'
+
+      # Tagged `<version>-performance` and never `latest`: an optimised image must be opted
+      # into by name, not inherited by anything already pulling `latest`.
+      - name: Push as <version>-performance
+        if: ${{ inputs.publish }}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -eu
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          tag="${GITHUB_REF_NAME#v}"
+          docker tag sutura:latest "${IMAGE}:${tag}-performance"
+          docker push "${IMAGE}:${tag}-performance"
+          docker logout ghcr.io
+
+      - name: Attach the optimised binaries to the existing release
+        if: ${{ inputs.publish }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eu
+          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber

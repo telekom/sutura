@@ -1,0 +1,17 @@
+{
+  "_comment": "Same activation hook as Claude Code, from the same script and the same skill file. Two configs are unavoidable (different products), one implementation is not.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \".claude/hooks/ponytail-session-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
