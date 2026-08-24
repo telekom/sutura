@@ -28,7 +28,13 @@ serde_json = "1"
 thiserror = "2"
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
-sha2 = "0.11"
+#
+# `default-features = false` on purpose. 0.11 dropped the `std` feature and made `oid` a
+# default, which pulls `const-oid` in for a use this repo does not have - and 0.10 held the
+# tree back anyway, because `crypto-common` 0.1 pinned `generic-array = "=0.14.7"` exactly, so
+# no patch release of it was reachable. 0.11 replaces that chain with `hybrid-array` and the
+# exact pin goes away. Only the `Digest` trait is used here, which needs no feature at all.
+sha2 = { version = "0.11", default-features = false }
 
 # ---------------------------------------------------------------- lints ----
 # A misspelled or removed lint name in the tables below is a silent no-op: it warns on
@@ -177,17 +183,27 @@ lto = "off"
 codegen-units = 256
 # Cranelift: DEVELOPMENT ONLY, never CI and never a shipped artifact.
 #
-# It can cut debug codegen time substantially, but it CHANGES codegen - so a bug that
-# reproduces under one backend and not the other is a real possibility. If CI validated a
-# cranelift build, it would be validating something we do not ship.
+# It cuts debug codegen time substantially, and it CHANGES codegen - so a bug that reproduces
+# under one backend and not the other is a real possibility. CI validating a cranelift build
+# would be validating something we do not ship.
 #
-# Enable it per-developer in an uncommitted `.cargo/config.toml` override or
-# `devenv.local.nix`, not here:
-#     [unstable]
-#     codegen-backend = true
-#     [profile.dev]
-#     codegen-backend = "cranelift"
-# CI pins SUTURA_CODEGEN_BACKEND=default and never sets it.
+# Nothing to set here. The backend is nightly-only, so it is enabled where the nightly
+# toolchain lives: devenv.nix exports CARGO_UNSTABLE_CODEGEN_BACKEND and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and rust-toolchain-nightly.toml pins the compiler and
+# the `rustc-codegen-cranelift-preview` component.
+#
+# This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
+# `codegen-backend = "cranelift"` themselves. That could not work: the pinned toolchain is
+# stable, where `-Zcodegen-backend` does not exist. Environment rather than a committed
+# `.cargo/config.toml` for the same reason - an `[unstable]` table there is read by CI too,
+# and would fail every stable build.
+#
+# Consequences, both deliberate:
+#   - The dev shell's bare `cargo` is nightly. Gates are not: they source nix/stable-env.sh,
+#     which puts stable in front, because clippy's lint set differs between channels and this
+#     workspace gates on the whole `restriction` category.
+#   - Stable gets its own target directory. Alternating compilers in one directory
+#     invalidates every artifact in it, which would cost more than cranelift saves.
 
 [profile.dev.package."*"]
 opt-level = 3

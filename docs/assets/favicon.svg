@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" color="#E20074" fill="currentColor">
+  <title>sutura</title>
+  <!--
+    The same seam, redrawn for 16 pixels rather than scaled down to them.
+
+    Three deliberate differences from docs/assets/sutura.svg:
+      * The hexagon is squared up to fill its box, because a tab gives an icon a square and
+        the taller primary would have to shrink to fit inside one.
+      * The seam is 6 units of 32 rather than 8 of 52, so it survives as 3 device pixels at
+        16px instead of thinning to a grey smudge.
+      * Every horizontal edge sits on an even coordinate, so at 16px they fall on whole
+        pixels and the silhouette stays hard.
+
+    Same single flat magenta, same transparent seam, so the icon reads on a light and on a
+    dark tab strip without a second file.
+  -->
+  <polygon points="16,0 32,8 13,8 13,18 0,18 0,8"/>
+  <polygon points="16,32 0,24 19,24 19,14 32,14 32,24"/>
+</svg>

@@ -125,6 +125,7 @@ jobs:
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 
+
       - name: Format
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.fmt -L
@@ -147,7 +148,12 @@ jobs:
 
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
-        run: nix run .#pixi -- run --frozen zizmor
+        run: |
+          set -eu
+          nix run .#zizmor -- .github/workflows
+          nix run .#actionlint
+          # Every shell script we ship. `shellcheck` reads the file, so the glob is the list.
+          nix run .#shellcheck -- .claude/hooks/ponytail-session-start.sh
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'

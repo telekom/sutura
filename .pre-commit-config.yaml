@@ -50,9 +50,13 @@ repos:
         pass_filenames: true
 
       # --- on push: the expensive gates -------------------------------------
+      # Through nix/run-gate.sh, which falls back to nix and then to a notice. Called
+      # `cargo nextest` directly before, and on a host without it every push was blocked
+      # with "no such command" - a hook that cannot run must not be a wall. CI runs this
+      # unconditionally, so the fallback delays a finding rather than losing it.
       - id: rust-tests
         name: cargo nextest (all features)
-        entry: cargo nextest run --workspace --all-features
+        entry: bash nix/run-gate.sh tests
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -68,7 +72,7 @@ repos:
 
       - id: cargo-deny
         name: advisories, licences, bans, sources
-        entry: cargo deny check
+        entry: bash nix/run-gate.sh supply-chain
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -100,10 +104,20 @@ repos:
         pass_filenames: false
 
       # Workflow static analysis: template injection into `run:`, over-permissive tokens,
-      # untrusted checkout. From pixi, so it needs no Rust build.
+      # untrusted checkout.
+      #
+      # Through nix, which is the ONLY pin for it - the version decides what it reports, so a
+      # second pin in pixi would be a second verdict. Skipped with a notice where nix is
+      # absent, the same way the secret scan behaves: CI runs it unconditionally, so a skip
+      # here delays the finding to the PR rather than losing it.
       - id: zizmor
         name: GitHub Actions static analysis
-        entry: pixi run --frozen zizmor
+        # A block scalar, not a plain one: the command contains `: `, which YAML reads as a
+        # mapping inside a plain scalar and rejects outright.
+        entry: >-
+          bash -c 'command -v nix >/dev/null 2>&1
+          && exec nix run .#zizmor -- .github/workflows
+          || echo "zizmor skipped - no nix on this host, CI enforces it"'
         language: system
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false

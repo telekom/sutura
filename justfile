@@ -33,7 +33,7 @@ setup:
     # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
     # the expensive gates. Missing one means that stage silently never runs.
     pixi run --frozen hooks-install
-    echo "== python tooling (zizmor, actionlint, shellcheck)"
+    echo "== pixi env (the hook runner and the maintenance interpreter)"
     pixi install --frozen
     echo "== building the dev CLI and the gates"
     # Warms the target directory so the first hook run is not a cold compile, and fails here
@@ -44,6 +44,22 @@ setup:
     echo
     echo 'Ready. just lists the tasks; just gates is what CI runs.'
 
+# Bump the pinned inputs.
+#
+# Both locks in one task because they are bumped for the same reason and reviewed together.
+# Nothing needs generating: no tool is pinned in both places - `cargo xtask check-pins` is
+# what keeps that true - so there is no table to rewrite and nothing to fall out of step.
+update:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    nix flake update
+    # Needs network. pixi holds only the hook runner and the interpreter, neither of which
+    # can change what a gate concludes, so this is a routine bump rather than a gate change.
+    pixi update
+    cargo update --workspace
+    echo
+    echo 'Bumped flake.lock, pixi.lock and Cargo.lock. Review the diff before committing.'
+
 # ---------------------------------------------------------------- inner loop ---
 
 # Fast check of the domain crate only. Should stay sub-second.
@@ -51,7 +67,17 @@ check:
     cargo check -p sutura-domain --no-default-features
 
 # Format Rust, and normalise line endings and whitespace.
+#
+# On stable, like every gate below. The dev shell's bare `cargo` is nightly so cranelift can
+# accelerate the inner loop; rustfmt and clippy differ between channels, and this repo gates
+# on the whole clippy `restriction` category, so gating on nightly would produce local
+# failures CI cannot reproduce. nix/stable-env.sh also gives stable its own target directory:
+# alternating compilers in one directory invalidates every artifact in it.
 fmt:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo fmt --all
     cargo run -q -p xtask -- text-hygiene --fix
 
@@ -60,12 +86,20 @@ fmt:
 
 # Lint everything.
 lint:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # `--doc` is separate because nextest does not run doctests.
 
 # Run the tests.
 test:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
@@ -77,10 +111,18 @@ test:
 
 # The cheap structural gates. Seconds, not minutes.
 hygiene:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo run -q -p xtask -- hygiene
 
 # Everything CI runs. What to run before pushing.
 gates: hygiene
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo fmt --all -- --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo nextest run --workspace --all-features
@@ -116,13 +158,27 @@ build-all:
 
 # --------------------------------------------------------------------- docs ---
 
-# Render the book to docs/book.
+# Render the site to site/.
+#
+# Through pixi's ISOLATED `docs` environment: the docs toolchain is Python, and pixi is the one
+# resolver for Python here. It lived in flake.nix as a `python3.withPackages` first, where mike
+# could not import pymdownx from the mkdocs it subprocessed - two resolvers, one interpreter.
+# The env is isolated so mkdocs-material's dependency tree cannot perturb the linters' solve.
 docs:
-    mdbook build docs
+    pixi run -e docs docs
 
-# Serve the book with live reload.
+# Serve the site with live reload.
 docs-serve:
-    mdbook serve docs
+    pixi run -e docs docs-serve
+
+# Publish one version to gh-pages. CI does this on push and on a tag; this reproduces it
+# locally, and `--push` is deliberately absent so a local run cannot publish by accident.
+docs-deploy version="local":
+    pixi run -e docs docs-deploy {{ version }}
+
+# What is published, per mike.
+docs-list:
+    pixi run -e docs docs-list
 
 # ------------------------------------------------------------------ tooling ---
 
@@ -131,13 +187,20 @@ secrets:
     betterleaks dir . --redact --verbose
 
 # Static analysis of the workflows.
+#
+# Through nix, the only pin for it. These three tools report findings, so their version is
+# part of the verdict - `cargo xtask check-pins` fails if any of them reappears in pixi.toml.
 zizmor:
-    pixi run --frozen zizmor
+    nix run .#zizmor -- .github/workflows
 
-# Lint the workflows and the shell scripts.
+# Everything zizmor's default persona leaves out. Stylistic, so not a gate.
+zizmor-pedantic:
+    nix run .#zizmor -- --persona pedantic .github/workflows
+
+# Lint the workflows and the shell scripts. Same list CI runs.
 lint-ci:
-    pixi run --frozen actionlint
-    pixi run --frozen shellcheck-run
+    nix run .#actionlint
+    nix run .#shellcheck -- .claude/hooks/ponytail-session-start.sh nix/stable-env.sh
 
 # Refresh every imported skill and rewrite the lock.
 skills-refresh:

@@ -1,0 +1,22 @@
+# The NIGHTLY pin. Local development only - never CI, never a shipped artifact.
+#
+# Why a second toolchain at all: cranelift is a rustc codegen backend that cuts debug codegen
+# time substantially, and it is nightly-only. The instructions in Cargo.toml told a developer
+# to switch `profile.dev.codegen-backend` to cranelift, which could not work - the pinned
+# toolchain is stable 1.98.0, where `-Zcodegen-backend` does not exist.
+#
+# Why a FILE rather than a version string in a .nix: this is resolved exactly like
+# rust-toolchain.toml, by `rust-bin.fromRustupToolchainFile` in nix/toolchains.nix. Same
+# mechanism, one code path, and `rustup` honours it directly - so a developer without nix can
+# `rustup toolchain install` from it instead of reading a nix expression.
+#
+# A DATE, not `nightly`: an unpinned channel means two developers get different compilers and
+# a cranelift regression is unattributable. Bump it deliberately, in its own commit.
+#
+# CI never reads this file. Stable is the authority for anything shipped: rust-toolchain.toml.
+[toolchain]
+channel = "nightly-2026-08-23"
+# rustc-codegen-cranelift-preview is the whole reason this file exists. The rest match
+# rust-toolchain.toml so the inner loop has the same tools.
+components = ["rustfmt", "clippy", "rust-std", "rustc-codegen-cranelift-preview"]
+profile = "minimal"

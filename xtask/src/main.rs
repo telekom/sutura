@@ -15,6 +15,7 @@ mod docs;
 mod guidance;
 mod line_endings;
 mod max_lines;
+mod pins;
 mod repo;
 mod skills;
 mod text;
@@ -92,6 +93,12 @@ const TASKS: &[Task] = &[
         description: "no file over 1000 lines (exemptions: .max-lines-ignore)",
         kind: Kind::Hygiene,
         run: max_lines::run,
+    },
+    Task {
+        name: "check-pins",
+        description: "no tool is pinned by both nix and pixi",
+        kind: Kind::Hygiene,
+        run: pins::run,
     },
     Task {
         name: "unused-deps",

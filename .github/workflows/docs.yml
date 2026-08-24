@@ -1,14 +1,25 @@
-# The documentation site: build the book, and publish it on main.
+# The documentation site: build it with mkdocs-material, and publish it as a VERSION with mike.
 #
-# This is the workflow that covers what `ci.yml` deliberately ignores. `ci.yml` skips a
-# prose-only change entirely - `paths-ignore` on `**/*.md`, `docs/**`, LICENSE and NOTICE -
-# so those paths trigger THIS workflow instead, and it runs the structural gates as well as
-# the build. A markdown edit is therefore checked by the cheap workflow rather than by none.
+# mike owns the `gh-pages` branch - the version directories, `versions.json`, the root redirect
+# and `.nojekyll`. That is the whole reason for this stack: every one of those was hand-written
+# machinery under mdBook, and none of it is ours now. `docs/publishing.md` describes the layout.
 #
-# Two jobs, because they need different tokens. `build` reads the repo and produces the
-# artifact; `deploy` publishes it and is the only thing holding `pages: write`. Permissions
-# are set per job for that reason: a workflow-level grant would hand the build job a token
-# that can publish, which is precisely what it must not have.
+# Why a branch and not `actions/deploy-pages`: that path uploads ONE artifact and serves it as
+# the whole site, so there is exactly one current version and no history. It also fails with a
+# bare `HttpError: Not Found` until somebody enables Pages, which is a setting no workflow can
+# change. The branch model has neither problem - the push succeeds whether Pages is on or off,
+# and turning it on afterwards is what makes the already-published versions visible.
+#
+# This is also the workflow that covers what `ci.yml` deliberately ignores. `ci.yml` skips a
+# prose-only change entirely - `paths-ignore` on `**/*.md`, `docs/**`, LICENSE and NOTICE - so
+# those paths trigger THIS workflow instead, and it runs the structural gates as well as the
+# build. A markdown edit is therefore checked by the cheap workflow rather than by none.
+#
+# Two jobs, split by what they are allowed to do rather than by what they compute. `verify` runs
+# on a pull request with a read-only token; `publish` runs only from `main` or a `v*` tag and is
+# the only thing holding `contents: write`. Each builds the site itself, because handing an
+# artifact between jobs needs an upload/download action and the price of that is a job with a
+# write token building code from a pull request.
 #
 # Every action is pinned by commit. A tag is mutable and these run with the job's token.
 name: docs
@@ -16,9 +27,14 @@ name: docs
 on:
   push:
     branches: [main]
+    # A `v*` tag publishes that release's own directory. Path filters are NOT evaluated for tag
+    # pushes - documented GitHub behaviour - so `paths` below narrows branch pushes only and a
+    # tag always builds, which is what a release needs.
+    tags: ["v*"]
     paths:
       - "**/*.md"
       - "docs/**"
+      - "mkdocs.yml"
       - "LICENSE"
       - "NOTICE"
       - ".github/workflows/docs.yml"
@@ -26,18 +42,32 @@ on:
     paths:
       - "**/*.md"
       - "docs/**"
+      - "mkdocs.yml"
       - "LICENSE"
       - "NOTICE"
       - ".github/workflows/docs.yml"
+  # The cold start: `gh-pages` has to exist before Settings -> Pages will offer it in the branch
+  # dropdown. This is how you create it without inventing a commit.
+  workflow_dispatch:
+
+# Nothing broad at the workflow level: a default grant applies to every job the file gains.
+permissions:
+  contents: read
+
+env:
+  # Silence Material's "MkDocs 2.0" upgrade notice, which is advice, not a finding.
+  NO_MKDOCS_2_WARNING: "1"
 
 jobs:
-  build:
+  # A pull request proves the site builds under `--strict`. It does not get to publish.
+  verify:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
       contents: read
     concurrency:
-      group: docs-build-${{ github.ref }}
+      group: docs-verify-${{ github.ref }}
       cancel-in-progress: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -53,56 +83,170 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      # Carries /nix/store between runs. Without it every run recompiles from scratch.
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+      # No shared cache here, and that is deliberate rather than an omission. `ci.yml` carries
+      # /nix/store between runs with magic-nix-cache; this workflow publishes, and once it has a
+      # `v*` trigger zizmor flags that step as cache poisoning - the Actions cache is writable
+      # from a pull request, and a published page must not be built from a store path a pull
+      # request could have put there. Same call `release.yml` makes, for the same reason.
 
       # The gates judge prose too, and this is the only workflow a prose-only change starts.
-      # `check-docs` is in here: it rejects a chapter with no file and a page in no chapter,
-      # and the build below would happily render the second one.
+      # `check-docs` is in here: it rejects a nav entry with no file, a page in no nav entry, and
+      # an asset `mkdocs.yml` references but does not have.
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 
-      # mdbook comes from nixpkgs rather than from an action, so the book is built by the
-      # same tool the dev shell provides and no third-party action is involved.
-      - name: Build the book
-        run: nix run .#mdbook -- build docs
+      # `--strict` turns a dead link, an orphan page and a bad anchor into a failure. Without it
+      # mkdocs prints a warning and exits 0, which is a green build over a broken site.
+      - name: Build the site
+        run: nix run .#mkdocs -- build --clean --strict
 
-      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        with:
-          path: docs/book
-
-  # Only on main. A pull request proves the book builds; it does not get to publish.
-  deploy:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    needs: build
+  # Only from `main` or a `v*` tag. This is the job with a write token, so what it may publish
+  # from is checked before anything is fetched.
+  publish:
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    # Deploy the site to gh-pages, and nothing else. Not `pages`, not `id-token` - those existed
+    # only for actions/deploy-pages, which this no longer uses.
     permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    # Not cancel-in-progress: a half-cancelled deployment is worse than a queued one.
+      contents: write
+    # One group for the whole workflow, not one per ref: two runs deploying to `gh-pages` at
+    # once would race, and a main push and a tag push can easily overlap. Never
+    # cancel-in-progress - a half-finished deploy leaves the branch inconsistent.
     concurrency:
-      group: pages
+      group: docs-publish
       cancel-in-progress: false
     steps:
-      # `deploy-pages` returns a bare `HttpError: Not Found` when Pages is not enabled for the
-      # repository, which reads like a token or permissions bug and is not one. This says what
-      # is actually wrong, because the fix is a setting no workflow can change.
-      - name: Is Pages enabled?
+      # `workflow_dispatch` can be started on any ref, and this job can write to the repository.
+      # The ref decides what gets published, so it is validated before the checkout.
+      - name: What is being published
+        id: target
         env:
-          GH_TOKEN: ${{ github.token }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
           set -eu
-          if ! gh api "repos/$GITHUB_REPOSITORY/pages" >/dev/null 2>&1; then
-            echo "::error::GitHub Pages is not enabled for this repository."
-            echo "Settings -> Pages -> Build and deployment -> Source: GitHub Actions."
-            echo "Until then the book builds on every push and publishes nowhere."
+          if [ "$REF_TYPE" = tag ]; then
+            case "$REF_NAME" in
+              v*) ;;
+              *) echo "::error::docs publishes tags matching v*; got $REF_NAME"; exit 1 ;;
+            esac
+            # A release owns the `latest` alias, and the root redirect follows it.
+            echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
+            echo "alias=latest" >> "$GITHUB_OUTPUT"
+          elif [ "$REF_NAME" = main ]; then
+            # `main` is the development copy and takes no alias: `latest` must keep pointing at
+            # the newest RELEASE, or every push to main would silently move it.
+            echo "version=main" >> "$GITHUB_OUTPUT"
+            echo "alias=" >> "$GITHUB_OUTPUT"
+          else
+            echo "::error::docs publishes from main or a v* tag only; got $REF_NAME"
             exit 1
           fi
-          gh api "repos/$GITHUB_REPOSITORY/pages" --jq '"pages source: \(.build_type)  url: \(.html_url)"'
 
-      - id: deployment
-        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, because mike reads and rewrites the `gh-pages` branch and needs the
+          # ref present rather than fetched on demand.
+          fetch-depth: 0
+          # mike commits and pushes, so the token stays in the clone's config.
+          persist-credentials: true
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
+          extra_nix_config: |
+            fallback = true
+
+      # No shared cache on the publishing path. See the note in `verify`.
+
+      - name: Structural gates
+        run: nix build .#checks.x86_64-linux.hygiene -L
+
+      # Built before deploying, so a site that does not build cannot become a published version.
+      - name: Build the site
+        run: nix run .#mkdocs -- build --clean --strict
+
+      - name: Deploy with mike
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          ALIAS: ${{ steps.target.outputs.alias }}
+        run: |
+          set -eu
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          # Bring the local branch up to date with the remote BEFORE deploying. mike refuses to
+          # act on a diverged branch rather than guessing, which is what we want - but it can
+          # only see divergence if the ref is here. A missing branch is the cold start: mike
+          # creates it, so the failure is ignored rather than reported.
+          git fetch origin gh-pages:gh-pages || true
+          # `--update-aliases` so a release can take `latest` off the previous one.
+          #
+          # `--alias-type=redirect` is NOT the default and has to be passed: mike's default makes
+          # an alias a git SYMLINK, and GitHub Pages does not resolve one - `latest/` would serve
+          # the text "0.3.0" instead of the docs. `redirect` writes a real HTML redirect per page
+          # instead, so `latest/publishing/` lands on `0.3.0/publishing/` rather than the site
+          # root. Verified against mike 2.1.3 by deploying both ways and reading the branch.
+          #
+          # Deliberately NOT `--ignore-remote-status`: that tells mike to proceed when the branch
+          # has moved under it, and the thing it would proceed to do is overwrite somebody else's
+          # deploy. A concurrent publish should fail this job, not win it.
+          if [ -n "$ALIAS" ]; then
+            nix run .#mike -- deploy --push --update-aliases --alias-type=redirect "$VERSION" "$ALIAS"
+          else
+            nix run .#mike -- deploy --push "$VERSION"
+          fi
+
+      # The root has to redirect somewhere from the very first deployment, and `latest` does not
+      # exist until a release is tagged. So point the root at `main` while that is the only thing
+      # published, and hand it to `latest` the moment a release owns it. Never taken back: once
+      # `latest` exists, a push to main must not walk the landing page back to development docs.
+      - name: Point the root at the right version
+        env:
+          ALIAS: ${{ steps.target.outputs.alias }}
+        run: |
+          set -eu
+          if [ -n "$ALIAS" ]; then
+            nix run .#mike -- set-default --push "$ALIAS"
+          elif nix run .#mike -- list latest >/dev/null 2>&1; then
+            echo "latest exists: the root belongs to the newest release, leaving it alone"
+          else
+            echo "no release published yet: pointing the root at main"
+            nix run .#mike -- set-default --push main
+          fi
+          nix run .#mike -- list
+
+      # The one thing no workflow can do: Pages has to be pointed at the branch by a human. This
+      # job's token is `contents: write` and nothing else, so it cannot read the Pages setting to
+      # tell you whether it is right - it states what the setting has to be instead of guessing.
+      - name: What a human still has to do
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          set -eu
+          owner="${GITHUB_REPOSITORY%%/*}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          cat >>"$GITHUB_STEP_SUMMARY" <<SUMMARY
+          ## Deployed \`gh-pages/$VERSION/\`
+
+          mike keeps every version on that branch, maintains \`versions.json\` for the selector
+          in the header, and writes the root redirect.
+
+          ### The one-time repository setting
+
+          Settings -> Pages -> Build and deployment:
+
+          - Source: **Deploy from a branch**
+          - Branch: **gh-pages**, folder **/ (root)**
+
+          Not "GitHub Actions": that source serves one uploaded artifact as the whole site, which
+          is a single current version with no history.
+
+          The dropdown lists only branches that exist, so this run had to happen first. Until the
+          setting is made, the versions accumulate on the branch and the site answers nothing.
+
+          The site is then at <https://$owner.github.io/$repo/>.
+          SUMMARY

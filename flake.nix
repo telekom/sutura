@@ -68,6 +68,16 @@
         # crane derivation around it.
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
 
+        # The pinned cargo, for the one workflow that has to touch Cargo.lock.
+        cargoWrapper = pkgs.writeShellApplication {
+          name = "sutura-cargo";
+          text = ''
+            export PATH="${rustToolchain}/bin:$PATH"
+            exec cargo "$@"
+          '';
+        };
+
+
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
             (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
@@ -285,6 +295,10 @@
             touch $out
           '';
 
+          # pixi exists because nix does not run on every host we develop on - so a few tools
+          # are pinned twice, and a second pin is a second source of truth unless something
+          # checks it. nix is the authority; this fails if pixi.lock disagrees.
+
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
           doctest = craneLib.mkCargoDerivation (releaseArgs // {
@@ -371,27 +385,52 @@
         # whatever nixpkgs-unstable points at when the job runs - an unreviewed, mutable input
         # executing in jobs that hold a write token. It also contradicted this file's whole
         # premise. As apps they come from `flake.lock` like everything else.
+        # The workflow and shell linters, from the LOCKED nixpkgs. CI reached these through
+        # `nix run .#pixi -- run zizmor`, which took the VERSION from pixi.lock - so nix pinned
+        # the compiler and pixi pinned the linters, and nothing checked that the two agreed.
+        # One authority, and no second pin to keep in step: these three are deliberately
+        # NOT in pixi.toml. Their version decides what they REPORT, so naming them twice
+        # would mean two pins plus a synchroniser to keep them honest - which is what was
+        # tried first. `cargo xtask check-pins` enforces the split instead.
+        apps.zizmor = {
+          type = "app";
+          program = "${pkgs.zizmor}/bin/zizmor";
+        };
+        apps.actionlint = {
+          type = "app";
+          program = "${pkgs.actionlint}/bin/actionlint";
+        };
+        apps.shellcheck = {
+          type = "app";
+          program = "${pkgs.shellcheck}/bin/shellcheck";
+        };
+
         apps.betterleaks = {
           type = "app";
           program = "${pkgs.betterleaks}/bin/betterleaks";
         };
         # The pinned cargo, for the one workflow that has to touch Cargo.lock. `nix develop`
         # was used here and could never have worked: this flake exposes no devShells.
+        # writeShellApplication, not `toString (writeShellScript ...)`: the latter yields a
+        # store path that nothing in the closure realises, so `nix run` fails with "No such
+        # file or directory" naming the wrapper itself. An app whose program lives inside a
+        # package gets that package built.
         apps.cargo = {
           type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-cargo" ''
-            export PATH="${rustToolchain}/bin:$PATH"
-            exec cargo "$@"
-          '');
+          program = "${cargoWrapper}/bin/sutura-cargo";
         };
         apps.git-cliff = {
           type = "app";
           program = "${pkgs.git-cliff}/bin/git-cliff";
         };
-        apps.mdbook = {
-          type = "app";
-          program = "${pkgs.mdbook}/bin/mdbook";
-        };
+        # No mkdocs or mike app, deliberately. The docs toolchain is Python, and it lives in
+        # pixi's isolated `docs` environment - `pixi run -e docs docs` / `docs-deploy`.
+        #
+        # It WAS here, as a `python3.withPackages`, and it did not work: mike shells out to
+        # `mkdocs`, and the composed environment produced an mkdocs that ran but could not
+        # import `pymdownx`, so `mike deploy` failed after naming the version. Two resolvers
+        # for one interpreter is what that failure looks like. One resolver per language:
+        # pixi owns Python, nix owns the rest.
         apps.pixi = {
           type = "app";
           program = "${pkgs.pixi}/bin/pixi";

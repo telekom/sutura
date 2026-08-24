@@ -20,6 +20,11 @@ const SKIP_DIRS: &[&str] = &[
     "result",
     "node_modules",
     "__pycache__",
+    // The rendered docs site. Gitignored, so `git ls-files` never lists it - but the walk
+    // fallback does, and mkdocs-material vendors a 6708-line lunr bundle that fails
+    // `max-lines`. A developer who ran `just docs` could not then pass the gates, which is a
+    // gate punishing someone for building the thing the gate exists to protect.
+    "site",
 ];
 
 /// The workspace root, derived from this crate's manifest rather than from the current

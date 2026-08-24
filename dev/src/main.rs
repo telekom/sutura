@@ -388,7 +388,7 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
 
     println!();
     if missing_required {
-        println!("Something required is missing. See docs/src/getting-started.md.");
+        println!("Something required is missing. See docs/getting-started.md.");
         return ExitCode::FAILURE;
     }
     if !hooks.is_empty() {

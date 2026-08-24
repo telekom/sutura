@@ -20,7 +20,11 @@ services:
       dockerfile: Dockerfile
       target: dev
       args:
-        BASE_IMAGE: ${BASE_IMAGE:-nixos/nix:2.35.2}
+        # An FHS base, with the Nix store copied out of NIX_IMAGE. See the note at the
+        # top of the Dockerfile: on a NixOS-derived base, nothing conda-forge installs
+        # can execute, which made every pixi tool and every git hook unusable.
+        BASE_IMAGE: ${BASE_IMAGE:-debian:13-slim}
+        NIX_IMAGE: ${NIX_IMAGE:-nixos/nix:2.35.2}
         HTTP_PROXY_URL: ${HTTP_PROXY_URL:-}
         NO_PROXY_LIST: ${NO_PROXY_LIST:-localhost,127.0.0.1,::1}
         NIX_SUBSTITUTER: ${NIX_SUBSTITUTER:-https://cache.nixos.org}
