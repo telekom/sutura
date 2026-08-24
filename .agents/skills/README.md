@@ -14,11 +14,16 @@ Do not open a `SKILL.md` you were not routed to. A skill absent from `skill-rout
 non-discoverable by policy - `cargo xtask check-skills` fails if the router and the tree
 disagree, in either direction.
 
+Every agent reaches the same tree: `.claude/skills`, `.codex/skills` and `.opencode/skills`
+are symlinks to `.agents/skills`. One canonical set, three products.
+
 ## Intents
 
 | I need to… | Group |
 | --- | --- |
+| start a session, or find which skill applies | `agent-system/README.md` |
 | write or change Rust in this workspace | `engineering/README.md` |
+| cut over-engineering | `engineering/README.md` |
 | find out why something fails | `engineering/README.md` |
 | validate a token or authorize on claims | `engineering/README.md` |
 | obtain a token: flow, PKCE, storage, logout | `engineering/README.md` |
@@ -29,6 +34,7 @@ disagree, in either direction.
 
 | Group | Scope |
 | --- | --- |
+| `agent-system/` | How skills are discovered, imported and maintained. |
 | `engineering/` | Rust in this workspace, debugging, and both halves of OAuth 2.x / OIDC. |
 | `git-ops/` | Stacked branches: dependent changes as separate reviewable PRs. |
 | `reasoning/` | Structured reasoning: making the argument explicit before acting on it. |

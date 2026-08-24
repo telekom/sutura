@@ -1,12 +1,21 @@
 {
   "_comment": "Checked routing data. `cargo xtask check-skills` verifies this against the filesystem in BOTH directions: no entry may name a missing skill, and no SKILL.md may be absent from here. A skill nobody can route to is dead weight that still costs review.",
   "groups": {
+    "agent-system": {
+      "readme": "agent-system/README.md",
+      "scope": "How skills are discovered, imported and maintained.",
+      "skills": {
+        "using-skills": "agent-system/using-skills/SKILL.md",
+        "skill-policy": "agent-system/skill-policy/SKILL.md"
+      }
+    },
     "engineering": {
       "readme": "engineering/README.md",
       "scope": "Rust in this workspace, debugging, OAuth 2.x / OIDC and token exchange.",
       "skills": {
         "rust": "engineering/rust/SKILL.md",
         "ms-rust": "engineering/ms-rust/SKILL.md",
+        "ponytail": "engineering/ponytail/SKILL.md",
         "debugging": "engineering/debugging/SKILL.md",
         "oauth": "engineering/oauth/SKILL.md",
         "oauth-flows": "engineering/oauth-flows/SKILL.md"
@@ -28,6 +37,9 @@
     }
   },
   "intents": [
+    { "intent": "start a session, or find which skill applies", "group": "agent-system", "skill": "using-skills" },
+    { "intent": "import, update or remove a skill", "group": "agent-system", "skill": "skill-policy" },
+    { "intent": "cut over-engineering: the simplest thing that works", "group": "engineering", "skill": "ponytail" },
     { "intent": "write or change Rust in this workspace", "group": "engineering", "skill": "rust" },
     { "intent": "general Rust discipline beyond this repo's rules", "group": "engineering", "skill": "ms-rust" },
     { "intent": "find out why something fails", "group": "engineering", "skill": "debugging" },

@@ -28,3 +28,6 @@ devenv.local.nix
 # Mirror/proxy values for a network without direct egress. Deliberately NOT committed:
 # the repo carries public defaults, the site-specific routing stays out of it.
 .env
+
+# Ponytail activation flag: local, per-developer.
+.ponytail-active

@@ -1,0 +1,17 @@
+{
+  "$comment": "Claude Code project settings. The skills tree is reached via the .claude/skills symlink to ../.agents/skills, so one canonical tree serves every agent.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"$CLAUDE_PROJECT_DIR/.claude/hooks/ponytail-session-start.sh\"",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}
