@@ -45,6 +45,10 @@ in
     clang
     lld
 
+    # Secret detection, by the people who wrote gitleaks. A maintained rule set beats a
+    # hand-written pattern list, which is what this replaced.
+    betterleaks
+
     # Gates.
     cargo-deny
     cargo-nextest
@@ -97,10 +101,24 @@ in
     fi
     export GH_TOKEN="''${GITHUB_TOKEN:-}"
 
-    # Non-fatal by design: a shell you cannot enter because a convenience tool is
-    # unreachable is worse than a shell without that tool.
+    # gh-axi, installed on first entry. Two things that used to be wrong about this, both
+    # fixed rather than the tool removed:
+    #
+    #   - the install ran with GITHUB_TOKEN and GH_TOKEN in its environment, so a compromised
+    #     release of it or of any transitive dependency could read the highest-value credential
+    #     on the machine. `env -u` strips both for the duration of the install; nothing in an
+    #     npm postinstall needs a GitHub token.
+    #   - failures were discarded with `|| true` and the output sent to /dev/null, so a broken
+    #     install looked identical to a working one. It now says so.
+    #
+    # Residual risk, stated rather than hidden: this is npm, resolved at install time, so the
+    # dependency tree is not hash-pinned the way everything else here is.
     if ! command -v gh-axi >/dev/null 2>&1; then
-      npm install -g gh-axi >/dev/null 2>&1 || true
+      if env -u GITHUB_TOKEN -u GH_TOKEN npm install -g --no-fund --no-audit gh-axi; then
+        echo "  gh-axi     installed"
+      else
+        echo "  gh-axi     install FAILED (the shell is otherwise fine)" >&2
+      fi
     fi
 
     echo "sutura devenv"
@@ -136,7 +154,9 @@ in
     line-endings.exec = "cargo run -q -p xtask -- line-endings";
     check-skills.exec = "cargo run -q -p xtask -- check-skills";
     check-guidance.exec = "cargo run -q -p xtask -- check-guidance";
-    check-secrets.exec = "cargo run -q -p xtask -- check-secrets";
+    # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
+    # for a commit.
+    secrets.exec = "betterleaks dir . --redact --verbose";
     check-docs.exec = "cargo run -q -p xtask -- check-docs";
     unused-deps.exec = "cargo run -q -p xtask -- unused-deps";
 
@@ -157,7 +177,6 @@ in
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
       cargo run -q -p xtask -- check-guidance
-      cargo run -q -p xtask -- check-secrets
       cargo run -q -p xtask -- check-docs
     '';
 
@@ -216,7 +235,6 @@ in
       cargo run -q -p xtask -- check-boundaries
       cargo run -q -p xtask -- check-skills
       cargo run -q -p xtask -- check-guidance
-      cargo run -q -p xtask -- check-secrets
       cargo run -q -p xtask -- check-docs
       cargo fmt --all -- --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings

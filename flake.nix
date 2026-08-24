@@ -187,6 +187,18 @@
             Entrypoint = [ "/bin/sutura" ];
             Cmd = [ "--version" ];
             Env = [ "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
+            # Non-root by default. The binary needs no privilege, and a cluster policy of
+            # `runAsNonRoot` should be satisfied by the image rather than by a deployment
+            # someone has to remember to write. 65532 is the conventional `nonroot` uid.
+            User = "65532:65532";
+            # `docker inspect` should answer "which commit is this" without a lookup table.
+            Labels = {
+              "org.opencontainers.image.title" = "sutura";
+              "org.opencontainers.image.description" = "identity-aware semantic data runtime for AI agents";
+              "org.opencontainers.image.licenses" = "Apache-2.0";
+              "org.opencontainers.image.source" = "https://github.com/telekom/sutura";
+              "org.opencontainers.image.version" = commonArgs.version;
+            };
           };
         };
       in
@@ -269,7 +281,6 @@
               cargo run --release -q -p xtask -- check-boundaries
               cargo run --release -q -p xtask -- check-skills
               cargo run --release -q -p xtask -- check-guidance
-              cargo run --release -q -p xtask -- check-secrets
               cargo run --release -q -p xtask -- check-docs
             '';
           });
@@ -314,6 +325,29 @@
             export PATH="${rustToolchain}/bin:${pkgs.git}/bin:$PATH"
             exec cargo run --release -q -p xtask -- test-causality "$@"
           '');
+        };
+
+        # Tools CI runs, from the LOCKED nixpkgs.
+        #
+        # These were `nix run nixpkgs#<tool>`, which resolves through the flake registry to
+        # whatever nixpkgs-unstable points at when the job runs - an unreviewed, mutable input
+        # executing in jobs that hold a write token. It also contradicted this file's whole
+        # premise. As apps they come from `flake.lock` like everything else.
+        apps.betterleaks = {
+          type = "app";
+          program = "${pkgs.betterleaks}/bin/betterleaks";
+        };
+        apps.git-cliff = {
+          type = "app";
+          program = "${pkgs.git-cliff}/bin/git-cliff";
+        };
+        apps.mdbook = {
+          type = "app";
+          program = "${pkgs.mdbook}/bin/mdbook";
+        };
+        apps.pixi = {
+          type = "app";
+          program = "${pkgs.pixi}/bin/pixi";
         };
 
         formatter = pkgs.nixpkgs-fmt;

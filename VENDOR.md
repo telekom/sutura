@@ -21,5 +21,18 @@ documentation, guidance, fixtures - which no dependency check can see.
 
 | `.agents/skill-library/**/SKILL.md` (20 skills) | `github.com/addyosmani/agent-skills` | MIT | `5a5ea45e806f82273549fd85e60adb95d55f510d` | 2026-08-21 | **mirror.** Imported as-is into the non-discoverable library tier, each with its own `## Provenance` block; `cargo xtask check-skills` fails if one lacks it. Not imported, deliberately: `frontend-ui-engineering` and `browser-testing-with-devtools` (no UI here), `using-agent-skills` (adapted into the active tier instead), `interview-me` (personal rather than repo workflow). |
 
+## Acknowledged prior art
+
+Not vendored - no code from either is present - but the semantic-compile shape is theirs and
+saying so is the honest position. Both Apache-2.0.
+
+| Project | What it contributes to the design |
+| --- | --- |
+| [Wren](https://github.com/Canner/WrenAI) | Compiling a modelled question into SQL over DataFusion, and the idea that the model rather than the prompt is what makes a number defensible |
+| [Spice](https://github.com/spiceai/spiceai) | Federation and acceleration across sources, also on DataFusion |
+
+If code from either is ever adapted, it moves into the table above with a commit and a
+description of the local changes.
+
 No source code is vendored at present. When it is, record the upstream commit here and keep
 the upstream licence text alongside the code, not only in this table.

@@ -67,6 +67,22 @@ const FORBIDDEN: &[Forbidden] = &[
         except: &[],
     },
     Forbidden {
+        // Assembled would be cleaner, but this needle is not a credential and the rule table
+        // is not scanned (see the filter in `run`), so a literal is fine here.
+        needle: "nix run nixpkgs#",
+        instead: "a flake app: nix run .#<tool>, defined in flake.nix from the locked nixpkgs",
+        why: "the registry form resolves to whatever nixpkgs-unstable points at when the job runs: an unreviewed mutable input, in a job holding a write token",
+        only: &[".github/**"],
+        except: &[],
+    },
+    Forbidden {
+        needle: "accept-flake-config",
+        instead: "nothing - put what CI needs in extra_nix_config, where the diff shows it",
+        why: "it honours settings from flake.nix itself, so a pull request could add a substituter and a trusted key and have CI fetch attacker-built store paths whose signature verifies",
+        only: &[".github/**"],
+        except: &[],
+    },
+    Forbidden {
         needle: "no-cranelift",
         instead: "nothing - the gate was deleted; the rule holds by construction",
         why: "the detector matched its own source and needed a self-exclusion to work at all",
@@ -149,6 +165,22 @@ fn known_tasks() -> BTreeSet<&'static str> {
     crate::task_names().collect()
 }
 
+/// The task name at the start of `tail`, or `None` if there is not one there.
+///
+/// `None` for a flag: `cargo xtask --help` is documented and correct, and reading `--help` as
+/// a deleted gate made this gate fail on the page that describes the gates. `None` also for a
+/// placeholder like `<task>`, which is how the usage line is written.
+fn task_name_at(tail: &str) -> Option<&str> {
+    let end = tail
+        .find(|c: char| !c.is_ascii_alphanumeric() && c != '-')
+        .unwrap_or(tail.len());
+    let name = tail.get(..end)?;
+    if name.is_empty() || name.starts_with('-') {
+        return None;
+    }
+    Some(name)
+}
+
 /// `cargo xtask <name>` mentioned anywhere must be a task that exists.
 fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
     let known = known_tasks();
@@ -165,8 +197,9 @@ fn bad_task_references(root: &Path, files: &[String]) -> Vec<String> {
                 let mut rest = line;
                 while let Some(at) = rest.find(marker) {
                     let tail = rest.get(at + marker.len()..).unwrap_or("");
-                    let name: String = tail.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
-                    if !name.is_empty() && !known.contains(name.as_str()) {
+                    if let Some(name) = task_name_at(tail)
+                        && !known.contains(name)
+                    {
                         problems.push(format!(
                             "{rel}:{}: `{name}` is not an xtask task - it was renamed or deleted",
                             i + 1
@@ -363,6 +396,18 @@ mod tests {
             &PIN,
             "1.98.0"
         ));
+    }
+
+    #[test]
+    fn a_flag_or_placeholder_is_not_a_task_name() {
+        use super::task_name_at;
+        // The real case: the page documenting the gates cites `cargo xtask --help`.
+        assert_eq!(task_name_at("--help` prints the list"), None);
+        assert_eq!(task_name_at("<task>"), None);
+        assert_eq!(task_name_at(""), None);
+        // And a real task name still parses, stopping at the backtick or space.
+        assert_eq!(task_name_at("check-guidance` runs"), Some("check-guidance"));
+        assert_eq!(task_name_at("max-lines --json"), Some("max-lines"));
     }
 
     #[test]

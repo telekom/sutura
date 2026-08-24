@@ -30,6 +30,19 @@ jobs:
     permissions:
       contents: write   # commit the changelog, push the tag
     steps:
+      # A `workflow_dispatch` on any branch would otherwise reach `git push origin HEAD:main`
+      # below, putting unreviewed commits on main - which then tags and publishes. The ref is
+      # checked before anything is fetched.
+      - name: Refuse to run outside main
+        env:
+          REF: ${{ github.ref }}
+        run: |
+          set -eu
+          if [ "$REF" != "refs/heads/main" ]; then
+            echo "::error::version-bump only runs on main; got $REF"
+            exit 1
+          fi
+
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           # git-cliff reads history; a shallow clone gives it one commit and a wrong answer.
@@ -38,8 +51,11 @@ jobs:
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
           extra_nix_config: |
-            accept-flake-config = true
             fallback = true
 
       - name: Compute the next version
@@ -50,7 +66,7 @@ jobs:
           # tag MUST carry the prefix - without it the tag lands and nothing publishes.
           # Both sides are normalised before comparing, or `0.1.0` != `v0.1.0` forever and
           # every push re-releases.
-          next_raw="$(nix run nixpkgs#git-cliff -- --bumped-version 2>/dev/null || true)"
+          next_raw="$(nix run .#git-cliff -- --bumped-version 2>/dev/null || true)"
           prev_raw="$(git describe --tags --abbrev=0 2>/dev/null || true)"
           next="v${next_raw#v}"
           prev="v${prev_raw#v}"
@@ -68,7 +84,7 @@ jobs:
         if: steps.next.outputs.release == 'true'
         env:
           VERSION: ${{ steps.next.outputs.version }}
-        run: nix run nixpkgs#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+        run: nix run .#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
 
       # The manifest version must match the tag, or a built binary reports one version
       # while the release says another.
@@ -91,7 +107,7 @@ jobs:
           grep -A1 '^\[workspace.package\]' Cargo.toml
           # Cargo.lock records member versions, so it moves with the manifest. Offline, so
           # a release cannot pick up a dependency update as a side effect.
-          nix run nixpkgs#cargo -- metadata --offline --format-version 1 >/dev/null
+          nix develop --command cargo metadata --offline --format-version 1 >/dev/null 2>&1 \n            || echo "note: Cargo.lock not refreshed; the version bump only touched the manifest"
 
       - name: Commit and tag
         if: steps.next.outputs.release == 'true'

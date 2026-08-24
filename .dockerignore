@@ -1,0 +1,31 @@
+# The `build` target does `COPY . .`, so anything here lands in an image layer. Without this
+# file that included `.env` - internal mirror hostnames and, per .env.example, a slot for a
+# GitHub token - which anyone who shares or exports the image then publishes. That is the exact
+# disclosure class AGENTS.md forbids, and it survives deleting the file afterwards.
+#
+# It also cuts the build context from gigabytes (.pixi holds a whole materialised environment)
+# to something that transfers.
+
+# Secrets and local configuration. `.env.example` is the committed template and is fine.
+.env
+.env.*
+!.env.example
+devenv.local.nix
+.ponytail-active
+
+# Version control and build output.
+.git
+.gitignore
+target
+result
+result-*
+dist
+stage
+docs/book
+
+# Tool state, none of which belongs in an image.
+.direnv
+.devenv
+.pixi
+node_modules
+__pycache__

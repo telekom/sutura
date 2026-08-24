@@ -31,8 +31,11 @@ jobs:
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
           extra_nix_config: |
-            accept-flake-config = true
             fallback = true
 
       # No shared cache on the release path, deliberately: zizmor flags cache poisoning,
@@ -64,22 +67,36 @@ jobs:
           done
           ls -l dist
 
-      # `created` is pinned in flake.nix, so the same source yields the same digest.
+      # Only from a tag, and only from a tag that looks like a release. Without this a
+      # `workflow_dispatch` on any branch computed a tag from the branch name and moved
+      # `:latest`, which is what consumers pull - unreviewed content, published.
       - name: Image
+        if: startsWith(github.ref, 'refs/tags/v')
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
         run: |
           set -eu
+          case "$GITHUB_REF_NAME" in
+            v[0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::refusing to publish from ref $GITHUB_REF_NAME"; exit 1 ;;
+          esac
           nix build .#oci -L -o result-oci
           ./result-oci | docker load
           docker run --rm sutura:latest --version
+          # Prove the non-root default actually works rather than assuming it.
+          docker run --rm --user 65532:65532 sutura:latest --version
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           tag="${GITHUB_REF_NAME#v}"
           docker tag sutura:latest "${IMAGE}:${tag}"
           docker tag sutura:latest "${IMAGE}:latest"
           docker push "${IMAGE}:${tag}"
           docker push "${IMAGE}:latest"
+          # The digest is the only durable answer to "which build is running". Recorded as a
+          # release asset, because a checksum an uploader can also rewrite proves little.
+          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}" 2>/dev/null || true)"
+          printf '%s\n' "${digest:-unknown}" > dist/image-digest.txt
+          echo "image digest: ${digest:-unknown}" >> "$GITHUB_STEP_SUMMARY"
           docker logout ghcr.io
 
       # `gh` is preinstalled. `--clobber` makes a re-run idempotent.

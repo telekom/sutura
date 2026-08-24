@@ -46,8 +46,11 @@ jobs:
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
           extra_nix_config: |
-            accept-flake-config = true
             fallback = true
 
       # Carries /nix/store between runs. Without it every run recompiles from scratch.
@@ -62,7 +65,7 @@ jobs:
       # mdbook comes from nixpkgs rather than from an action, so the book is built by the
       # same tool the dev shell provides and no third-party action is involved.
       - name: Build the book
-        run: nix run nixpkgs#mdbook -- build docs
+        run: nix run .#mdbook -- build docs
 
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         with:

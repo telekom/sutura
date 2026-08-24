@@ -1,0 +1,29 @@
+# Every action is pinned by commit SHA, which is right and means nothing updates them when an
+# action ships a security fix. Dependabot preserves the pin and updates the trailing version
+# comment, so the pins stay current without becoming mutable tags.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      # The commit-msg gate requires a conventional subject, including on a bot's commits.
+      prefix: "ci"
+
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "build"
+    groups:
+      # One PR for a patch sweep rather than five. A minor or major bump stays separate,
+      # because that is the one worth reading.
+      patch-level:
+        patterns: ["*"]
+        update-types: ["patch"]

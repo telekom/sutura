@@ -78,8 +78,11 @@ jobs:
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
+          # The flag that makes nix honour settings from flake.nix itself is deliberately
+          # absent: with it, a pull request could add a substituter and a trusted key and have
+          # CI fetch attacker-built store paths whose signature verifies. Anything CI needs
+          # goes here, where the workflow diff shows it.
           extra_nix_config: |
-            accept-flake-config = true
             fallback = true
 
       # Same rule as the normal release: nothing shippable is built before the gates pass.

@@ -88,7 +88,10 @@ FROM toolchain AS dev
 
 # direnv does nothing without a shell hook. Without it the .envrc silently never loads and
 # people fall back to a system toolchain — the exact failure .envrc exists to prevent.
-RUN printf '\neval "$(direnv hook bash)"\n[ -f /work/.envrc ] && direnv allow /work >/dev/null 2>&1 || true\n' \
+# The hook only. NOT `direnv allow`: that prompt is the trust boundary, and pre-approving it
+# means checking out an unreviewed branch and entering the container executes that branch's
+# enterShell. The message says what to run.
+RUN printf '\neval "$(direnv hook bash)"\necho "run: direnv allow /work"\n' \
       >> /etc/bash.bashrc
 
 # Warm the store from the environment definition alone, so a bind-mounted source tree does

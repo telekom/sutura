@@ -125,6 +125,15 @@ repos:
         files: ^docs/
         pass_filenames: false
 
+      # Secret detection on the staged diff. From nixpkgs via the dev shell, so it needs no
+      # network at commit time. `--redact` keeps the finding out of the terminal scrollback
+      # and out of any CI log.
+      - id: betterleaks
+        name: detect hardcoded secrets
+        entry: betterleaks git --pre-commit --redact --staged --verbose
+        language: system
+        pass_filenames: false
+
       # Docs and comments describing a repo we no longer have. Every rule in this gate
       # exists because the mistake was already made here.
       - id: check-guidance

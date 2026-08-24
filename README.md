@@ -51,6 +51,18 @@ uncertified question is not refused so much as unsayable.
 hashed. Nothing here edits one, because editing it would separate the definition from the
 number it certifies.
 
+## What it borrows
+
+Two projects got to the semantic half first, both Apache-2.0 and both worth reading:
+**[Wren](https://github.com/Canner/WrenAI)**, which compiles a modelled question into SQL over
+[DataFusion](https://datafusion.apache.org/), and **[Spice](https://github.com/spiceai/spiceai)**,
+also DataFusion-based, for federating and accelerating across sources.
+
+What sutura adds is identity. They answer "what does this question mean"; sutura also answers
+"who is asking, and may they see the answer" - and refuses when it cannot. That is what makes
+chatting with data safe to hand to an agent. Both the semantic layer and the data system are
+ports, so swapping either is an adapter rather than a rewrite.
+
 ## Status
 
 Early, and worth being precise about: the design is settled and the code is a walking

@@ -16,7 +16,6 @@ mod guidance;
 mod line_endings;
 mod max_lines;
 mod repo;
-mod secrets;
 mod skills;
 mod text;
 mod unused_deps;
@@ -67,11 +66,6 @@ const TASKS: &[Task] = &[
         name: "check-skills",
         description: "the skill router and the skill tree agree",
         run: skills::run,
-    },
-    Task {
-        name: "check-secrets",
-        description: "no credential-shaped value is about to be committed",
-        run: secrets::run,
     },
     Task {
         name: "check-guidance",

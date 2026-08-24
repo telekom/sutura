@@ -43,7 +43,6 @@ hygiene:
     cargo run -q -p xtask -- check-skills
     cargo run -q -p xtask -- check-docs
     cargo run -q -p xtask -- check-guidance
-    cargo run -q -p xtask -- check-secrets
 
 # Everything CI runs. What to run before pushing.
 gates: hygiene
@@ -90,6 +89,10 @@ docs-serve:
     mdbook serve docs
 
 # ------------------------------------------------------------------ tooling ---
+
+# Scan the whole worktree for secrets. The hook already covers each commit.
+secrets:
+    betterleaks dir . --redact --verbose
 
 # Static analysis of the workflows.
 zizmor:
