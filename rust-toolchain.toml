@@ -1,0 +1,7 @@
+# The compiler pin, and the single source of truth for it: rustup honours it directly and
+# Nix reads it as data via `fromTOML`, so the dev shell, a bare rustup fallback and CI
+# cannot disagree about the compiler.
+[toolchain]
+channel = "1.93.0"
+components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview"]
+profile = "minimal"

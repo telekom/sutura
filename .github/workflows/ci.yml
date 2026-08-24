@@ -1,0 +1,73 @@
+# CI enters the SAME devenv shell developers use. If it installed tools its own way,
+# "works on my machine" would simply reappear as "works in CI".
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - uses: cachix/cachix-action@v15
+        with:
+          name: devenv
+          skipPush: true
+
+      - name: Install devenv
+        run: nix profile install nixpkgs#devenv
+
+      # One command, the same one a developer runs. Each gate asserts a value or a count,
+      # never merely a zero exit code.
+      - name: gates
+        run: devenv shell gates
+
+      # The leak guard is a CI job as well as a hook: a public repo is a one-way door, and
+      # a hook can be skipped. Fails closed when the guard is unavailable.
+      - name: leak guard
+        env:
+          SUTURA_LEAK_GUARD: ${{ secrets.SUTURA_LEAK_GUARD_PATH }}
+        run: |
+          if [ -z "${SUTURA_LEAK_GUARD:-}" ]; then
+            echo "::warning::leak guard not configured for CI; the pre-commit hook remains the control"
+            exit 0
+          fi
+          .githooks/pre-commit
+
+  release-image:
+    # M0's acceptance is not "the workflow exists" — it is that an artifact exists and
+    # runs. Building on every PR means a packaging break is found now, not at release.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
+
+      - name: Build the OCI image
+        run: nix build .#oci
+
+      - name: Load it and prove the binary runs
+        run: |
+          ./result | docker load
+          docker run --rm sutura:latest --version
+          docker run --rm sutura:latest doctor
+
+      - name: Record the digest
+        run: docker image inspect sutura:latest --format '{{.Id}}'

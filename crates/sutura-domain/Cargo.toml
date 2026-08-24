@@ -1,0 +1,18 @@
+[package]
+name = "sutura-domain"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "Types and port traits. No framework dependencies, by design and by CI check."
+
+[dependencies]
+schemars = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,98 @@
+# sutura — workspace root.
+#
+# The directory layout IS the architecture: `crates/sutura-domain` holds types and port
+# traits only, every other crate is an adapter that depends on it, and nothing depends on
+# an adapter. That rule is machine-checked — `cargo xtask check-boundaries`.
+#
+# Crates arrive with the milestone that needs them rather than as empty placeholders: an
+# empty crate is a compile target and a maintenance surface for no value.
+
+[workspace]
+resolver = "3"
+members = ["crates/sutura-domain", "crates/sutura-cli", "xtask"]
+
+[workspace.package]
+edition = "2024"
+rust-version = "1.93"
+license = "Apache-2.0"
+repository = "https://github.com/telekom/sutura"
+
+[workspace.dependencies]
+sutura-domain = { path = "crates/sutura-domain" }
+schemars = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+
+# ---------------------------------------------------------------- lints ----
+# A misspelled or removed lint name in the tables below is a silent no-op: it warns on
+# every build and the suppression it was meant to express never applied. Fail instead.
+[workspace.lints.rust]
+unknown_lints = "deny"
+unused_imports = "deny"
+
+[workspace.lints.clippy]
+all      = { level = "deny", priority = -3 }
+nursery  = { level = "deny", priority = -3 }
+cargo    = { level = "deny", priority = -3 }
+pedantic = { level = "warn", priority = -2 }
+
+# Panics reachable from caller input are availability bugs, not robustness niceties.
+# `clippy.toml` exempts test code so asserts stay readable.
+unwrap_used      = "deny"
+expect_used      = "deny"
+panic            = "deny"
+indexing_slicing = "deny"
+# Silently dropping a Result is the bug class this project cares about most.
+let_underscore_must_use = "deny"
+
+# --- overrides, each with a reason -----------------------------------------
+cargo_common_metadata   = "allow" # internal binaries; nothing is published to a registry
+multiple_crate_versions = "allow" # transitive, outside our control
+module_name_repetitions = "allow" # `domain::DomainError` reads better than the alternative
+missing_errors_doc      = "allow" # the error type IS the documentation (typed, exhaustive)
+missing_panics_doc      = "allow" # panics are denied above, so the section is vacuous
+must_use_candidate      = "allow" # noisy on newtype accessors
+
+# ------------------------------------------------------------- profiles ----
+# Debug: fast to compile OUR code. Dependencies and build scripts are optimised because
+# they are compiled once and executed many times, so paying for them is free.
+[profile.dev]
+opt-level = 0
+debug = true
+incremental = true
+lto = "off"
+codegen-units = 256
+# codegen-backend = "cranelift"  # debug-only, changes codegen; revisit when build time is
+                                 # measured to be the bottleneck (never for release).
+
+[profile.dev.package."*"]
+opt-level = 3
+[profile.dev.build-override]
+opt-level = 3
+
+# Release: the DEFAULT shipped profile, deliberately cheap to build. Optimising every CI
+# build at opt-level 3 with full LTO buys latency nobody measured.
+[profile.release]
+opt-level = 1
+debug = false
+strip = true
+lto = "thin"
+codegen-units = 16
+panic = "abort"
+
+# Release, optimised: only when throughput has actually been measured.
+[profile.release-performance]
+inherits = "release"
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+# For local installs of I/O-bound helpers: compile speed over runtime speed.
+[profile.fast-install]
+inherits = "dev"
+opt-level = 0
+debug = false
+strip = true
+panic = "abort"

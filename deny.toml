@@ -1,0 +1,26 @@
+# Supply chain and licence policy. On from M0, not later: this is also what keeps the
+# attribution obligation from rotting once code is derived from an upstream project.
+
+[advisories]
+version = 2
+yanked = "deny"
+
+[licenses]
+version = 2
+# Permissive only. Anything copyleft is a deliberate decision, not a transitive surprise.
+allow = ["Apache-2.0", "MIT", "BSD-2-Clause", "BSD-3-Clause", "ISC", "Unicode-3.0", "Zlib"]
+confidence-threshold = 0.9
+
+[bans]
+# A duplicated dependency tree is both a compile-time and a supply-chain cost. Warn rather
+# than deny for now: the first real adapter crate will surface duplicates we do not yet
+# have an opinion on, and a gate that blocks work on day one gets disabled.
+multiple-versions = "warn"
+wildcards = "deny"
+# Intra-workspace path dependencies have no version by design; flagging them would make
+# this gate fire on a correct pattern, and a gate that fails on correct code gets disabled.
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

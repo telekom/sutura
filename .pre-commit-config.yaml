@@ -1,0 +1,68 @@
+# Hooks, run by `prek` (a single Rust binary — no Python runtime needed to lint Rust).
+# The config format is pre-commit's, so it stays reversible: `pre-commit` runs it too.
+#
+# Tiered by cost on purpose. A hook that takes 40 s on every commit gets disabled by the
+# team inside a week, so fast checks run on commit and slow ones on push.
+default_stages: [pre-commit]
+default_install_hook_types: [pre-commit, pre-push, commit-msg]
+minimum_pre_commit_version: "3.0.0"
+
+repos:
+  - repo: local
+    hooks:
+      # --- on commit: fast, and scoped to the touched area -------------------
+      - id: rust-fmt
+        name: cargo fmt
+        entry: cargo fmt --all --
+        args: ["--check"]
+        language: system
+        files: \.rs$
+        pass_filenames: false
+
+      - id: rust-clippy
+        name: cargo clippy (-D warnings)
+        entry: cargo clippy --workspace --all-targets -- -D warnings
+        language: system
+        files: \.(rs|toml)$
+        pass_filenames: false
+
+      - id: boundaries
+        name: domain crate has no framework dependency
+        entry: cargo run -q -p xtask -- check-boundaries
+        language: system
+        files: (Cargo\.(toml|lock)|\.rs)$
+        pass_filenames: false
+
+      # The one hook that protects a one-way door. Fails closed without its guard.
+      - id: leak-guard
+        name: no non-public identifiers
+        entry: .githooks/pre-commit
+        language: system
+        pass_filenames: false
+        always_run: true
+
+      # --- on push: the expensive gates -------------------------------------
+      - id: rust-tests
+        name: cargo nextest
+        entry: cargo nextest run --workspace
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+      - id: cargo-deny
+        name: advisories, licences, bans, sources
+        entry: cargo deny check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: ["--maxkb=512"]
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-yaml
+      - id: check-toml
