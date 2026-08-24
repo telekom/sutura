@@ -273,6 +273,66 @@ fn worktree_list() -> ExitCode {
     ExitCode::SUCCESS
 }
 
+/// The stages a hook must be installed for, and what each covers.
+///
+/// `commit-msg` and `pre-push` are distinct git hooks from `pre-commit`; installing one does
+/// not install the others, and a missing one means that stage silently never runs.
+const HOOK_STAGES: &[(&str, &str)] = &[
+    ("pre-commit", "fmt, clippy, the structural gates"),
+    ("commit-msg", "the conventional-commit subject check"),
+    ("pre-push", "tests, doctests, supply chain, secrets"),
+];
+
+/// Are the hooks installed, and is git looking where they were installed?
+///
+/// Both halves were wrong here at once, which is why this is a check and not a sentence.
+/// `core.hooksPath` pointed at a `.githooks/` directory that had since been deleted, so git
+/// looked somewhere that did not exist - while `prek install` writes to `.git/hooks`, which git
+/// was therefore ignoring. Every "enforced in the hooks" claim was false and nothing said so.
+///
+/// Asks git for the directory rather than assuming `.git/hooks`, because that assumption is
+/// wrong inside a worktree and `sutura-dev worktree create` makes worktrees.
+fn hook_problems(root: &Path) -> Vec<String> {
+    let mut problems = Vec::new();
+
+    let configured = Command::new("git")
+        .current_dir(root)
+        .args(["config", "--local", "--get", "core.hooksPath"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| String::from(String::from_utf8_lossy(&o.stdout).trim()))
+        .filter(|value| !value.is_empty());
+
+    if let Some(ref path) = configured
+        && !root.join(path).is_dir()
+    {
+        problems.push(format!(
+            "core.hooksPath is `{path}`, which does not exist - git looks there and finds nothing"
+        ));
+    }
+
+    let hooks_dir = Command::new("git")
+        .current_dir(root)
+        .args(["rev-parse", "--path-format=absolute", "--git-path", "hooks"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim().to_owned()));
+
+    let Some(dir) = hooks_dir else {
+        problems.push(String::from("could not ask git where its hooks directory is"));
+        return problems;
+    };
+
+    for (stage, covers) in HOOK_STAGES {
+        if !dir.join(stage).is_file() {
+            problems.push(format!("the {stage} hook is not installed ({covers})"));
+        }
+    }
+    problems
+}
+
 /// Is this tool on PATH?
 fn found(tool: &str) -> bool {
     Command::new(tool)
@@ -313,8 +373,25 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
     }
 
     println!();
+    let hooks = hook_problems(root.as_ref().map_or_else(|| Path::new("."), PathBuf::as_path));
+    if hooks.is_empty() {
+        println!("hooks      installed for all {} stage(s)", HOOK_STAGES.len());
+    } else {
+        for problem in &hooks {
+            println!("hooks      {problem}");
+        }
+        println!();
+        println!("An uninstalled hook does not complain - it never runs, so every gate it was");
+        println!("meant to enforce is advisory. `just setup` installs them and repairs a");
+        println!("dangling core.hooksPath.");
+    }
+
+    println!();
     if missing_required {
         println!("Something required is missing. See docs/src/getting-started.md.");
+        return ExitCode::FAILURE;
+    }
+    if !hooks.is_empty() {
         return ExitCode::FAILURE;
     }
     println!("Ready. `sutura-dev ports` shows this worktree's service ports.");

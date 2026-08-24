@@ -21,6 +21,15 @@ setup:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "== git hooks"
+    # `core.hooksPath` first, and this is not hypothetical: this repo had it pointing at a
+    # `.githooks/` directory that was later deleted, so git looked for hooks in a directory
+    # that did not exist AND `prek install` wrote to `.git/hooks` where git was not looking.
+    # Every "runs in the hooks" claim in AGENTS.md was false, silently, for the whole session.
+    hooks_path="$(git config --local --get core.hooksPath || true)"
+    if [ -n "$hooks_path" ] && [ ! -d "$hooks_path" ]; then
+      echo "   core.hooksPath points at missing '$hooks_path' - unsetting it"
+      git config --local --unset core.hooksPath
+    fi
     # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
     # the expensive gates. Missing one means that stage silently never runs.
     prek install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg
