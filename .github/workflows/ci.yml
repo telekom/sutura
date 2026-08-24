@@ -91,10 +91,11 @@ jobs:
       #   max-lines   — no file over 1000 lines. Exemptions live in .max-lines-ignore, and
       #                 anything under crates/ or xtask/ cannot be exempted at all: the
       #                 gate fails on such a pattern instead of honouring it.
+      #   line-endings — every tracked text file is LF.
       #   unused-deps — every declared dependency is referenced by the crate declaring it,
       #                 and every [workspace.dependencies] entry is inherited by someone.
       #   boundaries  — the domain crate depends on no framework.
-      - name: Repo hygiene gates (max-lines 1000, unused deps, crate boundaries)
+      - name: Repo hygiene gates (max-lines 1000, line endings, unused deps, boundaries)
         run: devenv shell hygiene
 
       - name: Supply-chain gate
