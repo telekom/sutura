@@ -15,8 +15,6 @@ permissions:
   packages: write   # push the image to GHCR
 
 env:
-  # Never cranelift for a shipped artifact — it is a development-only backend.
-  SUTURA_CODEGEN_BACKEND: default
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -38,6 +36,19 @@ jobs:
 
       # The release profile is the cheap-to-build one by default; a release that needs
       # maximum throughput builds `release-performance` instead, as a deliberate choice.
+      # A release must not ship something the gates never saw. Lints and tests first,
+      # reusing the same cargoArtifacts, then the artifact.
+      # No devenv: CI needs only `nix`. Every gate is a flake output running the same
+      # xtask binary a developer runs.
+      - name: Lints and tests before building anything shippable
+        run: |
+          set -eu
+          nix build .#checks.x86_64-linux.hygiene -L
+          nix build .#checks.x86_64-linux.fmt -L
+          nix build .#checks.x86_64-linux.clippy -L
+          nix run .#deny
+          nix build .#checks.x86_64-linux.nextest -L
+
       - name: Build ${{ matrix.target }}
         run: nix build .#sutura-${{ matrix.target }} -L
 

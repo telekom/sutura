@@ -13,6 +13,8 @@
 use std::path::Path;
 use std::process::ExitCode;
 
+use crate::repo;
+
 /// Extensions that are text and therefore must be LF. Anything not listed is ignored, so
 /// a new binary format does not need an exemption.
 const TEXT_EXT: &[&str] = &[
@@ -30,20 +32,13 @@ const TEXT_EXT: &[&str] = &[
 ];
 
 pub(crate) fn run() -> ExitCode {
-    let out = match std::process::Command::new("git").args(["ls-files", "-z"]).output() {
-        Ok(o) if o.status.success() => o.stdout,
-        _ => {
-            eprintln!("xtask line-endings: could not list tracked files via git");
-            return ExitCode::FAILURE;
-        }
+    let Some(repo::RepoFiles { root, files }) = repo::all_files() else {
+        eprintln!("xtask line-endings: could not determine the repo root");
+        return ExitCode::FAILURE;
     };
 
     let mut offenders = Vec::new();
-    for raw in out.split(|b| *b == 0) {
-        if raw.is_empty() {
-            continue;
-        }
-        let path = String::from_utf8_lossy(raw).to_string();
+    for path in files {
         let p = Path::new(&path);
         let is_text = p.extension().and_then(|e| e.to_str()).map_or_else(
             || p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.starts_with('.')),
@@ -52,7 +47,7 @@ pub(crate) fn run() -> ExitCode {
         if !is_text {
             continue;
         }
-        if let Ok(bytes) = std::fs::read(&path) {
+        if let Ok(bytes) = std::fs::read(root.join(&path)) {
             let crs = bytes.windows(2).filter(|w| w == b"\r\n").count();
             if crs > 0 {
                 offenders.push((path, crs));
@@ -61,11 +56,11 @@ pub(crate) fn run() -> ExitCode {
     }
 
     if offenders.is_empty() {
-        println!("xtask line-endings: ok — no CRLF in tracked text files");
+        println!("xtask line-endings: ok — no CRLF in repo text files");
         return ExitCode::SUCCESS;
     }
 
-    eprintln!("xtask line-endings: FAILED — CRLF found in tracked text files");
+    eprintln!("xtask line-endings: FAILED — CRLF found in repo text files");
     for (p, n) in &offenders {
         eprintln!("  {p}: {n} CRLF line ending(s)");
     }

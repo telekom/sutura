@@ -21,7 +21,7 @@ const TASKS: &[(&str, &str)] = &[
     ("check-boundaries", "the domain crate depends on no framework"),
     ("max-lines", "no file over 1000 lines (exemptions: .max-lines-ignore)"),
     ("unused-deps", "every declared dependency is actually used"),
-    ("line-endings", "every tracked text file uses LF, not CRLF"),
+    ("line-endings", "every text file in the repo uses LF, not CRLF"),
 ];
 
 fn main() -> ExitCode {

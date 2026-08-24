@@ -1,7 +1,13 @@
-# The dev environment. CI enters this same shell, so a command that works locally works
-# there — that is the whole reason to declare it rather than document it.
+# The dev environment: the shell a developer works in, and nothing else.
 #
 # direnv loads it automatically (.envrc); `direnv allow` once per clone.
+#
+# CI DOES NOT USE THIS FILE. It runs `nix build .#checks...`, so the pipeline depends on
+# `nix` alone rather than on devenv as well. What keeps the two honest is not a shared
+# shell but a shared implementation: the gate scripts below and the `hygiene` flake check
+# invoke the SAME xtask binary, and fmt/clippy/tests run the same cargo subcommands against
+# the same `rust-toolchain.toml` pin. A gate can therefore be added in one place only by
+# forgetting the other, which is a visible diff, not a silent divergence.
 #
 # WHERE THINGS ARE FETCHED FROM
 #

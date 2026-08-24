@@ -64,6 +64,10 @@
             || (craneLibFor system).filterCargoSources path type;
         };
 
+        # The same pin as a package, for the tools that need `cargo` on PATH rather than a
+        # crane derivation around it.
+        rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
+
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
             (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
@@ -73,31 +77,49 @@
 
         commonArgs = {
           inherit src;
+          # Named explicitly: the root manifest is a virtual workspace with no [package],
+          # so crane cannot infer these and would fall back to a placeholder — which shows
+          # up as derivations called `cargo-package-*` and makes a build log say nothing
+          # about what it built.
+          pname = "sutura";
+          version = "0.1.0";
           strictDeps = true;
           # .cargo/config.toml selects clang + lld for the linux targets. The Nix build
           # sandbox has neither unless we say so, and a flake that linked differently from
           # the dev shell would reintroduce exactly the drift this flake exists to remove.
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
-          # `release`, not `release-performance`: the default shipped profile is cheap to
-          # build on purpose. Opt into the slow one when throughput has been measured.
-          CARGO_PROFILE = "release";
         };
+
+        # The two profiles we ship.
+        #
+        # `release` is the default and is cheap to build on purpose (thin LTO, 16 codegen
+        # units). `release-performance` adds fat LTO and a single codegen unit: minutes
+        # slower, for a binary worth shipping only once throughput has been measured. Both
+        # are declared in Cargo.toml; this is where they become build targets.
+        releaseArgs = commonArgs // { CARGO_PROFILE = "release"; };
 
         # Dependencies, compiled ONCE and reused by the build and by every check. This is
         # the reason to use crane rather than a plain buildRustPackage: a naive layout
         # recompiles the dependency tree for clippy, for the tests and for the build, and
         # on this dependency set that is most of the wall clock.
-        cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+        cargoArtifacts = craneLib.buildDepsOnly releaseArgs;
 
-        sutura = craneLib.buildPackage (commonArgs // {
-          inherit cargoArtifacts;
-          # Tests run as their own check below, sharing the same artifacts.
-          doCheck = false;
-        });
+        # A native build for one profile. For `release` the deps derivation is identical to
+        # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
+        # performance build necessarily compiles its own, since the profile is what changed.
+        nativeFor = profile:
+          let args = commonArgs // { CARGO_PROFILE = profile; };
+          in craneLib.buildPackage (args // {
+            cargoArtifacts = craneLib.buildDepsOnly args;
+            # Tests run as their own check below, sharing the same artifacts.
+            doCheck = false;
+          });
+
+        sutura = nativeFor "release";
 
         # One cross-compiled package per target. `cargoExtraArgs` pins the target and the
         # cross linker comes from pkgsCross, so no developer needs a local cross setup.
-        crossFor = target:
+        crossFor = { target, profile }:
           let
             crossPkgs = import nixpkgs {
               inherit system;
@@ -108,6 +130,7 @@
               (p: p.rust-bin.fromRustupToolchainFile rustToolchainFile);
             args = commonArgs // {
               CARGO_BUILD_TARGET = target;
+              CARGO_PROFILE = profile;
               # Tests cannot run for a foreign architecture on this host; the native build
               # and CI's gates job cover correctness.
               doCheck = false;
@@ -125,47 +148,72 @@
           "aarch64-darwin" = "aarch64-apple-darwin";
         }.${system} or null;
 
-        crossPackages = builtins.listToAttrs
-          (map (t: { name = "sutura-${t}"; value = crossFor t; })
-            # Never cross-build the host triple: it would compile the whole tree a second
-            # time for a byte-identical result.
-            (builtins.filter (t: t != hostRustTarget) crossTargets))
-          // (if hostRustTarget == null then { }
-              else { "sutura-${hostRustTarget}" = sutura; });
+        # `sutura` and `sutura-<triple>` build the default profile; each has a
+        # `-performance` sibling. Two NAMES rather than one name plus a flag, so a published
+        # asset cannot be ambiguous about which profile produced it, and so a workflow can
+        # select one without the build definition growing a mode.
+        variants = [
+          { suffix = ""; profile = "release"; }
+          { suffix = "-performance"; profile = "release-performance"; }
+        ];
+
+        crossPackages = builtins.listToAttrs (builtins.concatMap
+          (v:
+            (map
+              (t: {
+                name = "sutura-${t}${v.suffix}";
+                value = crossFor { target = t; profile = v.profile; };
+              })
+              # Never cross-build the host triple: it would compile the whole tree a second
+              # time for a byte-identical result.
+              (builtins.filter (t: t != hostRustTarget) crossTargets))
+            ++ (if hostRustTarget == null then [ ]
+            else [{
+              name = "sutura-${hostRustTarget}${v.suffix}";
+              value = nativeFor v.profile;
+            }]))
+          variants);
+        # Contents are the binary, CA certificates and tzdata. NO shell and NO package
+        # manager: the attack surface of a governed service should be one executable, and it
+        # is also the mechanical proof that no interpreter is in the query path.
+        ociFor = bin: pkgs.dockerTools.streamLayeredImage {
+          name = "sutura";
+          tag = "latest";
+          # Pinned, not `now`: an image whose digest changes on every build cannot be the
+          # thing a deployment pins.
+          created = "1970-01-01T00:00:01Z";
+          contents = [ bin pkgs.cacert pkgs.tzdata ];
+          config = {
+            Entrypoint = [ "/bin/sutura" ];
+            Cmd = [ "--version" ];
+            Env = [ "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
+          };
+        };
       in
       {
         packages = crossPackages // {
           default = sutura;
           inherit sutura;
 
+          sutura-performance = nativeFor "release-performance";
+
           # `nix build .#oci` -> a loadable image tarball.
           #
           # streamLayeredImage, not buildLayeredImage: it avoids materialising a
-          # multi-hundred-MB tarball in the store just to push it.
-          #
-          # Contents are the binary, CA certificates and tzdata. NO shell and NO package
-          # manager — the attack surface of a governed service should be one executable,
-          # and it is also the mechanical proof that no interpreter is in the query path.
-          oci = pkgs.dockerTools.streamLayeredImage {
-            name = "sutura";
-            tag = "latest";
-            # Pinned, not `now`: an image whose digest changes on every build cannot be the
-            # thing a deployment pins.
-            created = "1970-01-01T00:00:01Z";
-            contents = [ sutura pkgs.cacert pkgs.tzdata ];
-            config = {
-              Entrypoint = [ "/bin/sutura" ];
-              Cmd = [ "--version" ];
-              Env = [ "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
-            };
-          };
+          # multi-hundred-MB tarball in the store just to push it. See `ociFor`.
+          oci = ociFor sutura;
+
+          # The same image built from the performance binary, so a release shipping the
+          # optimised profile ships a matching image rather than a mismatched pair.
+          oci-performance = ociFor (nativeFor "release-performance");
         };
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
         # dependency tree is built once for the whole set, not once per check.
+        # Deliberately does NOT include the package: `nix flake check` runs its entries in
+        # arbitrary order, and the release build must come AFTER lints and tests, not
+        # alongside them. CI builds the package as an explicit later step.
         checks = {
-          inherit sutura;
-
           clippy = craneLib.cargoClippy (commonArgs // {
             inherit cargoArtifacts;
             cargoClippyExtraArgs = "--workspace --all-targets -- -D warnings";
@@ -175,8 +223,60 @@
             inherit cargoArtifacts;
           });
 
-          fmt = craneLib.cargoFmt { inherit src; };
+          fmt = craneLib.cargoFmt {
+            inherit src;
+            inherit (commonArgs) pname version;
+          };
+
+          # The structural gates, as a flake check so CI needs only `nix` — devenv is a
+          # DEV-SHELL tool, and installing it in CI just to reach these would add a
+          # dependency the pipeline does not otherwise need. It runs the same xtask binary
+          # a developer runs, so the two cannot drift.
+          #
+          # `src = ./.` and not the filtered source: these gates judge every file in the
+          # repo — workflows, Nix files, docs — and crane's filter keeps only Cargo inputs.
+          # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
+          # to walking the tree instead of failing.
+          #
+          # `--release` reuses `cargoArtifacts` rather than compiling xtask's dependency
+          # set a second time under the dev profile.
+          hygiene = craneLib.mkCargoDerivation (commonArgs // {
+            inherit cargoArtifacts;
+            src = ./.;
+            pnameSuffix = "-hygiene";
+            doCheck = false;
+            buildPhaseCargoCommand = ''
+              cargo run --release -q -p xtask -- line-endings
+              cargo run --release -q -p xtask -- max-lines
+              cargo run --release -q -p xtask -- unused-deps
+              cargo run --release -q -p xtask -- check-boundaries
+            '';
+          });
+
+          # NOTE: cargo-deny is deliberately NOT a check here. It fetches the RustSec
+          # advisory database, and a Nix build sandbox has no network — as a check it could
+          # only ever fail, or pass while silently auditing nothing. CI runs it as
+          # `nix run nixpkgs#cargo-deny -- check`, which still needs nothing but `nix`.
         };
+        # `nix run .#deny` — the supply-chain gate.
+        #
+        # An app and not a check because it fetches the RustSec advisory database, and a Nix
+        # build sandbox has no network: as a check it could only fail, or pass while auditing
+        # nothing.
+        #
+        # It wraps cargo-deny with the PINNED toolchain on PATH rather than relying on
+        # `nix run nixpkgs#cargo-deny`, which was tried and does not work: cargo-deny shells
+        # out to `cargo metadata`, and `nix run` puts only cargo-deny on PATH. On a runner
+        # that happens to ship Rust it would have silently audited using *that* cargo — a
+        # second, unpinned toolchain, which is the drift this flake exists to remove.
+        apps.deny = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-deny" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-deny}/bin:$PATH"
+            exec cargo deny check "$@"
+          '');
+        };
+
         formatter = pkgs.nixpkgs-fmt;
       });
 }

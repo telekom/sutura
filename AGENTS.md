@@ -41,26 +41,33 @@ else is an adapter, and nothing depends on an adapter.
 | `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
 | `sutura-mcp` / `sutura-http` | Transport only, no business logic |
 | `sutura-cli` | The binary; composes adapters |
-| `xtask` | The repo gates: boundary check, file-length check, unused-dependency check. Schema dump and drift check arrive with the schemas |
+| `xtask` | The repo gates: boundary check, file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
 
 Adapters are feature-gated and default-off, so `cargo test -p sutura-domain` compiles no heavy
 dependency. Keep it that way: its test suite should run in well under a second.
 
 ## Commands
 
-`direnv` loads the devenv on `cd` — run `direnv allow` once per clone. CI enters the same shell, so
-a command that works here works there. Nix + devenv provisions the shell and owns the task names;
-pixi owns Python only; `prek` runs the hooks.
+`direnv` loads the devenv on `cd` — run `direnv allow` once per clone. Nix + devenv provisions the
+shell and owns the task names; pixi owns Python only; `prek` runs the hooks.
+
+CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
+needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
+a shell — the `hygiene` check runs the same `xtask` binary as the `hygiene` script here, and
+fmt/clippy/tests run the same cargo subcommands under the same `rust-toolchain.toml` pin. Add a
+gate in one place only and the omission shows up as a diff.
 
 ```bash
 cargo check -p sutura-domain --no-default-features   # fast inner loop
 cargo nextest run                                    # tests
 cargo clippy --workspace --all-targets -- -D warnings
 cargo xtask dump-schemas                             # regenerate the generated contracts
-hygiene                                              # max-lines, unused deps, crate boundaries
+hygiene                                              # line endings, max-lines, unused deps, boundaries
 gates                                                # hygiene + fmt, clippy, tests, deny
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
+nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
+nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
 pixi run <task>                                      # Python tooling only
 stax                                                 # stacked branches / PRs
 ```
@@ -165,6 +172,13 @@ it is fine. Adding the missing check beats adding a sentence to this file.
 - `deny.toml` — advisories, licence allowlist, duplicate versions.
 - `.max-lines-ignore` — the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
-- `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`. Each is unit-tested by
-  `cargo test --workspace`, because a gate with no test is a gate nobody has seen fail.
+- `xtask/` — the gates: `check-boundaries`, `max-lines`, `unused-deps`, `line-endings`. Each is
+  unit-tested by `cargo test --workspace`, because a gate with no test is a gate nobody has seen
+  fail. They list files via `git ls-files` where git is available and fall back to walking the tree
+  where it is not — the Nix sandbox has the source but no `.git`, and a gate that returned an empty
+  file list there would pass while checking nothing.
+- `.github/workflows/` — `ci.yml` (every push and PR: lints, then tests, then the release
+  build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
+  `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
+  LTO). None of them installs devenv.
 - `docs/adr/` — sutura's decisions, in sutura's own numbering. Cite nothing external.

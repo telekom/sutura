@@ -56,6 +56,74 @@ pub(crate) fn collect_files(root: &Path, dir: &Path, extensions: &[&str], out: &
     }
 }
 
+/// Every file in the repo, as repo-relative paths, paired with the root to join them to.
+///
+/// Prefers `git ls-files` because tracked-only is the set a gate should judge: a build
+/// artefact somebody left lying around is not a repo problem. Falls back to walking the
+/// tree when git is unavailable or this is not a git checkout — which is exactly the case
+/// inside the Nix build sandbox, where the flake source is present but `.git` is not.
+///
+/// The fallback still scans EVERYTHING, so it cannot turn a gate into a no-op; it can only
+/// be more inclusive than the git listing. Returning an empty list on a missing git would
+/// have made every gate pass vacuously in the sandbox, which is the failure mode a gate
+/// exists to prevent.
+pub(crate) struct RepoFiles {
+    /// Absolute repo root; join it to a `files` entry to read one.
+    pub(crate) root: PathBuf,
+    /// Repo-relative paths with `/` separators.
+    pub(crate) files: Vec<String>,
+}
+
+pub(crate) fn all_files() -> Option<RepoFiles> {
+    let root = root()?;
+    if let Ok(out) = std::process::Command::new("git")
+        .args(["ls-files", "-z"])
+        .current_dir(&root)
+        .output()
+        && out.status.success()
+    {
+        let files: Vec<String> = out
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| String::from(String::from_utf8_lossy(raw)))
+            .collect();
+        if !files.is_empty() {
+            return Some(RepoFiles { root, files });
+        }
+    }
+    let mut files = Vec::new();
+    collect_all(&root, &root, &mut files);
+    Some(RepoFiles { root, files })
+}
+
+/// The extension-agnostic sibling of [`collect_files`], for gates that decide what is text
+/// by their own rules rather than by a fixed extension list.
+fn collect_all(root: &Path, dir: &Path, out: &mut Vec<String>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(file_type) = entry.file_type() else {
+            continue;
+        };
+        if file_type.is_symlink() {
+            continue;
+        }
+        let path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if file_type.is_dir() {
+            if !SKIP_DIRS.contains(&name.as_str()) {
+                collect_all(root, &path, out);
+            }
+            continue;
+        }
+        if let Some(rel) = relative(root, &path) {
+            out.push(rel);
+        }
+    }
+}
+
 /// A repo-relative path with forward slashes, so patterns are written once and match on
 /// every platform.
 pub(crate) fn relative(root: &Path, path: &Path) -> Option<String> {
