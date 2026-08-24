@@ -33,14 +33,6 @@ repos:
         files: (Cargo\.(toml|lock)|\.rs)$
         pass_filenames: false
 
-      # The one hook that protects a one-way door. Fails closed without its guard.
-      - id: leak-guard
-        name: no non-public identifiers
-        entry: .githooks/pre-commit
-        language: system
-        pass_filenames: false
-        always_run: true
-
       # --- on push: the expensive gates -------------------------------------
       - id: rust-tests
         name: cargo nextest

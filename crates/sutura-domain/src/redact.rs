@@ -59,18 +59,12 @@ mod tests {
     fn nested_debug_does_not_leak() {
         #[derive(Debug)]
         struct Config {
-            #[expect(
-                dead_code,
-                reason = "read only through the derived Debug impl, which is what this asserts"
-            )]
+            #[expect(dead_code, reason = "read only through the derived Debug impl, which is what this asserts")]
             token: Secret,
         }
         let c = Config {
             token: Secret::new("hunter2"),
         };
-        assert!(
-            !format!("{c:?}").contains("hunter2"),
-            "nested Debug leaked: {c:?}"
-        );
+        assert!(!format!("{c:?}").contains("hunter2"), "nested Debug leaked: {c:?}");
     }
 }

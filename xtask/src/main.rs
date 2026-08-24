@@ -8,16 +8,7 @@ use std::process::ExitCode;
 /// Crates that must never appear in `sutura-domain`'s dependency tree. The domain holds
 /// types and ports; the moment it can reach an async runtime or a query engine, the
 /// hexagon is decoration and every domain test starts paying for a framework build.
-const FORBIDDEN_IN_DOMAIN: &[&str] = &[
-    "tokio",
-    "axum",
-    "rmcp",
-    "datafusion",
-    "arrow",
-    "duckdb",
-    "reqwest",
-    "hyper",
-];
+const FORBIDDEN_IN_DOMAIN: &[&str] = &["tokio", "axum", "rmcp", "datafusion", "arrow", "duckdb", "reqwest", "hyper"];
 
 fn main() -> ExitCode {
     match std::env::args().nth(1).as_deref() {
@@ -45,10 +36,7 @@ fn check_boundaries() -> ExitCode {
     {
         Ok(o) if o.status.success() => o.stdout,
         Ok(o) => {
-            eprintln!(
-                "xtask: cargo metadata failed: {}",
-                String::from_utf8_lossy(&o.stderr)
-            );
+            eprintln!("xtask: cargo metadata failed: {}", String::from_utf8_lossy(&o.stderr));
             return ExitCode::FAILURE;
         }
         Err(e) => {
@@ -81,11 +69,7 @@ fn check_boundaries() -> ExitCode {
     let deps: Vec<&str> = domain
         .get("dependencies")
         .and_then(|d| d.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|d| d.get("name").and_then(|n| n.as_str()))
-                .collect()
-        })
+        .map(|a| a.iter().filter_map(|d| d.get("name").and_then(|n| n.as_str())).collect())
         .unwrap_or_default();
 
     let violations: Vec<&&str> = FORBIDDEN_IN_DOMAIN

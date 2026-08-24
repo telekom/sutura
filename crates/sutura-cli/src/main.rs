@@ -26,11 +26,7 @@ fn doctor() {
     println!("sutura {}", env!("CARGO_PKG_VERSION"));
     println!(
         "  profile      : {}",
-        if cfg!(debug_assertions) {
-            "debug"
-        } else {
-            "release"
-        }
+        if cfg!(debug_assertions) { "debug" } else { "release" }
     );
     println!("  target       : {}", std::env::consts::ARCH);
     // Proves the redaction invariant holds in the shipped binary, not only under test.

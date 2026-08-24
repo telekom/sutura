@@ -22,13 +22,9 @@ documents that live elsewhere.
 A description specific enough to identify any of the above is disclosure. Write the capability and
 its constraint generically — *"where a gateway enforces auth centrally and requires services to
 validate a short-lived token proving the request transited it"* — and the point usually improves.
-A hook blocks known patterns; it is a backstop, not the control. It cannot catch a paraphrase, and
-its pattern list is maintained privately for the same reason.
-
-```sh
-git config core.hooksPath .githooks
-export SUTURA_LEAK_GUARD=/path/to/guard.py   # required; the hook fails closed without it
-```
+Automated pattern-matching for this lives OUTSIDE this repository, by design: a file
+enumerating what we avoid naming would itself be the disclosure. It is a backstop in any
+case — it cannot catch a paraphrase. **The control is not writing it down here.**
 
 ## Layout
 

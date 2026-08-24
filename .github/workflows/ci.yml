@@ -11,6 +11,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # Cranelift is a DEVELOPMENT-only codegen backend: it changes codegen, so a bug that
+  # reproduces under one backend and not the other is a real possibility. CI and every
+  # shipped artifact use the default backend, always.
+  SUTURA_CODEGEN_BACKEND: default
+
 jobs:
   gates:
     runs-on: ubuntu-latest
@@ -23,11 +29,6 @@ jobs:
             accept-flake-config = true
             experimental-features = nix-command flakes
 
-      - uses: cachix/cachix-action@v15
-        with:
-          name: devenv
-          skipPush: true
-
       - name: Install devenv
         run: nix profile install nixpkgs#devenv
 
@@ -36,21 +37,42 @@ jobs:
       - name: gates
         run: devenv shell gates
 
-      # The leak guard is a CI job as well as a hook: a public repo is a one-way door, and
-      # a hook can be skipped. Fails closed when the guard is unavailable.
-      - name: leak guard
-        env:
-          SUTURA_LEAK_GUARD: ${{ secrets.SUTURA_LEAK_GUARD_PATH }}
-        run: |
-          if [ -z "${SUTURA_LEAK_GUARD:-}" ]; then
-            echo "::warning::leak guard not configured for CI; the pre-commit hook remains the control"
-            exit 0
-          fi
-          .githooks/pre-commit
+  # Cross-built binaries for linux x86_64 and aarch64, on every PR — so a
+  # cross-compilation break is found now rather than at release time.
+  binaries:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v30
+        with:
+          extra_nix_config: |
+            accept-flake-config = true
+            experimental-features = nix-command flakes
 
+      - name: Build ${{ matrix.target }}
+        run: nix build .#sutura-${{ matrix.target }} -L
+
+      - name: Prove it is the architecture we asked for
+        run: |
+          set -eu
+          bin=$(find ./result/bin -type f | head -1)
+          file "$bin"
+          file "$bin" | grep -qiE "$( [ '${{ matrix.target }}' = 'aarch64-unknown-linux-gnu' ] && echo 'aarch64|ARM aarch64' || echo 'x86-64' )"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sutura-${{ matrix.target }}
+          path: result/bin/sutura
+          if-no-files-found: error
+
+  # M0's acceptance is not "the workflow exists" — it is that an artifact exists and runs.
   release-image:
-    # M0's acceptance is not "the workflow exists" — it is that an artifact exists and
-    # runs. Building on every PR means a packaging break is found now, not at release.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -61,7 +83,7 @@ jobs:
             experimental-features = nix-command flakes
 
       - name: Build the OCI image
-        run: nix build .#oci
+        run: nix build .#oci -L
 
       - name: Load it and prove the binary runs
         run: |

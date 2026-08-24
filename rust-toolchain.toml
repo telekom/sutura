@@ -2,6 +2,6 @@
 # Nix reads it as data via `fromTOML`, so the dev shell, a bare rustup fallback and CI
 # cannot disagree about the compiler.
 [toolchain]
-channel = "1.93.0"
+channel = "1.98.0"
 components = ["rustfmt", "clippy", "rust-std", "llvm-tools-preview"]
 profile = "minimal"

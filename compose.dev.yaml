@@ -1,0 +1,32 @@
+# Convenience wrapper for the dev container. `docker compose -f compose.dev.yaml run --rm dev`
+#
+# Two volumes that matter: the source bind-mount, and a NAMED volume for /nix so the Nix
+# store survives container restarts. Without the second one, every `docker run` re-downloads
+# the toolchain and the container stops being useful.
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+      target: devshell
+      args:
+        # Override these for a build that goes through an internal mirror or proxy.
+        BASE_IMAGE: ${BASE_IMAGE:-debian:trixie-slim}
+        HTTP_PROXY_URL: ${HTTP_PROXY_URL:-}
+    working_dir: /work
+    volumes:
+      - .:/work
+      - nix-store:/nix
+      - cargo-registry:/root/.cargo/registry
+      - target-dir:/work/target
+    environment:
+      # The leak guard is deliberately not vendored into this repo; point at it to enable
+      # the pre-commit hook inside the container.
+      SUTURA_LEAK_GUARD: ${SUTURA_LEAK_GUARD:-}
+    stdin_open: true
+    tty: true
+
+volumes:
+  nix-store:
+  cargo-registry:
+  target-dir:
