@@ -1,5 +1,19 @@
-# On push to main: write CHANGELOG.md, work out the next version from the commit subjects,
-# tag, and ask release.yml to run. This file publishes nothing itself.
+# Two jobs in one file, split by how it was started.
+#
+#   push to main         -> write CHANGELOG.md and nothing else.
+#   workflow_dispatch    -> also work out the next version, tag it, and ask release.yml to run.
+#
+# This file publishes nothing itself.
+#
+# RELEASING IS MANUAL, and that is a deliberate reversal: it used to tag on every push whose
+# commits moved the version, which meant a single `feat` merge cut a release. Four releases in
+# one day, and the cost is not the tag - it is that the release commit edits the workspace
+# version, the version reaches crane's dependency derivation, and every release therefore
+# recompiles and re-caches the whole dependency closure for all four targets. Measured: bumping
+# the version changes `sutura-deps-<target>`, while editing a source file does not. The build
+# cache went over its quota on that alone, and past the quota GitHub evicts continuously, so
+# every job gets slower. Releasing when there is something to release fixes the cause; making
+# the dependency build blind to the version would too, and the two are independent.
 #
 # It asks, rather than leaving the tag to do it. A push made with GITHUB_TOKEN does not start
 # a workflow run - GitHub suppresses that so a workflow cannot trigger itself - so `git push
@@ -17,8 +31,12 @@
 # already a gate (`cargo xtask commit-msg`) - a bump computed from unconstrained subjects would
 # be a guess with a version number attached.
 #
-# Nothing happens when no commit since the last tag would change the version, so a
-# docs-or-chore-only push does not produce a release.
+# Nothing is tagged when no commit since the last tag would change the version, so an
+# unnecessary dispatch is a no-op rather than an empty release.
+#
+# TO CUT A RELEASE: run this workflow from the Actions tab on `main`, or
+# `gh workflow run version-bump.yml --ref main`. The version is still DERIVED from the commit
+# subjects, so what is manual is the timing and not the number.
 name: version-bump
 
 on:
@@ -72,6 +90,9 @@ jobs:
 
       - name: Compute the next version
         id: next
+        env:
+          # A push refreshes the changelog and stops; only an explicit dispatch releases.
+          EVENT: ${{ github.event_name }}
         run: |
           set -eu
           # git-cliff prints a bare version (0.2.0). release.yml triggers on `v*`, so the
@@ -86,6 +107,15 @@ jobs:
           echo "next:     ${next_raw:-none}"
           if [ -z "$next_raw" ] || [ "$next" = "$prev" ]; then
             echo "no version change: nothing to release"
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          elif [ "$EVENT" != "workflow_dispatch" ]; then
+            # The version WOULD move, and we are not releasing anyway. Gated in this one place
+            # rather than on the three steps below, so the no-release path is the same path a
+            # chore-only push already took: the changelog is rendered with an `## Unreleased`
+            # heading and committed, and nothing is tagged. Accumulating commits under that
+            # heading is the point - the next dispatch derives one version from all of them.
+            echo "$next is available; not releasing on a push - dispatch this workflow to cut it"
+            echo "::notice::${next} is ready to release. Run version-bump manually on main to cut it."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
             echo "release=true" >> "$GITHUB_OUTPUT"
@@ -108,8 +138,9 @@ jobs:
           fi
           git --no-pager diff --stat -- CHANGELOG.md
 
-      # The other branch: main gained commits that do not move the version (a chore, a
-      # docs-only push), so there is nothing to tag and the changelog still changed.
+      # The other branch, and now the usual one: nothing is being tagged - either the commits
+      # do not move the version, or they do and this was a push rather than a release dispatch.
+      # Either way the changelog is what changed.
       #
       # A lost race is not a failure HERE. `concurrency` above serialises this workflow
       # against itself, but a human push landing between the checkout and this push makes it

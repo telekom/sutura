@@ -219,6 +219,28 @@ refactor!: rename the Warehouse port's execute method
 
 The body is not checked. Use it for why.
 
+## Releasing
+
+Manual, on purpose. Run `version-bump` from the Actions tab on `main`, or:
+
+```sh
+gh workflow run version-bump.yml --ref main
+```
+
+The version is still **derived** from the commit subjects above - `feat` a minor, `fix` and the
+rest a patch, `!` or a `BREAKING CHANGE` footer a major - so what is manual is the timing, not
+the number. Nothing is tagged if no commit since the last tag would move it.
+
+Every push to `main` still refreshes `CHANGELOG.md`, so the `## Unreleased` heading always
+lists what is on main and waiting. That is where you look to decide whether a release is worth
+cutting.
+
+It used to tag on every push whose commits moved the version, which meant one `feat` merge cut
+a release. The cost was not the tag: the release commit edits the workspace version, that
+version reaches crane's dependency derivation, and so every release recompiled and re-cached
+the whole dependency closure for all four targets - enough to push the build cache past its
+quota, after which everything gets slower.
+
 ## A test has to be shown to test something
 
 A new or changed test must be red against the base behaviour and green with your change. A test
