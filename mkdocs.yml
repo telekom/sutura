@@ -148,9 +148,15 @@ nav:
     - Publishing the docs: publishing.md
   - Reference:
     - Architecture: architecture.md
+    - Decisions:
+      - First-party semantic models: adr/0001-first-party-semantic-models.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
+      - sutura-catalog-local: api/sutura-catalog-local.md
+      - sutura-semantic: api/sutura-semantic.md
+      - sutura-exec-duckdb: api/sutura-exec-duckdb.md
+      - sutura-app: api/sutura-app.md
   - Changelog: changelog.md
 
 extra:
