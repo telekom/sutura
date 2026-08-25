@@ -570,11 +570,6 @@ jobs:
             echo
             echo "### Binaries"
             echo
-            echo "Four, because a binary linked against a newer glibc than the host's does not"
-            echo "start at all. The static pair carries no libc, so it runs on a host older than"
-            echo "the builder and inside an image that has none. **If you are not sure, take a**"
-            echo "**\`musl\` one.**"
-            echo
             echo "| Target | Asset | Size | Linking |"
             echo "| --- | --- | --- | --- |"
             while IFS='|' read -r target linkage; do
@@ -583,7 +578,7 @@ jobs:
               printf "| \`%s\` | [\`%s\`](%s/%s) | %s | %s |\n" "$target" "$asset" "$base" "$asset" "$size" "$linkage"
             done < binary-facts.txt
             echo
-            echo "Each tarball has a \`.sha256\` beside it. To check one:"
+            echo "Each tarball has a \`.sha256\` beside it:"
             echo
             echo '```sh'
             echo "curl -fLO ${base}/sutura-x86_64-unknown-linux-musl.tar.gz"
@@ -598,9 +593,6 @@ jobs:
               echo
               echo "### Images"
               echo
-              echo "Two multi-arch tags: pick your libc, and the registry picks the"
-              echo "architecture. Both lists span \`linux/amd64\` and \`linux/arm64\`."
-              echo
               echo "| Variant | Tag | Platforms |"
               echo "| --- | --- | --- |"
               printf "| glibc (the default) | \`%s:%s\`, \`%s:latest\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$version" "$IMAGE"
@@ -610,12 +602,7 @@ jobs:
               echo "docker pull ${IMAGE}:${version}"
               echo '```'
               echo
-              echo "Take glibc unless you have a reason. The musl image is statically linked and"
-              echo "carries no libc, which makes it about 1 MiB against 13 MiB - worth having, and"
-              echo "worth asking for by name, because its DNS resolver does not behave identically."
-              echo
-              echo "**Pin by digest.** A tag can be moved; a digest cannot. These are the LIST"
-              echo "digests, so they still resolve per architecture:"
+              echo "**Pin by digest.** These are the list digests and resolve per architecture:"
               echo
               echo "| Variant | Pull by digest |"
               echo "| --- | --- |"
@@ -623,8 +610,7 @@ jobs:
                 printf "| %s | \`docker pull %s\` |\n" "$name" "$ref"
               done
               echo
-              echo "**One architecture on purpose.** The per-target leaves the lists are built"
-              echo "from, named after the rust triple like the binaries are:"
+              echo "Per-architecture leaves, named after the rust triple:"
               echo
               echo "| Target | Tag | Pull by digest |"
               echo "| --- | --- | --- |"
@@ -637,34 +623,15 @@ jobs:
                 printf "| \`%s\` | \`%s:%s-%s\` | %s |\n" "$target" "$IMAGE" "$version" "$target" "$pull"
               done
               echo
-              echo "\`image-digests.txt\` is attached as an asset, so the mapping outlives this page."
-              echo
-              echo "**Offline:** the two \`musl\` images are attached to this release as loadable"
-              echo "tarballs, for a host that cannot reach ghcr.io:"
+              echo "**Offline:** the two \`musl\` images are attached as loadable tarballs, for a"
+              echo "host that cannot reach ghcr.io:"
               echo
               echo '```sh'
               echo "curl -fLO ${base}/sutura-oci-x86_64-unknown-linux-musl.tar.gz"
               echo "docker load -i sutura-oci-x86_64-unknown-linux-musl.tar.gz"
               echo '```'
-              echo
-              echo "The glibc pair is deliberately **not** attached: about 13 MiB gzipped each"
-              echo "against 1 MiB for the static ones, release assets share no layers so they"
-              echo "would be re-shipped whole every release, and a host that can reach a registry"
-              echo "is better served by the digest above."
             } >> notes.md
           fi
-
-          {
-            echo
-            echo "### What these checksums prove, and what they do not"
-            echo
-            echo "The \`.sha256\` files are written and uploaded by the same run as the artifact"
-            echo "they describe. They catch a truncated or corrupted download; they are not"
-            echo "provenance, because whatever could replace a tarball here could replace its"
-            echo "checksum in the same breath. The image digests are computed by the registry"
-            echo "over the bytes it received, which is why they are recorded as an asset rather"
-            echo "than only printed here."
-          } >> notes.md
 
       # Draft first, then the assets, then publish. NOT create-and-publish-then-upload, which
       # is what this file did and what the first real release failed on:
