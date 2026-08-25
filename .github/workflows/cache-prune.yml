@@ -145,7 +145,12 @@ jobs:
 
           if [ "$DRY_RUN" = "true" ]; then
             echo "::notice::dry run: would delete $(wc -l < batch.tsv) entr(ies), $((batch_bytes / 1000000)) MB"
-            cut -f2,3 batch.tsv | head -20
+            # `head` FIRST. Written the other way round - `cut ... | head -20` - `head` closes
+            # the pipe after 20 lines, `cut` dies of EPIPE, and `pipefail` turns a display line
+            # into a failed workflow. It did: the first dry run classified 2047 dead entries
+            # correctly and then exited 1 on `cut: write error: Broken pipe`. Reading the file
+            # with `head` and piping ITS bounded output onward cannot break a pipe.
+            head -n 20 batch.tsv | cut -f2,3
             exit 0
           fi
 
