@@ -50,6 +50,11 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Published so the `cross` matrix below can gate on the same classification rather than
+    # recomputing it. Recomputing would need the full history in five jobs and could disagree
+    # with itself; one classification, one verdict.
+    outputs:
+      build: ${{ steps.classify.outputs.build }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -144,7 +149,7 @@ jobs:
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
       # to be here. Never gated on classification: a credential can be committed in any file.
       - name: Secrets
-        run: nix run .#betterleaks -- dir . --config .gitleaks.toml --redact --verbose
+        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'
@@ -165,6 +170,27 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.doctest -L
 
+      # The pages under docs/api/ are GENERATED from the library crates' doc comments and
+      # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
+      # else. A committed generated file rots silently, so this regenerates them and
+      # byte-compares: a doc comment that changed without a regeneration fails here instead of
+      # publishing a stale page as current. Locally the same gate is
+      # `cargo xtask check-api-docs`, and the fix it asks for is `just api`.
+      #
+      # THE ONLY NIGHTLY STEP in this workflow, deliberately. `--output-format json` is an
+      # unstable rustdoc option, so the stable toolchain everything else here uses rejects `-Z`
+      # outright. That is why it is its own flake output rather than folded into a check above:
+      # the output brings its own nightly toolchain and its own interpreter for the generator.
+      #
+      # `api` is set by classify for a library crate's sources, for the generator, for the
+      # committed pages, and for the manifests - the page prints the crate version, so a
+      # version bump alone makes every page stale. The gate is self-scoping on top of that: a
+      # change touching only private code regenerates to identical output and passes, so
+      # nothing here has to guess which Rust changes reach the public surface.
+      - name: API reference pages
+        if: steps.classify.outputs.api == 'true'
+        run: nix build .#checks.x86_64-linux.api-docs -L
+
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
       - name: Test causality
@@ -179,8 +205,15 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
+      # MAIN ONLY: release-profile codegen, the one-binary assertion and the image. Branches
+      # build every target in the dev profile instead - see the `cross` job below - so what main
+      # adds is the profile and the container, not the target coverage.
+      #
+      # The remaining exposure, stated because it is real: a break that needs release codegen to
+      # appear - thin LTO, `panic = "abort"`, `opt-level = 1` - turns main red rather than the
+      # pull request. Cross and libc breakage does not, because `cross` builds all four.
       - name: Release build
-        if: steps.classify.outputs.build == 'true'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: |
           set -eu
           nix build .#sutura -L
@@ -191,10 +224,83 @@ jobs:
           file result/bin/sutura result-aarch64/bin/sutura
 
       - name: Image
-        if: steps.classify.outputs.build == 'true'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: |
           set -eu
           nix build .#oci -L -o result-oci
           ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+
+  # PULL REQUESTS: every target, dev profile, no image. The counterpart to the two main-only
+  # steps above - main proves what SHIPS, a branch proves every arch still COMPILES AND LINKS.
+  #
+  # Why the archs are checked on the branch at all, rather than deferred with the release build:
+  # the allocator is C, compiled once per target, and cross breakage lives there rather than in
+  # the Rust. A glibc-only run would not see it. So the coverage stays on the pull request and
+  # only the PROFILE moves to main.
+  #
+  # A MATRIX rather than four `nix build` lines in `ci`, and the reason is wall clock, not
+  # cost: four runners is more total compute than one runner doing the same four builds in
+  # sequence, because each job builds its own dependency closure instead of reusing the
+  # previous target's. What it buys is that a branch waits for ONE target instead of four,
+  # while a person is watching. Same trade release.yml's matrix makes, and stated the same way.
+  #
+  # `needs: [ci]` keeps the file's stated order - classify, lints, tests, then build - so a
+  # tree that fails clippy does not spend four runners proving it also links.
+  #
+  # Note what does NOT protect the attribute names below: `check-workflows` tracks apps and
+  # `checks.*` only, and ignores `nix build .#<package>` on purpose, because the cross package
+  # names are generated by interpolation and a text scan cannot know them. A typo in a target
+  # here surfaces in CI and nowhere earlier.
+  cross:
+    needs: [ci]
+    # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
+    if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+    strategy:
+      # One red job names the target that broke; cancelling the other three would only tell you
+      # that something did. Same reasoning as release.yml, and here the work discarded would
+      # also be work the cache had already paid for.
+      fail-fast: false
+      matrix:
+        # The four shipped triples. Deliberately the same list as release.yml's `build`, so the
+        # branch checks exactly the set that later becomes an artifact - if a target is added
+        # there and not here, it ships without ever having been built on a pull request.
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      # No `fetch-depth: 0` here: nothing in this job diffs against a base. `ci` owns that.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
+          # substituter stays absent, so a pull request cannot point CI at a store it controls.
+          extra_nix_config: |
+            fallback = true
+
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
+
+      # Through `env` rather than interpolated into the script: a matrix literal is not
+      # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
+      # as a rule than as a case-by-case judgement.
+      - name: Dev build
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          nix build ".#sutura-${TARGET}-debug" -L -o result-dev
+          # Proves the arch, not just the exit code: a linker that silently produced a host
+          # binary would pass a bare build.
+          file result-dev/bin/sutura
+          # Not a silent cap: a green branch must not read as having validated what ships.
+          echo "::notice::${TARGET}: dev profile. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."

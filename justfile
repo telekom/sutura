@@ -31,7 +31,7 @@ setup:
       git config --local --unset core.hooksPath
     fi
     # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
-    # the expensive gates. Missing one means that stage silently never runs.
+    # the whole-tree gates. Missing one means that stage silently never runs.
     pixi run --frozen hooks-install
     echo "== pixi env (the hook runner and the maintenance interpreter)"
     pixi install --frozen
@@ -103,6 +103,24 @@ test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
+# cargo check, narrowed to the packages owning the given paths.
+check-changed +paths:
+    cargo run -q -p xtask -- check-changed {{ paths }}
+
+# What CI runs, through nix, without entering the dev shell. The one command that needs no
+# devenv - useful for reproducing a red pipeline locally.
+ci:
+    nix build .#checks.x86_64-linux.hygiene -L
+    nix build .#checks.x86_64-linux.fmt -L
+    nix build .#checks.x86_64-linux.clippy -L
+    nix build .#checks.x86_64-linux.nextest -L
+    nix build .#checks.x86_64-linux.doctest -L
+
+# The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
+# has measured yet.
+perf:
+    nix build .#sutura-performance
+
 # ---------------------------------------------------------------- the gates ---
 
 # One line, because xtask owns the list (`Kind::Hygiene` in its task table). It used to be
@@ -163,6 +181,26 @@ build-all:
     nix build .#sutura-x86_64-unknown-linux-musl
     nix build .#sutura-aarch64-unknown-linux-musl
 
+# Through nix: git-cliff's version is part of what it produces, so nix is its only pin and
+# `cargo xtask check-pins` fails if it reappears in pixi.toml. Docs go through pixi because
+# that toolchain is Python; a tool whose output is the verdict goes through nix.
+#
+# No argument rewrites CHANGELOG.md with the unreleased section current - the same render
+# version-bump.yml commits on every push to main. With a tag it renders that section AS the
+# release instead, which is what the release commit carries and what release.yml puts in the
+# GitHub Release body. Neither form tags anything or pushes anything.
+
+# Render CHANGELOG.md as CI does. `just changelog v0.2.0` renders it as that release.
+changelog tag="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -n "{{ tag }}" ]; then
+      nix run .#git-cliff -- --tag "{{ tag }}" -o CHANGELOG.md
+    else
+      nix run .#git-cliff -- -o CHANGELOG.md
+    fi
+    git --no-pager diff --stat -- CHANGELOG.md
+
 # --------------------------------------------------------------------- docs ---
 
 # Render the site to site/.
@@ -187,11 +225,26 @@ docs-deploy version="local":
 docs-list:
     pixi run --frozen -e docs docs-list
 
+# Nightly on purpose: `--output-format json` is an unstable rustdoc option, and the dev shell's
+# bare `cargo` is the nightly pin. Every other gate sources nix/stable-env.sh; this one must NOT,
+# because stable rejects `-Z` outright - so wrapping it the way the others are wrapped is the one
+# thing that breaks it.
+#
+# `pixi run --frozen python` is the DEFAULT pixi environment, not the `docs` one: the renderer is
+# a plain stdlib script, and the docs environment exists to keep mkdocs-material's dependency
+# tree away from everything else. It takes an output directory as an optional last argument and
+# defaults to `docs/api`.
+
+# Regenerate the committed API reference pages from rustdoc JSON.
+api:
+    cargo rustdoc -q -p sutura-domain --all-features -- -Z unstable-options --output-format json
+    pixi run --frozen python docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+
 # ------------------------------------------------------------------ tooling ---
 
 # Scan the whole worktree for secrets. The hook already covers each commit.
 secrets:
-    betterleaks dir . --config .gitleaks.toml --redact --verbose
+    betterleaks dir . --config devco/gitleaks.toml --redact --verbose
 
 # Static analysis of the workflows.
 #

@@ -70,6 +70,46 @@ const AREAS: &[Area] = &[
         patterns: &["Dockerfile", "compose*.yaml", "compose*.yml"],
         consumers: &[],
     },
+    Area {
+        // The committed API reference pages, which are GENERATED from the library crates' doc
+        // comments. `cargo xtask check-api-docs` regenerates them and byte-compares; this area
+        // is what decides when that runs. It needs its own area rather than riding on `rust`
+        // because it needs the NIGHTLY toolchain, so it is the one gate CI cannot fold into
+        // the others.
+        //
+        // `crates/*/src/**` and not one crate name: the gate DERIVES the library crates from
+        // `cargo metadata`, and naming a crate here would be a second list to keep in step
+        // with it. The pattern is deliberately a SUPERSET - it matches the binary crates too,
+        // whose sources cannot change a page - because the error directions are not
+        // symmetrical. An unnecessary run regenerates identical output and passes; a missing
+        // pattern is a stale page nothing reports.
+        //
+        // `Cargo.toml` is here because the page prints the crate VERSION, so a version bump
+        // alone makes every page stale. That one is easy to miss precisely because it changes
+        // no doc comment.
+        //
+        // The generator and the pages are here too: both decide what a fresh generation
+        // produces, and `DOCS_ONLY` below would otherwise read a hand-edited page or a changed
+        // renderer as needing nothing at all. An area match is tested before `DOCS_ONLY`,
+        // which is what makes that work. (`ci.yml` additionally ignores `docs/**` for the
+        // purpose of STARTING a run, so in CI these two patterns bite on a change that also
+        // touches something else. They still bite in the hooks and in a local `classify`.)
+        //
+        // NOT here: `devco/rust-toolchain-nightly.toml`. It sets rustdoc's `format_version` and so
+        // can change every page - but it matches no area today, which means it fails open to
+        // `run_all`, and `run_all` already subsumes this area. Adding it here would NARROW
+        // that to `api` alone, which is strictly less checking.
+        name: "api",
+        patterns: &[
+            "crates/*/src/**",
+            "Cargo.toml",
+            "docs/.tools/rustdoc_to_markdown.py",
+            "docs/api/**",
+            // The gate's own source, so a change to it is judged by running it.
+            "xtask/src/api_docs.rs",
+        ],
+        consumers: &[],
+    },
 ];
 
 /// Paths that cannot affect a build. Deliberately short: everything else is either an area
@@ -306,6 +346,23 @@ pub(crate) fn run_classify(args: &[String]) -> Verdict {
     Verdict::Pass
 }
 
+/// Paths whose owning package is not a workspace member, so `cargo check -p` cannot take it.
+///
+/// A path dependency inside the repository has a real `Cargo.toml` with a real package name,
+/// so `owning_package` finds it - but `[workspace] exclude` keeps it out of the member list and
+/// `cargo check -p libmimalloc-sys` then fails with "did not match any packages". That is what
+/// broke the commit hook the moment mimalloc was vendored.
+///
+/// Skipped rather than treated as an orphan: an orphan widens to checking everything, which is
+/// right when the workspace layout surprised us and wrong here, where the answer is simply that
+/// third-party source is not ours to compile-check.
+const NON_MEMBER_PATHS: &[&str] = &["vendor/"];
+
+/// Is this path outside every workspace member?
+fn is_non_member(path: &str) -> bool {
+    NON_MEMBER_PATHS.iter().any(|prefix| path.starts_with(prefix))
+}
+
 /// The cargo package owning `path`: the nearest ancestor directory with a `Cargo.toml` that
 /// declares a `[package]` name. Returns `None` for a path no package owns.
 fn owning_package(root: &std::path::Path, path: &str) -> Option<String> {
@@ -371,13 +428,22 @@ pub(crate) fn run_changed_packages(args: &[String]) -> Verdict {
 
     let mut packages = BTreeSet::new();
     let mut orphans = Vec::new();
+    let mut skipped = 0_usize;
     for path in rust {
+        if is_non_member(path) {
+            skipped = skipped.saturating_add(1);
+            continue;
+        }
         match owning_package(&root, path) {
             Some(name) => {
                 packages.insert(name);
             }
             None => orphans.push(path.clone()),
         }
+    }
+
+    if skipped > 0 {
+        println!("xtask changed-packages: skipped {skipped} vendored file(s); not workspace members");
     }
 
     // A .rs file no package owns means the workspace layout changed under us. Widen rather
@@ -405,6 +471,13 @@ pub(crate) fn run_changed_packages(args: &[String]) -> Verdict {
 fn packages_for(root: &std::path::Path, args: &[String]) -> Option<BTreeSet<String>> {
     let mut packages = BTreeSet::new();
     for path in args.iter().filter(|p| is_rust(p)) {
+        // Vendored source has a real package name that `cargo check -p` cannot accept, because
+        // `[workspace] exclude` keeps it out of the member list. Passing it through produced
+        // "cannot specify features for packages outside of workspace" and failed the hook. See
+        // NON_MEMBER_PATHS.
+        if is_non_member(path) {
+            continue;
+        }
         packages.insert(owning_package(root, path)?);
     }
     Some(packages)
@@ -487,6 +560,46 @@ mod tests {
     }
 
     #[test]
+    fn a_library_source_change_needs_the_api_docs_gate() {
+        // The primary direction of staleness: a doc comment changes and the committed page
+        // does not. `rust` is not enough on its own - the API pages need nightly rustdoc, so
+        // they are their own step.
+        let r = classify(&paths(&["crates/sutura-domain/src/definitions.rs"]));
+        assert!(!r.run_all);
+        assert!(
+            r.needs("api"),
+            "a library source change must regenerate the pages: {:?}",
+            r.reasons
+        );
+        assert!(r.needs("rust"));
+    }
+
+    #[test]
+    fn a_hand_edited_generated_page_needs_the_api_docs_gate() {
+        // The other direction: somebody edits the generated page instead of the doc comment.
+        // Without this pattern `DOCS_ONLY` swallows it and the byte-compare never runs.
+        let r = classify(&paths(&["docs/api/sutura-domain.md"]));
+        assert!(r.needs("api"), "a generated page is not prose: {:?}", r.reasons);
+        assert!(r.docs_only.is_empty(), "it must not be classified as docs-only");
+    }
+
+    #[test]
+    fn a_change_to_the_generator_needs_the_api_docs_gate() {
+        // The renderer decides what every page contains, so changing it can make all of them
+        // stale without touching a line of Rust.
+        let r = classify(&paths(&["docs/.tools/rustdoc_to_markdown.py"]));
+        assert!(r.needs("api"), "{:?}", r.reasons);
+    }
+
+    #[test]
+    fn a_version_bump_needs_the_api_docs_gate() {
+        // The page prints the crate version, so `version = "0.2.0"` in the manifest makes
+        // every page stale while changing no doc comment at all.
+        let r = classify(&paths(&["Cargo.toml"]));
+        assert!(r.needs("api"), "the page carries the version: {:?}", r.reasons);
+    }
+
+    #[test]
     fn docs_require_nothing() {
         let r = classify(&paths(&["README.md", "docs/adr/0001-x.md", "AGENTS.md"]));
         assert!(!r.run_all, "docs must not fan out: {:?}", r.reasons);
@@ -543,7 +656,7 @@ mod tests {
             run_all: true,
             ..Classification::default()
         };
-        assert!(r.needs("rust") && r.needs("nix") && r.needs("deps") && r.needs("build"));
+        assert!(r.needs("rust") && r.needs("nix") && r.needs("deps") && r.needs("build") && r.needs("api"));
     }
 
     #[test]

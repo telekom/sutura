@@ -128,7 +128,7 @@ Run `gates` before you claim done. Individually:
 
 | Gate | Rejects |
 | --- | --- |
-| `cargo xtask max-lines` | any file over 1000 lines; exemptions only in `.max-lines-ignore`, and never under `crates/` or `xtask/` |
+| `cargo xtask max-lines` | any file over 1000 lines; exemptions only in `devco/max-lines-ignore`, and never under `crates/` or `xtask/` |
 | `cargo xtask unused-deps` | a declared dependency nothing references, and a `[workspace.dependencies]` entry nobody inherits |
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |

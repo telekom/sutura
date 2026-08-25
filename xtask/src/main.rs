@@ -7,11 +7,13 @@
 //! Gates live in one binary rather than a script per check: one thing to install, one language
 //! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
+mod api_docs;
 mod boundaries;
 mod causality;
 mod changes;
 mod commit_msg;
 mod docs;
+mod fmt;
 mod guidance;
 mod line_endings;
 mod max_lines;
@@ -91,7 +93,7 @@ const TASKS: &[Task] = &[
     },
     Task {
         name: "max-lines",
-        description: "no file over 1000 lines (exemptions: .max-lines-ignore)",
+        description: "no file over 1000 lines (exemptions: devco/max-lines-ignore)",
         kind: Kind::Hygiene,
         run: max_lines::run,
     },
@@ -139,7 +141,7 @@ const TASKS: &[Task] = &[
     },
     Task {
         name: "check-docs",
-        description: "the book's summary and the pages under docs/src agree",
+        description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene,
         run: docs::run,
     },
@@ -166,6 +168,24 @@ const TASKS: &[Task] = &[
         description: "cargo check, narrowed to the packages that changed",
         kind: Kind::Standalone,
         run: changes::run_check_changed,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, and not by oversight. The hygiene sweep is cheap,
+        // argument-free and runs everywhere a developer commits - including hosts and
+        // sandboxes with no Rust nightly at all. This one COMPILES the library crates and
+        // needs the nightly toolchain, because `--output-format json` is an unstable rustdoc
+        // option. Collecting it would make the cheap sweep expensive and, worse, unrunnable
+        // in the places it currently runs.
+        name: "check-api-docs",
+        description: "docs/api/*.md is what the generator produces (NIGHTLY; compiles)",
+        kind: Kind::Standalone,
+        run: api_docs::run,
+    },
+    Task {
+        name: "fmt",
+        description: "cargo fmt, scoped to our packages (--check to verify)",
+        kind: Kind::Standalone,
+        run: fmt::run,
     },
     Task {
         name: "hygiene",
@@ -313,6 +333,16 @@ mod tests {
             let task = TASKS.iter().find(|t| t.name == name).expect("task is registered");
             assert_eq!(task.kind, super::Kind::Standalone, "{name} must not be in the hygiene set");
         }
+    }
+
+    #[test]
+    fn the_api_docs_gate_is_not_collected_into_hygiene() {
+        // It takes no arguments, so the test above would not catch this one. The reason is
+        // COST and REACH: it compiles the library crates and needs the nightly toolchain for
+        // rustdoc's unstable JSON output, while the hygiene sweep runs on every commit and
+        // inside the Nix sandbox, neither of which has a nightly.
+        let task = TASKS.iter().find(|t| t.name == "check-api-docs").expect("task is registered");
+        assert_eq!(task.kind, super::Kind::Standalone);
     }
 
     #[test]

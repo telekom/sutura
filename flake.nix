@@ -71,8 +71,15 @@
           src = ./.;
           # Keep the toolchain file: crane's source filter drops non-Cargo files, and
           # without it the pin is invisible to the build.
+          #
+          # Keep `vendor/` WHOLESALE, and this is load-bearing rather than tidy: the vendored
+          # allocator is a path dependency, so cargo has to read its manifests to resolve the
+          # workspace at all, and crane's filter is written for first-party Rust and drops
+          # both them and the C. Without this the build fails in `cargo check` with
+          # "failed to read vendor/mimalloc_rust/Cargo.toml".
           filter = path: type:
-            (builtins.match ".*rust-toolchain\\.toml$" path != null)
+            (builtins.match ".*rust-toolchain\.toml$" path != null)
+            || (builtins.match ".*/vendor(/.*)?$" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -129,8 +136,101 @@
         # A native build for one profile. For `release` the deps derivation is identical to
         # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
         # performance build necessarily compiles its own, since the profile is what changed.
+        # The allocator's C, compiled in its own derivation rather than by the build script.
+        #
+        # WHY A DERIVATION. `vendor/mimalloc_rust` is a PATH dependency, so crane's shared
+        # dependency build does not shield it the way it shields a registry crate: without
+        # this, every edit to our own Rust recompiled mimalloc's C, once per target. Here it
+        # is hash-addressed by version, target and optimisation level, so it is built once per
+        # combination and then reused from the store and from CI's cache. Our source changes
+        # cannot invalidate it. The first build per target is still from source, because
+        # nothing upstream caches a musl cross of mimalloc.
+        #
+        # WHY NOT CMAKE, which would have been the obvious way to build a C library. Upstream's
+        # `CMakeLists.txt` decides three things behind our back. `MI_OVERRIDE` defaults ON, which
+        # compiles `alloc-override.c` and exports `malloc`, `free` and `operator new` - a
+        # semantic change, and the thing issue #5 turns on. `MI_OPT_ARCH` defaults ON for arm64
+        # and raises the architecture floor implicitly, which is what Debian, Fedora and nixpkgs
+        # all patch out; we DO raise that floor below, but as a stated decision rather than a
+        # default nobody chose. And `MI_LIBC_MUSL=ON` appends `-ftls-model=local-dynamic`,
+        # against the reasoning in `crates/sutura-cli/src/main.rs`. Compiling `src/static.c` -
+        # the single translation unit upstream maintains for exactly this purpose, and the one
+        # the build script itself compiles - means none of those defaults exist to override.
+        #
+        # THE FLAGS ARE A MEASUREMENT, not a design: they are what cc-rs passes today, captured
+        # with `CC_ENABLE_DEBUG_OUTPUT=1`. The one addition is `-DMI_PADDING_CHECK_BYTES=1`,
+        # because 3.5.0 redefined `MI_SECURE=4` to mean level 3 and moved byte-precise
+        # buffer-overflow checking to level 5; without it a `secure level: 4` line would be
+        # quietly weaker than the one it replaces. See issue #5.
+        mimallocVersion = "3.5.0";
+        mimallocFor = { targetPkgs, optLevel, isMusl }:
+          let
+            # ARMv8.3 FLOOR for the aarch64 targets, deliberately. mimalloc 3.5.0 gains from
+            # `LDAPR` (FEAT_LRCPC, v8.3) for its C11 acquire loads, and the level also brings
+            # `FEAT_LSE` (v8.1), so atomics become `cas`/`ldadd` rather than `ldxr`/`stxr`
+            # retry loops. Measured on the real translation unit: 58 acquire loads move from
+            # `ldar` to `ldapr`, with the object file the same size. The aarch64 artifacts
+            # therefore REQUIRE ARMv8.3-A or later, and `.cargo/config.toml` sets matching
+            # Rust features so the C and the Rust agree on that floor.
+            isAarch64 = targetPkgs.stdenv.hostPlatform.isAarch64;
+          in
+          targetPkgs.stdenv.mkDerivation {
+            pname = "mimalloc-static";
+            version = mimallocVersion;
+            # `fetchurl` on the release tarball, not `fetchFromGitHub`: this way the recorded
+            # hash is the hash of the artifact upstream published, which anyone can check with
+            # `curl` and `sha256sum`. `fetchFromGitHub` would record a NAR hash of the unpacked
+            # tree instead, which is checkable only by nix.
+            src = pkgs.fetchurl {
+              name = "mimalloc-${mimallocVersion}.tar.gz";
+              url = "https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v${mimallocVersion}";
+              sha256 = "1e432f0559a4ab512143b9bff7a700541a2c8d4712b26a72de3e0222790da305";
+            };
+            dontConfigure = true;
+            # Matches cc-rs, which sets it for the same reason: a timestamp in the archive
+            # would make the output differ between builds.
+            env.ZERO_AR_DATE = "1";
+            buildPhase = ''
+              runHook preBuild
+              $CC -O${optLevel} -ffunction-sections -fdata-sections -fPIC \
+                -I include -I src \
+                -Wall -Wextra -Wno-error=date-time \
+                -ftls-model=initial-exec \
+                -DMI_SECURE=4 -DMI_PADDING_CHECK_BYTES=1 \
+                -DMI_DEBUG=0 -DMI_BUILD_RELEASE -DNDEBUG \
+                ${pkgs.lib.optionalString isMusl "-DMI_LIBC_MUSL=1"} \
+                ${pkgs.lib.optionalString isAarch64 "-march=armv8.3-a"} \
+                -c src/static.c -o static.o
+              $AR cqD libmimalloc.a static.o
+              runHook postBuild
+            '';
+            installPhase = ''
+              runHook preInstall
+              mkdir -p $out/lib
+              cp libmimalloc.a $out/lib/
+              runHook postInstall
+            '';
+          };
+
+        # The C tracks the cargo profile, so the derivation has to as well. Measured rather
+        # than assumed: `release` compiles the allocator at `-O1` and `release-performance` at
+        # `-O3`, because cc-rs reads cargo's `OPT_LEVEL`. Freezing one number here would
+        # silently decouple the allocator from the profile, so this is a pure caching change
+        # and not a performance one.
+        #
+        # `dev` lands on `-O3` and that is NOT an oversight: the allocator is a DEPENDENCY, and
+        # `[profile.dev.package."*"] opt-level = 3` in Cargo.toml is what cc-rs sees for it - the
+        # `opt-level = 0` on `[profile.dev]` applies to our own crates, not to this. Reading the
+        # wrong one of those two keys is the easy mistake here. It also means `dev` reuses the
+        # `release-performance` archive rather than adding a third C build to the cache.
+        optLevelFor = profile: if profile == "release" then "1" else "3";
+
         nativeFor = profile:
-          let args = commonArgs // { CARGO_PROFILE = profile; };
+          let args = commonArgs // {
+            CARGO_PROFILE = profile;
+            # The prebuilt archive, so the build script links it instead of compiling the C.
+            SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = pkgs; optLevel = optLevelFor profile; isMusl = false; }}/lib";
+          };
           in craneLib.buildPackage (args // {
             cargoArtifacts = craneLib.buildDepsOnly args;
             # ONE package. Without this, crane builds the whole workspace and the result held
@@ -163,6 +263,8 @@
             args = commonArgs // {
               CARGO_BUILD_TARGET = target;
               CARGO_PROFILE = profile;
+              # The prebuilt archive for THIS target. See `mimallocFor` above.
+              SUTURA_MIMALLOC_LIB_DIR = "${mimallocFor { targetPkgs = crossPkgs; optLevel = optLevelFor profile; inherit isMusl; }}/lib";
               # Tests cannot run for a foreign architecture on this host; the native build
               # and CI's gates job cover correctness.
               doCheck = false;
@@ -212,6 +314,16 @@
         variants = [
           { suffix = ""; profile = "release"; }
           { suffix = "-performance"; profile = "release-performance"; }
+          # The dev-profile sibling. It exists for pull requests: a branch needs to know that
+          # every target still COMPILES AND LINKS - the allocator C included, per target, which
+          # is where cross breakage actually lives - and it does not need that answer at LTO
+          # prices. `dev` and not a stripped-down release, so the answer comes from the profile
+          # developers already build locally.
+          #
+          # Not a shipped artifact and never published. `releaseTargets`, `imageTargets` and the
+          # `one-binary` check all key off the unsuffixed name, so nothing here can reach a
+          # release asset by accident.
+          { suffix = "-debug"; profile = "dev"; }
         ];
 
         crossPackages = builtins.listToAttrs (builtins.concatMap
@@ -424,6 +536,49 @@
               cargo run --release -q -p xtask -- hygiene
             '';
           });
+
+          # The committed API reference pages under `docs/api/` are GENERATED from the library
+          # crates' doc comments. This is what FAILS when they fall behind the sources: it
+          # regenerates them into a temporary directory and byte-compares against what is
+          # committed. The gate is `cargo xtask check-api-docs` and the fix it asks for is
+          # `just api`.
+          #
+          # NIGHTLY, and the only check here that is. `--output-format json` is an unstable
+          # rustdoc option, so the stable pin every other check uses rejects `-Z` outright.
+          # `nix/toolchains.nix` is the one place either pin becomes a compiler, so the nightly
+          # comes from there rather than being resolved a second way in this file.
+          #
+          # Its own crane instance and its own dependency build. The shared `cargoArtifacts` is
+          # compiled by stable, and alternating compilers in one target directory invalidates
+          # every artifact in it.
+          #
+          # `src = ./.` and not the filtered source, for the same reason as `hygiene` above:
+          # this check reads `docs/.tools/rustdoc_to_markdown.py` and the committed pages, and
+          # crane's filter keeps only Cargo inputs.
+          #
+          # SUTURA_API_DOCS_PYTHON: the generator is a stdlib-only script, and `just api` runs
+          # it through pixi because pixi owns every Python in this repo. A build sandbox has no
+          # network and so cannot materialise a pixi environment, so the interpreter is named
+          # here instead. The SCRIPT is the same either way, which is what stops this check
+          # from disagreeing with what `just api` produces.
+          api-docs =
+            let
+              nightlyCrane = (crane.mkLib pkgs).overrideToolchain
+                (_: (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly);
+            in
+            nightlyCrane.mkCargoDerivation (commonArgs // {
+              # Unscoped, like `cargoArtifacts` above: scoping it to one package would stop the
+              # dependency build being shared with the xtask compile in the build phase.
+              cargoArtifacts = nightlyCrane.buildDepsOnly commonArgs;
+              src = ./.;
+              pnameSuffix = "-api-docs";
+              doCheck = false;
+              nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.python3 ];
+              SUTURA_API_DOCS_PYTHON = "${pkgs.python3}/bin/python3";
+              buildPhaseCargoCommand = ''
+                cargo run --release -q -p xtask -- check-api-docs
+              '';
+            });
 
           # NOTE: cargo-deny is deliberately NOT a check here. It fetches the RustSec
           # advisory database, and a Nix build sandbox has no network - as a check it could

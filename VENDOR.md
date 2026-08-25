@@ -34,5 +34,25 @@ saying so is the honest position. Both Apache-2.0.
 If code from either is ever adapted, it moves into the table above with a commit and a
 description of the local changes.
 
-No source code is vendored at present. When it is, record the upstream commit here and keep
-the upstream licence text alongside the code, not only in this table.
+## Vendored source code
+
+| Local path | Upstream | Licence | Commit / tag | Date | Local changes |
+| --- | --- | --- | --- | --- | --- |
+| `vendor/mimalloc_rust/**` except `libmimalloc-sys/c_src` | `github.com/purpleprotocol/mimalloc_rust`, the published `mimalloc` 0.1.52 and `libmimalloc-sys` 0.1.49 artifacts | MIT | `abcd2be6171e89190f8087fcaccf001d8bd5bc96`, tag `v0.1.52` | 2026-08-25 | **Vendored to control the bundled allocator version**: the crate bundles mimalloc 3.3.2 and we ship 3.5.0. Kept as path dependencies rather than rewritten, so `unsafe impl GlobalAlloc` stays in third-party code and the workspace's `unsafe_code = "forbid"` is untouched. Four local changes. (1) `libmimalloc-sys/build.rs` prefers a prebuilt archive named by `SUTURA_MIMALLOC_LIB_DIR` and otherwise falls through to upstream's `cc::Build` path unchanged, so `nix build` links a cached derivation while a bare `cargo build` still compiles the bundled amalgamation. (2) `path = "libmimalloc-sys"` restored on the wrapper's dependency: publishing had normalised it to a registry dependency, and without the path the vendored wrapper silently pulls the registry sys crate instead of this one. (3) The `v2` feature is removed from both manifests, because only the v3 tree is vendored and a feature that cannot build is a trap. (4) The `extended` feature, its two `extended.rs` modules and the optional `cty` dependency are removed: we never enable it, and it would otherwise pull `cty` into the lockfile and the vendor tree for nothing. |
+| `vendor/mimalloc_rust/libmimalloc-sys/c_src/mimalloc/v3/**` | `github.com/microsoft/mimalloc`, tag `v3.5.0` | MIT | tag `v3.5.0` = commit `18b08671c9302247bfb682286e6bf3cc1773f801` | 2026-08-25 | **Upstream content, subsetted, otherwise unmodified.** Source artifact: `codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v3.5.0`, 1 436 476 bytes, sha256 `1e432f0559a4ab512143b9bff7a700541a2c8d4712b26a72de3e0222790da305`. That hash is **of the published tarball**, not of this subset and not a Nix NAR hash, so it can be checked against upstream with `curl` and `sha256sum`; `flake.nix` pins the same hash. Subsetted to `include/` plus the Linux parts of `src/`: `src/prim/{windows,osx,wasi,emscripten}` are omitted because `src/prim/prim.c` picks the platform with `#if defined(_WIN32)` / `__APPLE__` / `__wasi__` / `__EMSCRIPTEN__` / `#else`, so only `prim/unix/prim.c` is ever compiled for our four Linux targets. No file content is altered and no line endings were normalised: upstream ships LF, and the one CRLF file in the release, `src/prim/windows/etw.man`, falls in an omitted directory. The C is compiled by `flake.nix` rather than by the build script; the flags and the reason CMake is not used are argued at `mimallocFor` there. |
+
+### Keeping this current, and who notices
+
+Nothing notices automatically, and it is better to say so than to imply a process. `libmimalloc-sys`
+pins its own bundled mimalloc, so neither `cargo update` nor a dependency bot can see the C at
+all, and no gate compares `mimallocVersion` in `flake.nix` against upstream's newest tag.
+
+So the mechanism is a person watching `github.com/microsoft/mimalloc/releases`. When a 3.6.0
+lands, three things have to happen together: bump `mimallocVersion` and `sha256` in `flake.nix`,
+re-copy the subset into `c_src/mimalloc/v3`, and re-run the four-target proof.
+
+**The drift hazard that follows from the fallback**, named because it is not obvious: the version
+lives in TWO places. `flake.nix` fetches 3.5.0 for the cached archive, and `c_src` holds 3.5.0 for
+the bare-`cargo` path. They agree today. If a future bump changes one and not the other, `nix
+build` and `cargo build` will link different allocator versions with no error, and the only symptom
+would be `MIMALLOC_VERBOSE=1` printing different versions between the two.

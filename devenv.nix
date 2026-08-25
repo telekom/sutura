@@ -77,7 +77,7 @@ in
   # does not resolve fails the WHOLE shell evaluation, not just that package.
   packages = [
     # The pinned NIGHTLY toolchain: rustc, cargo, clippy, rustfmt and the components named
-    # in rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
+    # in devco/rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
     # PATH collision - the gates override it back to stable per-command.
     rustToolchain
   ] ++ (with pkgs; [
@@ -188,7 +188,7 @@ in
     check-guidance.exec = onStable "cargo run -q -p xtask -- check-guidance";
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
-    secrets.exec = "betterleaks dir . --config .gitleaks.toml --redact --verbose";
+    secrets.exec = "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
     check-docs.exec = onStable "cargo run -q -p xtask -- check-docs";
     unused-deps.exec = onStable "cargo run -q -p xtask -- unused-deps";
 

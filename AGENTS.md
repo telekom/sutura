@@ -54,60 +54,45 @@ dependency. Keep it that way: its test suite should run in well under a second.
 shell and owns the task names; pixi owns the hook runner and the maintenance interpreter, nothing
 that reports findings; `prek` runs the hooks.
 
-**Two toolchains, and it matters which one you get.** The dev shell's bare `cargo` is the pinned
-**nightly** (`rust-toolchain-nightly.toml`), because the cranelift codegen backend is nightly-only
-and it is what makes the inner loop fast. Every gate instead sources `nix/stable-env.sh`, which puts
-the pinned **stable** (`rust-toolchain.toml`) in front and gives it its own target directory. So:
-
-- Running a `just` task or a devenv script gets stable - the same compiler CI uses.
-- Typing `cargo clippy` yourself gets nightly, whose lint set differs. This repo gates on the whole
-  clippy `restriction` category with `-D warnings`, so nightly will report lints stable has never
-  heard of. **Do not conclude the branch is red from a bare `cargo clippy`** - run `just lint`.
-- The separate target directory is not optional: alternating compilers in one directory invalidates
-  every artifact in it.
+**Two toolchains, and the trap matters.** The dev shell's bare `cargo` is a pinned **nightly**
+(cranelift); every gate runs on the pinned **stable** that CI uses. So a bare `cargo clippy`
+reports lints stable has never heard of. **Do not conclude a branch is red from one** - run
+`just lint`. CONTRIBUTING.md has the mechanism.
 
 CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
 needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
-a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here, and
-fmt/clippy/tests run the same cargo subcommands under the same stable pin, because the gates go
-through `nix/stable-env.sh` here and CI has only stable to begin with. Add a gate in one place only
-and the omission shows up as a diff.
+a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here. Add a gate
+in one place only and the omission shows up as a diff.
 
 ```bash
-cargo check -p sutura-domain --no-default-features   # fast inner loop
-test                                                 # tests, on stable
-lint                                                 # clippy, on stable
-hygiene                                              # line endings, max-lines, unused deps, boundaries
-cargo xtask classify --since origin/main             # what does this change require?
-cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
-gates                                                # hygiene + fmt, clippy, tests, deny
-docs                                                 # render the site to ./site
-docs-serve                                           # the site with live reload
-prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
-nix build .#oci                                      # the release image
-nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
-nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
-pixi run --frozen <task>                                    # hooks and skill sync only
-just update                                          # bump flake.lock, pixi.lock, Cargo.lock
-stax                                                 # stacked branches / PRs
+just check          # fast inner loop, domain crate only
+just lint           # clippy, on stable
+just test           # tests, on stable
+just hygiene        # the cheap structural gates
+just gates          # everything CI runs
+just ship-check     # the finishing sequence
+just classify       # what does this change require?
+just check-changed <paths>
+just causality      # red-before-green proof
+just hooks          # every hook over every file
+just ci             # what CI runs, through nix, no devenv
+just docs           # render the site
+just image          # the release image
+just build-all      # all four shipped binaries
+just update         # bump every lock
 ```
 
-- Hooks are tiered by cost: fmt, clippy `--all-features`, the structural gates and the
-  conventional-commit subject check run on commit; tests and `cargo-deny` on push. Scope hook runs
-  to touched files while iterating, sweep before a PR.
-- `--all-features` is not thoroughness for its own sake. Adapters are feature-gated and default-off,
-  so a bare `cargo clippy --workspace` inspects almost nothing and still reports success. Every lint
-  and test entry point passes it; a scoped `-p sutura-domain --no-default-features` run is the fast
-  inner loop, not the gate.
+`just` with no argument lists the rest. A task is the only name worth citing: it is one place
+to change, and `cargo xtask check-guidance` fails on a citation of a task that does not exist.
+
+- `--all-features` is not optional. Adapters are feature-gated and default-off, so a bare
+  `cargo clippy --workspace` inspects almost nothing and still reports success.
+- Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
 - The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
   here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
-- `rust-toolchain.toml` is the authority for anything shipped: CI, the release build and the OCI
-  image. `nix/toolchains.nix` is the one place that turns either pin into a compiler, imported by
-  both `flake.nix` and `devenv.nix`.
 - nix is the **only** pin for any tool whose version changes what it reports - zizmor, actionlint,
   shellcheck, clippy, nextest, cargo-deny. pixi holds only `prek` and `python`, which cannot change
   a verdict. `cargo xtask check-pins` fails if a tool appears in both.
-- Use `rg` to search and `fd` to find files.
 - If tooling is missing, report the exact install command and ask before installing it.
 
 ## Canonical Sources And Generated Output
@@ -121,7 +106,7 @@ regeneration is checked rather than trusted.
 | MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
 | The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
-| Compiler version, local inner loop | `rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
+| Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
 | Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
@@ -147,7 +132,7 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | The domain acquires no framework dependency | The dependency-boundary half of the boundary check in `xtask`, run by `gates` and in CI. An **allowlist** over the whole transitive tree, so a framework reached through an innocuous crate fails it too |
 | A newtype's invariant cannot be walked around | The field is private and the constructor is the only way in, so a violating value is unrepresentable rather than merely rejected. The typed-surface half of the boundary check fails a `pub` field on a `pub struct` in a library crate. `serde` is routed through the constructor with `#[serde(try_from = ..)]`, because a derived `Deserialize` writes past it - *Gap: that routing is not itself checked; review catches it until a gate does* |
 | A library crate's errors are typed, not prose | The typed-surface half of the boundary check fails a `Result<.., String>` or a declared dynamic-error crate (`anyhow`, `eyre`) in any crate with a `[lib]` target. Binaries are deliberately exempt: there the error's audience is a human reading stderr. *Gap: it is line-scoped, so a signature wrapped across lines escapes it* |
-| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `.max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
+| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `devco/max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
 | No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody - an entry nothing inherits pins nothing |
 | No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
 | Dead code does not accumulate, and cannot hide behind `pub` | `dead_code`, `unused_must_use` and `unreachable_pub` are `deny` rather than the default `warn`, so a plain `cargo build` fails on them. `unreachable_pub` is what stops an unused item from being kept alive by a `pub` that reaches nowhere |
@@ -192,31 +177,17 @@ within these invariants and never overrides them.
 
 ## Finishing A Change
 
-`ship-check` is the finishing sequence, and it is a command rather than a checklist so it
-costs no tokens to follow and cannot be half-remembered:
+Run `ship-check` before saying a change is done. It is a command rather than a checklist so it
+cannot be half-remembered.
 
-```bash
-ship-check                      # hooks over the branch diff, gate self-tests, causality
-```
+**A new or changed test must be red against the base behaviour and green with your change.** A
+test that passes both ways proves nothing and is worse than no test, because it looks like
+coverage. `cargo xtask test-causality --since <base>` checks it mechanically, in `ship-check`
+and in CI.
 
-It requires a clean tree and a reachable base ref, then runs the commit-stage hooks over the
-merge-base range, the pre-push hooks, and the test-causality proof below. Run it before
-saying a change is done.
-
-### Tests must be shown to test something
-
-A new or changed test has to be **red against the base behaviour and green with your change**.
-A test that passes both ways proves nothing and is worse than no test, because it looks like
-coverage.
-
-`cargo xtask test-causality --since <base>` checks this mechanically: it re-runs changed tests
-against the base version of the non-test sources and requires at least one to fail, with no
-unrelated failures, then requires them green on your head. It runs in `ship-check` and in CI.
-
-When the change is not separable that way - impl and test in the same file, or a change with
-no behavioural difference such as a rename - the gate says so and asks you to state the
-evidence instead: the command you ran, the failure you saw before the fix, and the pass after.
-Do not skip it silently.
+When it is not separable - impl and test in one file, or a rename - the gate says so and asks
+for the evidence instead: the command you ran, the failure before the fix, the pass after.
+**Do not skip it silently.** CONTRIBUTING.md has the rest.
 
 ## Agent Operating Contract
 
@@ -255,30 +226,23 @@ Do not skip it silently.
 ## Where Detailed Guidance Lives
 
 - `devenv.nix` - the shell, the tool pins, and the task names used above.
-- `.pre-commit-config.yaml` - what runs on commit, on commit-msg and on push.
+- `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push.
 - `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.
-- `.max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
-  the list of what may not be.
-- `xtask/` - the gates: `check-boundaries` (two halves: which way dependencies point, and whether a
-  library crate's types and errors are a typed contract), `max-lines`, `unused-deps`, `line-endings`,
-  `text-hygiene`, `commit-msg`, `check-skills`, `check-docs`, `test-causality`, plus `classify` /
-  `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
-  run everything and say why, because the expensive failure is a new directory being skipped
-  silently, not a wasted CI minute. Each is
-  unit-tested by `cargo nextest run --workspace`, because a gate with no test is a gate nobody has seen
-  fail. They list files via `git ls-files` where git is available and fall back to walking the tree
-  where it is not - the Nix sandbox has the source but no `.git`, and a gate that returned an empty
-  file list there would pass while checking nothing.
+- `devco/` - config that only this repo's own tooling reads.
+- `xtask/` - every gate, each unit-tested, because a gate with no test is one nobody has seen
+  fail. `cargo xtask --help` lists them; `hygiene` runs the cheap ones. `classify` /
+  `check-changed` / `changed-packages` decide what a diff requires, and **fail open**: an
+  unmapped path, a bad base ref or an empty diff all run everything and say why, because the
+  expensive failure is a new directory silently skipped, not a wasted CI minute.
 - `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
   build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
   LTO). None of them installs devenv.
 - `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
-- `docs/` - the published site (mkdocs-material, versioned by mike: `mkdocs.yml` at the root,
-  pages in `docs/`). Installing the environment, building without direct egress, the layout, the
-  invariants and the gates. `cargo xtask check-docs` fails if a page is in no `nav` entry, if a
-  `nav` entry names a file that is not there, or if an asset `mkdocs.yml` references is missing.
+- `docs/` - the published site: mkdocs-material, versioned by mike, `mkdocs.yml` at the root.
+  `cargo xtask check-docs` fails on a page in no `nav` entry, a `nav` entry with no file, or a
+  missing asset.
 - `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
 - `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.

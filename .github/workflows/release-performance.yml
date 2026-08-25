@@ -15,7 +15,9 @@
 # `<version>-performance`. `latest` is never moved, so nothing starts running an optimised
 # build by accident.
 #
-# THIRD-PARTY ACTIONS: none, for the same reason as release.yml.
+# ACTIONS: the same three release.yml uses - checkout, the nix installer and the nix cache -
+# each pinned by commit, and nothing more. Publishing is `gh` and `docker` rather than a
+# release action, for the same reason as release.yml.
 name: release-performance
 
 on:
@@ -84,6 +86,19 @@ jobs:
           # goes here, where the workflow diff shows it.
           extra_nix_config: |
             fallback = true
+
+      # Carries /nix/store between runs: the same action at the same commit as ci.yml and
+      # release.yml. The argument for why a path that PUBLISHES may share a cache is written out
+      # in full in release.yml - the Actions cache is scoped by ref, a run restores only from its
+      # own ref and from the default branch, and a cache a pull request wrote lives in
+      # `refs/pull/.../merge`, where only that pull request's own re-runs can read it. This
+      # workflow is dispatched by hand and, when it publishes, from a tag: the same two scopes
+      # release.yml reads, and no pull request can write to either.
+      #
+      # The win is bigger here than anywhere else in the repo. Fat LTO with a single codegen unit
+      # is the slowest build there is, this job runs the full gate set before it starts, and a
+      # person clicked the button and is waiting.
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
       # Same rule as the normal release: nothing shippable is built before the gates pass.
       # These reuse the `release`-profile artifacts, which is why they are cheap here.
@@ -155,10 +170,34 @@ jobs:
           docker push "${IMAGE}:${tag}-performance"
           docker logout ghcr.io
 
-      - name: Attach the optimised binaries to the existing release
+      # The binaries are NOT attached to the release, and cannot be.
+      #
+      # This step used to run `gh release upload "$GITHUB_REF_NAME" dist/* --clobber`, which can
+      # never succeed here: this repository has GitHub's immutable releases enabled, so a
+      # release's assets are frozen the moment it is published. It returns
+      # `HTTP 422: Cannot upload assets to an immutable release` - observed for real on the
+      # v0.1.0 run - and no flag changes that. A workflow that runs manually, after the release
+      # exists, has no way in.
+      #
+      # So the optimised build's deliverable is the IMAGE, pushed above as
+      # `<image>:<tag>-performance`. That is digest-addressed, layer-shared and reachable by
+      # anyone who can reach the registry, which the release asset never was.
+      #
+      # The tarballs stay in `dist/` and are listed in the step summary below, so a maintainer
+      # running this by hand can still see and download them from the run. If they are ever
+      # needed as durable artifacts, the answer is a separate release for the optimised build,
+      # created WITH its assets in one call - not an upload onto an existing one.
+      - name: Say where the binaries went
         if: ${{ inputs.publish }}
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
-          gh release upload "${GITHUB_REF_NAME}" dist/* --clobber
+          {
+            echo "## Binaries"
+            echo
+            echo "Not attached to the release: immutable releases freeze assets at publish."
+            echo "The optimised build ships as the image tagged below."
+            echo
+            echo '```'
+            ls -l dist/
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

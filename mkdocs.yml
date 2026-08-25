@@ -5,17 +5,21 @@
 # feeds the version selector Material already ships - all of which had to be hand-written under
 # mdBook. `docs/publishing.md` describes the resulting layout.
 #
-# Every tool named here comes from the pinned nixpkgs through `nix run .#mkdocs` / `.#mike`, so
-# there is no pip and no npm in the build and the flake stays the single source of truth.
+# Every tool named here comes from pixi's isolated `docs` environment - `pixi run --frozen -e
+# docs docs` locally, `nix run .#pixi -- run --frozen -e docs docs` in CI, where a bare tool
+# name exits 127. There is deliberately no mkdocs and no mike flake app: mike shells out to
+# mkdocs, and composing the two through nix produced an mkdocs that could not import
+# `pymdownx`. One resolver owns the interpreter and everything in it, and nothing here comes
+# from pip or npm.
 
 site_name: sutura
 site_description: Answers questions about data as the person or agent asking, using metric definitions somebody certified.
 site_url: https://telekom.github.io/sutura/
 repo_url: https://github.com/telekom/sutura
 repo_name: telekom/sutura
-# `docs/` is the source directory, the mkdocs default. The pages used to sit under `docs/src/`
-# for mdBook; nothing needs the extra level now, and the flat layout is the one every mkdocs
-# reader expects.
+# `docs/` is the source directory, the mkdocs default, and there is no extra level under it:
+# a page's path is its URL, which is the layout every mkdocs reader expects. `docs/.tools/`
+# holds the API page generator; mkdocs skips a dot-prefixed path, so it is never published.
 edit_uri: edit/main/docs/
 
 theme:
@@ -85,7 +89,20 @@ markdown_extensions:
       line_spans: __span
       pygments_lang_class: true
   - pymdownx.inlinehilite
-  - pymdownx.snippets
+  # `CONTRIBUTING.md` and `CHANGELOG.md` live at the repository root, because that is where
+  # GitHub looks for them, and are rendered into a page by an INCLUDE rather than a copy -
+  # `docs/contributing.md` and `docs/changelog.md` are the include and nothing else, so the
+  # prose has one home and cannot drift.
+  #
+  # `base_path` is the repository root: snippets resolve against the process working
+  # directory, which is where mkdocs is invoked from, and `.` is already the default - it is
+  # written out because the include reaches OUTSIDE the docs directory and that is the part a
+  # reader will not assume. `check_paths` is the one that matters: it defaults to false, and
+  # a snippet that stops resolving is then published as the literal `--8<--` line on a green
+  # build.
+  - pymdownx.snippets:
+      base_path: ["."]
+      check_paths: true
   # Mermaid, through Material's own SuperFences integration rather than the mermaid2 plugin,
   # because that integration is what hands mermaid the active colour scheme - a bare CDN import
   # leaves every diagram stuck in light mode.
@@ -109,13 +126,32 @@ markdown_extensions:
 # Explicit, not derived from filenames. A nav that falls out of directory order silently
 # reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
 # the files on disk in both directions.
+# Four sections and an arc: what this is, then what the words mean and how to run it, then how
+# to work on it, then what to look up. The split that matters is Guide against Development -
+# the flat list this replaced put a contributor's environment setup and a reader's first
+# question at the same level, and a reader had no way to tell which pages were addressed to
+# them.
+#
+# No section index pages. Material would render one for each section heading, and `index.md`
+# already routes to every page here; three more landing pages would restate that table three
+# times. `navigation.indexes` stays on because a section index is worth having as soon as a
+# section has enough pages to need one.
 nav:
   - Introduction: index.md
-  - Getting started: getting-started.md
-  - Enterprise mirrors: enterprise-mirrors.md
-  - Publishing the docs: publishing.md
-  - Contributing: contributing.md
-  - Architecture: architecture.md
+  - Guide:
+    - Concepts: concepts.md
+    - Getting started: getting-started.md
+    - Questions and answers: qa.md
+  - Development:
+    - Contributing: contributing.md
+    - Building without direct egress: enterprise-mirrors.md
+    - Publishing the docs: publishing.md
+  - Reference:
+    - Architecture: architecture.md
+    - API:
+      - api/index.md
+      - sutura-domain: api/sutura-domain.md
+  - Changelog: changelog.md
 
 extra:
   version:

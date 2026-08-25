@@ -113,10 +113,32 @@ fn is_vendored_prose(path: &str) -> bool {
     VENDORED_PROSE.iter().any(|prefix| path.starts_with(prefix))
 }
 
+/// Paths whose BYTES are the point, not merely their punctuation.
+///
+/// `vendor/**` is third-party source recorded in `VENDOR.md` against an upstream artifact
+/// hash. Upstream's trailing whitespace, blank lines and missing final newlines are part of
+/// those bytes: "fixing" them would make the vendored copy differ from the release it claims
+/// to be, turn the recorded hash into a lie, and make the next update a diff of our edits
+/// interleaved with upstream's changes. Vendoring exists to hold someone else's code exactly
+/// as they published it, so a gate that rewrites it defeats the purpose.
+///
+/// WIDER than `VENDORED_PROSE`, which exempts only the em dash: this also exempts the
+/// whitespace and final-newline rules. Conflict markers and the size limit still apply,
+/// because those are about a file being well-formed rather than about its formatting - a bad
+/// merge in a vendored tree is still a bad merge, and an enormous blob is still a problem.
+const VENDORED_SOURCE: &[&str] = &["vendor/"];
+
+/// Is this path vendored third-party source, exempt from the formatting rules?
+fn is_vendored_source(path: &str) -> bool {
+    VENDORED_SOURCE.iter().any(|prefix| path.starts_with(prefix))
+}
+
 pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
-    let generated = is_generated(text);
-    let prose_exempt = generated || is_vendored_prose(path);
+    // Both mean "do not reformat these bytes": a generated file is rewritten by its own
+    // generator, and a vendored file has to keep matching the upstream artifact it records.
+    let byte_exact = is_generated(text) || is_vendored_source(path);
+    let prose_exempt = byte_exact || is_vendored_prose(path);
 
     for (i, line) in text.lines().enumerate() {
         for marker in CONFLICT_MARKERS {
@@ -130,7 +152,7 @@ pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
         // `\r` is the line-endings gate's business, not this one's; strip it so a CRLF file
         // does not also report trailing whitespace on every line.
         let without_cr = line.strip_suffix('\r').unwrap_or(line);
-        if !generated && without_cr != without_cr.trim_end() {
+        if !byte_exact && without_cr != without_cr.trim_end() {
             findings.push(Finding::TrailingWhitespace { line: i + 1 });
         }
         // Generated and vendored text is exempt for the reason above: it must match its
@@ -142,7 +164,7 @@ pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
     }
 
     // An empty file is fine and needs no terminator.
-    if !generated && !text.is_empty() {
+    if !byte_exact && !text.is_empty() {
         if text.ends_with('\n') {
             let trailing = text.len() - text.trim_end_matches('\n').len();
             if trailing > 1 {
@@ -158,8 +180,13 @@ pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
 
 /// Apply the mechanical repairs: strip trailing whitespace, end with exactly one newline.
 pub(crate) fn fixed(path: &str, text: &str) -> String {
+    // Returned byte for byte: `--fix` must never be the thing that makes a vendored tree
+    // differ from the upstream release it records.
+    if is_generated(text) || is_vendored_source(path) {
+        return String::from(text);
+    }
     let mut out = String::with_capacity(text.len());
-    let prose_exempt = is_generated(text) || is_vendored_prose(path);
+    let prose_exempt = is_vendored_prose(path);
     for line in text.lines() {
         let without_cr = line.strip_suffix('\r').unwrap_or(line);
         let trimmed = without_cr.trim_end();
@@ -354,6 +381,28 @@ mod tests {
     fn fix_replaces_an_em_dash_with_one_hyphen() {
         let line = format!("a clause {} and more\n", super::EM_DASH);
         assert_eq!(fixed(ANY, &line), "a clause - and more\n");
+    }
+
+    #[test]
+    fn vendored_source_keeps_its_formatting_but_not_a_bad_merge() {
+        // `vendor/**` holds upstream bytes recorded in VENDOR.md against a release hash, so
+        // the formatting rules must not touch it. Without this the vendored mimalloc tree
+        // reported 343 findings that were every one of them upstream's own whitespace.
+        let vendored = "vendor/mimalloc_rust/libmimalloc-sys/c_src/mimalloc/v3/src/alloc.c";
+        let messy = "int a;  \nint b;\n\n\n";
+        assert_eq!(inspect(vendored, messy), vec![], "formatting is upstream's business");
+        assert_eq!(fixed(vendored, messy), messy, "`--fix` returns vendored bytes unchanged");
+        assert!(!inspect(ANY, messy).is_empty(), "our own files are still checked");
+
+        // The other half, and the reason the exemption is narrow: a bad merge is a bad merge
+        // wherever it lands. This is about formatting, not about being well-formed.
+        let conflicted = "<<<<<<< HEAD\nint a;\n>>>>>>> theirs\n";
+        assert!(
+            inspect(vendored, conflicted)
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. })),
+            "conflict markers are still reported in vendored source"
+        );
     }
 
     #[test]

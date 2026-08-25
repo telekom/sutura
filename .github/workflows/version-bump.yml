@@ -1,5 +1,16 @@
-# On push to main: work out the next version from the commit subjects, write CHANGELOG.md,
-# and tag. The tag is what triggers release.yml, so this file publishes nothing itself.
+# On push to main: write CHANGELOG.md, work out the next version from the commit subjects,
+# tag, and ask release.yml to run. This file publishes nothing itself.
+#
+# It asks, rather than leaving the tag to do it. A push made with GITHUB_TOKEN does not start
+# a workflow run - GitHub suppresses that so a workflow cannot trigger itself - so `git push
+# origin "$VERSION"` lands the tag and nothing happens. `workflow_dispatch` is the documented
+# exception to the same rule, so the release is requested explicitly, on the tag's own ref.
+# That suppression is also what stops the changelog refresh below from looping.
+#
+# CHANGELOG.md is written on EVERY push, not only when the version moves. Written only on a
+# release, the file sat on main with an `## Unreleased` heading listing a subset of what main
+# already contained - twelve commits behind at the worst point. A heading that calls itself
+# unreleased and then omits half the unreleased work is worse than no file at all.
 #
 # The bump is DERIVED, not chosen: `feat` gives a minor, `fix` and the rest give a patch, and a
 # `!` or a BREAKING CHANGE footer gives a major. That works only because the commit subject is
@@ -29,6 +40,7 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: write   # commit the changelog, push the tag
+      actions: write    # ask release.yml to run; the tag push cannot (see the note above)
     steps:
       # A `workflow_dispatch` on any branch would otherwise reach `git push origin HEAD:main`
       # below, putting unreviewed commits on main - which then tags and publishes. The ref is
@@ -80,11 +92,46 @@ jobs:
             echo "version=$next" >> "$GITHUB_OUTPUT"
           fi
 
+      # Unconditional. `version` is only set when the bump moved, so an empty one is the
+      # no-release path: the section stays `## Unreleased` and is committed on its own below.
+      # With a tag it becomes that version's section and rides in the release commit instead.
+      # Same render either way, and the same one `just changelog` does locally.
       - name: Write the changelog
-        if: steps.next.outputs.release == 'true'
         env:
           VERSION: ${{ steps.next.outputs.version }}
-        run: nix run .#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+        run: |
+          set -eu
+          if [ -n "${VERSION:-}" ]; then
+            nix run .#git-cliff -- --tag "$VERSION" -o CHANGELOG.md
+          else
+            nix run .#git-cliff -- -o CHANGELOG.md
+          fi
+          git --no-pager diff --stat -- CHANGELOG.md
+
+      # The other branch: main gained commits that do not move the version (a chore, a
+      # docs-only push), so there is nothing to tag and the changelog still changed.
+      #
+      # A lost race is not a failure HERE. `concurrency` above serialises this workflow
+      # against itself, but a human push landing between the checkout and this push makes it
+      # non-fast-forward, and the next push to main renders the identical file again - so the
+      # right response is to say so and move on rather than redden a run nobody can act on.
+      # The release path below deliberately does NOT get that leniency: a release that
+      # silently did not happen is a real problem.
+      - name: Refresh the changelog on main
+        if: steps.next.outputs.release != 'true'
+        run: |
+          set -eu
+          if git diff --quiet -- CHANGELOG.md; then
+            echo "changelog unchanged: nothing to commit"
+            exit 0
+          fi
+          git config user.name  'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add CHANGELOG.md
+          # `chore` is skipped by cliff.toml, so this commit never shows up as an entry about
+          # itself - and a chore moves no version, so it cannot trigger a release either.
+          git commit -m 'chore(changelog): refresh the unreleased section'
+          git push origin HEAD:main || echo "::warning::main moved; the next push rewrites it"
 
       # The manifest version must match the tag, or a built binary reports one version
       # while the release says another.
@@ -131,3 +178,28 @@ jobs:
           git tag -a "${VERSION}" -m "${VERSION}"
           git push origin HEAD:main
           git push origin "${VERSION}"
+
+      # The tag is pushed; nothing has started. See the note at the top of this file: a push
+      # made with GITHUB_TOKEN does not start a workflow run, so release.yml has to be asked.
+      # Its own `permissions` and its tag-shape guards are unchanged by being dispatched - the
+      # ref is the tag, so `github.ref` is `refs/tags/vX.Y.Z` and every guard in it still
+      # holds.
+      #
+      # Retried, because the ref was created seconds ago and the API can 404 on it briefly.
+      - name: Start the release
+        if: steps.next.outputs.release == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ steps.next.outputs.version }}
+        run: |
+          set -eu
+          for attempt in 1 2 3; do
+            if gh workflow run release.yml --ref "$VERSION"; then
+              echo "release.yml dispatched for ${VERSION}"
+              exit 0
+            fi
+            echo "attempt ${attempt}: ${VERSION} not visible to the API yet; retrying"
+            sleep 10
+          done
+          echo "::error::could not start release.yml for ${VERSION}; dispatch it by hand"
+          exit 1
