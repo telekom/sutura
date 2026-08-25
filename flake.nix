@@ -260,7 +260,22 @@
         # `opt-level = 0` on `[profile.dev]` applies to our own crates, not to this. Reading the
         # wrong one of those two keys is the easy mistake here. It also means `dev` reuses the
         # `release-performance` archive rather than adding a third C build to the cache.
-        optLevelFor = profile: if profile == "release" then "1" else "3";
+        # EXPLICIT per profile, and an unknown one is an error rather than a default. It was
+        # `if profile == "release" then "1" else "3"` while there were two profiles, and when a
+        # third arrived it inherited `3` by falling through the `else` - silently, and nobody
+        # chose it. `throw` is the whole point: a fourth profile has to state its own number
+        # here, because the value has to match what cc-rs computes for that profile or the
+        # allocator decouples from the code it is linked into.
+        optLevelFor = profile:
+          {
+            # cc-rs reads cargo's OPT_LEVEL, and for a DEPENDENCY that is
+            # `[profile.<p>.package."*"]` rather than the profile's own `opt-level`.
+            release = "1";
+            release-performance = "3";
+            # `[profile.ci.package."*"] opt-level = 0` - the point of that profile is compile
+            # speed, so its allocator is compiled to match rather than shared with a shipped one.
+            ci = "0";
+          }.${profile} or (throw "optLevelFor: no opt level declared for profile '${profile}'");
 
         nativeFor = profile:
           let args = commonArgs // {
@@ -351,16 +366,20 @@
         variants = [
           { suffix = ""; profile = "release"; }
           { suffix = "-performance"; profile = "release-performance"; }
-          # The dev-profile sibling. It exists for pull requests: a branch needs to know that
-          # every target still COMPILES AND LINKS - the allocator C included, per target, which
-          # is where cross breakage actually lives - and it does not need that answer at LTO
-          # prices. `dev` and not a stripped-down release, so the answer comes from the profile
-          # developers already build locally.
+          # The link-check sibling, for pull requests: a branch needs to know that every target
+          # still COMPILES AND LINKS - the allocator C included, per target, which is where
+          # cross breakage actually lives - and it does not need that answer at LTO prices.
+          #
+          # `ci` and not `dev`. `dev` optimises every dependency and keeps full debuginfo,
+          # which is the right bargain in an incremental shell and the wrong one here: the
+          # sandbox starts cold and nothing executes the result, so that was optimisation and
+          # debuginfo bought and never used, cached at four targets' worth of size. See the
+          # profile in Cargo.toml.
           #
           # Not a shipped artifact and never published. `releaseTargets`, `imageTargets` and the
           # `one-binary` check all key off the unsuffixed name, so nothing here can reach a
-          # release asset by accident.
-          { suffix = "-debug"; profile = "dev"; }
+          # release asset by accident - `nix eval` shows no `oci-*-ci` attribute exists.
+          { suffix = "-ci"; profile = "ci"; }
         ];
 
         crossPackages = builtins.listToAttrs (builtins.concatMap

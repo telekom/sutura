@@ -207,12 +207,13 @@ jobs:
           nix run .#causality -- --since "$BASE"
 
       # MAIN ONLY: release-profile codegen, the one-binary assertion and the image. Branches
-      # build every target in the dev profile instead - see the `cross` job below - so what main
-      # adds is the profile and the container, not the target coverage.
+      # build every target under the `ci` profile instead - see the `cross` job below - so what
+      # main adds is the profile and the container, not the target coverage.
       #
       # The remaining exposure, stated because it is real: a break that needs release codegen to
-      # appear - thin LTO, `panic = "abort"`, `opt-level = 1` - turns main red rather than the
-      # pull request. Cross and libc breakage does not, because `cross` builds all four.
+      # appear - thin LTO, `opt-level = 1` - turns main red rather than the pull request. Cross
+      # and libc breakage does not, because `cross` builds all four, and `panic = "abort"` is no
+      # longer in that list: the `ci` profile sets it too.
       - name: Release build
         if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: |
@@ -233,7 +234,7 @@ jobs:
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
 
-  # PULL REQUESTS: every target, dev profile, no image. The counterpart to the two main-only
+  # PULL REQUESTS: every target, `ci` profile, no image. The counterpart to the two main-only
   # steps above - main proves what SHIPS, a branch proves every arch still COMPILES AND LINKS.
   #
   # Why the archs are checked on the branch at all, rather than deferred with the release build:
@@ -294,14 +295,14 @@ jobs:
       # Through `env` rather than interpolated into the script: a matrix literal is not
       # attacker-controlled, but the rule that no `${{ }}` reaches a shell body is worth more
       # as a rule than as a case-by-case judgement.
-      - name: Dev build
+      - name: Link check
         env:
           TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          nix build ".#sutura-${TARGET}-debug" -L -o result-dev
+          nix build ".#sutura-${TARGET}-ci" -L -o result-ci
           # Proves the arch, not just the exit code: a linker that silently produced a host
           # binary would pass a bare build.
-          file result-dev/bin/sutura
+          file result-ci/bin/sutura
           # Not a silent cap: a green branch must not read as having validated what ships.
-          echo "::notice::${TARGET}: dev profile. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."
+          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."

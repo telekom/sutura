@@ -240,6 +240,54 @@ opt-level = 3
 [profile.dev.build-override]
 opt-level = 3
 
+# CI: the profile for "does this still compile and link", and nothing else. Used by the
+# `cross` job for the four shipped triples on a pull request; no artifact from it is ever
+# published or executed - the job runs `file` on the binary and stops.
+#
+# Every knob here is set for COMPILE SPEED, because runtime speed is irrelevant to a build
+# nothing runs. That inverts `dev`'s bargain, which is the point: `dev` optimises
+# dependencies and keeps full debuginfo on the argument that they are "compiled once and
+# executed many times, so paying for them is free". True in an incremental shell, false in
+# a Nix sandbox - every derivation starts cold, and CI executes the result zero times. So
+# CI was paying for optimisation and debuginfo it could not use, and the debuginfo was
+# landing in the build cache besides.
+#
+# `inherits = "dev"` for `lto = "off"` and `codegen-units = 256` - maximum parallelism, no
+# link-time work. THE TWO SUB-TABLES BELOW ARE NOT OPTIONAL: `inherits` carries
+# `[profile.dev.package."*"]` and `[profile.dev.build-override]` with it, so without them
+# this profile would still build every dependency and every build script at `opt-level = 3`
+# and save nothing. Measured with `cargo build -Z unstable-options --unit-graph` on a
+# throwaway crate: under a profile inheriting `dev`, the local crate came out at
+# `opt_level 0` and the dependency at `opt_level 3`.
+[profile.ci]
+inherits = "dev"
+opt-level = 0
+# No debuginfo, and this is the size half of the change: `dev` carries `debug = true` for
+# the whole dependency closure across four targets, which is most of the bulk of the cache
+# entries the cross builds write. A link check needs none of it.
+debug = false
+strip = true
+# Both off for codegen volume, not for principle: an overflow check is a branch and a panic
+# path emitted at every arithmetic site. The tests that would exercise them run under `dev`
+# in the `nextest` check, on the host, where they are on.
+debug-assertions = false
+overflow-checks = false
+# Pointless in a sandbox: each derivation starts with an empty target directory, so the
+# incremental artifacts are computed, written and then discarded with the sandbox.
+incremental = false
+# Matches the shipped profiles, and cheaper here: no landing pads and no unwind tables to
+# emit. A link check that linked a panic strategy we do not ship would be checking the
+# wrong binary.
+panic = "abort"
+
+# opt-level 0 for DEPENDENCIES and BUILD SCRIPTS, overriding what `dev` sets. This is where
+# the compile-time saving actually is - the workspace's own crates are three small ones,
+# and everything else is the closure.
+[profile.ci.package."*"]
+opt-level = 0
+[profile.ci.build-override]
+opt-level = 0
+
 # Release: the DEFAULT shipped profile, deliberately cheap to build. Optimising every CI
 # build at opt-level 3 with full LTO buys latency nobody measured.
 [profile.release]
