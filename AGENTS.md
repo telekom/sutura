@@ -226,7 +226,7 @@ for the evidence instead: the command you ran, the failure before the fix, the p
 ## Where Detailed Guidance Lives
 
 - `devenv.nix` - the shell, the tool pins, and the task names used above.
-- `.pre-commit-config.yaml` - what runs on commit, on commit-msg and on push.
+- `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push.
 - `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.

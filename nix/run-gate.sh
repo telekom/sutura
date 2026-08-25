@@ -1,8 +1,8 @@
 # shellcheck shell=bash
-# Run a pre-push gate through whatever this host actually has.
+# Run a local gate through whatever this host actually has.
 #
-# The problem this solves is concrete: the pre-push hooks called `cargo nextest` and
-# `cargo deny` directly, and on a host where neither is installed EVERY push was blocked with
+# The problem this solves is concrete: the hooks called `cargo nextest` and `cargo deny`
+# directly, and on a host where neither is installed EVERY commit or push was blocked with
 # "no such command". A hook that cannot run must not be a wall.
 #
 # Three tiers, in order:
@@ -75,7 +75,7 @@ secrets)
     # The WHOLE tree, with the same config CI uses. The commit-stage hook scans only staged
     # changes, which is right for its tier and is why it could not have caught the finding that
     # turned CI red: an allowlist-worthy literal in a file committed long ago never appears in a
-    # staged diff. Pre-push is the last local chance to see what CI will see.
+    # staged diff. Push is the last local chance to see what CI will see.
     if command -v betterleaks >/dev/null 2>&1; then
         exec betterleaks dir . --config devco/gitleaks.toml --redact
     elif command -v nix >/dev/null 2>&1; then

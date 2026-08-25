@@ -234,8 +234,8 @@ not skip it silently.
 
 `just ship-check` is the finishing sequence. It needs a clean tree and a reachable base ref,
 because it judges the committed diff from the merge base - what a reviewer will see - and over
-that range it runs the commit-stage hooks, the gates' own unit tests, the causality check and
-the pre-push hooks. Run it before saying a change is done.
+that range it runs the commit-stage hooks - the tests among them - the gates' own unit
+tests, the causality check and the push-stage gates. Run it before saying a change is done.
 
 ## Stacked pull requests
 

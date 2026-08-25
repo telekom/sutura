@@ -52,17 +52,19 @@ repos:
         files: \.rs$
         pass_filenames: true
 
-      # --- on push: the expensive gates -------------------------------------
+      # A commit is the claim that the change works, so the tests run BEFORE it, not on push.
+      # They were on pre-push, which inverts that: the claim is already in history by the time
+      # anything checks it, and a failure then needs a second commit to undo the first.
+      #
       # Through nix/run-gate.sh, which falls back to nix and then to a notice. Called
-      # `cargo nextest` directly before, and on a host without it every push was blocked
-      # with "no such command" - a hook that cannot run must not be a wall. CI runs this
-      # unconditionally, so the fallback delays a finding rather than losing it.
+      # `cargo nextest` directly before, and on a host without it every commit would be
+      # blocked with "no such command" - a hook that cannot run must not be a wall. CI runs
+      # this unconditionally, so the fallback delays a finding rather than losing it.
       - id: rust-tests
         name: cargo nextest (all features)
         entry: bash nix/run-gate.sh tests
         language: system
         pass_filenames: false
-        stages: [pre-push]
 
       # nextest does not run doctests. Separate hook so its absence is visible rather than
       # assumed to be covered above.
@@ -71,8 +73,8 @@ repos:
         entry: cargo test --doc --workspace --all-features
         language: system
         pass_filenames: false
-        stages: [pre-push]
 
+      # --- on push: what only makes sense against the whole tree --------------
       # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
       # finding in a file committed long ago reaches CI unseen - which is exactly what happened.
       - id: secret-sweep

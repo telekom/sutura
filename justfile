@@ -31,7 +31,7 @@ setup:
       git config --local --unset core.hooksPath
     fi
     # All three stages: the commit-msg hook is separate from pre-commit, and pre-push carries
-    # the expensive gates. Missing one means that stage silently never runs.
+    # the whole-tree gates. Missing one means that stage silently never runs.
     pixi run --frozen hooks-install
     echo "== pixi env (the hook runner and the maintenance interpreter)"
     pixi install --frozen
