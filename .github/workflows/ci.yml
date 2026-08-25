@@ -200,8 +200,16 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
+      # MAIN ONLY. A branch pays for fmt, clippy, the tests and the hygiene gates - all of
+      # which compile in the dev profile - and that already links the vendored allocator, so
+      # a branch release build was re-proving the link at LTO prices. The cross target and
+      # the image are the expensive half and they move to main with it.
+      #
+      # The cost of this choice, stated because it is real: a break that only shows up in the
+      # release profile or on aarch64 now turns MAIN red rather than the pull request. That is
+      # the trade - branch latency for a slower signal on the two things branches rarely touch.
       - name: Release build
-        if: steps.classify.outputs.build == 'true'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: |
           set -eu
           nix build .#sutura -L
@@ -212,10 +220,17 @@ jobs:
           file result/bin/sutura result-aarch64/bin/sutura
 
       - name: Image
-        if: steps.classify.outputs.build == 'true'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
         run: |
           set -eu
           nix build .#oci -L -o result-oci
           ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+
+      # Not a silent cap: name what this ref did not build, so a green branch is not read as
+      # having validated the shipped artifacts.
+      - name: Artifacts deferred to main
+        if: steps.classify.outputs.build == 'true' && github.ref != 'refs/heads/main'
+        run: |
+          echo "::notice::release build, aarch64 cross build and the image are built on main, not on this ref - the dev-profile compile in the gates above is what ran here"
