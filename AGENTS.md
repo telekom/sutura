@@ -54,17 +54,10 @@ dependency. Keep it that way: its test suite should run in well under a second.
 shell and owns the task names; pixi owns the hook runner and the maintenance interpreter, nothing
 that reports findings; `prek` runs the hooks.
 
-**Two toolchains, and it matters which one you get.** The dev shell's bare `cargo` is the pinned
-**nightly** (`devco/rust-toolchain-nightly.toml`), because the cranelift codegen backend is nightly-only
-and it is what makes the inner loop fast. Every gate instead sources `nix/stable-env.sh`, which puts
-the pinned **stable** (`rust-toolchain.toml`) in front and gives it its own target directory. So:
-
-- Running a `just` task or a devenv script gets stable - the same compiler CI uses.
-- Typing `cargo clippy` yourself gets nightly, whose lint set differs. This repo gates on the whole
-  clippy `restriction` category with `-D warnings`, so nightly will report lints stable has never
-  heard of. **Do not conclude the branch is red from a bare `cargo clippy`** - run `just lint`.
-- The separate target directory is not optional: alternating compilers in one directory invalidates
-  every artifact in it.
+**Two toolchains, and the trap matters.** The dev shell's bare `cargo` is a pinned **nightly**
+(cranelift); every gate runs on the pinned **stable** that CI uses. So a bare `cargo clippy`
+reports lints stable has never heard of. **Do not conclude a branch is red from one** - run
+`just lint`. CONTRIBUTING.md has the mechanism.
 
 CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
 needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
@@ -90,13 +83,9 @@ just update                                          # bump flake.lock, pixi.loc
 stax                                                 # stacked branches / PRs
 ```
 
-- Hooks are tiered by cost: fmt, clippy `--all-features`, the structural gates and the
-  conventional-commit subject check run on commit; tests and `cargo-deny` on push. Scope hook runs
-  to touched files while iterating, sweep before a PR.
-- `--all-features` is not thoroughness for its own sake. Adapters are feature-gated and default-off,
-  so a bare `cargo clippy --workspace` inspects almost nothing and still reports success. Every lint
-  and test entry point passes it; a scoped `-p sutura-domain --no-default-features` run is the fast
-  inner loop, not the gate.
+- `--all-features` is not optional. Adapters are feature-gated and default-off, so a bare
+  `cargo clippy --workspace` inspects almost nothing and still reports success.
+- Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
 - The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
   here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
 - nix is the **only** pin for any tool whose version changes what it reports - zizmor, actionlint,
@@ -186,31 +175,17 @@ within these invariants and never overrides them.
 
 ## Finishing A Change
 
-`ship-check` is the finishing sequence, and it is a command rather than a checklist so it
-costs no tokens to follow and cannot be half-remembered:
+Run `ship-check` before saying a change is done. It is a command rather than a checklist so it
+cannot be half-remembered.
 
-```bash
-ship-check                      # hooks over the branch diff, gate self-tests, causality
-```
+**A new or changed test must be red against the base behaviour and green with your change.** A
+test that passes both ways proves nothing and is worse than no test, because it looks like
+coverage. `cargo xtask test-causality --since <base>` checks it mechanically, in `ship-check`
+and in CI.
 
-It requires a clean tree and a reachable base ref, then runs the commit-stage hooks over the
-merge-base range, the pre-push hooks, and the test-causality proof below. Run it before
-saying a change is done.
-
-### Tests must be shown to test something
-
-A new or changed test has to be **red against the base behaviour and green with your change**.
-A test that passes both ways proves nothing and is worse than no test, because it looks like
-coverage.
-
-`cargo xtask test-causality --since <base>` checks this mechanically: it re-runs changed tests
-against the base version of the non-test sources and requires at least one to fail, with no
-unrelated failures, then requires them green on your head. It runs in `ship-check` and in CI.
-
-When the change is not separable that way - impl and test in the same file, or a change with
-no behavioural difference such as a rename - the gate says so and asks you to state the
-evidence instead: the command you ran, the failure you saw before the fix, and the pass after.
-Do not skip it silently.
+When it is not separable - impl and test in one file, or a rename - the gate says so and asks
+for the evidence instead: the command you ran, the failure before the fix, the pass after.
+**Do not skip it silently.** CONTRIBUTING.md has the rest.
 
 ## Agent Operating Contract
 
