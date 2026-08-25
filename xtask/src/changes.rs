@@ -95,7 +95,7 @@ const AREAS: &[Area] = &[
         // purpose of STARTING a run, so in CI these two patterns bite on a change that also
         // touches something else. They still bite in the hooks and in a local `classify`.)
         //
-        // NOT here: `rust-toolchain-nightly.toml`. It sets rustdoc's `format_version` and so
+        // NOT here: `devco/rust-toolchain-nightly.toml`. It sets rustdoc's `format_version` and so
         // can change every page - but it matches no area today, which means it fails open to
         // `run_all`, and `run_all` already subsumes this area. Adding it here would NARROW
         // that to `api` alone, which is strictly less checking.

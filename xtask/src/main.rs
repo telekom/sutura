@@ -93,7 +93,7 @@ const TASKS: &[Task] = &[
     },
     Task {
         name: "max-lines",
-        description: "no file over 1000 lines (exemptions: .max-lines-ignore)",
+        description: "no file over 1000 lines (exemptions: devco/max-lines-ignore)",
         kind: Kind::Hygiene,
         run: max_lines::run,
     },

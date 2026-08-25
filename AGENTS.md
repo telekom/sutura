@@ -55,7 +55,7 @@ shell and owns the task names; pixi owns the hook runner and the maintenance int
 that reports findings; `prek` runs the hooks.
 
 **Two toolchains, and it matters which one you get.** The dev shell's bare `cargo` is the pinned
-**nightly** (`rust-toolchain-nightly.toml`), because the cranelift codegen backend is nightly-only
+**nightly** (`devco/rust-toolchain-nightly.toml`), because the cranelift codegen backend is nightly-only
 and it is what makes the inner loop fast. Every gate instead sources `nix/stable-env.sh`, which puts
 the pinned **stable** (`rust-toolchain.toml`) in front and gives it its own target directory. So:
 
@@ -121,7 +121,7 @@ regeneration is checked rather than trusted.
 | MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
 | The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
-| Compiler version, local inner loop | `rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
+| Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
 | Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
@@ -147,7 +147,7 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | The domain acquires no framework dependency | The dependency-boundary half of the boundary check in `xtask`, run by `gates` and in CI. An **allowlist** over the whole transitive tree, so a framework reached through an innocuous crate fails it too |
 | A newtype's invariant cannot be walked around | The field is private and the constructor is the only way in, so a violating value is unrepresentable rather than merely rejected. The typed-surface half of the boundary check fails a `pub` field on a `pub struct` in a library crate. `serde` is routed through the constructor with `#[serde(try_from = ..)]`, because a derived `Deserialize` writes past it - *Gap: that routing is not itself checked; review catches it until a gate does* |
 | A library crate's errors are typed, not prose | The typed-surface half of the boundary check fails a `Result<.., String>` or a declared dynamic-error crate (`anyhow`, `eyre`) in any crate with a `[lib]` target. Binaries are deliberately exempt: there the error's audience is a human reading stderr. *Gap: it is line-scoped, so a signature wrapped across lines escapes it* |
-| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `.max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
+| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `devco/max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
 | No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody - an entry nothing inherits pins nothing |
 | No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
 | Dead code does not accumulate, and cannot hide behind `pub` | `dead_code`, `unused_must_use` and `unreachable_pub` are `deny` rather than the default `warn`, so a plain `cargo build` fails on them. `unreachable_pub` is what stops an unused item from being kept alive by a `pub` that reaches nowhere |
@@ -259,7 +259,8 @@ Do not skip it silently.
 - `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.
-- `.max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
+- `devco/` - config that only this repo's own tooling reads.
+- `devco/max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
   the list of what may not be.
 - `xtask/` - the gates: `check-boundaries` (two halves: which way dependencies point, and whether a
   library crate's types and errors are a typed contract), `max-lines`, `unused-deps`, `line-endings`,

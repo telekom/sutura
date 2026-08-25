@@ -10,5 +10,5 @@
 { rustPkgs }:
 {
   stable = rustPkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain.toml;
-  nightly = rustPkgs.rust-bin.fromRustupToolchainFile ../rust-toolchain-nightly.toml;
+  nightly = rustPkgs.rust-bin.fromRustupToolchainFile ../devco/rust-toolchain-nightly.toml;
 }

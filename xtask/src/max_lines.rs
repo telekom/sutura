@@ -5,7 +5,7 @@
 //! it was never drawn. The limit is deliberately blunt: a number a tool can check beats a
 //! judgement call nobody makes.
 //!
-//! Generated and vendored output is exempt via `.max-lines-ignore`. Hand-written source
+//! Generated and vendored output is exempt via `devco/max-lines-ignore`. Hand-written source
 //! is not exemptable at all - see [`UNEXEMPTABLE_PREFIXES`].
 
 use crate::Verdict;
@@ -17,7 +17,7 @@ const DEFAULT_MAX_LINES: usize = 1000;
 
 /// Ignore patterns live in a file, not in this source, so adding an exemption is a
 /// reviewable one-line diff next to the reason for it.
-const IGNORE_FILE: &str = ".max-lines-ignore";
+const IGNORE_FILE: &str = "devco/max-lines-ignore";
 
 /// Hand-written source. An ignore pattern pointing here is rejected outright and the gate
 /// fails: the fix for a 1200-line module is to split it, and an exemption list that can

@@ -26,7 +26,7 @@ devenv.nix
 flake.lock
 pixi.lock
 pixi.toml
-rust-toolchain-nightly.toml
+devco/rust-toolchain-nightly.toml
 rust-toolchain.toml
 .pre-commit-config.yaml
 "

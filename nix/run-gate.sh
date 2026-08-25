@@ -77,10 +77,10 @@ secrets)
     # turned CI red: an allowlist-worthy literal in a file committed long ago never appears in a
     # staged diff. Pre-push is the last local chance to see what CI will see.
     if command -v betterleaks >/dev/null 2>&1; then
-        exec betterleaks dir . --config .gitleaks.toml --redact
+        exec betterleaks dir . --config devco/gitleaks.toml --redact
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: betterleaks absent, using nix (same pin as CI)"
-        exec nix run .#betterleaks -- dir . --config .gitleaks.toml --redact
+        exec nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact
     else
         echo "run-gate: SKIPPED the secret sweep - no betterleaks and no nix on this host."
         echo "          CI runs it on every push; this only delays the finding."

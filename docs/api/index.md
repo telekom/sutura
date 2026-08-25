@@ -20,7 +20,7 @@ pixi run --frozen python docs/.tools/rustdoc_to_markdown.py target/doc/sutura_do
 
 The first is nightly-only: `--output-format json` is an unstable rustdoc option. That is not a new
 pin, it is the nightly this repository already keeps for the cranelift backend
-(`rust-toolchain-nightly.toml`). The second reads the JSON and writes markdown, using the pixi
+(`devco/rust-toolchain-nightly.toml`). The second reads the JSON and writes markdown, using the pixi
 interpreter and the standard library only.
 
 rustdoc JSON carries a `format_version` that changes between nightlies. The generator reads it and

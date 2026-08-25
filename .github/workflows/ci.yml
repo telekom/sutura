@@ -144,7 +144,7 @@ jobs:
       # bypassed, and it cannot run on a host without the tool - so the enforcement point has
       # to be here. Never gated on classification: a credential can be committed in any file.
       - name: Secrets
-        run: nix run .#betterleaks -- dir . --config .gitleaks.toml --redact --verbose
+        run: nix run .#betterleaks -- dir . --config devco/gitleaks.toml --redact --verbose
 
       - name: Workflow static analysis
         if: steps.classify.outputs.run_all == 'true'

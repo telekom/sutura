@@ -41,7 +41,7 @@ import sys
 # refusing to guess is the difference between a tool and a trap: an unchecked generator either
 # crashes on a field rename or, worse, silently emits a page with the interesting parts missing.
 #
-# Bump this together with `rust-toolchain-nightly.toml`, in the same commit, and regenerate the
+# Bump this together with `devco/rust-toolchain-nightly.toml`, in the same commit, and regenerate the
 # pages so the diff shows what the new format changed.
 EXPECTED_FORMAT_VERSION = 61
 
@@ -391,7 +391,7 @@ def render_crate(data: dict, crate_name: str) -> str:
             f"{found}, expected {EXPECTED_FORMAT_VERSION}.\n"
             "rustdoc JSON is unstable and this number changes between nightlies. Read the new\n"
             "format, update EXPECTED_FORMAT_VERSION in docs/.tools/rustdoc_to_markdown.py in\n"
-            "the same commit as rust-toolchain-nightly.toml, and regenerate the pages so the\n"
+            "the same commit as devco/rust-toolchain-nightly.toml, and regenerate the pages so the\n"
             "diff shows what changed."
         )
 

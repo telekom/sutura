@@ -219,7 +219,7 @@ codegen-units = 256
 #
 # Nothing to set here. The backend is nightly-only, so it is enabled where the nightly
 # toolchain lives: devenv.nix exports CARGO_UNSTABLE_CODEGEN_BACKEND and
-# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and rust-toolchain-nightly.toml pins the compiler and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and devco/rust-toolchain-nightly.toml pins the compiler and
 # the `rustc-codegen-cranelift-preview` component.
 #
 # This comment used to instruct developers to add `[unstable] codegen-backend = true` and set

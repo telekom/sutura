@@ -151,7 +151,7 @@ One owner per concern, because two owners for one version is one too many.
 | Concern | Owner |
 | --- | --- |
 | Compiler version, anything shipped | `rust-toolchain.toml`, read by rustup and by Nix |
-| Compiler version, the local inner loop | `rust-toolchain-nightly.toml` |
+| Compiler version, the local inner loop | `devco/rust-toolchain-nightly.toml` |
 | The dev shell, tool versions, script names | `devenv.nix` |
 | The release build, cross-compilation, the image | `flake.nix` |
 | Anything delivered as a conda or Python package | `pixi.toml` |
@@ -163,7 +163,7 @@ One owner per concern, because two owners for one version is one too many.
 
 Read this before you believe a red `cargo clippy`.
 
-The dev shell's bare `cargo` is the pinned **nightly** (`rust-toolchain-nightly.toml`), because
+The dev shell's bare `cargo` is the pinned **nightly** (`devco/rust-toolchain-nightly.toml`), because
 the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. Every
 gate instead sources `nix/stable-env.sh`, which puts the pinned **stable**
 (`rust-toolchain.toml`) in front and gives it its own target directory.
@@ -337,7 +337,7 @@ One reviewable idea per branch. If describing it needs an "and", split it.
 - **`#[expect(.., reason = "..")]`, never `#[allow]`.** `clippy::allow_attributes` makes a bare
   allow a lint error, and an `expect` fails once the warning it suppresses stops firing, so a
   suppression cannot outlive its cause.
-- **No file over 1000 lines.** `cargo xtask max-lines`. `.max-lines-ignore` exempts generated
+- **No file over 1000 lines.** `cargo xtask max-lines`. `devco/max-lines-ignore` exempts generated
   and vendored output only; a pattern matching anything under `crates/` or `xtask/` fails the
   gate rather than being honoured, so the only way past it is to split the file.
 - **No dependency declared and unused.** `cargo xtask unused-deps`. A crate must reference

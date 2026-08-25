@@ -232,7 +232,7 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
     Err(format!(
         "`cargo rustdoc -p {package} ... --output-format json` failed.\n  \
          That option is unstable, so this gate needs the NIGHTLY toolchain \
-         (rust-toolchain-nightly.toml).\n  \
+         (devco/rust-toolchain-nightly.toml).\n  \
          Every other gate sources nix/stable-env.sh; this one must not, because stable \
          rejects `-Z` outright."
     ))
