@@ -6,7 +6,22 @@
 # at all - and the reason the allocator is replaced, since musl's own serialises every thread on
 # one lock (see `crates/sutura-cli/src/main.rs`).
 #
-# One job, so nothing has to be handed between jobs. Actions pinned by commit.
+# THREE JOBS: `gates` once, `build` as a matrix over the four targets, `publish` last. This was
+# a single job, on the argument that nothing then has to be handed between jobs. The handover
+# is real work - two more actions and four artifacts - and it buys two things.
+#
+# Wall clock, first, and it is NOT cheaper. Four runners at 4 vCPU each is MORE total compute
+# than one runner doing the same four builds in sequence, because on a cold cache every job
+# builds its own dependency closure concurrently instead of reusing the previous target's. The
+# matrix buys latency and pays for it in CPU. For a release, where the thing waiting is a
+# person, that is the right trade - but it is a trade, not a free win.
+#
+# A token boundary, second, and that one is free. `gates` and `build` hold nothing beyond
+# `contents: read`. `publish` is the only job that can write a release or push to GHCR, and it
+# compiles nothing: it loads image tarballs, pushes bytes, and renders text. It never executes
+# anything the build jobs produced, and it is the one job with no build cache attached.
+#
+# Actions pinned by commit.
 name: release
 
 on:
@@ -18,16 +33,37 @@ on:
 permissions:
   contents: read
 
+# One release at a time per ref, and this is not hypothetical caution. version-bump.yml asks
+# for this workflow BY NAME after it pushes the tag, because a push made with GITHUB_TOKEN
+# does not start a workflow run - so the tag alone never triggered this file. If that
+# suppression rule ever changes, the tag push and the dispatch would both start a run: two
+# jobs cross-building the same four artifacts and racing to move `:latest`.
+#
+# `cancel-in-progress: false`, because cancelling a run mid-publish is exactly what leaves
+# images pushed to ghcr.io with no release object naming them. Queueing is the safe order;
+# every step below is idempotent, so the second run converges.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
-  release:
+  # A release must not ship what the gates never saw, and they run ONCE rather than per target:
+  # they judge the source tree, which is the same tree for all four triples. Running them
+  # inside the matrix would report the same verdict four times and pay for it four times.
+  #
+  # These reuse one cargoArtifacts, which is why the whole set is cheaper than it reads.
+  #
+  # Re-run here on the TAG rather than trusted from main, deliberately. Tag `v0.1.0` points at
+  # a commit no branch contains, so CI never validated that tree at all: "main was green"
+  # would have shipped something nothing had ever checked.
+  gates:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 60
     permissions:
-      contents: write   # create the release, upload assets
-      packages: write   # push to GHCR
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,11 +79,38 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      # No shared cache on the release path, deliberately: zizmor flags cache poisoning,
-      # and a published binary must not be built from a cache a PR run could have written
-      # to. ci.yml keeps the cache, where the win is real and nothing is published.
+      # Carries /nix/store between runs. The same action at the same commit as ci.yml, copied
+      # rather than written, so the two paths cannot drift into caching differently.
+      #
+      # This step used to be ABSENT here, deliberately, on the argument that a published binary
+      # must not be built from a cache a pull request could have written to. That threat is not
+      # reachable, and GitHub's own documentation is what settles it. The Actions cache is
+      # scoped by ref - "Access restrictions provide cache isolation and security by creating a
+      # logical boundary between different branches or tags" - a run can restore only from its
+      # own ref and from the default branch, and a cache written by a pull request "is created
+      # for the merge ref (refs/pull/.../merge)" and therefore "can only be restored by re-runs
+      # of the pull request". A tag build reads its own tag's scope and main's. Nothing a pull
+      # request wrote is in either of them.
+      #
+      # What remains is an attacker who can push to the default branch, and that attacker
+      # changes the source instead: it is the shorter path to the same poisoned artifact, and no
+      # cache setting closes it. So refusing the cache bought nothing, and cost every release a
+      # cold rebuild of the entire dependency closure.
+      #
+      # Written out rather than quietly switched on, because the wrong version of this argument
+      # is the intuitive one, and somebody will otherwise "re-harden" the release path by
+      # deleting this line again.
+      #
+      # zizmor still reports `cache-poisoning` here, at its own stated confidence of Low, and it
+      # is not wrong to: the audit fires on `on.push.tags` plus a cache-aware action, and has no
+      # way to reason about ref scoping or about which job holds a write token. So it is
+      # suppressed INLINE, per step, carrying the argument above - not turned off in a config
+      # file, and not for any other audit. Its own output says `2 ignored`, so the suppression is
+      # visible in every run rather than silent. Note the `# v14` pin has to share this one
+      # comment with the directive: zizmor only honours an ignore comment that begins with
+      # `zizmor:` and sits on the flagged line itself.
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
 
-      # A release must not ship what the gates never saw. These reuse one cargoArtifacts.
       - name: Gates
         run: |
           set -eu
@@ -59,55 +122,295 @@ jobs:
           nix build .#checks.x86_64-linux.doctest -L
           nix build .#checks.x86_64-linux.one-binary -L
 
-      # `release`, not `release-performance`: the default shipped profile is the cheap one.
-      # release-performance.yml builds the other, on request.
-      #
-      # FOUR targets: glibc and musl, on each architecture. The musl pair is what runs on a host
-      # whose glibc is older than the builder's, and in an image that carries no libc at all.
-      # Its static-linking claim is ASSERTED here rather than described, because a musl target
+  # `release`, not `release-performance`: the default shipped profile is the cheap one.
+  # release-performance.yml builds the other, on request.
+  #
+  # FOUR targets, one job each: glibc and musl, on each architecture. The musl pair is what
+  # runs on a host whose glibc is older than the builder's, and in an image that carries no
+  # libc at all.
+  #
+  # NO write permissions, which is the point of having this job separate at all. Everything
+  # that compiles happens here, under a token that can read the repository and nothing else.
+  build:
+    needs: [gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    strategy:
+      # `fail-fast: false`, though nothing publishes unless all four succeed. Cancelling the
+      # other three on the first failure discards work that was nearly done AND denies the
+      # cache the store paths those jobs had already built, so the re-run starts colder. Since
+      # a re-run has to redo the whole matrix either way, the information is worth more than
+      # the saved minutes: one red job tells you which target is broken, four tell you whether
+      # it is the target or the tree.
+      fail-fast: false
+      matrix:
+        # Must stay in step with `TARGETS` in `publish`. It is not derived from it, because a
+        # matrix takes literals; instead `publish` asserts that exactly these four arrived, so
+        # a drift fails loudly rather than publishing three binaries.
+        target:
+          - x86_64-unknown-linux-gnu
+          - aarch64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          extra_nix_config: |
+            fallback = true
+
+      # The same cache as `gates`, for the reason spelled out there. Within one run this also
+      # picks up what `gates` just built, since both jobs read and write the same ref's scope.
+      # Same inline suppression as there, for the same reason.
+      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # zizmor: ignore[cache-poisoning] v14 - not reachable, see above
+
+      # The static-linking claim is ASSERTED here rather than described, because a musl target
       # that quietly linked dynamically would still build, still run on this runner, and fail
       # only on the machine the artifact exists for.
-      - name: Build and package
+      - name: Binary
+        env:
+          TARGET: ${{ matrix.target }}
         run: |
           set -eu
-          mkdir -p dist stage
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-                        x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            nix build ".#sutura-${target}" -L -o "result-${target}"
-            described="$(file -b "result-${target}/bin/sutura")"
-            echo "${target}: ${described}"
-            case "$target" in
-              *-musl)
-                # `file` says "statically linked" for a plain static ELF and "static-pie linked"
-                # for a static position-independent one. Both are static and neither carries a
-                # PT_INTERP; which one you get is a rustc target-spec detail, so accept either
-                # and reject anything that names an interpreter.
-                case "$described" in
-                  *"statically linked"*|*"static-pie linked"*) ;;
-                  *) echo "::error::${target} is not statically linked: ${described}"; exit 1 ;;
-                esac
-                ;;
-            esac
-            install -m755 "result-${target}/bin/sutura" stage/sutura
-            tar -C stage -czf "dist/sutura-${target}.tar.gz" sutura
-            ( cd dist && sha256sum "sutura-${target}.tar.gz" > "sutura-${target}.tar.gz.sha256" )
-          done
+          mkdir -p dist stage facts
+          nix build ".#sutura-${TARGET}" -L -o "result-${TARGET}"
+          described="$(file -b "result-${TARGET}/bin/sutura")"
+          echo "${TARGET}: ${described}"
+          case "$TARGET" in
+            *-musl)
+              # `file` says "statically linked" for a plain static ELF and "static-pie linked"
+              # for a static position-independent one. Both are static and neither carries a
+              # PT_INTERP; which one you get is a rustc target-spec detail, so accept either
+              # and reject anything that names an interpreter.
+              case "$described" in
+                *"statically linked"*|*"static-pie linked"*) ;;
+                *) echo "::error::${TARGET} is not statically linked: ${described}"; exit 1 ;;
+              esac
+              ;;
+          esac
+          # The linkage the notes report is the OBSERVED property, read out of the same `file`
+          # output the musl assertion above rejects on - not derived from the target name. A
+          # target named musl whose bytes were dynamic would already have failed that
+          # assertion; taking the label from `file` keeps the notes describing the artifact
+          # rather than the intent.
+          case "$described" in
+            *"statically linked"*|*"static-pie linked"*) linkage="static, no libc" ;;
+            *) linkage="dynamic (glibc)" ;;
+          esac
+          install -m755 "result-${TARGET}/bin/sutura" stage/sutura
+          tar -C stage -czf "dist/sutura-${TARGET}.tar.gz" sutura
+          ( cd dist && sha256sum "sutura-${TARGET}.tar.gz" > "sutura-${TARGET}.tar.gz.sha256" )
+          # Feeds the release notes, and lives OUTSIDE dist/ so it cannot become an asset
+          # repeating what the notes already say. Written with `>` and not `>>`: on a re-run in
+          # a warm workspace an append would report this target twice.
+          printf '%s|%s\n' "$TARGET" "$linkage" > "facts/${TARGET}.txt"
           ls -l dist
 
-      # Only from a tag, and only from a tag that looks like a release. Without this a
-      # `workflow_dispatch` on any branch computed a tag from the branch name and moved
-      # `:latest`, which is what consumers pull - unreviewed content, published.
+      # Built and RUN here, pushed by `publish`. Building the image in the job that holds
+      # `packages: write` was the alternative and it is worse in both directions: that job
+      # would have to compile, and the smoke tests below would be running image code under the
+      # publishing token. This way the token-holding job only ever moves bytes it does not
+      # execute.
+      #
+      # Unconditional, including on a `workflow_dispatch` from a branch where nothing will be
+      # published. A dry run that builds and runs all four images is the point of having one.
+      - name: Image
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          mkdir -p dist images
+          nix build ".#oci-${TARGET}" -L -o result-oci
+          # Written to a file once and loaded from it, rather than streamed twice: the stream
+          # script rebuilds and recompresses every layer each time it runs. The gzip is both
+          # what `publish` downloads and what the musl asset below is, so it happens once here
+          # rather than once per consumer.
+          ./result-oci > oci.tar
+          gzip -9 -c oci.tar > "images/sutura-oci-${TARGET}.tar.gz"
+          docker load -i oci.tar
+          rm -f oci.tar
+          case "$TARGET" in
+            x86_64-*)
+              # Only the x86_64 images can execute here. Running the arm64 pair would need
+              # qemu-user-static registered on the runner, which this job deliberately does
+              # not install: a build step should not also gain an emulator.
+              docker run --rm sutura:latest --version
+              docker run --rm sutura:latest doctor
+              # Prove the non-root default actually works rather than assuming it.
+              docker run --rm --user 65532:65532 sutura:latest --version
+              ;;
+          esac
+          # The musl pair is ALSO attached to the release as a loadable tarball; the glibc pair
+          # is not. That asymmetry is deliberate and is stated in the notes so it cannot read
+          # as an omission.
+          #
+          # Measured, not assumed: the musl image is 4.7 MiB of tar and 1.0 MiB gzipped, the
+          # glibc one 41 MiB and 13.2 MiB. So the glibc pair would add roughly 26 MiB to every
+          # release, most of it a glibc layer identical from one release to the next - and a
+          # release asset is not a registry: no shared layers, no digest addressing, no expiry,
+          # so it would be re-shipped whole each time. The case for attaching any image at all
+          # is the host that cannot reach ghcr.io, and that host is served by the static one
+          # that carries no libc, at 1 MiB. For the glibc pair the published digest is the
+          # pointer, which is what a registry-reachable consumer wants anyway.
+          #
+          # A copy rather than a move: `publish` loads every target out of images/, so all four
+          # take one code path there, and the checksum describes the exact bytes of the asset.
+          case "$TARGET" in
+            *-musl)
+              cp "images/sutura-oci-${TARGET}.tar.gz" "dist/sutura-oci-${TARGET}.tar.gz"
+              ( cd dist && sha256sum "sutura-oci-${TARGET}.tar.gz" > "sutura-oci-${TARGET}.tar.gz.sha256" )
+              ;;
+          esac
+          ls -l dist images
+
+      # The handover. `dist/` is release assets, `images/` is what `publish` pushes and never
+      # ships, `facts/` is one line of prose for the notes.
+      #
+      # `compression-level: 0` because every file here is already gzipped, and zip would spend
+      # CPU re-compressing compressed bytes for no gain. `if-no-files-found: error` because an
+      # empty artifact would surface as a failure in `publish`, far from its cause.
+      #
+      # `retention-days: 7`: long enough that re-running only a failed `publish` days later
+      # still finds its inputs, short enough that four images per release do not accumulate.
+      - name: Hand the artifacts to publish
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            dist/
+            images/
+            facts/
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  # The only job that can write anything, and the only one that builds nothing.
+  #
+  # Gated at the JOB level rather than per step, so on a branch dispatch the job holding the
+  # write tokens never starts. The runtime check inside `Push the images` is still there and is
+  # not redundant: `startsWith(github.ref, 'refs/tags/v')` accepts `v-nonsense`, and only a
+  # `vN.N.N` tag may move `:latest`, which is what consumers pull.
+  publish:
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write   # create the release, upload assets
+      packages: write   # push to GHCR
+    env:
+      # The four targets, in the order the release notes list them: the glibc pair first,
+      # because an unqualified `docker pull` and an unqualified download both mean glibc here.
+      # Read by more than one step, so it is job-level rather than repeated. Must stay in step
+      # with `strategy.matrix.target` in `build`; `Check that all four builds arrived` is what
+      # makes that a gate instead of a hope.
+      TARGETS: >-
+        x86_64-unknown-linux-gnu
+        aarch64-unknown-linux-gnu
+        x86_64-unknown-linux-musl
+        aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history, because git-cliff renders the change list out of it below.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
+        with:
+          # As in `gates`: settings that matter are written here, not read out of flake.nix.
+          extra_nix_config: |
+            fallback = true
+
+      # NO cache step here, and this time the absence really is deliberate. This job compiles
+      # nothing: its only nix invocation is `nix run .#git-cliff`, which is substituted from
+      # cache.nixos.org rather than built. So the job holding `contents: write` and
+      # `packages: write` is also the one job that never touches the shared build cache - a
+      # property that falls out of the split rather than one that had to be arranged.
+
+      # Into the workspace root, so `dist/`, `images/` and `facts/` land exactly where the
+      # steps below expect them: the same layout a single job would have produced. None of
+      # those three names exists in the checkout, so nothing is overwritten, and nix ignores
+      # untracked files, so the flake source is unaffected.
+      - name: Collect what the matrix built
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: release-*
+          merge-multiple: true
+
+      # The failure mode the split introduces, gated before anything is published. A single job
+      # could not lose a target; four jobs and an artifact round-trip can, and a release that
+      # quietly shipped three binaries and a table one row short is exactly the kind of thing
+      # nobody notices until a user does.
+      - name: Check that all four builds arrived
+        run: |
+          set -eu
+          missing=0
+          want=0
+          for target in $TARGETS; do
+            want=$((want + 1))
+            files="facts/${target}.txt images/sutura-oci-${target}.tar.gz"
+            files="${files} dist/sutura-${target}.tar.gz dist/sutura-${target}.tar.gz.sha256"
+            case "$target" in
+              *-musl)
+                files="${files} dist/sutura-oci-${target}.tar.gz"
+                files="${files} dist/sutura-oci-${target}.tar.gz.sha256"
+                ;;
+            esac
+            for f in $files; do
+              if [ ! -s "$f" ]; then
+                echo "::error::${target}: ${f} is missing or empty"
+                missing=1
+              fi
+            done
+          done
+          [ "$missing" -eq 0 ] || exit 1
+          # And nothing EXTRA, which catches the drift in the other direction: a target added
+          # to strategy.matrix.target and not to TARGETS would otherwise be built, paid for,
+          # and silently dropped.
+          have="$(find facts -type f -name '*.txt' | wc -l)"
+          if [ "$have" -ne "$want" ]; then
+            echo "::error::${have} target(s) arrived but this job expects ${want}: TARGETS here and strategy.matrix.target in 'build' have drifted apart"
+            exit 1
+          fi
+          ls -l dist images facts
+
+      # Only from a tag that looks like a release. Without this a `workflow_dispatch` on any
+      # branch computed a tag from the branch name and moved `:latest`, which is what consumers
+      # pull - unreviewed content, published.
       #
       # One image per binary, tagged with the RUST TRIPLE, so an image and a tarball from the
-      # same run are traceable to each other. `:<version>` and `:latest` stay the x86_64 glibc
-      # image, because that is what an unqualified `docker pull` has always meant here and a
-      # release must not quietly change what it means.
+      # same run are traceable to each other. Those four leaf tags are what a deliberate pin
+      # names, and they are what the two manifest lists below reference.
       #
-      # Not a manifest list, deliberately: `docker manifest create` needs all four pushed first
-      # and adds a second failure mode to the step that publishes, while per-triple tags already
-      # answer "which artifact am I running". A manifest list is its own change.
-      - name: Images
-        if: startsWith(github.ref, 'refs/tags/v')
+      # TWO MANIFEST LISTS on top of them, each spanning linux/amd64 and linux/arm64:
+      # `:<version>` / `:latest` for glibc, `:<version>-musl` / `:latest-musl` for the static
+      # pair. This file used to say a manifest list was "its own change" and point `:<version>`
+      # and `:latest` at the x86_64 glibc image with a plain `docker tag`. It was its own
+      # change, and the first real release published the bug: an arm64 host running
+      # `docker pull ghcr.io/telekom/sutura:latest` received an amd64 image, which either
+      # refuses to start or is silently emulated. A single-architecture `:latest` is worse than
+      # no `:latest`, because nothing in the name tells you which architecture you got.
+      #
+      # ORDERING IS LOAD-BEARING: `imagetools create` reads its inputs from the REGISTRY, so
+      # every leaf has to be pushed before either list can be assembled. That is why the loop
+      # completes before the two `create` calls, rather than a list being built per pair.
+      #
+      # glibc keeps the UNSUFFIXED tags, and size is not the reason. An unqualified
+      # `docker pull` has always meant glibc here, and this change is already changing what
+      # `:latest` resolves to architecturally - moving the libc under the same name in the same
+      # release would be two silent changes wearing one tag. musl also resolves DNS differently
+      # enough from glibc that it should be the thing somebody asks for by name rather than the
+      # thing they get by typing nothing. The 1 MiB-against-13 MiB argument is real and it
+      # belongs to whoever types `-musl`.
+      - name: Push the images
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           ACTOR: ${{ github.actor }}
@@ -119,36 +422,67 @@ jobs:
           esac
           tag="${GITHUB_REF_NAME#v}"
           printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
-          : > dist/image-digests.txt
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
-                        x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
-            nix build ".#oci-${target}" -L -o "result-oci-${target}"
-            # Every stream script loads as `sutura:latest`, so retag before the next iteration
-            # takes that name away.
-            "./result-oci-${target}" | docker load
+          # kind, name, pinnable reference. Two kinds because they answer different questions:
+          # a `list` is what a plain `docker pull` resolves and what a consumer should pin; a
+          # `leaf` is one architecture, for pinning to one deliberately. A reader who pins a
+          # leaf digest thinking it is the image has pinned half of it.
+          {
+            echo "# kind name reference@digest"
+            echo "# list = multi-arch manifest list; pin this unless you want one architecture"
+            echo "# leaf = single-arch image, named by its rust target triple"
+          } > dist/image-digests.txt
+          for target in $TARGETS; do
+            # Every stream script loaded as `sutura:latest` in the build job, so each tarball
+            # arrives under that name; retag before the next iteration takes it away. Loading
+            # and pushing never EXECUTES the image - the smoke tests ran in `build`, under a
+            # token that cannot write to a registry.
+            docker load -i "images/sutura-oci-${target}.tar.gz"
             docker tag sutura:latest "${IMAGE}:${tag}-${target}"
-            case "$target" in
-              x86_64-*)
-                # Only the x86_64 images can execute here. Running the arm64 pair would need
-                # qemu-user-static registered on the runner, which this job deliberately does
-                # not install: the step that publishes should not also gain an emulator.
-                docker run --rm "${IMAGE}:${tag}-${target}" --version
-                docker run --rm "${IMAGE}:${tag}-${target}" doctor
-                # Prove the non-root default actually works rather than assuming it.
-                docker run --rm --user 65532:65532 "${IMAGE}:${tag}-${target}" --version
-                ;;
-            esac
             docker push "${IMAGE}:${tag}-${target}"
             # The digest is the only durable answer to "which build is running". Recorded as a
             # release asset, because a checksum an uploader can also rewrite proves little.
             # Read AFTER the push: RepoDigests is empty until a registry has assigned one.
             digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}-${target}" 2>/dev/null || true)"
-            printf '%s %s\n' "$target" "${digest:-unknown}" >> dist/image-digests.txt
+            printf 'leaf %s %s\n' "$target" "${digest:-unknown}" >> dist/image-digests.txt
           done
-          docker tag "${IMAGE}:${tag}-x86_64-unknown-linux-gnu" "${IMAGE}:${tag}"
-          docker tag "${IMAGE}:${tag}-x86_64-unknown-linux-gnu" "${IMAGE}:latest"
-          docker push "${IMAGE}:${tag}"
-          docker push "${IMAGE}:latest"
+          # Two manifest lists, assembled from the leaves just pushed. The four leaf tags are
+          # written out rather than accumulated in the loop above, so which architecture belongs
+          # to which libc is readable here instead of inferred from control flow.
+          #
+          # `docker buildx imagetools create`, not `docker manifest create`: buildx ships with
+          # ubuntu-latest, while `docker manifest` still needs the experimental flag set, which
+          # is one more thing that has to be true about a runner. Both tags go on one call, so a
+          # list and its `latest` alias are the same push and cannot drift apart.
+          docker buildx imagetools create -t "${IMAGE}:${tag}" -t "${IMAGE}:latest" "${IMAGE}:${tag}-x86_64-unknown-linux-gnu" "${IMAGE}:${tag}-aarch64-unknown-linux-gnu"
+          docker buildx imagetools create -t "${IMAGE}:${tag}-musl" -t "${IMAGE}:latest-musl" "${IMAGE}:${tag}-x86_64-unknown-linux-musl" "${IMAGE}:${tag}-aarch64-unknown-linux-musl"
+
+          # ASSERTED, like the static-linking claim in `build`, and for the same reason. A list
+          # assembled from leaves that all declare amd64 still pushes, still resolves, and still
+          # hands an amd64 image to an arm64 host - the exact bug this step exists to fix,
+          # wearing a manifest list as a disguise. So each list has to report both platforms
+          # before anything downstream records it as good.
+          for list in "${IMAGE}:${tag}" "${IMAGE}:${tag}-musl"; do
+            platforms="$(docker buildx imagetools inspect "$list" --format '{{range .Manifest.Manifests}}{{.Platform.OS}}/{{.Platform.Architecture}} {{end}}')"
+            echo "${list}: ${platforms}"
+            for want in linux/amd64 linux/arm64; do
+              case " $platforms " in
+                *" $want "*) ;;
+                *) echo "::error::${list} has no ${want} entry: ${platforms}"; exit 1 ;;
+              esac
+            done
+          done
+
+          # The LIST digest is what a consumer should pin, because a leaf digest pins one
+          # architecture. `--raw` prints the index bytes and a manifest digest IS the sha256 of
+          # exactly those bytes, so this computes the digest by definition rather than by
+          # scraping an output format that can change. Cross-checked against the `Digest:` line
+          # `imagetools inspect` prints for a human, and against `{{json .Manifest}}`.
+          record_list() {
+            digest="$(docker buildx imagetools inspect --raw "$2" | sha256sum | cut -d' ' -f1)"
+            printf 'list %s %s@sha256:%s\n' "$1" "$IMAGE" "$digest" >> dist/image-digests.txt
+          }
+          record_list glibc "${IMAGE}:${tag}"
+          record_list musl "${IMAGE}:${tag}-musl"
           {
             echo "## Images"
             echo
@@ -158,13 +492,256 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           docker logout ghcr.io
 
-      # `gh` is preinstalled. `--clobber` makes a re-run idempotent.
+      # The body, assembled before anything is published so a failure here lands while
+      # nothing is half-created.
+      #
+      # Two parts. The change list comes from cliff.toml, not from `--generate-notes`:
+      # GitHub's version lists merged pull requests, which records who typed something rather
+      # than what changed, and this repo gates the commit subject (`cargo xtask commit-msg`)
+      # precisely so the history can be rendered instead. CHANGELOG.md comes off the same
+      # config, so the file and the release body cannot disagree.
+      #
+      # The second part is the artifacts. They were always attached and never mentioned, so a
+      # reader got a list of pull requests and no way to tell which of eight tarballs to take
+      # or what to pull. Everything in it is read back off the files themselves - sizes from
+      # the assets, linkage from `file`, digests from image-digests.txt - so the notes cannot
+      # describe a build that did not happen.
+      - name: Assemble the release notes
+        run: |
+          set -eu
+          tag="${GITHUB_REF_NAME}"
+          version="${tag#v}"
+          base="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/releases/download/${tag}"
+
+          # One line per target, concatenated in TARGETS order rather than in whatever order
+          # four parallel jobs happened to finish in. The table below is the reader's first
+          # impression of the release; it should not be a race result.
+          : > binary-facts.txt
+          for target in $TARGETS; do
+            cat "facts/${target}.txt" >> binary-facts.txt
+          done
+
+          # `--current` is the section for the tag CONTAINING HEAD. That is the tag being
+          # released, because the job checked out this ref and the guard on this job requires
+          # it to be a `v` tag. `--latest` would be the newest tag in the REPO, so re-running
+          # an older tag would publish the newer tag's notes underneath it. Note that
+          # `--current` reads the tag at HEAD rather than $tag: those are the same thing only
+          # because of the checkout, which is why the guard above is not decoration.
+          #
+          # `--strip header` drops the "# Changelog / do not edit" preamble, which belongs to
+          # the file and means nothing in one release's body.
+          #
+          # A render failure must not fail the release. Four images are on ghcr.io by the time
+          # this runs; aborting would leave them published with nothing naming them. So it
+          # degrades to a pointer at the history, loudly, and the artifact section below is
+          # still written - that is the half a reader operationally needs.
+          nix run .#git-cliff -- --current --strip header -o changes.md || true
+          : > notes.md
+          if [ -s changes.md ]; then
+            cat changes.md >> notes.md
+          else
+            echo "::warning::no change list rendered for ${tag}"
+            {
+              echo "## Changes"
+              echo
+              echo "The change list could not be rendered for this tag. The commits are at"
+              echo "<${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/commits/${tag}>."
+            } >> notes.md
+          fi
+
+          {
+            echo
+            echo "## Artifacts"
+            echo
+            echo "### Binaries"
+            echo
+            echo "Four, because a binary linked against a newer glibc than the host's does not"
+            echo "start at all. The static pair carries no libc, so it runs on a host older than"
+            echo "the builder and inside an image that has none. **If you are not sure, take a**"
+            echo "**\`musl\` one.**"
+            echo
+            echo "| Target | Asset | Size | Linking |"
+            echo "| --- | --- | --- | --- |"
+            while IFS='|' read -r target linkage; do
+              asset="sutura-${target}.tar.gz"
+              size="$(stat -c %s "dist/${asset}" | numfmt --to=iec-i --suffix=B --format='%.1f')"
+              printf "| \`%s\` | [\`%s\`](%s/%s) | %s | %s |\n" "$target" "$asset" "$base" "$asset" "$size" "$linkage"
+            done < binary-facts.txt
+            echo
+            echo "Each tarball has a \`.sha256\` beside it. To check one:"
+            echo
+            echo '```sh'
+            echo "curl -fLO ${base}/sutura-x86_64-unknown-linux-musl.tar.gz"
+            echo "curl -fLO ${base}/sutura-x86_64-unknown-linux-musl.tar.gz.sha256"
+            echo "sha256sum -c sutura-x86_64-unknown-linux-musl.tar.gz.sha256"
+            echo "tar -xzf sutura-x86_64-unknown-linux-musl.tar.gz && ./sutura --version"
+            echo '```'
+          } >> notes.md
+
+          if [ -f dist/image-digests.txt ]; then
+            {
+              echo
+              echo "### Images"
+              echo
+              echo "Two multi-arch tags: pick your libc, and the registry picks the"
+              echo "architecture. Both lists span \`linux/amd64\` and \`linux/arm64\`."
+              echo
+              echo "| Variant | Tag | Platforms |"
+              echo "| --- | --- | --- |"
+              printf "| glibc (the default) | \`%s:%s\`, \`%s:latest\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$version" "$IMAGE"
+              printf "| static musl | \`%s:%s-musl\`, \`%s:latest-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$version" "$IMAGE"
+              echo
+              echo '```sh'
+              echo "docker pull ${IMAGE}:${version}"
+              echo '```'
+              echo
+              echo "Take glibc unless you have a reason. The musl image is statically linked and"
+              echo "carries no libc, which makes it about 1 MiB against 13 MiB - worth having, and"
+              echo "worth asking for by name, because its DNS resolver does not behave identically."
+              echo
+              echo "**Pin by digest.** A tag can be moved; a digest cannot. These are the LIST"
+              echo "digests, so they still resolve per architecture:"
+              echo
+              echo "| Variant | Pull by digest |"
+              echo "| --- | --- |"
+              grep '^list ' dist/image-digests.txt | while read -r _ name ref; do
+                printf "| %s | \`docker pull %s\` |\n" "$name" "$ref"
+              done
+              echo
+              echo "**One architecture on purpose.** The per-target leaves the lists are built"
+              echo "from, named after the rust triple like the binaries are:"
+              echo
+              echo "| Target | Tag | Pull by digest |"
+              echo "| --- | --- | --- |"
+              grep '^leaf ' dist/image-digests.txt | while read -r _ target ref; do
+                if [ "$ref" = "unknown" ]; then
+                  pull="not recorded; pull the tag"
+                else
+                  pull="\`docker pull ${ref}\`"
+                fi
+                printf "| \`%s\` | \`%s:%s-%s\` | %s |\n" "$target" "$IMAGE" "$version" "$target" "$pull"
+              done
+              echo
+              echo "\`image-digests.txt\` is attached as an asset, so the mapping outlives this page."
+              echo
+              echo "**Offline:** the two \`musl\` images are attached to this release as loadable"
+              echo "tarballs, for a host that cannot reach ghcr.io:"
+              echo
+              echo '```sh'
+              echo "curl -fLO ${base}/sutura-oci-x86_64-unknown-linux-musl.tar.gz"
+              echo "docker load -i sutura-oci-x86_64-unknown-linux-musl.tar.gz"
+              echo '```'
+              echo
+              echo "The glibc pair is deliberately **not** attached: about 13 MiB gzipped each"
+              echo "against 1 MiB for the static ones, release assets share no layers so they"
+              echo "would be re-shipped whole every release, and a host that can reach a registry"
+              echo "is better served by the digest above."
+            } >> notes.md
+          fi
+
+          {
+            echo
+            echo "### What these checksums prove, and what they do not"
+            echo
+            echo "The \`.sha256\` files are written and uploaded by the same run as the artifact"
+            echo "they describe. They catch a truncated or corrupted download; they are not"
+            echo "provenance, because whatever could replace a tarball here could replace its"
+            echo "checksum in the same breath. The image digests are computed by the registry"
+            echo "over the bytes it received, which is why they are recorded as an asset rather"
+            echo "than only printed here."
+          } >> notes.md
+
+      # Draft first, then the assets, then publish. NOT create-and-publish-then-upload, which
+      # is what this file did and what the first real release failed on:
+      #
+      #   HTTP 422: Cannot upload assets to an immutable release
+      #
+      # This repository has GitHub's immutable releases enabled. Immutability begins the moment
+      # a release is PUBLISHED: after that its assets can never be added to, replaced or
+      # deleted. A draft is still mutable, so every asset goes on while it is a draft and
+      # publishing is the last thing that happens. `--clobber` is gone with the step it belonged
+      # to - there is nothing to clobber, because an asset that exists can never be replaced.
+      #
+      # TITLE AND NOTES stay editable after publication; only assets are permanent. So a wrong
+      # changelog can be repaired later with `gh release edit --notes-file`, while a missing
+      # asset cannot be repaired at all. That asymmetry is the whole reason for this ordering.
+      #
+      # `gh release create` would do this internally if the files were passed to it as
+      # positional arguments - its source creates a draft, uploads, publishes, and deletes the
+      # draft if an upload fails. But `gh` is the one tool in this file that is NOT pinned; it
+      # comes with the runner. So the sequence is written out here and depends only on
+      # documented flags rather than on an unpinned tool's internal ordering.
+      #
+      # WHAT A RE-RUN DOES, which differs either side of the publish:
+      #   nothing there yet        -> proceeds normally.
+      #   a leftover draft         -> refuses. Adopting it would attach a second copy of every
+      #                               asset to a draft whose body came from an older run, and a
+      #                               draft is invisible on the releases page, so "it worked"
+      #                               would be unfalsifiable. The trap below means this should
+      #                               not happen; if it did, something killed the runner.
+      #   already published        -> refuses. Nothing can repair it - the assets are frozen.
+      #                               Cut the next version.
       - name: Publish
-        if: startsWith(github.ref, 'refs/tags/')
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -eu
           tag="${GITHUB_REF_NAME}"
-          gh release view "$tag" >/dev/null 2>&1 || gh release create "$tag" --generate-notes --title "$tag"
-          gh release upload "$tag" dist/* --clobber
+          cat notes.md
+
+          state="$(gh release view "$tag" --json isDraft --jq 'if .isDraft then "draft" else "published" end' 2>/dev/null || echo none)"
+          case "$state" in
+            published)
+              echo "::error::${tag} is already published, and this repository has immutable releases enabled: its assets can never be added to or replaced, so re-running cannot repair it. Cut the next version."
+              exit 1
+              ;;
+            draft)
+              echo "::error::an unpublished DRAFT for ${tag} is left over from an earlier run. It is invisible to users, so adopting it is not safe: delete it with 'gh release delete ${tag} --yes' and re-run."
+              exit 1
+              ;;
+          esac
+
+          # The glob has to have matched something. Unmatched, bash passes `dist/*` through
+          # literally and gh would try to open a file by that name - a confusing failure in the
+          # one step that gets no second attempt.
+          count="$(find dist -type f | wc -l)"
+          if [ "$count" -lt 1 ]; then
+            echo "::error::dist/ holds no files to attach"
+            exit 1
+          fi
+
+          # A failure between here and the publish must not leave an invisible draft behind.
+          # The tag is deliberately NOT cleaned up: `gh release delete` keeps it by default,
+          # and the tag is what a re-run needs.
+          cleanup() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "::error::failed before publishing ${tag}; deleting the draft so a re-run starts clean"
+              gh release delete "$tag" --yes >/dev/null 2>&1 || true
+            fi
+          }
+          trap cleanup EXIT
+
+          gh release create "$tag" --draft --title "$tag" --notes-file notes.md
+          echo "attaching ${count} asset(s) while ${tag} is still a draft"
+          gh release upload "$tag" dist/*
+          gh release edit "$tag" --draft=false
+
+          # Assert the publish happened. A draft that silently stayed a draft reads as success
+          # in the log and is invisible on the releases page - the failure this whole shape is
+          # meant to make impossible, so it gets checked rather than assumed.
+          if [ "$(gh release view "$tag" --json isDraft --jq '.isDraft')" != "false" ]; then
+            echo "::error::${tag} is still a draft after 'gh release edit --draft=false'"
+            exit 1
+          fi
+          # Published now, so the trap must not delete it: past this line a failure is reported
+          # rather than cleaned up, because the assets are already frozen and removing a
+          # published release would destroy them.
+          trap - EXIT
+
+          attached="$(gh release view "$tag" --json assets --jq '.assets | length')"
+          echo "published ${tag} with ${attached} asset(s)"
+          if [ "$attached" -ne "$count" ]; then
+            echo "::error::attached ${attached} asset(s) but dist/ holds ${count}. The release is published and its assets are immutable, so this cannot be topped up: the notes can still be edited, the assets cannot."
+            exit 1
+          fi

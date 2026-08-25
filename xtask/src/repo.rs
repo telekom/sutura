@@ -31,6 +31,29 @@ const SKIP_DIRS: &[&str] = &[
 /// directory - so a gate behaves the same whether it is invoked by a hook, by CI, or by
 /// hand from a subdirectory.
 pub(crate) fn root() -> Option<PathBuf> {
+    // Runtime discovery FIRST, because the compile-time path is wrong for a binary that was
+    // not run from where it was built - and it fails silently rather than loudly. `nix run
+    // .#xtask -- text-hygiene` reported "ok - 0 text file(s) checked" and exit 0: the store
+    // binary's `CARGO_MANIFEST_DIR` points into a build sandbox that no longer exists, the
+    // tree walk found nothing, and a gate that checked nothing announced success. A false pass
+    // is the worst outcome a gate has, so the path it depends on is now established by looking.
+    //
+    // Both markers, not either: `flake.nix` alone appears in unrelated directories and
+    // `Cargo.toml` alone matches every crate on the way up. Together they identify this repo's
+    // root and stop the walk at the workspace rather than at a member.
+    if let Ok(mut dir) = std::env::current_dir() {
+        loop {
+            if dir.join("flake.nix").is_file() && dir.join("Cargo.toml").is_file() {
+                return Some(dir);
+            }
+            if !dir.pop() {
+                break;
+            }
+        }
+    }
+
+    // Fallback: the compile-time path, which is correct for `cargo run` from anywhere in the
+    // workspace and for the Nix build sandbox, where the source IS the manifest's parent.
     Path::new(env!("CARGO_MANIFEST_DIR")).parent().map(Path::to_path_buf)
 }
 
