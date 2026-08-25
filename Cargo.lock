@@ -182,7 +182,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 
 [[package]]
 name = "sutura-cli"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "mimalloc",
  "sutura-domain",
@@ -190,14 +190,14 @@ dependencies = [
 
 [[package]]
 name = "sutura-dev"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "sha2",
 ]
 
 [[package]]
 name = "sutura-domain"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde",
  "thiserror",
@@ -248,7 +248,7 @@ checksum = "e6e4313cd5fcd3dad5cafa179702e2b244f760991f45397d14d4ebf38247da75"
 
 [[package]]
 name = "xtask"
-version = "0.2.1"
+version = "0.2.2"
 dependencies = [
  "serde_json",
  "sha2",
