@@ -235,10 +235,10 @@ docs-list:
 # tree away from everything else. It takes an output directory as an optional last argument and
 # defaults to `docs/api`.
 
-# Regenerate the committed API reference pages from rustdoc JSON.
+# Regenerate the committed API reference pages from rustdoc JSON. Through nix, so it needs no
+# dev shell: it called a bare `cargo` and a bare `pixi` and only worked where one was active.
 api:
-    cargo rustdoc -q -p sutura-domain --all-features -- -Z unstable-options --output-format json
-    pixi run --frozen python docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+    nix run .#api-docs
 
 # ------------------------------------------------------------------ tooling ---
 

@@ -183,10 +183,11 @@ jobs:
       # the output brings its own nightly toolchain and its own interpreter for the generator.
       #
       # `api` is set by classify for a library crate's sources, for the generator, for the
-      # committed pages, and for the manifests - the page prints the crate version, so a
-      # version bump alone makes every page stale. The gate is self-scoping on top of that: a
-      # change touching only private code regenerates to identical output and passes, so
-      # nothing here has to guess which Rust changes reach the public surface.
+      # committed pages, and for the manifests - the pages are generated with `--all-features`,
+      # so a feature or a dependency can add a public re-export with no doc comment touched. The
+      # gate is self-scoping on top of that: a change touching only private code regenerates to
+      # identical output and passes, so nothing here has to guess which Rust changes reach the
+      # public surface.
       - name: API reference pages
         if: steps.classify.outputs.api == 'true'
         run: nix build .#checks.x86_64-linux.api-docs -L

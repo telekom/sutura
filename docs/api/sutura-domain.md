@@ -5,7 +5,7 @@
 
 # sutura-domain
 
-The public API of `sutura-domain`, version 0.1.0, rendered from rustdoc JSON.
+The public API of `sutura-domain`, rendered from rustdoc JSON.
 
 The hexagon's interior: the types the business rules are written in, and - when the first
 adapter needs one - the port traits it names its dependencies by.
