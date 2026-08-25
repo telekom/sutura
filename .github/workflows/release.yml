@@ -521,6 +521,14 @@ jobs:
       # or what to pull. Everything in it is read back off the files themselves - sizes from
       # the assets, linkage from `file`, digests from image-digests.txt - so the notes cannot
       # describe a build that did not happen.
+      #
+      # TABLES ONLY, and this is a standing instruction rather than a passing preference: the
+      # body is the change list plus tables of what shipped. It had grown recommendations
+      # ("take a musl one"), rationale for what is absent, a section on what a checksum does
+      # not prove, and `curl`/`docker pull` snippets that restated the table beside them. A
+      # release page is a manifest, not a tutorial. Columns carry the facts a reader chooses
+      # on - size, linkage, platforms, digest - so if something here needs a sentence to
+      # explain it, it belongs in the docs instead.
       - name: Assemble the release notes
         run: |
           set -eu
@@ -577,15 +585,6 @@ jobs:
               size="$(stat -c %s "dist/${asset}" | numfmt --to=iec-i --suffix=B --format='%.1f')"
               printf "| \`%s\` | [\`%s\`](%s/%s) | %s | %s |\n" "$target" "$asset" "$base" "$asset" "$size" "$linkage"
             done < binary-facts.txt
-            echo
-            echo "Each tarball has a \`.sha256\` beside it:"
-            echo
-            echo '```sh'
-            echo "curl -fLO ${base}/sutura-x86_64-unknown-linux-musl.tar.gz"
-            echo "curl -fLO ${base}/sutura-x86_64-unknown-linux-musl.tar.gz.sha256"
-            echo "sha256sum -c sutura-x86_64-unknown-linux-musl.tar.gz.sha256"
-            echo "tar -xzf sutura-x86_64-unknown-linux-musl.tar.gz && ./sutura --version"
-            echo '```'
           } >> notes.md
 
           if [ -f dist/image-digests.txt ]; then
@@ -598,19 +597,11 @@ jobs:
               printf "| glibc (the default) | \`%s:%s\`, \`%s:latest\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$version" "$IMAGE"
               printf "| static musl | \`%s:%s-musl\`, \`%s:latest-musl\` | linux/amd64, linux/arm64 |\n" "$IMAGE" "$version" "$IMAGE"
               echo
-              echo '```sh'
-              echo "docker pull ${IMAGE}:${version}"
-              echo '```'
-              echo
-              echo "**Pin by digest.** These are the list digests and resolve per architecture:"
-              echo
               echo "| Variant | Pull by digest |"
               echo "| --- | --- |"
               grep '^list ' dist/image-digests.txt | while read -r _ name ref; do
                 printf "| %s | \`docker pull %s\` |\n" "$name" "$ref"
               done
-              echo
-              echo "Per-architecture leaves, named after the rust triple:"
               echo
               echo "| Target | Tag | Pull by digest |"
               echo "| --- | --- | --- |"
@@ -622,14 +613,19 @@ jobs:
                 fi
                 printf "| \`%s\` | \`%s:%s-%s\` | %s |\n" "$target" "$IMAGE" "$version" "$target" "$pull"
               done
+              # The attached image tarballs, as a table rather than the `docker load` snippet the
+              # prose used to carry. Globbed and not listed: which ones are attached is decided
+              # by the publish step, and a hardcoded pair here would silently misreport the day
+              # that changes.
               echo
-              echo "**Offline:** the two \`musl\` images are attached as loadable tarballs, for a"
-              echo "host that cannot reach ghcr.io:"
-              echo
-              echo '```sh'
-              echo "curl -fLO ${base}/sutura-oci-x86_64-unknown-linux-musl.tar.gz"
-              echo "docker load -i sutura-oci-x86_64-unknown-linux-musl.tar.gz"
-              echo '```'
+              echo "| Loadable image tarball | Size |"
+              echo "| --- | --- |"
+              for tarball in dist/sutura-oci-*.tar.gz; do
+                [ -f "$tarball" ] || continue
+                name="$(basename "$tarball")"
+                size="$(stat -c %s "$tarball" | numfmt --to=iec-i --suffix=B --format='%.1f')"
+                printf "| [\`%s\`](%s/%s) | %s |\n" "$name" "$base" "$name" "$size"
+              done
             } >> notes.md
           fi
 
