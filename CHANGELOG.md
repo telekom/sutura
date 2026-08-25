@@ -11,6 +11,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### CI
 
+- Delete the caches of closed pull requests, weekly
 - **release**: Cut releases on request, not on every push
 
 ## 0.2.3 - 2026-08-25
