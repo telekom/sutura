@@ -16,3 +16,6 @@ rows:
   - - Text: west
     - Text: 2026-06-01
     - Integer: 1
+  - - "Null"
+    - Text: 2026-06-01
+    - Integer: 1

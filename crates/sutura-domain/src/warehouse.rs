@@ -203,11 +203,16 @@ impl RowSet {
     }
 }
 
-/// Where a statement runs.
+/// Where a plan runs.
 ///
-/// `dry_run` exists separately from `execute` because "would this be accepted, and how much would it
-/// read" is a question worth being able to ask before committing to the cost. An adapter with no
-/// such facility answers it by checking what it can.
+/// **The port takes a [`crate::plan::QueryPlan`], not a statement, and that is what makes a second
+/// kind of adapter possible.** Taking a rendered statement said that every data system speaks SQL.
+/// An in-process engine does not: it executes a logical plan over Arrow and generates no SQL at all.
+/// So the plan is the contract and rendering is one adapter's private business.
+///
+/// `dry_run` exists separately from `execute` because "would this be accepted" is worth being able
+/// to ask before committing to the cost of an answer. An adapter with no such facility answers it by
+/// checking what it can.
 pub trait Warehouse {
     /// Why this data system could not answer. Typed per adapter: a connection failure, a rejected
     /// statement and a permission denial are not the same thing to whoever responds to them.
@@ -216,11 +221,11 @@ pub trait Warehouse {
     /// The name a plan uses to select this adapter.
     fn source(&self) -> &SourceName;
 
-    /// Checks a statement without producing rows.
-    fn dry_run(&self, query: &GeneratedQuery) -> Result<(), Self::Error>;
+    /// Checks the plan is executable here, without producing rows.
+    fn dry_run(&self, plan: &crate::plan::QueryPlan) -> Result<(), Self::Error>;
 
-    /// Runs a statement and returns its rows.
-    fn execute(&self, query: &GeneratedQuery) -> Result<RowSet, Self::Error>;
+    /// Runs the plan and returns its rows.
+    fn execute(&self, plan: &crate::plan::QueryPlan) -> Result<RowSet, Self::Error>;
 }
 
 #[cfg(test)]

@@ -232,6 +232,36 @@ impl Date {
         if Self::is_leap_year(year) { 366 } else { 365 }
     }
 
+    /// Days since 1970-01-01, which is how a columnar engine stores a date.
+    ///
+    /// The inverse of [`Date::from_days_since_epoch`], and the two are asserted to round-trip. It
+    /// exists because an in-process engine takes a date as an `i32` day count rather than as text:
+    /// there is no statement for a date literal to be written into, so the value is handed over as
+    /// the number the column actually holds.
+    ///
+    /// Counted by walking years, for the same reason the inverse does: integer division and the
+    /// remainder operator are both banned by the lint table, the loop runs at most a few hundred
+    /// times for any date this type can hold, and the leap rule stays in one place.
+    pub fn days_since_epoch(self) -> i32 {
+        const EPOCH_YEAR: i16 = 1970;
+        let mut days: i32 = 0;
+        let mut year = EPOCH_YEAR;
+        while year < self.year {
+            days = days.saturating_add(Self::days_in_year(year));
+            year = year.saturating_add(1);
+        }
+        while year > self.year {
+            year = year.saturating_sub(1);
+            days = days.saturating_sub(Self::days_in_year(year));
+        }
+        let mut month: u8 = 1;
+        while month < self.month {
+            days = days.saturating_add(i32::from(Self::days_in_month(self.year, month)));
+            month = month.saturating_add(1);
+        }
+        days.saturating_add(i32::from(self.day).saturating_sub(1))
+    }
+
     /// `YYYY-MM-DD`, which is what a bind parameter carries.
     pub fn to_iso(self) -> String {
         let (year, month, day) = (self.year, self.month, self.day);
@@ -450,6 +480,37 @@ mod tests {
         // 2026-06-01 and 2026-07-01: the fixture range, so the number the anchor test reads back.
         assert_eq!(Date::from_days_since_epoch(20_605).expect("june"), date("2026-06-01"));
         assert_eq!(Date::from_days_since_epoch(20_635).expect("july"), date("2026-07-01"));
+    }
+
+    #[test]
+    fn a_date_round_trips_through_its_day_number() {
+        // The two conversions are inverses, and the in-process engine depends on it: it is handed a
+        // day count and its results come back as day counts, so a mismatch would move every bucket
+        // in every answer by a fixed offset - the kind of wrong that looks like a data problem.
+        for iso in [
+            "1970-01-01",
+            "1970-01-02",
+            "1969-12-31",
+            "2024-02-29",
+            "2024-03-01",
+            "2026-06-01",
+            "2026-07-01",
+            "1900-03-01",
+            "2100-03-01",
+        ] {
+            let original = date(iso);
+            let days = original.days_since_epoch();
+            assert_eq!(
+                Date::from_days_since_epoch(days).expect("a round trip is a date"),
+                original,
+                "{iso} did not survive {days}"
+            );
+        }
+        // And the absolute values, so a consistent-but-shifted pair of conversions cannot pass.
+        assert_eq!(date("1970-01-01").days_since_epoch(), 0);
+        assert_eq!(date("1970-01-02").days_since_epoch(), 1);
+        assert_eq!(date("1969-12-31").days_since_epoch(), -1);
+        assert_eq!(date("2026-06-01").days_since_epoch(), 20_605);
     }
 
     #[test]

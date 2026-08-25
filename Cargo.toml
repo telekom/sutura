@@ -18,6 +18,7 @@ members = [
   "crates/sutura-semantic",
   "crates/sutura-app",
   "crates/sutura-exec-duckdb",
+  "crates/sutura-exec-datafusion",
   "crates/sutura-cli",
   "xtask",
   "dev",
@@ -46,6 +47,7 @@ sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
+sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -88,6 +90,32 @@ polyglot-sql = { version = "0.9.2", default-features = false, features = [
 # The adapter that uses it is behind a default-off feature on `sutura-cli`, and that is what
 # keeps the musl cross builds working: there is no musl `libduckdb` to link against.
 duckdb = "1.10505"
+
+# The in-process engine, for the adapter that executes a plan without rendering it. It has no
+# dialect: a plan becomes a logical plan over Arrow, which is the whole reason the `Warehouse` port
+# takes a plan rather than a statement.
+#
+# `default-features = false` is a supply-chain decision rather than tuning, and two of the omissions
+# were measured with `cargo deny` rather than reasoned about:
+#
+#   * `compression` and `avro` are OFF because each one pulls `bzip2`, whose licence is not on the
+#     allowlist in `deny.toml` - and that allowlist is `unused-allowed-license = "deny"`, so
+#     accepting either would mean adding a licence at the moment a feature nobody asked for needed
+#     one. Each was enabled in turn to confirm which of them carries it.
+#   * `sql` is OFF on purpose, and it is the strongest statement in this manifest: that adapter
+#     never parses SQL, so the parser is not compiled into the binary at all. Not calling it would
+#     have been a convention; not having it is a property.
+#
+# What is ON: `parquet`, for the Parquet attach affordance, and `datetime_expressions`, for the date
+# truncation every plan needs for its time bucket. CSV needs no feature - it is unconditional.
+datafusion = { version = "55.0.0", default-features = false, features = ["parquet", "datetime_expressions"] }
+
+# The runtime the in-process engine is driven from, and `rt` is the ONLY feature. The engine is
+# async from the first table lookup to the last batch collected, and `futures::executor::block_on`
+# is not a way out of that: it panics at collect time with "no reactor running". One current-thread
+# runtime is built per adapter and kept beside the session context, so there is no `enable_all`, no
+# timer and no I/O driver - none of which a plan over a local file uses.
+tokio = { version = "1", features = ["rt"] }
 
 # Snapshot testing, for the golden suite. Test-only.
 #

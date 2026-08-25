@@ -150,6 +150,8 @@ nav:
     - Architecture: architecture.md
     - Decisions:
       - First-party semantic models: adr/0001-first-party-semantic-models.md
+      - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
+      - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

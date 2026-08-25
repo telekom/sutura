@@ -60,27 +60,25 @@ where
 {
     let pinned = definitions.get();
     let compiled = compile(query, pinned, dialect).map_err(|cause| ServiceError::Compile { cause })?;
-    let generated = match compiled {
+    // The PLAN is what the port takes now, not a rendered statement: an adapter that executes
+    // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
+    // the plan itself, for its own dialect.
+    let plan = match compiled {
         Compiled::Refused { reason } => return Ok(ToolOutcome::Refusal { reason }),
-        // The plan is not needed to answer: it exists so a golden can pin what we decided.
-        Compiled::Statement { query, .. } => query,
+        Compiled::Statement { plan, .. } => plan,
     };
-    if generated.source() != warehouse.source() {
+    if plan.source() != warehouse.source() {
         return Ok(ToolOutcome::Refusal {
             reason: RefusalReason::SourceUnavailable {
-                source: generated.source().clone(),
+                source: plan.source().clone(),
             },
         });
     }
     // Prepared before it is run. It costs a round trip and it means a statement that would be
     // rejected is rejected before any data is read, which is the difference between a failed query
     // and a partial one.
-    warehouse
-        .dry_run(&generated)
-        .map_err(|cause| ServiceError::Warehouse { cause })?;
-    let rows = warehouse
-        .execute(&generated)
-        .map_err(|cause| ServiceError::Warehouse { cause })?;
+    warehouse.dry_run(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
+    let rows = warehouse.execute(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
     Ok(ToolOutcome::Answer {
         provenance: pinned.provenance(),
         rows,
@@ -125,20 +123,20 @@ where
         Ok(compiled) => compiled,
         Err(cause) => return not_executed(format!("the anchor query could not be compiled: {cause}")),
     };
-    let generated = match compiled {
+    let plan = match compiled {
         Compiled::Refused { reason } => {
             return not_executed(format!("the anchor query was refused: {reason:?}"));
         }
-        Compiled::Statement { query, .. } => query,
+        Compiled::Statement { plan, .. } => plan,
     };
-    if generated.source() != warehouse.source() {
+    if plan.source() != warehouse.source() {
         return not_executed(format!(
             "the metric reads from {}, and this data system is {}",
-            generated.source().as_str(),
+            plan.source().as_str(),
             warehouse.source().as_str()
         ));
     }
-    let rows = match warehouse.execute(&generated) {
+    let rows = match warehouse.execute(&plan) {
         Ok(rows) => rows,
         Err(cause) => return not_executed(format!("the anchor query failed: {cause}")),
     };

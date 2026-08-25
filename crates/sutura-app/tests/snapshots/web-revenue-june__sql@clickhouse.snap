@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: query.sql()
+---
+SELECT CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", sum("orders"."amount_cents") AS "web_revenue" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? AND "orders"."channel" = ? GROUP BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10000

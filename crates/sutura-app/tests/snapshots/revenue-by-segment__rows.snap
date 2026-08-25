@@ -13,3 +13,6 @@ rows:
   - - Text: retail
     - Text: 2026-06-01
     - Integer: 419950
+  - - "Null"
+    - Text: 2026-06-01
+    - Integer: 99999

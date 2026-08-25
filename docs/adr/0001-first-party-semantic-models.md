@@ -7,6 +7,13 @@ description: Why sutura generates a metric's SQL from a model it can read, inste
 
 Status: accepted. It supersedes nothing; it adds a second way for a definition to arrive.
 
+**Amended.** The measure vocabulary described below - one aggregate over one declared column - was
+widened by [a closed vocabulary for measures](0002-a-closed-vocabulary-for-measures.md), which adds
+a conditional count, a ratio of two aggregates, and filters that belong to a metric's definition.
+Nothing in the argument here changes, because the argument is about free-text SQL rather than about
+arity: read the constraint in [what a model may not contain](#what-a-model-may-not-contain) as the
+ban on expressions it is, and not as the one-aggregate limit it also happened to be.
+
 ## Context
 
 [Architecture](../architecture.md) describes one path from a question to a number: a metric's SQL is

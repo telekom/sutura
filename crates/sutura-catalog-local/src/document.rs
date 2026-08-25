@@ -9,14 +9,19 @@
 //! misspelled key would otherwise be dropped in silence, and the definition that loads is not the
 //! one the author wrote: `colums:` yields a model with no columns, which then refuses every question
 //! about it for a reason that says nothing about a typo.
+//!
+//! [`sutura_domain::measure`] is the one exception, and the `measure` field of [`MetricDoc`] argues
+//! for it where a reader will be standing when they wonder. In short: those types already carry
+//! exactly this format's representation, and mirroring seven variants here would buy nothing but a
+//! place to forget the eighth.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{Anchor, Dimension, Metric, Model, Relationship};
+use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, Measure, MetricName, ModelName, RelationshipName, SourceName,
-    TableName,
+    ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 
 /// What a document declares itself to be.
@@ -144,13 +149,6 @@ impl RelationshipDoc {
     }
 }
 
-#[derive(Debug, serde::Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct MeasureDoc {
-    aggregate: Aggregate,
-    column: ColumnName,
-}
-
 /// A dimension, as a list entry with its own `name`.
 ///
 /// A sequence rather than a map keyed by name, and that is not a style choice. A YAML mapping with
@@ -189,7 +187,45 @@ pub struct MetricDoc {
     kind: DocumentKind,
     name: MetricName,
     model: ModelName,
-    measure: MeasureDoc,
+    /// The domain's [`Measure`], deserialized directly rather than restated by a local `*Doc` shape.
+    ///
+    /// The one departure from this module's rule that the file format is its own thing, and it is
+    /// chosen rather than inherited. [`sutura_domain::measure`] already derives `Deserialize` with
+    /// exactly the representation this format wants, and each part of that is load-bearing here:
+    /// externally tagged, so a shape is a word an author writes rather than something inferred from
+    /// which fields are present; `deny_unknown_fields` on every variant, so a misspelled key nested
+    /// inside `simple:` is still an error naming the typo; and `zero_safe` with no default, so its
+    /// absence is a missing-field error naming `zero_safe` instead of a silent pick between two
+    /// defensible behaviours. A mirror would be three shapes and four operators of restatement, and
+    /// its failure mode is the expensive one: a shape added to the domain and forgotten here is a
+    /// shape no document can express, with nothing anywhere failing to say so.
+    ///
+    /// The rule still holds for everything else. `Model`, `Relationship`, `Metric` and `Dimension`
+    /// derive only `Serialize`, and that asymmetry is the domain saying which of its types it also
+    /// intends as a wire format. When a catalog file needs to spell a measure differently from the
+    /// domain, this field grows a `MeasureDoc` and a conversion, and that diff is the discussion.
+    ///
+    /// `singleton_map` is the one thing this costs, and it is a YAML fact rather than a design
+    /// choice. An externally tagged enum in `serde_norway` is a YAML *tag*: `measure: !simple {..}`.
+    /// Nobody writing a catalog file spells a shape with a `!`, and the failure without this
+    /// adapter is `invalid type: map, expected a YAML tag starting with '!'`, which tells an author
+    /// nothing about the document they wrote. `singleton_map` reads the one-key mapping form that
+    /// the rest of the format already looks like, and leaves every field inside it, including
+    /// `deny_unknown_fields`, to the ordinary derive.
+    #[serde(with = "serde_norway::with::singleton_map")]
+    measure: Measure,
+    /// Predicates that are part of the definition, applied to every question about the metric.
+    ///
+    /// Defaulted to empty, because most metrics have none and requiring the key on every document
+    /// would make the common case noisy. The direction that must never be defaulted is the other
+    /// one: absent means "no predicate", never "not yet decided".
+    ///
+    /// `singleton_map_recursive` rather than `singleton_map` because the enum is inside a sequence,
+    /// and the non-recursive adapter applies to the value it is attached to. Recursion is safe here:
+    /// a [`RequiredFilter`] payload holds only a column name and a string, so there is no nested
+    /// enum for it to reinterpret.
+    #[serde(default, with = "serde_norway::with::singleton_map_recursive")]
+    required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
     grains: BTreeSet<Grain>,
     #[serde(default)]
@@ -224,7 +260,8 @@ impl MetricDoc {
         Ok(Metric::new(
             self.name,
             self.model,
-            Measure::new(self.measure.aggregate, self.measure.column),
+            self.measure,
+            self.required_filters,
             self.time_column,
             self.grains,
             dimensions,
@@ -237,10 +274,15 @@ impl MetricDoc {
 #[cfg(test)]
 mod tests {
     use super::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName};
+    use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter};
+    use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
     fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
         serde_norway::from_str(yaml)
+    }
+
+    fn column(raw: &str) -> ColumnName {
+        ColumnName::parse(raw).expect("a test column is a column")
     }
 
     const MINIMAL_METRIC: &str = "
@@ -248,11 +290,19 @@ kind: metric
 name: revenue
 model: orders
 measure:
-  aggregate: sum
-  column: amount_cents
+  simple: { aggregate: sum, column: amount_cents }
 time_column: order_date
 grains: [month]
 ";
+
+    /// The minimal document with a different measure block substituted in.
+    ///
+    /// `measure` is written the way it appears in a file, already indented under `measure:` and
+    /// ending in a newline, so each measure test below reads as one statement about one shape
+    /// instead of a second copy of every other field.
+    fn metric_measuring(measure: &str) -> String {
+        format!("kind: metric\nname: revenue\nmodel: orders\nmeasure:\n{measure}time_column: order_date\ngrains: [month]\n")
+    }
 
     #[test]
     fn a_minimal_metric_document_parses() {
@@ -261,7 +311,10 @@ grains: [month]
             .into_domain(String::from("Net revenue."))
             .expect("no dimensions cannot be duplicated");
         assert_eq!(metric.name(), &MetricName::parse("revenue").expect("a name"));
-        assert_eq!(metric.measure().aggregate(), Aggregate::Sum);
+        assert_eq!(
+            metric.measure(),
+            &Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))
+        );
         assert!(metric.supports_grain(Grain::Month));
         assert!(!metric.supports_grain(Grain::Day));
         assert_eq!(metric.description(), "Net revenue.");
@@ -311,6 +364,145 @@ colums: [amount_cents]
         let yaml = MINIMAL_METRIC.replace("aggregate: sum", "aggregate: median");
         let err = metric_doc(&yaml).expect_err("median is not one of the aggregates");
         assert!(err.to_string().contains("median"), "{err}");
+    }
+
+    #[test]
+    fn a_count_if_measure_has_a_word_of_its_own_in_the_format() {
+        // The number this prevents: "how many rows are true" written as a count of a boolean column.
+        // `COUNT(col)` counts non-null rows, so it counts the `false` ones too, and the wrong answer
+        // arrives with no error anywhere on the way. A format with no word for the thing that was
+        // meant is a format that pushes the author towards the spelling that silently lies.
+        let yaml = metric_measuring("  count_if: { column: churned_in_month }\n");
+        let metric = metric_doc(&yaml)
+            .expect("count_if is a measure shape")
+            .into_domain(String::new())
+            .expect("no dimensions to duplicate");
+        assert_eq!(
+            metric.measure(),
+            &Measure::CountIf {
+                column: column("churned_in_month"),
+            }
+        );
+    }
+
+    #[test]
+    fn a_ratio_measure_keeps_its_two_aggregates_apart() {
+        // The number this prevents: a ratio collapsed into `avg`. `sum(mrr) / count(distinct
+        // customer)` is not the mean of a column, and a document that could only say `avg` would
+        // send whoever wanted the real figure to a hand-written statement outside this catalog.
+        let yaml = metric_measuring(concat!(
+            "  ratio:\n",
+            "    numerator: { aggregate: sum, column: mrr_eur }\n",
+            "    denominator: { aggregate: count_distinct, column: customer_key }\n",
+            "    zero_safe: true\n",
+        ));
+        let metric = metric_doc(&yaml)
+            .expect("a ratio is a measure shape")
+            .into_domain(String::new())
+            .expect("no dimensions to duplicate");
+        assert_eq!(
+            metric.measure(),
+            &Measure::Ratio {
+                numerator: AggregatedColumn::new(Aggregate::Sum, column("mrr_eur")),
+                denominator: AggregatedColumn::new(Aggregate::CountDistinct, column("customer_key")),
+                zero_safe: true,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unknown_measure_shape_is_refused_by_name() {
+        // What external tagging buys, and the reason the measure is not inferred from which fields
+        // are present: an unrecognised shape fails naming the word that was written. Inferred from
+        // fields, the same document would fail with "data did not match any variant", which names
+        // nothing and sends the reader to guess which of three shapes was nearly right.
+        let yaml = metric_measuring("  median: { column: amount_cents }\n");
+        let err = metric_doc(&yaml).expect_err("median is not a measure shape");
+        assert!(err.to_string().contains("median"), "{err}");
+    }
+
+    #[test]
+    fn a_ratio_without_zero_safe_is_an_error_and_not_a_default() {
+        // Both behaviours are defensible: a rate over a period with no rows is arguably null and
+        // arguably a failure. So a default here would pick one on the author's behalf and the
+        // document would not record which. The failure that hides behind it is a metric that reads
+        // as null in one deployment and refuses in the next, with identical definitions on disk.
+        let yaml = metric_measuring(concat!(
+            "  ratio:\n",
+            "    numerator: { aggregate: sum, column: mrr_eur }\n",
+            "    denominator: { aggregate: count_distinct, column: customer_key }\n",
+        ));
+        let err = metric_doc(&yaml).expect_err("zero_safe has no default to fall back on");
+        assert!(err.to_string().contains("zero_safe"), "{err}");
+    }
+
+    #[test]
+    fn a_misspelled_key_inside_a_measure_shape_is_refused_too() {
+        // `deny_unknown_fields` has to hold at every depth, not only on the outer document. Without
+        // it on the nested shape, `agregate:` is dropped and the error becomes "missing field
+        // `aggregate`" printed next to a line that plainly has one, which sends the reader looking
+        // for a field they can see rather than at the typo in it.
+        let yaml = metric_measuring("  simple: { agregate: sum, column: amount_cents }\n");
+        let err = metric_doc(&yaml).expect_err("a misspelled key nested in a shape is not a field");
+        assert!(err.to_string().contains("agregate"), "{err}");
+    }
+
+    #[test]
+    fn every_required_filter_operator_is_written_as_a_named_operator() {
+        // The four predicates a definition may carry, pinned as a set. A filter whose operator did
+        // not parse would drop out of the metric, and a metric that quietly lost its predicate
+        // answers every question with a larger number under the same certified name.
+        let filters = concat!(
+            "required_filters:\n",
+            "  - equals: { column: channel, value: web }\n",
+            "  - not_equals: { column: channel, value: store }\n",
+            "  - is_true: { column: is_paid }\n",
+            "  - is_not_null: { column: shipped_at }\n",
+        );
+        let metric = metric_doc(&format!("{MINIMAL_METRIC}{filters}"))
+            .expect("all four operators are operators")
+            .into_domain(String::new())
+            .expect("no dimensions to duplicate");
+        let expected = vec![
+            RequiredFilter::Equals {
+                column: column("channel"),
+                value: String::from("web"),
+            },
+            RequiredFilter::NotEquals {
+                column: column("channel"),
+                value: String::from("store"),
+            },
+            RequiredFilter::IsTrue {
+                column: column("is_paid"),
+            },
+            RequiredFilter::IsNotNull {
+                column: column("shipped_at"),
+            },
+        ];
+        assert_eq!(metric.required_filters(), expected.as_slice());
+    }
+
+    #[test]
+    fn an_unknown_required_filter_operator_is_refused_by_name() {
+        // The same closed-vocabulary check as for measure shapes. `greater_than` is a reasonable
+        // thing to want, and this is what says so, rather than a predicate nobody generated an arm
+        // for being dropped from a definition that claims to carry it.
+        let yaml = format!("{MINIMAL_METRIC}required_filters:\n  - greater_than: {{ column: amount_cents, value: 0 }}\n");
+        let err = metric_doc(&yaml).expect_err("greater_than is not one of the four operators");
+        assert!(err.to_string().contains("greater_than"), "{err}");
+    }
+
+    #[test]
+    fn required_filters_default_to_empty_when_the_key_is_absent() {
+        // Most metrics carry no definitional predicate, so the key is optional. The direction that
+        // must not be confused is the other one: absent has to mean "no predicate", never "not
+        // decided yet", because a filter list that could be unset is a filter list something
+        // downstream would eventually treat as a hint.
+        let metric = metric_doc(MINIMAL_METRIC)
+            .expect("a minimal metric is a metric")
+            .into_domain(String::new())
+            .expect("no dimensions to duplicate");
+        assert!(metric.required_filters().is_empty());
     }
 
     #[test]

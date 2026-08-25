@@ -13,13 +13,23 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use sutura_catalog_local::LocalCatalog;
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _, Validated};
-use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::measure::RequiredFilter;
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
+use sutura_domain::query::Query;
+// Both are only reachable from `query`, which is behind the adapter feature.
+#[cfg(feature = "exec-duckdb")]
+use sutura_domain::query::ToolOutcome;
+#[cfg(feature = "exec-duckdb")]
 use sutura_domain::warehouse::Value;
 use sutura_semantic::{Compiled, Dialect};
 
+// Only the `query` command validates a bundle and prints rows, and it is behind the adapter
+// feature - so these are too. Without the gate a build with no data-system adapter fails on an
+// unused import and a dead function, which is the DEFAULT build and the one the musl artifacts use.
 #[cfg(feature = "exec-duckdb")]
 use sutura_domain::model::TableName;
+#[cfg(feature = "exec-duckdb")]
+use sutura_domain::pinned::Validated;
 #[cfg(feature = "exec-duckdb")]
 use sutura_exec_duckdb::DuckDbWarehouse;
 
@@ -29,6 +39,17 @@ use sutura_exec_duckdb::DuckDbWarehouse;
 /// version that repeats it leaves no way to tell two builds of identical content apart. A real
 /// deployment passes a commit id.
 const DEFAULT_VERSION: &str = "local-working-tree";
+
+/// The metric's definitional filters, for a person reading a catalog.
+///
+/// Worth showing rather than hiding: a caller cannot choose these and they change what the number
+/// means, so somebody reading what a metric is needs to see them beside the measure.
+fn render_filters(filters: &[RequiredFilter]) -> String {
+    if filters.is_empty() {
+        return String::from("none");
+    }
+    filters.iter().map(ToString::to_string).collect::<Vec<String>>().join(", ")
+}
 
 /// Reads a catalog directory into a pinned bundle.
 fn load(root: &Path) -> Result<PinnedDefinitions, String> {
@@ -92,16 +113,20 @@ pub(crate) fn catalog(args: &[String]) -> ExitCode {
                 .keys()
                 .map(sutura_domain::model::DimensionName::as_str)
                 .collect();
+            println!("{name}");
+            println!("  measure    {}", metric.measure());
+            println!("  filters    {}", render_filters(metric.required_filters()));
+            println!("  grains     {}", grains.join(", "));
             println!(
-                "{name}\n  measure    {}({})\n  grains     {}\n  dimensions {}\n  anchor     {}",
-                metric.measure().aggregate(),
-                metric.measure().column(),
-                grains.join(", "),
+                "  dimensions {}",
                 if dimensions.is_empty() {
                     String::from("none")
                 } else {
                     dimensions.join(", ")
-                },
+                }
+            );
+            println!(
+                "  anchor     {}",
                 metric
                     .anchor()
                     .map_or_else(|| String::from("none"), |a| format!("{} over {}", a.value(), a.range()))
@@ -126,7 +151,8 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
             .ok_or_else(|| format!("this catalog defines no metric called {wanted}"))?;
         println!("{name}");
         println!("  model      {}", metric.model());
-        println!("  measure    {}({})", metric.measure().aggregate(), metric.measure().column());
+        println!("  measure    {}", metric.measure());
+        println!("  filters    {}", render_filters(metric.required_filters()));
         println!("  time       {}", metric.time_column());
         for (dimension_name, dimension) in metric.dimensions() {
             println!(
@@ -240,6 +266,7 @@ fn attach(warehouse: &DuckDbWarehouse, table: &TableName, csv: &Path) -> Result<
 }
 
 /// Prints an outcome as a table, or as the refusal it is.
+#[cfg(feature = "exec-duckdb")]
 fn print_outcome(outcome: &ToolOutcome) {
     match *outcome {
         ToolOutcome::Refusal { ref reason } => println!("refused: {reason:?}"),

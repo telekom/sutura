@@ -12,9 +12,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::calendar::TimeRange;
-use crate::model::{
-    ColumnName, DimensionName, Grain, JoinType, Measure, MetricName, ModelName, RelationshipName, SourceName, TableName,
-};
+use crate::measure::{Measure, RequiredFilter};
+use crate::model::{ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
 
 /// The label a generated projection gives the truncated time column.
 ///
@@ -271,6 +270,11 @@ pub struct Metric {
     name: MetricName,
     model: ModelName,
     measure: Measure,
+    /// Predicates that are part of what this metric MEANS, applied to every question about it.
+    ///
+    /// A caller cannot see, choose or remove one. `mrr` means revenue from active subscriptions, and
+    /// a statement that omits that predicate returns a different number under the same name.
+    required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
     grains: BTreeSet<Grain>,
     dimensions: BTreeMap<DimensionName, Dimension>,
@@ -281,13 +285,14 @@ pub struct Metric {
 impl Metric {
     #[expect(
         clippy::too_many_arguments,
-        reason = "a metric is eight facts, and a builder for a value this immutable would be more \
-                  code with a partially-built state that this type currently cannot have"
+        reason = "a metric is nine facts and all nine are decided together; a builder for a value \
+                  this immutable would add a partially-built state this type cannot have"
     )]
     pub const fn new(
         name: MetricName,
         model: ModelName,
         measure: Measure,
+        required_filters: Vec<RequiredFilter>,
         time_column: ColumnName,
         grains: BTreeSet<Grain>,
         dimensions: BTreeMap<DimensionName, Dimension>,
@@ -298,6 +303,7 @@ impl Metric {
             name,
             model,
             measure,
+            required_filters,
             time_column,
             grains,
             dimensions,
@@ -319,6 +325,12 @@ impl Metric {
     #[inline]
     pub const fn measure(&self) -> &Measure {
         &self.measure
+    }
+
+    /// The predicates every question about this metric carries, whether the caller asked or not.
+    #[inline]
+    pub fn required_filters(&self) -> &[RequiredFilter] {
+        &self.required_filters
     }
 
     #[inline]
@@ -388,6 +400,12 @@ pub enum InconsistentDefinitions {
     UnknownModel { metric: MetricName, model: ModelName },
     #[error("metric {metric} measures column {column}, which model {model} does not declare")]
     UnknownMeasureColumn {
+        metric: MetricName,
+        model: ModelName,
+        column: ColumnName,
+    },
+    #[error("metric {metric} has a required filter on column {column}, which model {model} does not declare")]
+    UnknownRequiredFilterColumn {
         metric: MetricName,
         model: ModelName,
         column: ColumnName,
@@ -543,12 +561,29 @@ impl Definitions {
                 metric: metric.name.clone(),
                 model: metric.model.clone(),
             })?;
-        if !model.has_column(metric.measure.column()) {
-            return Err(InconsistentDefinitions::UnknownMeasureColumn {
-                metric: metric.name.clone(),
-                model: model.name.clone(),
-                column: metric.measure.column().clone(),
-            });
+        // Every column the measure reads, whichever shape it is. `Measure::columns` is the single
+        // place that knows, so a shape added there cannot be forgotten here - which is the failure
+        // this loop replaces, from when a measure was one column and the check read it directly.
+        for column in metric.measure.columns() {
+            if !model.has_column(column) {
+                return Err(InconsistentDefinitions::UnknownMeasureColumn {
+                    metric: metric.name.clone(),
+                    model: model.name.clone(),
+                    column: column.clone(),
+                });
+            }
+        }
+        // A required filter is applied to every question about the metric, so a column it names that
+        // does not exist is a metric that can never be answered - and the error has to say that
+        // rather than surfacing later as a rejected statement.
+        for filter in &metric.required_filters {
+            if !model.has_column(filter.column()) {
+                return Err(InconsistentDefinitions::UnknownRequiredFilterColumn {
+                    metric: metric.name.clone(),
+                    model: model.name.clone(),
+                    column: filter.column().clone(),
+                });
+            }
         }
         if !model.has_column(&metric.time_column) {
             return Err(InconsistentDefinitions::UnknownTimeColumn {

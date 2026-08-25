@@ -36,20 +36,44 @@ metrics:
     name: average_order
     model: orders
     measure:
-      aggregate: avg
-      column: amount_cents
+      simple:
+        aggregate: avg
+        column: amount_cents
+    required_filters: []
     time_column: order_date
     grains:
       - month
     dimensions: {}
     anchor: ~
-    description: "Mean booked order value, in minor units.\n\nDeliberately carries no anchor. An average is not exact in binary, so pinning one\nas text would be pinning a formatting decision rather than a number. The two\nmetrics that do carry anchors are integer sums, where the comparison is exact."
+    description: "Mean booked order value, in minor units.\n\nDeliberately carries no anchor. An average is not exact in binary, so pinning one\nas text would be pinning a formatting decision rather than a number. The two\nmetrics that do carry anchors are integer sums, where the comparison is exact.\n\nDeclared beside `average_order_value`, which is the same question asked as a\nratio: a sum over a distinct count of the order key. Both are kept, because the\nmean of a column and the mean per order are different definitions that happen to\nagree over this catalog."
+  average_order_value:
+    name: average_order_value
+    model: orders
+    measure:
+      ratio:
+        numerator:
+          aggregate: sum
+          column: amount_cents
+        denominator:
+          aggregate: count_distinct
+          column: order_id
+        zero_safe: true
+    required_filters: []
+    time_column: order_date
+    grains:
+      - day
+      - month
+    dimensions: {}
+    anchor: ~
+    description: "Booked value per order, in minor units.\n\nThe same figure as `average_order` over this catalog, and not the same\ndefinition. `avg(amount_cents)` is the mean of a column: it averages whatever\nrows the statement produced. This one averages orders, by dividing a sum by a\ndistinct count of the order key, and stays per-order regardless of what the rows\ndid on the way. They agree here because `orders` has one row per order and the\nonly declared relationship is many-to-one, which cannot fan a row out. That\nagreement is a property of this catalog rather than of the two definitions, and\nonly one of them keeps saying \"per order\" if the shape of the statement changes.\n\n`zero_safe` is written out because a period with no orders has to mean\nsomething, and both answers are defensible. Here it means null: a day with no\norders is a day with no average, which is a different statement from a day whose\naverage is zero.\n\nCarries no anchor, for the reason `average_order` does not: a division is not\nexact in binary, so pinning one as text would pin a formatting decision rather\nthan a number."
   orders_placed:
     name: orders_placed
     model: orders
     measure:
-      aggregate: count
-      column: order_id
+      simple:
+        aggregate: count
+        column: order_id
+    required_filters: []
     time_column: order_date
     grains:
       - day
@@ -74,14 +98,16 @@ metrics:
           year: 2026
           month: 7
           day: 1
-      value: "8"
+      value: "9"
     description: "How many orders were booked.\n\nCounts the order key rather than rows. Over a joined result those are different\nnumbers, and the one that means \"orders\" is the key."
   revenue:
     name: revenue
     model: orders
     measure:
-      aggregate: sum
-      column: amount_cents
+      simple:
+        aggregate: sum
+        column: amount_cents
+    required_filters: []
     time_column: order_date
     grains:
       - day
@@ -120,5 +146,23 @@ metrics:
           year: 2026
           month: 7
           day: 1
-      value: "470023"
+      value: "570022"
     description: "Total booked order value, in minor units.\n\nThe anchor is the number this metric produced for June 2026 when it was\ncertified. It is re-executed on every run and at startup: a definition that has\nstopped meaning what it claimed fails readiness rather than answering."
+  web_revenue:
+    name: web_revenue
+    model: orders
+    measure:
+      simple:
+        aggregate: sum
+        column: amount_cents
+    required_filters:
+      - equals:
+          column: channel
+          value: web
+    time_column: order_date
+    grains:
+      - day
+      - month
+    dimensions: {}
+    anchor: ~
+    description: "Booked order value from the web channel, in minor units.\n\nThe filter is part of the name. `web_revenue` does not mean \"revenue, which you\nmay narrow to web if you remember to\": it means the web number, and a statement\nthat left the predicate out would return total revenue under this metric's\ncertified name. That is the failure this repository exists to prevent, arrived\nat by omission rather than by tampering, so the predicate is applied to every\nquestion about the metric and a caller can neither see it nor turn it off.\n\nIt is also why `channel` is not declared as a dimension here. A dimension is\nsomething a caller may group by or filter on, and either would be a way to ask\n`web_revenue` for the store figure. The metric that answers \"how does revenue\nsplit by channel\" is `revenue`, which declares the dimension and carries no\nrequired filter."

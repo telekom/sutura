@@ -52,15 +52,66 @@ certifies, which was the only thing certifying it bought. A first-party model is
 is authored here, so reviewing a change to it is reviewing what will execute, and that review belongs
 in the same pull request as any other change to behaviour.
 
-## Data systems are behind a second port
+## The engine, and the data systems behind a port
 
-Execution sits behind its own trait. ClickHouse and Postgres are the near-term targets; DuckDB covers
-local development and single-file work, where the data is a Parquet file and there is no server to
-authenticate against. The trait is named `Warehouse`, which is the port's name and not a claim about
-what sits behind it.
+Two different things, and conflating them is the mistake this section exists to prevent.
 
-What differs per data system is dialect, connection and how an identity is presented. Neither the
-plan nor what a metric means differs; [the semantic compiler](#the-semantic-compiler) decides both.
+**The engine is one thing: DataFusion, with `polyglot-sql` rendering SQL when a query is pushed down.**
+Not one engine per data system, and not a second engine kept in step with a first. It executes what it
+must locally over Arrow, and it is where a plan becomes rows.
+
+**A data system is a place data already lives** - DuckDB, Postgres, ClickHouse, BigQuery - that
+somebody wants queried. Those sit behind the `Warehouse` port. What differs per data system is
+dialect, connection and how an identity is presented; neither the plan nor what a metric means
+differs, because [the semantic compiler](#the-semantic-compiler) decides both.
+
+**The port carries a plan, not a rendered statement**, and that is load-bearing rather than tidy.
+Taking a statement asserted that every data system speaks SQL. The engine does not: it executes a
+logical plan over Arrow and never sees a string. So the plan is the contract and rendering is the
+adapter's private business, which is what makes an adapter possible that cannot have a dialect bug,
+because it emits no dialect. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md)
+is the record.
+
+### Where the engine sits, and where it is going
+
+Today the engine is *behind* the port, as one adapter among the others, executing local files. That is
+a stepping stone and worth naming as one: an engine belongs **above** the port, deciding which subplan
+each data system runs and executing the remainder itself. That is what federation means here, and it
+is the shape the surveyed projects converge on. Today's arrangement is the engine with zero remote
+sources.
+
+### Connectors: Arrow Flight, not a driver per data system
+
+The intended transport to a data system is **Arrow Flight SQL**, uniformly - DuckDB, Postgres and
+BigQuery alike - rather than a linked native driver each.
+
+Three reasons, and the third is the one that shows up as code today. Arrow is already the result
+format, so a Flight response needs no row-by-row conversion. A Flight endpoint is reachable without
+compiling a C library, which is what makes a statically linked artifact possible at all. And a driver
+per data system means a *type mapping* per data system: the two adapters that exist already had to
+decide independently what a boolean and an exact decimal become, and they agreed only because one was
+written while reading the other. One wire format decides that once.
+
+Taken seriously, that reaches back into the port. Results leave sutura as Arrow with provenance in
+the schema metadata, and a Flight response arrives as Arrow, so a row-oriented type in the middle is
+a conversion in and a conversion out for no benefit. The `RowSet` and `Value` the port returns today
+are exactly that middle, and the cost is already visible: two adapters had to decide independently
+what a boolean and an exact decimal become.
+
+The obstacle is the one the layout exists to enforce - the domain may not name a framework, and
+`arrow` is one. The way through is that **Arrow IPC is a serialization format, not a library type**: a
+port can return encoded bytes plus the provenance that must travel with them, which is lossless,
+names no framework, and makes Arrow the format end to end. `sutura-arrow` then owns encode and decode,
+and anything wanting typed values - the table a CLI prints - becomes a consumer of it rather than of a
+bespoke row type.
+
+Not built. `RowSet` is what exists, and it is honest about being a row type. Recorded here because the
+direction decides whether it grows a `Boolean` variant and an exact decimal, or is replaced.
+
+Until then a data system's driver is a **development dependency** - present to prove that the SQL we
+render actually runs, which is a real job and the reason a data-system adapter exists at all today.
+It is not in the shipped binary, and the shipped binary is not poorer for it: the engine reads CSV and
+Parquet itself.
 
 A plan resolves to exactly one data system. Federation across two is not a smaller version of the
 same problem, it is a second identity to satisfy, and a plan that cannot run as one subject in both
@@ -117,12 +168,15 @@ a refusal naming the argument that failed.
 grouping keys, the date predicate and its bounds, and which values become bind parameters. Two things
 are settled here and nowhere else. The plan names exactly one source, so a question that would need
 two identities is refused before anything runs. And every value from the question becomes a parameter,
-so no caller-supplied value reaches the next stage as text. The plan holds no SQL, and its serialized
-form is what a golden snapshot pins.
+so no caller-supplied value reaches the next stage as text. The plan also records where each predicate
+came from, definitional or requested, because a predicate that is part of what a metric means is not
+one a caller chose and must not be removable. The plan holds no SQL, its type is a domain type because
+[the execution port carries it](#data-systems-are-behind-a-second-port), and its serialized form is
+what a golden snapshot pins.
 
 **Generate.** The plan becomes one statement in one dialect, which decides identifier quoting,
 placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only stage that emits
-SQL.
+SQL, and an adapter that executes a plan directly never reaches it.
 
 ### Two ways a definition arrives
 
@@ -135,10 +189,19 @@ path below has a precondition - something upstream must already have rendered di
 and on a laptop, or over a single file, there is no upstream to have done it.
 
 Its load-bearing constraint is that **a model may not contain a free-text SQL expression.** A measure
-is an aggregate from a closed set over a named column; a relationship is a pair of columns and a join
-type; a dimension is a column, optionally one declared relationship away. The cost is real: an
-expression over two columns cannot be said, and neither can a window function. Those belong on the
-other path.
+is one of three closed shapes - one aggregate over a named column, a conditional count, or a ratio of
+two aggregates over possibly different columns; a relationship is a pair of columns and a join type; a
+dimension is a column, optionally one declared relationship away. A metric may also carry required
+filters, predicates from a closed set of four operators that are **part of what the metric means
+rather than something a caller asks for**: they are applied to every question about it, and a caller
+cannot see, choose or remove one.
+[A closed vocabulary for measures](adr/0002-a-closed-vocabulary-for-measures.md) is the record of why
+the vocabulary is a closed set of *shapes* rather than a single aggregate. The property being defended
+was always no free-text SQL, and one aggregate over one column was a narrow means to it that could
+express two of a real semantic layer's seven metrics.
+
+The cost is unchanged: an expression over two columns cannot be said, and neither can a window
+function. Those belong on the other path.
 
 **A pinned statement**, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.
@@ -219,20 +282,37 @@ carries access rules in the model, which is the middle-tier policy copy
 
 **The plan is where a question stops being text.** [DataFusion](https://datafusion.apache.org/) is
 what Wren and Spice both build on: a logical plan representation, an optimizer you extend with
-rules, and execution over Arrow. We do not use it. `sutura-domain` names no framework - not tokio,
-not arrow, not datafusion - so the first plan will be a small type in `sutura-semantic`. What would
-earn DataFusion its place later is the optimizer and the federation rule below, not the SQL
-frontend.
+rules, and execution over Arrow. The plan is still our own type, and it now lives in
+`sutura-domain`, which names no framework - not tokio, not arrow, not datafusion - so it cannot be
+DataFusion's. What earned DataFusion its place is the execution stage rather than this one, and not
+the SQL frontend either way: over a local file it executes a plan and emits no SQL, which is a whole
+class of dialect bug that cannot occur there.
+[DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) is the record.
 
-**Federation decides where a subplan runs, and here that is a security question.**
-[datafusion-federation](https://github.com/datafusion-contrib/datafusion-federation) registers an
-optimizer rule that finds the largest subplan a single remote source can execute and hands it there
-to run. The property we want is not latency: a predicate pushed into ClickHouse or Postgres is
-evaluated under the caller's own grants, row-level policies and column masking, so excluded rows
-never enter this process and there is nothing here to re-authorize. Pull the rows up and filter them
-locally and the filtering is ours, which is the second policy implementation this design declines to
-keep. So federation arrives after per-leg identity, and
-[a plan resolves to one data system](#data-systems-are-behind-a-second-port) today.
+**Push-down already happens, and completely - federation is not what buys it.** Worth stating plainly,
+because "federation pushes the query down" invites the assumption that without it we pull rows up and
+filter locally. We do not. A plan is rendered as one statement carrying the join, the bounded
+predicate, the grouping, the ordering and the row cap, and the data system returns the finished
+aggregate. Nothing comes back that was not asked for, and there is nothing left here to re-authorize -
+which is the security property, not a performance one: the predicate is evaluated under the caller's
+own grants, row-level policies and column masking, by the system that owns them.
+
+**What federation adds is a SECOND source, and that is a security question rather than a capability
+one.** [datafusion-federation](https://github.com/datafusion-contrib/datafusion-federation) registers
+an optimizer rule that finds the largest subplan a single remote source can execute, hands it there,
+and combines the results. That is exactly what a plan spanning two data systems needs - and a plan
+spanning two data systems is refused today
+([one data system per plan](#the-engine-and-the-data-systems-behind-a-port)) because it is a second
+identity to satisfy, not because we cannot compute it. Pull the rows up and join them here and the
+filtering becomes ours, which is the second policy implementation this design declines to keep. So
+federation arrives after a credential exists per leg. The blocker is identity, not the optimizer.
+
+Two practical notes for when it does arrive. Its push-down renders the remote SQL with DataFusion's
+own unparser, which is the path
+[the splice section](#what-holds-the-generated-statement-up) deliberately avoids - adopting it means
+either accepting that renderer for the pushed-down half or supplying one that uses `polyglot-sql`.
+And there is real version skew between the crate and current DataFusion, which is a second and much
+smaller reason it is later rather than now.
 
 **The dialect stage is one plan and many adapters.**
 [polyglot](https://github.com/tobilg/polyglot) is a Rust transpiler between more than thirty SQL
@@ -252,10 +332,10 @@ leak with a refresh schedule. Spice's front door is also SQL, where ours has no 
 | Stage | Decided there | Ours or theirs |
 | --- | --- | --- |
 | Semantic layer | what a metric means | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression |
-| Plan | source, projection, grouping, bounds, parameters | Build first, adopt later: a type in `sutura-semantic`, DataFusion when a type stops being enough |
-| Federation | which subplan its owner runs | Adopt, once a credential exists per leg |
+| Plan | source, projection, grouping, bounds, parameters | Ours, and the prediction this row used to make came true from the other side. The type is still ours and it moved into `sutura-domain`, because the execution port carries a plan rather than a statement; DataFusion arrived for execution rather than for representation. [DataFusion for local execution](adr/0003-datafusion-for-local-execution.md) |
+| Federation | which subplan its owner runs | Adopt for a SECOND source, once a credential exists per leg. Not needed for the first: a single-source plan is already pushed down whole |
 | Dialect | quoting, placeholders, date arithmetic | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours |
-| Execution | the connection, and which principal the data system sees | Build. One adapter per data system, and the per-request credential is the part nothing above provides |
+| Execution | the connection, and which principal the data system sees | Build, and adopt for the local leg: one adapter per data system, DataFusion where the data is a file on the same machine, and the per-request credential is the part nothing above provides |
 
 That last row is why this is a repository rather than a configuration file for one of the others.
 
@@ -279,7 +359,8 @@ names what it needs by trait, and the binary decides which implementation is pas
           |                |                |
     YAML in git,      ClickHouse,      the identity          adapters, outside it
     a metadata        Postgres,          provider
-    catalogue         DuckDB
+    catalogue         DuckDB,
+                      DataFusion
 ```
 
 `cargo xtask check-boundaries` enforces the direction, so the diagram cannot quietly stop being true.
@@ -325,17 +406,20 @@ budget here is a warehouse round trip.
 
 The query path is built, for one shape of catalog and one data system.
 
-Nine packages. `sutura-domain` holds the domain types and two port traits, `SemanticCatalog` and
+`sutura-domain` holds the domain types, the query plan and two port traits, `SemanticCatalog` and
 `Warehouse`; `sutura-catalog-local` reads a directory of markdown documents with YAML frontmatter;
 `sutura-semantic` resolves, plans and generates; `sutura-exec-duckdb` executes; `sutura-app` is the
 service, generic over both ports; `sutura-cli` composes them. `xtask` holds the repo gates and
-`sutura-dev` the local development CLI.
+`sutura-dev` the local development CLI. `sutura-exec-datafusion` is **in progress**: a second
+`Warehouse` adapter for the local path, which executes the plan over Arrow and renders no SQL at all.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to one statement, in `DuckDB`, Postgres or `ClickHouse` dialect, and executes
-against a `DuckDB` file. Every metric that declares a certified number re-executes and reproduces it
-before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
-path because there is no constructor that produces one.
+against a `DuckDB` file. A measure may be one aggregate over a column, a conditional count or a ratio
+of two aggregates, and a metric may carry required filters that every question about it is answered
+under. Every metric that declares a certified number re-executes and reproduces it before the bundle
+can be served, and a bundle whose anchors were not checked cannot reach the query path because there
+is no constructor that produces one.
 
 **`CredentialBroker` is still absent, and it is the one that matters most.** DuckDB is a file with no
 login, so "every query runs as the calling principal" is satisfied here by there being nobody else to

@@ -16,13 +16,14 @@ use std::path::{Path, PathBuf};
 use sutura_catalog_local::{LocalCatalog, digest_of};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
+use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter};
 use sutura_domain::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, Measure, MetricName, ModelName, RelationshipName, SourceName,
-    TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::plan::QueryPlan;
 use sutura_domain::query::Query;
-use sutura_domain::warehouse::{GeneratedQuery, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
 /// The version the goldens are pinned under.
 ///
@@ -129,6 +130,132 @@ fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>)
     (name, dimension)
 }
 
+type ModelsAndJoins = (Vec<Model>, Vec<Relationship>);
+
+/// The two models and the one relationship between them.
+///
+/// Split out of `load` because a fixture catalog is a list of literals, and one function holding all
+/// of them grows with every shape the vocabulary gains. Three functions that each build one kind of
+/// thing stay readable where one does not.
+fn tables() -> ModelsAndJoins {
+    let orders = Model::new(
+        ModelName::parse("orders").expect("a name"),
+        source(),
+        TableName::parse("orders").expect("a name"),
+        BTreeSet::from([
+            column("order_id"),
+            column("order_date"),
+            column("customer_id"),
+            column("channel"),
+            column("amount_cents"),
+        ]),
+        String::new(),
+    );
+    let customers = Model::new(
+        ModelName::parse("customers").expect("a name"),
+        source(),
+        TableName::parse("customers").expect("a name"),
+        BTreeSet::from([column("id"), column("region_code"), column("segment")]),
+        String::new(),
+    );
+    let joins = vec![Relationship::new(
+        RelationshipName::parse("orders_customer").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        column("customer_id"),
+        ModelName::parse("customers").expect("a name"),
+        column("id"),
+        JoinType::ManyToOne,
+    )];
+
+    (vec![orders, customers], joins)
+}
+
+/// Every metric the fixture declares.
+fn metrics() -> Vec<Metric> {
+    let revenue = Metric::new(
+        MetricName::parse("revenue").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::from([
+            dimension("channel", "channel", None, Some(&["web", "store"])),
+            dimension(
+                "region",
+                "region_code",
+                Some("orders_customer"),
+                Some(&["north", "south", "west"]),
+            ),
+            dimension("segment", "segment", Some("orders_customer"), None),
+        ]),
+        Some(Anchor::new(june(), String::from("570022"))),
+        String::new(),
+    );
+    let orders_placed = Metric::new(
+        MetricName::parse("orders_placed").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Count, column("order_id"))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::from([dimension(
+            "region",
+            "region_code",
+            Some("orders_customer"),
+            Some(&["north", "south", "west"]),
+        )]),
+        Some(Anchor::new(june(), String::from("9"))),
+        String::new(),
+    );
+    let average_order = Metric::new(
+        MetricName::parse("average_order").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Avg, column("amount_cents"))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+
+    // The two shapes the old vocabulary could not express, mirroring the fixture documents of
+    // the same names. They are the reason this catalog exists: if the markdown reader and this
+    // hand-written one disagree about a ratio or a required filter, one of them is wrong.
+    let average_order_value = Metric::new(
+        MetricName::parse("average_order_value").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Ratio {
+            numerator: AggregatedColumn::new(Aggregate::Sum, column("amount_cents")),
+            denominator: AggregatedColumn::new(Aggregate::CountDistinct, column("order_id")),
+            zero_safe: true,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+    let web_revenue = Metric::new(
+        MetricName::parse("web_revenue").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        vec![RequiredFilter::Equals {
+            column: column("channel"),
+            value: String::from("web"),
+        }],
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+
+    vec![revenue, orders_placed, average_order, average_order_value, web_revenue]
+}
+
 impl SemanticCatalog for HandWrittenCatalog {
     type Error = Never;
 
@@ -137,82 +264,8 @@ impl SemanticCatalog for HandWrittenCatalog {
         reason = "every value here is a literal in this file, so a parse failure is a broken test \n                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \n                  not this one, which fires on position rather than on being test code"
     )]
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let orders = Model::new(
-            ModelName::parse("orders").expect("a name"),
-            source(),
-            TableName::parse("orders").expect("a name"),
-            BTreeSet::from([
-                column("order_id"),
-                column("order_date"),
-                column("customer_id"),
-                column("channel"),
-                column("amount_cents"),
-            ]),
-            String::new(),
-        );
-        let customers = Model::new(
-            ModelName::parse("customers").expect("a name"),
-            source(),
-            TableName::parse("customers").expect("a name"),
-            BTreeSet::from([column("id"), column("region_code"), column("segment")]),
-            String::new(),
-        );
-        let joins = vec![Relationship::new(
-            RelationshipName::parse("orders_customer").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            column("customer_id"),
-            ModelName::parse("customers").expect("a name"),
-            column("id"),
-            JoinType::ManyToOne,
-        )];
-
-        let revenue = Metric::new(
-            MetricName::parse("revenue").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            Measure::new(Aggregate::Sum, column("amount_cents")),
-            column("order_date"),
-            BTreeSet::from([Grain::Day, Grain::Month]),
-            BTreeMap::from([
-                dimension("channel", "channel", None, Some(&["web", "store"])),
-                dimension(
-                    "region",
-                    "region_code",
-                    Some("orders_customer"),
-                    Some(&["north", "south", "west"]),
-                ),
-                dimension("segment", "segment", Some("orders_customer"), None),
-            ]),
-            Some(Anchor::new(june(), String::from("470023"))),
-            String::new(),
-        );
-        let orders_placed = Metric::new(
-            MetricName::parse("orders_placed").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            Measure::new(Aggregate::Count, column("order_id")),
-            column("order_date"),
-            BTreeSet::from([Grain::Day, Grain::Month]),
-            BTreeMap::from([dimension(
-                "region",
-                "region_code",
-                Some("orders_customer"),
-                Some(&["north", "south", "west"]),
-            )]),
-            Some(Anchor::new(june(), String::from("8"))),
-            String::new(),
-        );
-        let average_order = Metric::new(
-            MetricName::parse("average_order").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            Measure::new(Aggregate::Avg, column("amount_cents")),
-            column("order_date"),
-            BTreeSet::from([Grain::Month]),
-            BTreeMap::new(),
-            None,
-            String::new(),
-        );
-
-        let definitions = Definitions::assemble(vec![orders, customers], joins, vec![revenue, orders_placed, average_order])
-            .expect("the hand-written catalog holds together");
+        let (models, joins) = tables();
+        let definitions = Definitions::assemble(models, joins, metrics()).expect("the hand-written catalog holds together");
         let digest = digest_of(&definitions).expect("the definitions hash");
         Ok(PinnedDefinitions::new(version(), digest, definitions))
     }
@@ -261,6 +314,7 @@ pub(crate) fn without_descriptions(definitions: &Definitions) -> Definitions {
                 metric.name().clone(),
                 metric.model().clone(),
                 metric.measure().clone(),
+                metric.required_filters().to_vec(),
                 metric.time_column().clone(),
                 metric.grains().clone(),
                 dimensions,
@@ -303,7 +357,12 @@ impl RecordingWarehouse {
         }
     }
 
-    pub(crate) fn statements(&self) -> Vec<String> {
+    /// Which metrics this warehouse was asked about, in order.
+    ///
+    /// It records the plan's metric rather than a rendered statement, because the port takes a plan
+    /// now and this adapter never renders one. What the tests need from it is "was it reached at
+    /// all", which a metric name answers and a statement would only answer more verbosely.
+    pub(crate) fn asked_about(&self) -> Vec<String> {
         self.seen.borrow().clone()
     }
 }
@@ -315,7 +374,7 @@ impl Warehouse for RecordingWarehouse {
         &self.source
     }
 
-    fn dry_run(&self, _query: &GeneratedQuery) -> Result<(), Self::Error> {
+    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
         Ok(())
     }
 
@@ -323,8 +382,8 @@ impl Warehouse for RecordingWarehouse {
         clippy::unwrap_in_result,
         reason = "the fixed one-cell result is a literal, so a failure to build it is a broken \n                  test rather than an input to handle"
     )]
-    fn execute(&self, query: &GeneratedQuery) -> Result<RowSet, Self::Error> {
-        self.seen.borrow_mut().push(String::from(query.sql()));
+    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
         // opinion rather than a data system's.
@@ -390,7 +449,8 @@ impl SemanticCatalog for TwoSourceCatalog {
         let revenue = Metric::new(
             MetricName::parse("revenue").expect("a name"),
             ModelName::parse("orders").expect("a name"),
-            Measure::new(Aggregate::Sum, column("amount_cents")),
+            Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            Vec::new(),
             column("order_date"),
             BTreeSet::from([Grain::Month]),
             BTreeMap::from([dimension("region", "region_code", Some("orders_customer"), None)]),

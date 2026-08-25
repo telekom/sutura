@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden.rs
 expression: query.sql()
 ---
-SELECT "orders"."channel" AS "channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", sum("orders"."amount_cents") AS "revenue" FROM "orders" JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? AND "customers"."region_code" = ? GROUP BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10000
+SELECT "orders"."channel" AS "channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", sum("orders"."amount_cents") AS "revenue" FROM "orders" LEFT JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? AND "customers"."region_code" = ? GROUP BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10000

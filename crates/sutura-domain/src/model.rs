@@ -273,39 +273,11 @@ impl JoinType {
     }
 }
 
-/// What a metric measures: one aggregate over one column.
-///
-/// `Count` is the one case where the column is not read, and it still has to name one: a `COUNT(*)`
-/// over a joined result counts join products rather than facts. Naming the column makes the
-/// generator emit `COUNT("orders"."id")`, which counts the thing the model says it counts.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct Measure {
-    aggregate: Aggregate,
-    column: ColumnName,
-}
-
-impl Measure {
-    #[inline]
-    pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self {
-        Self { aggregate, column }
-    }
-
-    #[inline]
-    pub const fn aggregate(&self) -> Aggregate {
-        self.aggregate
-    }
-
-    #[inline]
-    pub const fn column(&self) -> &ColumnName {
-        &self.column
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
-        Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, JoinType, MAX_IDENTIFIER_LEN, Measure, MetricName,
-        ModelName, RelationshipName, SourceName, TableName,
+        Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, JoinType, MAX_IDENTIFIER_LEN, MetricName, ModelName,
+        RelationshipName, SourceName, TableName,
     };
 
     #[test]
@@ -450,14 +422,5 @@ mod tests {
         assert!(JoinType::OneToMany.may_duplicate_rows());
         assert!(!JoinType::ManyToOne.may_duplicate_rows());
         assert!(!JoinType::OneToOne.may_duplicate_rows());
-    }
-
-    #[test]
-    fn a_measure_keeps_its_column_even_for_count() {
-        // `COUNT(*)` over a joined result counts join products, not facts. The column is what makes
-        // the generated count count the thing the model says it counts.
-        let measure = Measure::new(Aggregate::Count, ColumnName::parse("id").expect("id is a name"));
-        assert_eq!(measure.aggregate(), Aggregate::Count);
-        assert_eq!(measure.column().as_str(), "id");
     }
 }

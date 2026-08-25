@@ -21,18 +21,32 @@ against; a build without it still compiles a question to SQL, and says so if you
 
 ```text
 version local-working-tree
-digest  25067aa509b26a91fef089ab5787fa8819e58309ee6a561f553ac59020418d99
+digest  c05bf3c529039924fb4abce95d1a2c4b7908308aec557dce2694f71283905e4e
 
 average_order
   measure    avg(amount_cents)
+  filters    none
   grains     month
+  dimensions none
+  anchor     none
+average_order_value
+  measure    sum(amount_cents) / count_distinct(order_id), zero-safe
+  filters    none
+  grains     day, month
   dimensions none
   anchor     none
 revenue
   measure    sum(amount_cents)
+  filters    none
   grains     day, month
   dimensions channel, region, segment
   anchor     470023 over [2026-06-01, 2026-07-01)
+web_revenue
+  measure    sum(amount_cents)
+  filters    channel = "web"
+  grains     day, month
+  dimensions none
+  anchor     none
 ```
 
 The digest is over the canonical form of the parsed definitions, so reformatting a document does not
@@ -96,7 +110,7 @@ cargo run -p sutura-cli --features exec-duckdb -- \
 ```
 
 ```text
--- definitions local-working-tree 25067aa509b26a91fef089ab5787fa8819e58309ee6a561f553ac59020418d99
+-- definitions local-working-tree c05bf3c529039924fb4abce95d1a2c4b7908308aec557dce2694f71283905e4e
 region  period      revenue
 north   2026-06-01  225072
 south   2026-06-01  244950
@@ -144,8 +158,8 @@ columns: [order_id, order_date, customer_id, channel, amount_cents]
 One row per order, as booked. Money in minor units, so a total is exact.
 ```
 
-A metric names a model, an aggregate over one of its columns, the grains it answers at and the
-dimensions it may be broken down by:
+A metric names a model, what it measures, the grains it answers at and the dimensions it may be
+broken down by:
 
 ```markdown
 ---
@@ -153,8 +167,7 @@ kind: metric
 name: revenue
 model: orders
 measure:
-  aggregate: sum
-  column: amount_cents
+  simple: { aggregate: sum, column: amount_cents }
 time_column: order_date
 grains: [day, month]
 dimensions:
@@ -170,13 +183,48 @@ anchor:
 Total booked order value, in minor units.
 ```
 
-Three things about that are worth knowing before you write one:
+`measure` names its shape, and there are three. `simple` is one aggregate over one column, above.
+The other two exist because most certified metrics are not that:
 
-- **A measure is an aggregate from a closed set over a named column.** There is no field for
-  `sum(price * quantity)`, and [the first-party models
-  decision](adr/0001-first-party-semantic-models.md) argues why: a
-  string field is an escape hatch, and an escape hatch on the query path is the thing being defended
-  against. What a model cannot say belongs in a statement rendered upstream.
+```yaml
+# A ratio: one aggregate divided by another, over possibly different columns.
+measure:
+  ratio:
+    numerator:   { aggregate: sum,            column: amount_cents }
+    denominator: { aggregate: count_distinct, column: order_id }
+    zero_safe: true
+```
+
+```yaml
+# How many rows have a boolean column true. Its own shape because COUNT(col) counts
+# the false ones too, which is a wrong number that raises no error.
+measure:
+  count_if: { column: churned_in_month }
+```
+
+A metric may also carry `required_filters`, which are part of what it *means* rather than something
+a caller chooses:
+
+```yaml
+required_filters:
+  - equals: { column: channel, value: web }
+```
+
+Four things about all that are worth knowing before you write one:
+
+- **A measure is a shape from a closed vocabulary, not an expression.** There is no field for
+  `sum(price * quantity)`, and [the closed vocabulary for
+  measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
+  hatch, and an escape hatch on the query path is the thing being defended against. What the
+  vocabulary cannot say belongs in a statement rendered upstream. `zero_safe` is required rather than
+  defaulted, because "a rate over an empty period is null" and "is an error" are both defensible and
+  a definition should say which.
+- **A `required_filter` is definitional, and a caller can neither see it nor turn it off.**
+  `web_revenue` *means* the web number; a statement that left the predicate out would return total
+  revenue under a certified name. That is a wrong answer arrived at by omission rather than by
+  tampering, which is the more likely failure and the harder one to notice. Note the consequence for
+  modelling: a metric with a required filter on `channel` should not also declare `channel` as a
+  dimension, or grouping by it would be a way to ask the metric for the figure it excludes.
 - **`values` is what makes a dimension filterable.** Without it the dimension can be grouped by and
   not filtered on, because a filter needs an allowlist - the alternative is comparing against
   whatever the caller sent.

@@ -20,6 +20,10 @@ thiserror = { workspace = true }
 # depending on the other.
 sutura-catalog-local = { workspace = true }
 sutura-exec-duckdb = { workspace = true }
+# The second engine, for the differential test: one plan through two implementations of the port,
+# rows compared. A wrong number then has to be produced twice, the same way, by code that shares
+# nothing below the plan.
+sutura-exec-datafusion = { workspace = true }
 insta = { workspace = true }
 serde_norway = { workspace = true }
 # Parse-only, and test-only: it proves the generated statement is valid in each target dialect

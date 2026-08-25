@@ -8,9 +8,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::{Definitions, Dimension, InconsistentDefinitions, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use crate::measure::{AggregatedColumn, Measure};
 use crate::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, Measure, MetricName, ModelName, RelationshipName, SourceName,
-    TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 
 fn column(raw: &str) -> ColumnName {
@@ -74,7 +74,8 @@ fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
     Metric::new(
         metric_name(name),
         model_name("orders"),
-        Measure::new(Aggregate::Sum, column("amount_cents")),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         dimensions
@@ -152,7 +153,8 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
     let broken = Metric::new(
         metric_name("revenue"),
         model_name("orders"),
-        Measure::new(Aggregate::Sum, column("not_a_column")),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("not_a_column"))),
+        Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
@@ -174,7 +176,8 @@ fn a_metric_with_no_grain_is_refused_because_no_question_could_resolve() {
     let grainless = Metric::new(
         metric_name("revenue"),
         model_name("orders"),
-        Measure::new(Aggregate::Sum, column("amount_cents")),
+        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        Vec::new(),
         column("order_date"),
         BTreeSet::new(),
         BTreeMap::new(),

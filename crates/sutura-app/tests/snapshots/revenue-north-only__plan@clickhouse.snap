@@ -27,21 +27,34 @@ keys:
       table: orders
       column: channel
 measure:
-  label: revenue
-  aggregate: sum
-  column:
-    table: orders
-    column: amount_cents
-time_column:
-  table: orders
-  column: order_date
-start_param: 0
-end_param: 1
+  simple:
+    aggregate: sum
+    column:
+      table: orders
+      column: amount_cents
+measure_label: revenue
 filters:
-  - column:
-      table: customers
-      column: region_code
-    param: 2
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: orders
+          column: order_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: orders
+          column: order_date
+        param: 1
+  - origin: requested
+    predicate:
+      equals:
+        column:
+          table: customers
+          column: region_code
+        param: 2
 params:
   - Date:
       year: 2026
@@ -52,4 +65,13 @@ params:
       month: 7
       day: 1
   - Text: north
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 7
+    day: 1
 row_limit: 10000

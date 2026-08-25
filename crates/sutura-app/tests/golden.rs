@@ -38,7 +38,7 @@ mod tests {
     use sutura_domain::pinned::{AnchorCheck, AnchorReport, SemanticCatalog as _, Validated};
     use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
     use sutura_domain::warehouse::Warehouse as _;
-    use sutura_semantic::{Compiled, Dialect, compile, dialect};
+    use sutura_semantic::{Compiled, Dialect, PredicateOrigin, compile, dialect};
 
     use crate::support::{
         HandWrittenCatalog, RecordingWarehouse, catalog_root, data_root, load_local, questions, read_question, source,
@@ -161,47 +161,158 @@ mod tests {
 
     // --------------------------------------------------------------- the no-injection assertion ---
 
+    /// A parameter's value as text, for comparing against what a question carried.
+    fn bound_value(param: &sutura_domain::warehouse::ParamValue) -> String {
+        match *param {
+            sutura_domain::warehouse::ParamValue::Text(ref v) => v.clone(),
+            sutura_domain::warehouse::ParamValue::Integer(v) => v.to_string(),
+            sutura_domain::warehouse::ParamValue::Date(d) => d.to_iso(),
+        }
+    }
+
+    /// The statement with every quoted identifier removed.
+    ///
+    /// Searching the raw SQL for a value gives false positives, and one bit immediately: the metric
+    /// `web_revenue` has a required filter of `channel = 'web'`, the predicate is correctly bound as
+    /// `"orders"."channel" = ?`, and a plain substring search still found "web" - inside the alias
+    /// `AS "web_revenue"`. The value had not reached the statement at all.
+    ///
+    /// Identifiers are double-quoted and a value inlined as text would be single-quoted, so dropping
+    /// the double-quoted spans leaves exactly the part of the statement a value could have leaked
+    /// into. It is a stronger check than looking for `'value'` would be: it also catches a value
+    /// inlined bare, without quotes.
+    ///
+    /// Toggling on `"` is enough because an identifier here cannot contain one - `ColumnName` and its
+    /// siblings reject it, which is what makes that a fact rather than an assumption.
+    fn without_identifiers(sql: &str) -> String {
+        let mut out = String::with_capacity(sql.len());
+        let mut inside = false;
+        for ch in sql.chars() {
+            if ch == '"' {
+                inside = !inside;
+            } else if !inside {
+                out.push(ch);
+            }
+        }
+        out
+    }
+
     #[test]
-    fn no_value_from_a_question_reaches_the_statement_as_text() {
-        // The mechanical form of the claim `docs/adr/0001-first-party-semantic-models.md` makes. Every date and every filter value a
-        // question carries must arrive as a bind parameter, so none of them may appear in the SQL.
+    fn no_value_reaches_the_statement_as_text() {
+        // The mechanical form of the claim the first-party-models decision makes. Every value that
+        // ends up in a predicate must arrive as a bind parameter, so none of them may appear in the
+        // SQL - and there are now two sources of them.
         //
-        // Written against `Query::literals` rather than as a list of places to look, so a field
-        // added to `Query` cannot quietly stop being covered.
+        // Written against `Query::literals` and `QueryPlan::definitional_params` rather than as a
+        // list of places to look, so a field added to either cannot quietly stop being covered.
         let pinned = load_local();
         let mut checked = 0_usize;
+        let mut with_definitional = 0_usize;
         for path in questions() {
             let question = read_question(&path);
             let literals = question.literals();
             for dialect in dialect::ALL.iter().copied() {
                 let compiled = compile(&question, &pinned, dialect).expect("the corpus compiles");
-                let Compiled::Statement { ref query, .. } = compiled else {
+                let Compiled::Statement { ref plan, ref query } = compiled else {
                     continue;
                 };
+
+                // Searched with the quoted identifiers removed: see `without_identifiers`.
+                let searchable = without_identifiers(query.sql());
+
+                // What the CALLER sent. The classic injection: a filter value or a date written
+                // into the statement instead of bound.
                 for literal in &literals {
                     assert!(
-                        !query.sql().contains(literal.as_str()),
-                        "{} for {dialect} carries the literal {literal:?}:\n{}",
+                        !searchable.contains(literal.as_str()),
+                        "{} for {dialect} carries the question's literal {literal:?}:\n{}",
                         stem(&path),
                         query.sql()
                     );
                 }
-                // The values are still there, as parameters. Without this half, a generator that
-                // dropped the predicate entirely would pass the assertion above.
-                let bound: BTreeSet<String> = query
-                    .params()
-                    .iter()
-                    .map(|p| match *p {
-                        sutura_domain::warehouse::ParamValue::Text(ref v) => v.clone(),
-                        sutura_domain::warehouse::ParamValue::Integer(v) => v.to_string(),
-                        sutura_domain::warehouse::ParamValue::Date(d) => d.to_iso(),
-                    })
-                    .collect();
-                assert_eq!(bound, literals, "{} for {dialect}", stem(&path));
+
+                // What the CATALOG said. A required filter's value is not caller text, so inlining it
+                // would not be an injection today - it would be a generator with one inlining path
+                // and one binding path, and the inlining path is the one that eventually gets handed
+                // caller text. Asserting it here is what keeps there being only one path.
+                let definitional: Vec<String> = plan.definitional_params().into_iter().map(bound_value).collect();
+                for value in &definitional {
+                    // A date bound is definitional too, and its ISO text is checked above. Skip the
+                    // ones the question also carries so the message cannot be misattributed.
+                    if literals.contains(value) {
+                        continue;
+                    }
+                    assert!(
+                        !searchable.contains(value.as_str()),
+                        "{} for {dialect} carries the catalog's value {value:?}:\n{}",
+                        stem(&path),
+                        query.sql()
+                    );
+                    with_definitional = with_definitional.saturating_add(1);
+                }
+
+                // The values are still there, as parameters. Without this half a generator that
+                // dropped the predicate entirely would pass everything above.
+                let bound: BTreeSet<String> = query.params().iter().map(bound_value).collect();
+                for literal in &literals {
+                    assert!(
+                        bound.contains(literal),
+                        "{} for {dialect} did not bind the question's {literal:?}; \
+                         the predicate is missing rather than inlined:\n{}",
+                        stem(&path),
+                        query.sql()
+                    );
+                }
                 checked = checked.saturating_add(1);
             }
         }
         assert!(checked > 0, "the corpus produced no statements to check");
+        // The corpus has to contain at least one metric with a required filter, or the second half
+        // of this test is asserting over an empty set and would pass with the feature removed.
+        assert!(
+            with_definitional > 0,
+            "no question exercised a required filter; the definitional half of this test proved nothing"
+        );
+    }
+
+    #[test]
+    fn a_definitional_filter_is_in_every_statement_about_its_metric() {
+        // A required filter is what makes a metric mean what it says: `web_revenue` is revenue from
+        // the web channel, and a statement without that predicate returns total revenue under that
+        // name. A caller cannot ask for it and cannot turn it off, so nothing the caller does can
+        // make this test pass or fail - which is exactly why it has to be asserted here.
+        let pinned = load_local();
+        let mut seen = 0_usize;
+        for path in questions() {
+            let question = read_question(&path);
+            let Some(metric) = pinned.definitions().metric(question.metric()) else {
+                continue;
+            };
+            if metric.required_filters().is_empty() {
+                continue;
+            }
+            let compiled = compile(&question, &pinned, Dialect::DuckDb).expect("the corpus compiles");
+            let Compiled::Statement { ref plan, .. } = compiled else {
+                continue;
+            };
+            for required in metric.required_filters() {
+                let present = plan.filters().iter().any(|f| {
+                    matches!(f.origin(), PredicateOrigin::Definition) && f.predicate().column().column() == required.column()
+                });
+                assert!(
+                    present,
+                    "{}: the plan for {} dropped its required filter on {}",
+                    stem(&path),
+                    question.metric(),
+                    required.column()
+                );
+            }
+            seen = seen.saturating_add(1);
+        }
+        assert!(
+            seen > 0,
+            "no question asked about a metric with a required filter, so this proved nothing"
+        );
     }
 
     #[test]
@@ -349,7 +460,7 @@ mod tests {
             "expected a source refusal, got {outcome:?}"
         );
         assert!(
-            elsewhere.statements().is_empty(),
+            elsewhere.asked_about().is_empty(),
             "a refused question must not have reached the data system"
         );
     }
@@ -385,9 +496,9 @@ mod tests {
             assert!(outcome.is_refusal(), "{fixture} was answered");
         }
         assert!(
-            fake.statements().is_empty(),
+            fake.asked_about().is_empty(),
             "refused questions reached the data system: {:?}",
-            fake.statements()
+            fake.asked_about()
         );
     }
 
@@ -420,6 +531,63 @@ mod tests {
     }
 
     #[test]
+    fn a_dimension_join_does_not_change_the_measure() {
+        // THE BUG THIS EXISTS FOR, and it shipped: the generator emitted an INNER join, so every
+        // fact row whose dimension row was missing silently vanished from a grouped answer. Order 12
+        // in `data/orders.csv` names customer 5, and `data/customers.csv` stops at 4 - so before the
+        // fix, `revenue` for June answered 570022 and `revenue by region` totalled 470023. Two
+        // numbers, one metric, one period, and nothing raising an error anywhere.
+        //
+        // The catalog's existing guard could not see it. `may_duplicate_rows` refuses a join that
+        // would FAN OUT the fact rows; this is the same failure by ELIMINATION, and a cardinality
+        // check has nothing to say about it.
+        //
+        // Asserted as a reconciliation rather than against a literal, because that is the property:
+        // grouping by a dimension must partition the measure, not filter it. A left join makes the
+        // unmatched row group under a null key, so the totals agree.
+        let pinned = load_local();
+        let warehouse = duckdb();
+        let report = verify_anchors(&pinned, &warehouse, Dialect::DuckDb);
+        let validated = Validated::new(pinned, &report).expect("the anchors hold");
+
+        let questions_dir = catalog_root().parent().expect("fixtures has a parent").join("questions");
+        let total_of = |file: &str, label: &str| -> i64 {
+            let question = read_question(&questions_dir.join(file));
+            let outcome =
+                answer(&validated, &question, &warehouse, Dialect::DuckDb).unwrap_or_else(|e| panic!("{file} failed: {e}"));
+            let ToolOutcome::Answer { ref rows, .. } = outcome else {
+                panic!("{file} was refused: {outcome:?}");
+            };
+            let index = rows
+                .column_index(label)
+                .unwrap_or_else(|| panic!("{file} has no single {label:?} column"));
+            (0..rows.rows().len())
+                .filter_map(|row| match rows.cell(row, index) {
+                    Some(&sutura_domain::warehouse::Value::Integer(v)) => Some(v),
+                    _ => None,
+                })
+                .sum()
+        };
+
+        let ungrouped = total_of("revenue-total-june.yaml", "revenue");
+        for grouped_by in ["revenue-by-region.yaml", "revenue-by-channel.yaml", "revenue-by-segment.yaml"] {
+            assert_eq!(
+                total_of(grouped_by, "revenue"),
+                ungrouped,
+                "{grouped_by} does not reconcile with the ungrouped total; a dimension join is \
+                 filtering the measure instead of partitioning it"
+            );
+        }
+        // And the row that makes the test mean something is actually in the data: without an
+        // unmatched key every join is a no-op and this reconciles trivially.
+        assert_eq!(
+            ungrouped, 570_022,
+            "the fixture no longer carries an order whose customer is absent, so this test proves \
+             nothing; restore it in data/orders.csv"
+        );
+    }
+
+    #[test]
     fn a_corrupted_anchor_makes_the_bundle_unservable_rather_than_answering() {
         // The fourth milestone criterion, and the difference between a demo and a governed service.
         // A definition that has stopped computing its own number must fail readiness, not answer.
@@ -435,7 +603,7 @@ mod tests {
         report.record(
             first.clone(),
             AnchorCheck::Mismatch {
-                expected: String::from("470023"),
+                expected: String::from("570022"),
                 actual: String::from("470022"),
             },
         );
@@ -477,11 +645,14 @@ mod tests {
         for path in questions() {
             let question = read_question(&path);
             let compiled = compile(&question, &pinned, Dialect::DuckDb).expect("the corpus compiles");
-            let Compiled::Statement { ref query, .. } = compiled else {
+            let Compiled::Statement { ref plan, ref query } = compiled else {
                 continue;
             };
+            // `dry_run` takes the PLAN now. For this adapter that means rendering it and preparing
+            // the statement, which is what resolves every table and column name - so the SQL is
+            // still the useful thing to print on a failure.
             warehouse
-                .dry_run(query)
+                .dry_run(plan)
                 .unwrap_or_else(|e| panic!("{} was rejected: {e}\n{}", stem(&path), query.sql()));
         }
     }

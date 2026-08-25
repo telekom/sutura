@@ -5,7 +5,7 @@
 //! 1. **Resolve** looks every name up in the pinned snapshot. Its only outputs are references into
 //!    that bundle and refusals naming the argument that failed. It cannot reach a live catalog,
 //!    because it is handed a [`PinnedDefinitions`] and nothing else.
-//! 2. **Plan** ([`plan::Plan`]) settles the two things nothing else may settle: which single data
+//! 2. **Plan** ([`crate::plan`]) settles what nothing else may settle: which single data
 //!    system the statement runs against, and which values become bind parameters. It holds no SQL,
 //!    and its serialized form is what a golden snapshot pins.
 //! 3. **Generate** ([`generate`]) renders the plan for one dialect. It is the only module that
@@ -22,15 +22,17 @@
 
 pub mod dialect;
 pub mod generate;
-pub mod plan;
+pub(crate) mod plan;
 mod resolve;
 
 pub use crate::dialect::Dialect;
 pub use crate::generate::GenerateError;
-pub use crate::plan::Plan;
 pub use crate::resolve::BundleInconsistent;
+pub use sutura_domain::plan::QueryPlan;
+pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PredicateOrigin};
 
 use sutura_domain::pinned::PinnedDefinitions;
+use sutura_domain::plan::QueryPlan as DomainPlan;
 use sutura_domain::query::{Query, RefusalReason};
 use sutura_domain::warehouse::GeneratedQuery;
 
@@ -46,7 +48,7 @@ pub enum Compiled {
     ///
     /// The plan is boxed because it is by far the larger of the two payloads, and an enum whose
     /// size is set by its rarest variant makes every refusal carry the cost of an answer.
-    Statement { plan: Box<Plan>, query: GeneratedQuery },
+    Statement { plan: Box<DomainPlan>, query: GeneratedQuery },
     /// The question was refused, and this is why.
     Refused { reason: RefusalReason },
 }
@@ -72,7 +74,7 @@ impl Compiled {
 
     /// The plan, if the question resolved.
     #[inline]
-    pub const fn plan(&self) -> Option<&Plan> {
+    pub const fn plan(&self) -> Option<&DomainPlan> {
         match *self {
             Self::Statement { ref plan, .. } => Some(plan),
             Self::Refused { .. } => None,

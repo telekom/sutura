@@ -319,7 +319,8 @@ mod tests {
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::{Anchor, Definitions, Metric, Model};
     use crate::definitions::DefinitionDigest;
-    use crate::model::{Aggregate, ColumnName, Grain, Measure, MetricName, ModelName, SourceName, TableName};
+    use crate::measure::{AggregatedColumn, Measure};
+    use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
 
     const DIGEST: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -340,7 +341,8 @@ mod tests {
         let metric = Metric::new(
             metric_name("revenue"),
             ModelName::parse("orders").expect("a test model is a model"),
-            Measure::new(Aggregate::Sum, column("amount_cents")),
+            Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            Vec::new(),
             column("order_date"),
             BTreeSet::from([Grain::Month]),
             BTreeMap::new(),

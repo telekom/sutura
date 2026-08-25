@@ -3,8 +3,7 @@ kind: metric
 name: orders_placed
 model: orders
 measure:
-  aggregate: count
-  column: order_id
+  simple: { aggregate: count, column: order_id }
 time_column: order_date
 grains: [day, month]
 dimensions:
@@ -16,7 +15,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: 8
+  value: 9
 ---
 How many orders were booked.
 

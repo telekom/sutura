@@ -18,17 +18,23 @@
 //! types it speaks in:
 //!
 //! - [`model`] and [`calendar`] are the vocabulary: names, closed sets, dates.
+//! - [`measure`] is what a metric measures, as a closed vocabulary of shapes rather than an
+//!   expression language.
+//! - [`plan`] is what we decided to execute, and the artifact the execution port speaks in.
 //! - [`catalog`] is what a catalog says, and where its cross-references are checked.
 //! - [`pinned`] is the hashed snapshot a question resolves against, plus the catalog port.
 //! - [`query`] is the tool surface, defined mostly by what it has no field for.
-//! - [`warehouse`] is the execution port, and the one place a generated statement is named.
+//! - [`warehouse`] is the execution port. It speaks in plans, so an adapter that executes without
+//!   generating any SQL is a first-class implementation of it rather than a special case.
 //! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes.
 
 pub mod calendar;
 pub mod catalog;
 pub mod definitions;
 pub mod identity;
+pub mod measure;
 pub mod model;
 pub mod pinned;
+pub mod plan;
 pub mod query;
 pub mod warehouse;

@@ -21,7 +21,10 @@ use std::path::Path;
 use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
 use sutura_domain::model::TableName;
+use sutura_domain::plan::QueryPlan;
 use sutura_domain::warehouse::{GeneratedQuery, MalformedRowSet, ParamValue, RowSet, Value, Warehouse};
+use sutura_semantic::generate::generate;
+use sutura_semantic::{Dialect, GenerateError};
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -63,6 +66,15 @@ pub enum DuckDbError {
     Shape {
         #[source]
         cause: MalformedRowSet,
+    },
+    /// The plan could not be rendered as SQL.
+    ///
+    /// This adapter speaks SQL, so it asks the compiler to render the plan for its own dialect. An
+    /// adapter that executes a plan directly - the in-process engine - never reaches this.
+    #[error("the plan could not be rendered for DuckDB")]
+    Render {
+        #[source]
+        cause: GenerateError,
     },
     #[error("could not attach {path} as table {table}")]
     Attach {
@@ -133,6 +145,19 @@ impl DuckDbWarehouse {
                 path: path.display().to_string(),
                 cause,
             })
+    }
+
+    /// The plan, rendered as a `DuckDB` statement.
+    ///
+    /// This adapter asks the compiler to render rather than rendering itself, which is why it depends
+    /// on `sutura-semantic`: turning a plan into a dialect is the compiler's last stage, and a second
+    /// implementation here would be a second set of quoting and placeholder decisions to keep in
+    /// step. The dialect is not a parameter - a `DuckDB` adapter renders `DuckDB`.
+    ///
+    /// Free-standing rather than a method: it reads nothing from `self`, and taking `&self` would
+    /// imply the rendering depends on which connection is open, which it must not.
+    fn render(plan: &QueryPlan) -> Result<GeneratedQuery, DuckDbError> {
+        generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })
     }
 
     /// The parameters, as this driver wants them.
@@ -238,7 +263,8 @@ impl Warehouse for DuckDbWarehouse {
     /// A real check rather than a stub: preparing resolves every table and column name and validates
     /// the syntax, so a statement that would fail at the data system fails here, before anything is
     /// read.
-    fn dry_run(&self, query: &GeneratedQuery) -> Result<(), Self::Error> {
+    fn dry_run(&self, plan: &QueryPlan) -> Result<(), Self::Error> {
+        let query = Self::render(plan)?;
         drop(
             self.connection
                 .prepare(query.sql())
@@ -247,7 +273,8 @@ impl Warehouse for DuckDbWarehouse {
         Ok(())
     }
 
-    fn execute(&self, query: &GeneratedQuery) -> Result<RowSet, Self::Error> {
-        self.run(query)
+    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        let query = Self::render(plan)?;
+        self.run(&query)
     }
 }

@@ -10,3 +10,4 @@ order_id,order_date,customer_id,channel,amount_cents
 9,2026-07-02,1,web,10000
 10,2026-07-05,2,store,20000
 11,2026-07-11,4,web,30000
+12,2026-06-25,5,web,99999

@@ -3,8 +3,7 @@ kind: metric
 name: revenue
 model: orders
 measure:
-  aggregate: sum
-  column: amount_cents
+  simple: { aggregate: sum, column: amount_cents }
 time_column: order_date
 grains: [day, month]
 dimensions:
@@ -26,7 +25,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: 470023
+  value: 570022
 ---
 Total booked order value, in minor units.
 
