@@ -39,12 +39,14 @@ plan, and a federation layer that decides where a subplan runs. Federation is ex
 
 **`DuckDB`'s role changes accordingly, and it is worth being precise rather than polite about it.** It
 is not a peer engine to be maintained in parallel; two engines to keep in step is a cost, not a
-feature. What it is now is a **differential oracle**, and a load-bearing one: it is the only thing in
-the repository that EXECUTES the SQL we render. The DataFusion path never produces a statement, so
-without a real SQL engine in the loop the whole rendering half of the compiler would be checked only
-by parsing it. One plan through both, rows compared, is what makes a wrong number have to be produced
-twice - and it caught two real disagreements the first time it ran.
-
+feature. It is a **data source** - a place data already lives, that somebody wants queried - and its
+driver is a development dependency rather than something the binary ships. What it earns its keep for
+today is that it is the only thing in the repository that EXECUTES the SQL we render: the engine
+never produces a statement, so without a real SQL engine somewhere in the loop the whole rendering
+half of the compiler would be vouched for by parsing alone, which is weaker than it sounds. One plan
+computed locally and pushed down as SQL, rows compared, is a cheap regression net for one bug class -
+a statement that is valid SQL with different semantics. It caught two real disagreements the first
+time it ran, both shallow: column labels and row order.
 The argument that carries this is not that DataFusion is fast, or good. It is that **for local
 execution DataFusion generates no SQL at all.** You build a logical plan and execute it over Arrow.
 Every bug in the list above is a bug an adapter that never renders SQL *cannot have* - not one it is
@@ -101,20 +103,20 @@ would be planning on somebody else's Python.
 **There is real version skew between DataFusion and `datafusion-federation`.** One more reason
 federation is later, on top of the reason that already governed it: federation is a second identity
 to satisfy, and
-[a plan that cannot run as one subject in both places](../architecture.md#data-systems-are-behind-a-second-port)
+[a plan that cannot run as one subject in both places](../architecture.md#the-engine-and-the-data-systems-behind-a-port)
 is refused rather than run partly as somebody else.
 
 ## What does not change
 
 | Guarantee | Still held by |
 | --- | --- |
-| A plan resolves to exactly one data system | `PlanSources` asserted `len() == 1`. A second engine in the process is not federation and does not become it by being convenient |
+| A plan resolves to exactly one data system | The plan stage's source set, which refuses `PlanSpansTwoSources` unless exactly one name is in it. A second data system reachable from one process is not federation and does not become it by being convenient |
 | We never re-parse SQL we did not generate | Stronger here rather than weaker: an adapter that emits no SQL has none to re-parse, and the dialect layer's `transpile` feature is still not compiled, so a call to it does not build |
 | No value from a question reaches the statement as text | For an adapter that renders, `GeneratedQuery` keeps the statement and the parameters in separate fields with no constructor that merges them. For an adapter that renders nothing there is no text for a value to reach at all: the plan carries typed parameters and each predicate names the one it binds by index |
 | The domain acquires no framework dependency | The dependency-boundary check, over the whole transitive tree, unchanged. The plan moving into the domain moved a type, not a dependency: `QueryPlan` names no engine |
 | No result cache | Nothing here adds one. Materializing into Arrow is a thing this class of engine is good at, and it is the half of the neighbouring project we decline - see below |
 | Refusal is a result, not an error | Unchanged. An adapter's failure is its own typed error; a question that may not be asked is still refused before an adapter is reached |
-| Every generated statement is valid in the data system it was generated for | Unchanged for the adapters that generate one: the goldens parse each statement in its target dialect, parse only, never re-emitting. *Gap: for an adapter that generates nothing there is no equivalent check yet. The plan defining its own result labels is what would make one possible - the same plan answered by both adapters, compared row for row - and nothing does it today* |
+| Every generated statement is well formed in the dialect it was generated for | Unchanged for the adapters that generate one: the goldens parse each statement with its target dialect, parse only, never re-emitting. Narrower than "the data system accepts it", and deliberately so - the dialect layer's parser is not gated on the dialect for every construct, so acceptance is vouched for by execution rather than by parsing. For an adapter that generates nothing there is no statement to parse, and what stands in its place is the differential test below: the same plan executed locally and pushed down as SQL, rows compared |
 | Every query runs as the calling principal | Not held on this path, and this decision does not change that either way. A local file has no login, so there is nobody else to be, and `CredentialBroker` is still absent |
 
 ## Consequences
@@ -124,17 +126,24 @@ is refused rather than run partly as somebody else.
   local path no longer rendering SQL, the goldens carry that weight alone: they are what parse every
   statement in its target dialect, and they are now the only thing that does before a real remote
   data system is in the picture.
-- **Two adapters can answer the same plan**, which is a comparison that was not previously
-  expressible: the same question over the same file, once through a renderer and once through a plan
-  builder, must produce the same rows. *Not built yet*, and it is the strongest test this change
-  makes available.
+- **One plan, answered both ways, rows compared.** Built, as
+  `crates/sutura-app/tests/differential.rs`: the same question over the same files, once executed
+  locally over Arrow by the engine and once rendered as SQL and pushed down to a data source. Worth
+  reading for what it does *not* claim - its own module doc calls it a cheap regression net rather
+  than a proof of correctness, because the two sides are not two implementations of one thing. What
+  it covers is the one class of bug nothing else here catches: a rendered statement that is valid
+  SQL with different semantics - a truncated date coming back as a timestamp, an integer division
+  silently truncating, a week starting on the wrong day. It caught two real disagreements the first
+  time it ran, both shallow: the column labels, and the row order.
 - **The port is synchronous, so the adapter owns its runtime.** DataFusion's execution is async and
   tokio arrives with it; `Warehouse::execute` is a plain function, so the adapter blocks internally.
   That keeps tokio out of the domain and out of the service, at the price of an adapter that has to
   be careful about being called from inside somebody else's runtime.
 - **Unlike DuckDB, it links no C library.** So it does not constrain the musl artifacts the way
-  `libduckdb` does, and the default-off feature it sits behind is there for build time rather than
-  for linkability.
+  `libduckdb` does, and it needs no feature to sit behind: it is a plain dependency of `sutura-cli`
+  and ships in every artifact. `DuckDB` went the other way and is a **development** dependency, of
+  `sutura-app`'s test suite - present to prove the SQL we render actually runs, not to be linked
+  into an artifact that has no musl `libduckdb` to link against.
 
 ## Alternatives considered
 

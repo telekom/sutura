@@ -84,8 +84,8 @@ fmt:
     cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is not optional here: adapters are default-off, so without it clippy
-# inspects almost nothing and still reports success.
+# `--all-features` is a no-op today - no crate declares a feature - and stays on every entry point
+# so that coverage cannot silently drop the day an adapter goes behind one.
 
 # Lint everything.
 lint:

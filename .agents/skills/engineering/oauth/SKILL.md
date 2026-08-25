@@ -55,13 +55,16 @@ the raw token deep in a call stack is authorization nobody can audit.
 
 ## The downstream leg - where this service is different
 
-Every query runs as the calling principal. Concretely:
+The intent is that every query runs as the calling principal. Concretely:
 
-- `CredentialBroker::credential_for(&RequestContext, ..)` mints per request. There is no
-  service account fallback: a leg that cannot run as the subject returns
-  `RefusalReason::SourceIdentityUnavailable`. **Downgrading to a service identity is the
-  failure, not the recovery** - it silently converts "this user may not see these rows" into
-  "here are the rows".
+**None of this is built yet, and the section is the design rather than a description.** There is no
+credential port in the workspace; single-player reads a file, which has no login to present. Written
+down here because the shape has to be decided before the first adapter, not after.
+
+- A broker mints a credential per request, from the request's own context. There is no service
+  account fallback: a leg that cannot run as the subject is refused instead.
+  **Downgrading to a service identity is the failure, not the recovery** - it silently converts
+  "this user may not see these rows" into "here are the rows".
 - Use RFC 8693 token exchange for the downstream token, and RFC 8707 `resource` indicators so
   the exchanged token is audience-restricted to the leg it is for. An unrestricted downstream
   token is a bearer token for everything that trusts the issuer.

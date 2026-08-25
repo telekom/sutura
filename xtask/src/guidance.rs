@@ -46,15 +46,16 @@ const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
         needle: "--all-targets -- -D warnings",
         instead: "--all-targets --all-features -- -D warnings",
-        why: "adapters are feature-gated and default-off, so without --all-features clippy \
-              inspects almost nothing and still reports success",
+        why: "no crate here declares a feature today, so this is a no-op - and that is the \
+              point: the flag is in every entry point already, so the day an adapter goes \
+              behind one, coverage does not silently drop to nothing",
         only: &[],
         except: &[".agents/skills/engineering/rust/SKILL.md"],
     },
     Forbidden {
         needle: "cargo nextest run --workspace\"",
         instead: "cargo nextest run --workspace --all-features",
-        why: "same reason as clippy: the default feature set is nearly empty",
+        why: "same reason as clippy: a no-op today, in place so it stays correct later",
         only: &[],
         except: &[],
     },

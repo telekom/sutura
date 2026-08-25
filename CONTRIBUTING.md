@@ -365,10 +365,10 @@ One reviewable idea per branch. If describing it needs an "and", split it.
 - **No dependency declared and unused.** `cargo xtask unused-deps`. A crate must reference
   every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by
   somebody. Declaring a dependency to satisfy a document is what it exists to stop.
-- **`--all-features` on every lint and test entry point.** The adapters are feature-gated and
-  default-off, so `cargo clippy --workspace` on its own inspects almost nothing and still
-  reports success. A scoped `cargo check -p sutura-domain --no-default-features` is the fast
-  inner loop, never the gate.
+- **`--all-features` on every lint and test entry point.** No crate here declares a feature today,
+  so the flag is a no-op - and it stays in every entry point for exactly that reason: the day an
+  adapter goes behind one, coverage must not silently drop to nothing. A scoped
+  `cargo check -p sutura-domain --no-default-features` is the fast inner loop, never the gate.
 - **The domain crate acquires no framework dependency.** `cargo xtask check-boundaries` checks
   the whole transitive tree against an allowlist, so a framework reached through an innocuous
   crate fails it too.

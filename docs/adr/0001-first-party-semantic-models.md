@@ -81,7 +81,7 @@ Every other guarantee is untouched, and each still has the same mechanism behind
 | A definition that has stopped computing its own number fails readiness | The anchor test re-executes each metric and compares against the number its author declared |
 | Refusal is a result, not an error | `ToolOutcome::Refusal { reason }`, with a test per variant |
 | No SQL, table, predicate or row id on the tool surface | `Query` has no field for one. This decision changes what a *catalog* may say, and nothing about what a *caller* may say |
-| A plan resolves to exactly one data system | `PlanSources` asserted `len() == 1` |
+| A plan resolves to exactly one data system | The plan stage gathers the source of every model the statement would read - the metric's own, and each one reached through a join - into a set, and refuses `PlanSpansTwoSources` unless exactly one name is in it |
 | No result cache | Nothing added one |
 
 One new guarantee arrives with the generator, and it is mechanical rather than argued: **no value

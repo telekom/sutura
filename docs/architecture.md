@@ -171,8 +171,8 @@ two identities is refused before anything runs. And every value from the questio
 so no caller-supplied value reaches the next stage as text. The plan also records where each predicate
 came from, definitional or requested, because a predicate that is part of what a metric means is not
 one a caller chose and must not be removable. The plan holds no SQL, its type is a domain type because
-[the execution port carries it](#data-systems-are-behind-a-second-port), and its serialized form is
-what a golden snapshot pins.
+[the execution port carries it](#the-engine-and-the-data-systems-behind-a-port), and its serialized
+form is what a golden snapshot pins.
 
 **Generate.** The plan becomes one statement in one dialect, which decides identifier quoting,
 placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only stage that emits
@@ -242,8 +242,15 @@ that includes one per refusal. Beside them, four checks that are assertions rath
   parameter list is asserted to be exactly the set of literals the question carried - so a generator
   that dropped the predicate fails it too.
 - **Every identifier and alias is quoted**, so a column called `order` is not a syntax error.
-- **Every statement parses in the dialect it was generated for.** Parse only, never re-emit: that is
-  what makes it safe, and it is what replaces having one of each data system in CI.
+- **Every statement parses under the dialect it was generated for**, which catches a malformed
+  statement without needing one of each data system in CI. Parse only, never re-emit: that is what
+  makes it safe. **It is not the same as "the data system accepts it", and the difference matters.**
+  The dialect layer's parser takes a dialect but is not gated on it for every construct, and its
+  generator writes `x IS TRUE` without ever consulting its own flag for whether a dialect allows
+  that - so a construct like that parses under all three targets whatever a real instance would say.
+  Acceptance is vouched for by execution instead: by the anchors, and by one plan run both ways over
+  a real DuckDB and the real engine, rows compared. For Postgres and ClickHouse we render and
+  parse-check, and nothing more.
 - **Every declared anchor re-executes and reproduces its number**, and a bundle whose anchors were not
   all checked cannot be served, because there is no constructor that produces one.
 
@@ -371,8 +378,10 @@ again if a library crate's surface stops being a typed contract: a `pub` field o
 
 Two consequences follow from the direction rather than from taste. The domain names no framework, so
 its test suite compiles nothing heavy and runs in well under a second, which is what makes it the
-inner loop. And adapters are feature-gated and default-off, which is why every lint and test entry
-point passes `--all-features`; [Contributing](contributing.md) has the commands.
+inner loop. And every lint and test entry point passes `--all-features`, so an adapter placed behind
+a feature is inspected from the day it lands rather than from the day somebody remembers the flag -
+no crate declares a `[features]` table today, which is exactly when a habit like that is cheap to
+keep; [Contributing](contributing.md) has the commands.
 
 ## What ships
 
@@ -404,14 +413,16 @@ budget here is a warehouse round trip.
 
 ## What exists today
 
-The query path is built, for one shape of catalog and one data system.
+The query path is built: one shape of catalog, an engine that executes it, and one data system it
+knows how to push down to.
 
 `sutura-domain` holds the domain types, the query plan and two port traits, `SemanticCatalog` and
 `Warehouse`; `sutura-catalog-local` reads a directory of markdown documents with YAML frontmatter;
-`sutura-semantic` resolves, plans and generates; `sutura-exec-duckdb` executes; `sutura-app` is the
-service, generic over both ports; `sutura-cli` composes them. `xtask` holds the repo gates and
-`sutura-dev` the local development CLI. `sutura-exec-datafusion` is **in progress**: a second
-`Warehouse` adapter for the local path, which executes the plan over Arrow and renders no SQL at all.
+`sutura-semantic` resolves and plans, and renders SQL when asked; `sutura-exec-datafusion` is the
+engine, executing a plan over Arrow and rendering no SQL at all; `sutura-exec-duckdb` is a data
+source, rendering the plan into DuckDB SQL and pushing it down; `sutura-app` is the service, generic
+over both ports; `sutura-cli` composes them, and links the engine only. `xtask` holds the repo gates
+and `sutura-dev` the local development CLI.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to one statement, in `DuckDB`, Postgres or `ClickHouse` dialect, and executes

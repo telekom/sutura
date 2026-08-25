@@ -193,8 +193,8 @@ in
       cargo fmt --all
       cargo run -q -p xtask -- text-hygiene --fix
     '';
-    # `--all-features` because the adapters are feature-gated and default-off: without it
-    # these commands lint and test almost nothing and still pass.
+    # `--all-features` is a no-op today, since no crate declares a feature. It stays so that
+    # coverage cannot silently drop the day an adapter goes behind one.
     lint.exec = onStable "cargo clippy --workspace --all-targets --all-features -- -D warnings";
     test.exec = onStable "cargo nextest run --workspace --all-features";
     boundaries.exec = onStable "cargo run -q -p xtask -- check-boundaries";

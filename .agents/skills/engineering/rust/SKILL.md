@@ -106,12 +106,13 @@ and exempt in tests (`allow-*-in-tests` in `clippy.toml`). Shipped profiles use
 Slices are walked with `split_first` rather than indexed. `unsafe_code` is `forbid` - not
 `deny` - so a crate cannot re-allow it locally.
 
-## 3. Features are default-off, so `--all-features` is mandatory
+## 3. `--all-features` on every entry point, even though it is a no-op
 
-Adapters are feature-gated and off by default. A bare `cargo clippy --workspace` inspects
-almost nothing and still reports success. Every gate passes `--all-features`; so should you.
+No crate here declares a feature today, and nothing is `optional = true`. So the flag currently
+changes nothing - and it is on every gate for exactly that reason: the day an adapter goes behind a
+feature, coverage must not silently drop to nothing without anyone noticing.
 
-The exception is the fast inner loop, deliberately narrow:
+The inner loop is deliberately narrow:
 
 ```bash
 cargo check -p sutura-domain --no-default-features   # must stay sub-second

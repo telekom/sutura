@@ -9,13 +9,13 @@ There is a catalogue, a data file and a question in the repository already - the
 suite runs on - so the fastest way to see what this does is to point the binary at those.
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   catalog crates/sutura-app/tests/fixtures/catalog
 ```
 
-`--features exec-duckdb` is not optional for anything that reads data. The adapter is default-off,
-because two of the four shipped artifacts are musl and there is no musl `libduckdb` to link them
-against; a build without it still compiles a question to SQL, and says so if you ask it to run one.
+No feature flag, and nothing to install. The engine is compiled into the binary and reads the CSVs
+itself, so `query` works in a plain `cargo run`. A data system's driver is a development dependency
+here - present to prove the SQL we render actually runs, not to answer your questions.
 
 ## What a catalogue says
 
@@ -56,7 +56,7 @@ move it and changing what a metric means does. It travels with every answer.
 what the markdown half of the format is for.
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   describe crates/sutura-app/tests/fixtures/catalog revenue
 ```
 
@@ -103,7 +103,7 @@ and `sum`, Postgres gets `$1` and `$2` instead of `?`.
 did not all match:
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   query crates/sutura-app/tests/fixtures/catalog \
         crates/sutura-app/tests/fixtures/questions/revenue-by-region.yaml \
         crates/sutura-app/tests/fixtures/data
@@ -123,7 +123,7 @@ A refusal is a result, not an error, and the exit status says so. Ask for a regi
 not declare a value for:
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   query crates/sutura-app/tests/fixtures/catalog \
         crates/sutura-app/tests/fixtures/questions/refused-value-not-allowed.yaml \
         crates/sutura-app/tests/fixtures/data
