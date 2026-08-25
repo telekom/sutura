@@ -5,6 +5,10 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ## Unreleased
 
+### Fixes
+
+- **ci**: The prune's own display line failed the workflow
+
 ### Performance
 
 - **ci**: A profile for the link check, tuned for compile speed
