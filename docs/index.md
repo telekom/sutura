@@ -1,7 +1,3 @@
-<p class="sutura-mark" style="text-align: center; margin: 0 0 1.5rem;">
-  <img src="assets/sutura.svg" alt="" width="78" height="90">
-</p>
-
 # sutura
 
 sutura answers questions about data **as the person or agent asking**, using metric
