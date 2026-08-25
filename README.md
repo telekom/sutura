@@ -14,11 +14,11 @@
 sutura answers questions about data **as the person or agent asking**, using metric
 definitions somebody certified, and refuses when it cannot do either.
 
-Give an agent a database connection and it will answer with SQL it invented, run under
-whatever credential the service happens to hold. Both halves are wrong. The number is
-uncertified, so nobody can say whether "revenue" means what finance means by it. And the rows
-come back according to what the *service* may read, not what the *caller* may read, which is
-how a row-level security policy becomes decorative.
+Give an agent a database connection and it answers with SQL it invented, run under whatever
+credential the service holds. Two failures, not one. The number is uncertified, so nobody can
+say whether "revenue" means what finance means by it. And the rows are the ones the *service*
+may read rather than the ones the *caller* may read, which is how a row-level security policy
+becomes decorative.
 
 sutura sits in between:
 
@@ -38,50 +38,43 @@ sutura sits in between:
              Arrow + provenance ◄────────┘
 ```
 
-## What is different about it
+## What is different
 
 **Every query runs as the caller.** Not as a service account holding the union of everyone's
-access. When a query cannot be run as the subject, sutura returns a refusal; it does not fall
-back to its own identity. That fallback is convenient and it silently turns "you may not see
-these rows" into "here are the rows".
+access. A query that cannot run as the subject comes back as a refusal, never downgraded to
+sutura's own identity: that downgrade turns "you may not see these rows" into "here are the
+rows".
 
-**A refusal is an answer, not a failure.** It comes back as a result with a reason, so a
-caller cannot mistake it for a hiccup and retry until something works.
+**A refusal is an answer, not a failure.** It is a variant of the result type carrying a
+reason, so a caller cannot mistake it for a hiccup and retry until something works.
 
-**You cannot ask it to run SQL.** There is no field for a query, a table, or a filter. An
-uncertified question is not refused so much as unsayable. The most a manipulated agent can do
-is ask a different certified question, as the same caller.
+**You cannot ask it to run SQL.** There is no field for a query, a table or a filter. An
+uncertified question is unsayable rather than refused. The most a manipulated agent can do is
+ask a different certified question, as the same caller.
 
-**Definitions come from somewhere else.** They are authored in a semantic layer, pinned and
-hashed. Nothing here edits one, because editing it would separate the definition from the
-number it certifies.
+**Definitions come from elsewhere.** They are authored in a semantic layer and arrive pinned
+and hashed. Nothing here edits one; editing forks the definition from the number it certifies.
 
 ## What it borrows
 
-Two projects got there first, both Apache-2.0 and both worth reading:
-**[Wren](https://github.com/Canner/WrenAI)**, which compiles a modelled question into SQL over
-[DataFusion](https://datafusion.apache.org/), and **[Spice](https://github.com/spiceai/spiceai)**,
-also DataFusion-based, for federating and accelerating across sources.
+Two Apache-2.0 projects got there first. **[Wren](https://github.com/Canner/WrenAI)** compiles
+a modelled question into SQL over [DataFusion](https://datafusion.apache.org/).
+**[Spice](https://github.com/spiceai/spiceai)**, also DataFusion-based, federates and
+accelerates across sources. Neither answers who is asking or whether they may see the answer,
+and that is what sutura adds.
 
-What sutura adds is identity. Neither answers who is asking, or whether they may see the answer.
-Both the semantic layer and the data system sit behind ports, so swapping either is an adapter
-rather than a rewrite.
-
-One adapter per data system means the same plan has to come out as valid SQL in more than
-one dialect. **[polyglot](https://github.com/tobilg/polyglot)** is that problem on its own:
-a Rust transpiler between more than thirty SQL dialects, ClickHouse, Postgres and DuckDB
-among them.
+One plan has to render as valid SQL in every dialect an adapter targets.
+**[polyglot](https://github.com/tobilg/polyglot)** is a Rust transpiler between more than
+thirty of them, ClickHouse, Postgres and DuckDB included.
 
 ## Status
 
-The design is settled and the code is a walking skeleton. What works today is the environment,
-the release pipeline, and the gates that keep the guarantees above from quietly becoming
-aspirations. The query path is not built yet.
+The design is settled; the code is a walking skeleton. The environment, the release pipeline
+and the gates that hold the claims above exist. The query path does not.
 
 ## Documentation
 
-The [documentation](https://telekom.github.io/sutura/) covers how to get set up, what the
-pieces are, and why they are that way. It is built from `docs/` in this repository.
+<https://telekom.github.io/sutura/>, built from `docs/` in this repository.
 
 ## Licence
 
