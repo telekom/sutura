@@ -96,6 +96,43 @@
           '';
         };
 
+        # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they
+        # fall behind; this is the fix it names, and the two must agree byte for byte, so both
+        # get their tools from here: the nightly out of `nix/toolchains.nix` and a stdlib
+        # interpreter out of nixpkgs.
+        #
+        # An app rather than a check, because a check cannot write to the source tree - the
+        # point of this one is to leave the regenerated file in the worktree for review.
+        #
+        # It exists because `just api` called a BARE `cargo` and a BARE `pixi`, so it only
+        # worked where a dev shell was already active. That is the drift this flake exists to
+        # remove, and it bit: regenerating a page needed the devenv profile put on PATH by
+        # hand. Now the recipe is `nix run .#api-docs` and needs nothing but nix.
+        #
+        # `python3` and not pixi's, matching `checks.api-docs` and for the same reason: the
+        # generator imports json, pathlib, re and sys and nothing else. If it ever grows a
+        # third-party import, this and the check both have to become a pixi environment
+        # together, or the gate starts disagreeing with its own fix.
+        #
+        # Relative paths, so it must run at the repository root. Asserted rather than assumed -
+        # a silent miss here writes nothing and reports success, which is the same failure
+        # shape as `repo::root()` returning the wrong directory.
+        apiDocsWriter = pkgs.writeShellApplication {
+          name = "sutura-api-docs";
+          runtimeInputs = [ pkgs.python3 ];
+          text = ''
+            if [ ! -f flake.nix ] || [ ! -f Cargo.toml ]; then
+              echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
+              exit 1
+            fi
+            export PATH="${(import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly}/bin:$PATH"
+            # One library crate today. A second one is two more lines here and in the gate.
+            cargo rustdoc -q -p sutura-domain --all-features -- \
+              -Z unstable-options --output-format json
+            exec python3 docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+          '';
+        };
+
 
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
@@ -556,11 +593,11 @@
           # this check reads `docs/.tools/rustdoc_to_markdown.py` and the committed pages, and
           # crane's filter keeps only Cargo inputs.
           #
-          # SUTURA_API_DOCS_PYTHON: the generator is a stdlib-only script, and `just api` runs
-          # it through pixi because pixi owns every Python in this repo. A build sandbox has no
-          # network and so cannot materialise a pixi environment, so the interpreter is named
-          # here instead. The SCRIPT is the same either way, which is what stops this check
-          # from disagreeing with what `just api` produces.
+          # SUTURA_API_DOCS_PYTHON: the generator is a stdlib-only script. `apiDocsWriter` above
+          # is the fix this gate names, and it runs the same script on the same `pkgs.python3`,
+          # which is what stops the gate from disagreeing with its own fix. Named through the
+          # environment because a build sandbox has no network and could not materialise a pixi
+          # environment even if one were wanted here.
           api-docs =
             let
               nightlyCrane = (crane.mkLib pkgs).overrideToolchain
@@ -663,6 +700,11 @@
         apps.cargo = {
           type = "app";
           program = "${cargoWrapper}/bin/sutura-cargo";
+        };
+        # `just api`. The writer for what `checks.api-docs` byte-compares.
+        apps.api-docs = {
+          type = "app";
+          program = "${apiDocsWriter}/bin/sutura-api-docs";
         };
         apps.git-cliff = {
           type = "app";

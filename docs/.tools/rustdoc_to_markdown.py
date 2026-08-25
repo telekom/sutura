@@ -84,7 +84,6 @@ class Doc:
     def __init__(self, data: dict) -> None:
         self.index = data["index"]
         self.root = str(data["root"])
-        self.crate_version = data.get("crate_version")
 
     def item(self, ident) -> dict | None:
         return self.index.get(str(ident))
@@ -405,12 +404,17 @@ def render_crate(data: dict, crate_name: str) -> str:
     page.add()
     page.add(f"# {crate_name}")
     page.add()
-    version = doc.crate_version
-    page.add(
-        f"The public API of `{crate_name}`"
-        + (f", version {version}" if version else "")
-        + ", rendered from rustdoc JSON."
-    )
+    # NO VERSION in this line, deliberately. It used to print `crate_version`, which made the
+    # committed page a second copy of the number in Cargo.toml - and `check-api-docs` byte-
+    # compares, so a release bump alone turned the page stale and failed the NEXT pull request
+    # to run the gate. That happened: v0.2.0 shipped and the following PR went red on a page
+    # whose doc comments nobody had touched.
+    #
+    # Keeping the two in sync was the alternative, and it needs the nightly toolchain and this
+    # generator wired into the release path - machinery to maintain a duplicate. Dropping the
+    # duplicate is cheaper and cannot drift. The site carries the version already: mike
+    # publishes one docs tree per release and its selector names them.
+    page.add(f"The public API of `{crate_name}`, rendered from rustdoc JSON.")
     page.add()
     page.docs(root.get("docs"))
     render_module(doc, page, doc.root, 2)

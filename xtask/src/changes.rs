@@ -84,9 +84,11 @@ const AREAS: &[Area] = &[
         // symmetrical. An unnecessary run regenerates identical output and passes; a missing
         // pattern is a stale page nothing reports.
         //
-        // `Cargo.toml` is here because the page prints the crate VERSION, so a version bump
-        // alone makes every page stale. That one is easy to miss precisely because it changes
-        // no doc comment.
+        // `Cargo.toml` is here for FEATURES and DEPENDENCIES: the pages are generated with
+        // `--all-features`, so adding a feature or a dependency can add a public re-export
+        // without touching a doc comment. It is NOT here for the version any more - the page
+        // stopped printing it, precisely because that made a release bump stale every page
+        // (see the note in `docs/.tools/rustdoc_to_markdown.py`).
         //
         // The generator and the pages are here too: both decide what a fresh generation
         // produces, and `DOCS_ONLY` below would otherwise read a hand-edited page or a changed
