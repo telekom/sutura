@@ -201,6 +201,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let mut checked = 0_usize;
 
     for rel in files {
+        // A symlink stored as a pointer file has no trailing newline, because a symlink
+        // target does not. Where git is available these never reach here; where it is not,
+        // this is what stops the walk from failing them. See repo::INDEX_SYMLINKS.
+        if repo::is_index_symlink(&rel) {
+            continue;
+        }
         let path = root.join(&rel);
 
         // The size check applies to every file, text or not: a 40 MB binary in git is the

@@ -215,7 +215,9 @@ fn library_count(root: &Path) -> usize {
 /// `.claude/settings.json`, and it stopped being true: the entries were added to the index and
 /// a later `git add -A` on a checkout with `core.symlinks=false` replaced them. Nothing
 /// noticed, because a claim in a README enforces nothing.
-const AGENT_SKILL_LINKS: &[&str] = &[".claude/skills", ".codex/skills", ".opencode/skills"];
+// The same list `text-hygiene` skips, so the set that is exempt from the newline rule and
+// the set whose symlink mode is verified cannot drift apart.
+use crate::repo::INDEX_SYMLINKS as AGENT_SKILL_LINKS;
 
 /// The symlink target the entries must have.
 const LINK_TARGET: &str = "../.agents/skills";

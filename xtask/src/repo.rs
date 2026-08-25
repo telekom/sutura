@@ -211,6 +211,28 @@ pub(crate) fn collect_text_files(root: &Path, dir: &Path, out: &mut Vec<String>)
     }
 }
 
+/// Paths that are SYMLINKS in the index but may be pointer files on disk.
+///
+/// git stores mode 120000 for these. On a platform without symlink support - or with
+/// `core.symlinks=false` - it writes a small text file containing the target path instead, with
+/// no trailing newline, because a symlink target has none.
+///
+/// Where `.git` is available a gate skips them by reading the index. Where it is NOT - the Nix
+/// build sandbox, and Docker's `COPY . .` - a gate walks the tree, sees a 17-byte regular file
+/// and fails it for a missing final newline. That is why the Dockerfile's `build` target could
+/// never succeed from a Windows checkout, and why `checks.hygiene` failed in the sandbox.
+///
+/// Skipping by path rather than by content: "a tiny file whose text happens to be a relative
+/// path" is not a shape worth guessing at, and `cargo xtask check-skills` still verifies these
+/// are mode 120000 wherever git can be asked - so the invariant keeps a mechanism rather than
+/// becoming an exemption.
+pub(crate) const INDEX_SYMLINKS: &[&str] = &[".claude/skills", ".codex/skills", ".opencode/skills"];
+
+/// Is this path one of the index symlinks above?
+pub(crate) fn is_index_symlink(path: &str) -> bool {
+    INDEX_SYMLINKS.contains(&path)
+}
+
 /// How much of a file to inspect before deciding whether it is text.
 ///
 /// A NUL in the first few KiB is the standard binary heuristic and is what git itself uses.
