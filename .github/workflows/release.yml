@@ -438,12 +438,27 @@ jobs:
             # token that cannot write to a registry.
             docker load -i "images/sutura-oci-${target}.tar.gz"
             docker tag sutura:latest "${IMAGE}:${tag}-${target}"
-            docker push "${IMAGE}:${tag}-${target}"
-            # The digest is the only durable answer to "which build is running". Recorded as a
-            # release asset, because a checksum an uploader can also rewrite proves little.
-            # Read AFTER the push: RepoDigests is empty until a registry has assigned one.
-            digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}-${target}" 2>/dev/null || true)"
-            printf 'leaf %s %s\n' "$target" "${digest:-unknown}" >> dist/image-digests.txt
+            # The digest is the only durable answer to "which build is running", so it comes
+            # from what the registry SAID rather than from local bookkeeping.
+            #
+            # This was `docker inspect --format '{{index .RepoDigests 0}}'`, and it recorded
+            # `unknown` for one of the four targets in the v0.1.0 release while the push
+            # itself had succeeded and printed a digest. `RepoDigests` is per-image-ID, and
+            # every tarball here loads under the same `sutura:latest` name, so the tag-to-ID
+            # mapping is rewritten on each iteration - the field is unreliable exactly when
+            # several images share one repository. `docker push` prints the digest it
+            # registered, which needs no bookkeeping to survive.
+            push_log="$(mktemp)"
+            docker push "${IMAGE}:${tag}-${target}" | tee "$push_log"
+            digest="$(grep -oE 'sha256:[0-9a-f]{64}' "$push_log" | tail -1)"
+            rm -f "$push_log"
+            # FAIL rather than record `unknown`. A release whose digests are missing cannot
+            # be pinned, and a placeholder makes an absence look like data.
+            if [ -z "$digest" ]; then
+              echo "::error::no digest in the push output for ${target}" >&2
+              exit 1
+            fi
+            printf 'leaf %s %s@%s\n' "$target" "$IMAGE" "$digest" >> dist/image-digests.txt
           done
           # Two manifest lists, assembled from the leaves just pushed. The four leaf tags are
           # written out rather than accumulated in the loop above, so which architecture belongs
