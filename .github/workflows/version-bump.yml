@@ -1,7 +1,8 @@
 # Two jobs in one file, split by how it was started.
 #
 #   push to main         -> write CHANGELOG.md and nothing else.
-#   workflow_dispatch    -> also work out the next version, tag it, and ask release.yml to run.
+#   workflow_dispatch    -> also work out the next version, tag it, and ask release.yml AND
+#                           docs.yml to run on that tag.
 #
 # This file publishes nothing itself.
 #
@@ -217,20 +218,44 @@ jobs:
       # holds.
       #
       # Retried, because the ref was created seconds ago and the API can 404 on it briefly.
-      - name: Start the release
+      # BOTH workflows the tag is supposed to start, for the reason in this file's header: a
+      # push made with GITHUB_TOKEN starts nothing, so `git push origin "$VERSION"` above lands
+      # the tag and no `on: push: tags` trigger anywhere fires.
+      #
+      # docs.yml was the half that got missed. It declares `tags: ["v*"]` and its publish step
+      # is correct - on a tag it deploys `<version>` and moves the `latest` alias - but it had
+      # never once run on a tag: five releases existed and `versions.json` on gh-pages held a
+      # single entry, `main`, so the version dropdown had nothing to select and `extra.version.
+      # default: latest` in mkdocs.yml pointed at an alias that did not exist. The docs looked
+      # permanently stuck on the development copy because they were.
+      #
+      # One loop over both, so a third workflow that needs the tag is one word to add and
+      # cannot be half-wired the way this was.
+      - name: Start the release and publish its docs
         if: steps.next.outputs.release == 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           VERSION: ${{ steps.next.outputs.version }}
         run: |
           set -eu
-          for attempt in 1 2 3; do
-            if gh workflow run release.yml --ref "$VERSION"; then
-              echo "release.yml dispatched for ${VERSION}"
-              exit 0
-            fi
-            echo "attempt ${attempt}: ${VERSION} not visible to the API yet; retrying"
-            sleep 10
+          failed=""
+          for wf in release.yml docs.yml; do
+            started=""
+            for attempt in 1 2 3; do
+              if gh workflow run "$wf" --ref "$VERSION"; then
+                echo "${wf} dispatched for ${VERSION}"
+                started=yes
+                break
+              fi
+              echo "attempt ${attempt}: ${VERSION} not visible to the API yet for ${wf}; retrying"
+              sleep 10
+            done
+            # Recorded and carried on rather than exiting here: if docs fail to start, the
+            # release still has to be reported, and one `::error::` naming both is more use than
+            # the first failure hiding the second.
+            if [ -z "$started" ]; then failed="${failed} ${wf}"; fi
           done
-          echo "::error::could not start release.yml for ${VERSION}; dispatch it by hand"
-          exit 1
+          if [ -n "$failed" ]; then
+            echo "::error::could not start${failed} for ${VERSION}; dispatch by hand"
+            exit 1
+          fi
