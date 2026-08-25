@@ -58,6 +58,5 @@ and the gates that hold the properties above exist. The query path does not.
 | Understand the shape of the system | [Architecture](architecture.md) |
 | Read the Rust API | [API reference](api/index.md) |
 | Install it and ask a question | [Getting started](getting-started.md), once the query path exists |
-| See what changed | [Changelog](changelog.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.
