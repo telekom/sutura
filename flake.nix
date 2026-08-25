@@ -217,6 +217,12 @@
         # `-O3`, because cc-rs reads cargo's `OPT_LEVEL`. Freezing one number here would
         # silently decouple the allocator from the profile, so this is a pure caching change
         # and not a performance one.
+        #
+        # `dev` lands on `-O3` and that is NOT an oversight: the allocator is a DEPENDENCY, and
+        # `[profile.dev.package."*"] opt-level = 3` in Cargo.toml is what cc-rs sees for it - the
+        # `opt-level = 0` on `[profile.dev]` applies to our own crates, not to this. Reading the
+        # wrong one of those two keys is the easy mistake here. It also means `dev` reuses the
+        # `release-performance` archive rather than adding a third C build to the cache.
         optLevelFor = profile: if profile == "release" then "1" else "3";
 
         nativeFor = profile:
@@ -308,6 +314,16 @@
         variants = [
           { suffix = ""; profile = "release"; }
           { suffix = "-performance"; profile = "release-performance"; }
+          # The dev-profile sibling. It exists for pull requests: a branch needs to know that
+          # every target still COMPILES AND LINKS - the allocator C included, per target, which
+          # is where cross breakage actually lives - and it does not need that answer at LTO
+          # prices. `dev` and not a stripped-down release, so the answer comes from the profile
+          # developers already build locally.
+          #
+          # Not a shipped artifact and never published. `releaseTargets`, `imageTargets` and the
+          # `one-binary` check all key off the unsuffixed name, so nothing here can reach a
+          # release asset by accident.
+          { suffix = "-debug"; profile = "dev"; }
         ];
 
         crossPackages = builtins.listToAttrs (builtins.concatMap
