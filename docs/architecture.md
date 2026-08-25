@@ -102,8 +102,8 @@ so neither transport can grow a text-blob shortcut on its own.
 ## The semantic compiler
 
 `sutura-semantic` turns a modelled question into one statement for one data system. It does not
-exist yet: the crate is in the table in `AGENTS.md` and nothing compiles it. The stages below are
-the design.
+exist yet: the crate is named in the layout table in `AGENTS.md` and nothing compiles it. The
+stages below are the design.
 
 A question names a metric, some dimensions, a grain and a bounded time range. Dimension values
 are arguments, checked against an allowlist in the pinned bundle. What comes out is a statement
@@ -113,7 +113,7 @@ and the values bound to it. Nothing in between is text a caller wrote.
 exist, each dimension has to be one that metric declares, the grain has to be one it supports,
 the range has to be bounded. The lookup goes to the pinned bundle and never to a live catalogue
 read, which is what makes the answer independent of what the catalogue says at the moment of
-asking. Out comes a set of definitions, or a refusal naming the argument that failed.
+asking. The output is a set of definitions, or a refusal naming the argument that failed.
 
 **Plan.** The resolved question becomes a plan: which data system owns the metric, the
 projection, the grouping keys, the date predicate and its bounds, and which values become bind
@@ -149,7 +149,7 @@ not known without asking the data system. And the statement has to be valid in t
 will run in, because the splice does not translate it, which makes the data system part of what
 the definition means rather than a deployment choice.
 
-The paragraph above is not what holds any of this. SQL goldens are regenerated and reviewed as a
+The paragraph above is not what holds this. SQL goldens are regenerated and reviewed as a
 diff rather than typed, and they assert the passthrough byte for byte. An anchor test re-executes
 each pinned statement in CI and at startup, and a failure there fails readiness. One gap is open
 and recorded in `AGENTS.md`: no lint yet bans a transpile call on the query path, so review is
@@ -157,20 +157,20 @@ what catches one until a lint does.
 
 ## Where the parts come from
 
-Every system of this kind runs the same line: **semantic layer, plan, federation, dialect,
-execution**. The projects worth reading sit at different points on it. The last stage is the one
-none of them covers.
+The same line runs through every system of this kind: **semantic layer, plan, federation,
+dialect, execution**. The projects worth reading sit at different points on it. The last stage is
+the one none of them covers.
 
 ```mermaid
 flowchart TB
-    Q["a modelled question<br>metric, dimensions, grain, range"]
-    SL["semantic layer<br>what the metric means<br>upstream; Wren is the reference shape"]
-    PL["plan<br>one source, projection, grouping,<br>bounds, parameters<br>DataFusion is the natural substrate"]
-    FD["federation<br>which subplan its owner runs<br>datafusion-federation, as Spice uses it"]
-    DI["dialect<br>quoting, placeholders, date arithmetic<br>polyglot"]
-    EX["execution<br>as the calling principal<br>nothing above provides this"]
-    ST(["the certified statement,<br>spliced in as a derived table,<br>never parsed"])
-    A["Arrow, with provenance in the schema"]
+    Q["a modelled question"]
+    SL["semantic layer<br>what a metric means<br>Wren"]
+    PL["plan<br>one source, grouping,<br>bounds, parameters<br>DataFusion"]
+    FD["federation<br>where a subplan runs<br>datafusion-federation, Spice"]
+    DI["dialect<br>quoting, placeholders, dates<br>polyglot"]
+    EX["execution<br>as the calling principal<br>nothing above does this"]
+    ST(["the certified statement,<br>spliced in unparsed"])
+    A["Arrow, with provenance"]
 
     Q --> SL --> PL --> FD --> DI --> EX --> A
     SL -.->|bytes| ST
@@ -191,8 +191,8 @@ rules, execution over Arrow, and extension points for table providers and functi
 use it. `sutura-domain` names no framework - not tokio, not arrow, not datafusion - and the query
 path is not built, so the first plan will be a small type in `sutura-semantic`. DataFusion is the
 natural substrate for the stage after that, and what would make it worth adopting is the
-optimizer and the federation rule below, not the SQL frontend. Which is worth noticing: the half
-of DataFusion most projects reach for first is the half we would leave switched off, because
+optimizer and the federation rule below, not the SQL frontend. Worth noticing: the half of
+DataFusion most projects reach for first is the half we would leave switched off, because
 accepting SQL is the thing this system refuses to do.
 
 **Federation decides where a subplan runs, and here that is a security question.**
@@ -275,6 +275,28 @@ framework, so its test suite compiles nothing heavy and runs in well under a sec
 what makes it the inner loop. And adapters are feature-gated and default-off, which is why
 every lint and test entry point passes `--all-features`; see
 [Getting started](getting-started.md) for the commands.
+
+## What ships
+
+Four artifacts, two libc flavours on two architectures, each a distroless image holding one
+binary. `cargo xtask check-workflows` and the `one-binary` check together keep that true: the
+first fails if a workflow names a build output that does not exist, the second fails if an image
+carries more than the binary.
+
+The musl artifacts replace the system allocator, and that is not a performance nicety. musl's
+mallocng serialises the whole process on one lock word: `src/malloc/mallocng/glue.h` defines
+`rdlock` and `wrlock` as the same exclusive lock and `upgradelock` as a no-op, and
+`struct malloc_context` is a single global with no arenas and no per-thread cache. Measured with
+one binary and only threading toggled, the single-threaded control is a wash while a 48-core run
+goes from 4.45s on glibc to 92.16s on musl - slower than musl's own single-core run, which is
+what one global mutex predicts. Linking mimalloc in brings the same run to 3.83s, ahead of
+glibc. Expect roughly parity single-threaded and a 4-20x gap for a threaded application.
+
+mimalloc is built with `MI_SECURE=4`: guard pages, randomised placement, encoded free lists,
+double-free detection. That costs 23-43% against plain mimalloc, which is far more than
+upstream's README claims, and it is still the right trade here - mimalloc-secure remains well
+ahead of glibc, and mallocng is behind it. The hardening is paid out of a margin this project
+would not otherwise have had, and the latency budget is a warehouse round trip.
 
 ## What exists today
 

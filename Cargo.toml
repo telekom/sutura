@@ -36,6 +36,22 @@ thiserror = "2"
 # exact pin goes away. Only the `Digest` trait is used here, which needs no feature at all.
 sha2 = { version = "0.11", default-features = false }
 
+# The global allocator, Linux only. `sutura-cli` inherits this under a
+# `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
+# Windows never compiles the C.
+#
+# `v2` is not the default and has to be asked for. Checked, not assumed: `mimalloc` 0.1.52
+# declares features `{debug, debug_in_debug, default = [], extended, local_dynamic_tls,
+# no_thp, override, secure, v2, win_direct_tls}` - there is no `v3` feature to turn off -
+# and `libmimalloc-sys` 0.1.49's build script reads
+# `if env::var("CARGO_FEATURE_V2").is_ok() { "v2" } else { "v3" }`. So the default IS the 3.x
+# line and this pins the 2.x one, which is the long-lived generation; 3.x reworked the
+# internal free-list representation.
+#
+# `secure` is the deliberate half of this, and the reason it is on is argued where the
+# allocator is wired up, in `crates/sutura-cli/src/main.rs`.
+mimalloc = { version = "0.1.52", features = ["v2", "secure"] }
+
 # ---------------------------------------------------------------- lints ----
 # A misspelled or removed lint name in the tables below is a silent no-op: it warns on
 # every build and the suppression it was meant to express never applied. Fail instead.

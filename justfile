@@ -151,10 +151,17 @@ build:
 image:
     nix build .#oci
 
-# Cross-build both shipped architectures.
+# Cross-build every shipped artifact.
+#
+# All four, not the two glibc ones: the musl targets are statically linked and swap in mimalloc,
+# so they are a genuinely different build - a cross target has its own deps derivation and its
+# own C compile. A recipe that skipped them would let a developer pass `build-all` locally and
+# still break the release.
 build-all:
     nix build .#sutura-x86_64-unknown-linux-gnu
     nix build .#sutura-aarch64-unknown-linux-gnu
+    nix build .#sutura-x86_64-unknown-linux-musl
+    nix build .#sutura-aarch64-unknown-linux-musl
 
 # --------------------------------------------------------------------- docs ---
 

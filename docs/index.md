@@ -37,14 +37,17 @@ and both worth reading:
 - **[Spice](https://github.com/spiceai/spiceai)**, also DataFusion-based, federates and
   accelerates queries across sources.
 
-Both solve the semantic half. What sutura adds is identity: not only what a question means,
-but who is asking and whether they may see the answer. Every query executes as the caller
-rather than as the service, which is the requirement that makes chatting with data safe to
-expose to an agent at all.
+Between them they cover compiling a question and federating it. What sutura adds is identity:
+not only what a question means, but who is asking and whether they may see the answer. Every
+query executes as the caller rather than as the service, which is the requirement that makes
+chatting with data safe to expose to an agent at all.
 
 A third project sits one port down. Every data system adapter has to emit the same plan as
 valid SQL in its own dialect, and **[polyglot](https://github.com/tobilg/polyglot)** is a
 Rust transpiler between more than thirty of them, ClickHouse, Postgres and DuckDB included.
+
+[Where the parts come from](architecture.md#where-the-parts-come-from) sets each of them on the
+line from a modelled question to executed SQL, and says which parts we mean to build.
 
 ## Status
 

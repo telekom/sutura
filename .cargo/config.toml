@@ -18,7 +18,30 @@ linker = "lld"
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
 
-# musl is deliberately unsupported for now; kept as a note rather than deleted so a
-# reader knows it was considered.
-#[target.x86_64-unknown-linux-musl]
-#linker = "musl-gcc"
+# musl: the two statically-linked release targets. Supported now - this block used to say
+# "deliberately unsupported", and `nix build .#sutura-x86_64-unknown-linux-musl` is what
+# changed that.
+#
+# THE FLAGS LIVE HERE AND NOT IN `flake.nix`, and that is the load-bearing part. cargo reads
+# exactly ONE of four sources of extra rustc flags, first match wins:
+# `CARGO_ENCODED_RUSTFLAGS`, then `RUSTFLAGS`, then a matching `target.<triple>.rustflags`,
+# then `build.rustflags` (`CARGO_BUILD_RUSTFLAGS`). So a per-target table SILENCES the
+# environment variable rather than adding to it: crane's example passes
+# `CARGO_BUILD_RUSTFLAGS = "-C target-feature=+crt-static"`, and doing that here would have
+# looked correct and linked dynamically, because these tables outrank it. Checked against the
+# pinned crane (692f7e9): for a cross build it exports `CARGO_TARGET_<TRIPLE>_LINKER`,
+# `CC_<triple>`, `CXX_<triple>`, `AR_<triple>` and the `TARGET_*` aliases, and sets neither
+# `RUSTFLAGS` nor `CARGO_ENCODED_RUSTFLAGS`.
+#
+# `+crt-static` is already the default for a `*-linux-musl` target. It is spelled out because
+# "statically linked" is the property being shipped, and a compiler default is not a promise.
+#
+# No `linker` key on purpose. The Nix build supplies the real musl cross cc through
+# `CARGO_TARGET_<TRIPLE>_LINKER`, which outranks anything written here, and there is no musl
+# cc in the dev shell - so a value here could only be a lie that fails at link time. Build
+# these two targets with `nix build .#sutura-<triple>`.
+[target.x86_64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-unknown-linux-musl]
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -105,7 +105,7 @@ jobs:
         run: nix run .#pixi -- install --frozen -e docs
 
       - name: Build the site
-        run: pixi run --frozen -e docs mkdocs build --clean --strict
+        run: nix run .#pixi -- run --frozen -e docs mkdocs build --clean --strict
 
   # Only from `main` or a `v*` tag. This is the job with a write token, so what it may publish
   # from is checked before anything is fetched.
@@ -182,7 +182,7 @@ jobs:
         run: nix run .#pixi -- install --frozen -e docs
 
       - name: Build the site
-        run: pixi run --frozen -e docs mkdocs build --clean --strict
+        run: nix run .#pixi -- run --frozen -e docs mkdocs build --clean --strict
 
       - name: Deploy with mike
         env:
@@ -209,9 +209,9 @@ jobs:
           # has moved under it, and the thing it would proceed to do is overwrite somebody else's
           # deploy. A concurrent publish should fail this job, not win it.
           if [ -n "$ALIAS" ]; then
-            pixi run --frozen -e docs mike deploy --push --update-aliases --alias-type=redirect "$VERSION" "$ALIAS"
+            nix run .#pixi -- run --frozen -e docs mike deploy --push --update-aliases --alias-type=redirect "$VERSION" "$ALIAS"
           else
-            pixi run --frozen -e docs mike deploy --push "$VERSION"
+            nix run .#pixi -- run --frozen -e docs mike deploy --push "$VERSION"
           fi
 
       # The root has to redirect somewhere from the very first deployment, and `latest` does not
@@ -224,14 +224,14 @@ jobs:
         run: |
           set -eu
           if [ -n "$ALIAS" ]; then
-            pixi run --frozen -e docs mike set-default --push "$ALIAS"
-          elif pixi run --frozen -e docs mike list latest >/dev/null 2>&1; then
+            nix run .#pixi -- run --frozen -e docs mike set-default --push "$ALIAS"
+          elif nix run .#pixi -- run --frozen -e docs mike list latest >/dev/null 2>&1; then
             echo "latest exists: the root belongs to the newest release, leaving it alone"
           else
             echo "no release published yet: pointing the root at main"
-            pixi run --frozen -e docs mike set-default --push main
+            nix run .#pixi -- run --frozen -e docs mike set-default --push main
           fi
-          pixi run --frozen -e docs mike list
+          nix run .#pixi -- run --frozen -e docs mike list
 
       # The one thing no workflow can do: Pages has to be pointed at the branch by a human. This
       # job's token is `contents: write` and nothing else, so it cannot read the Pages setting to

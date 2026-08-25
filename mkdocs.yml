@@ -86,10 +86,16 @@ markdown_extensions:
       pygments_lang_class: true
   - pymdownx.inlinehilite
   - pymdownx.snippets
-  # Mermaid. Material's own SuperFences integration, and deliberately NOT the mermaid2 plugin
-  # or a CDN import in extra_javascript: Material ships the library with the theme, so the page
-  # fetches nothing off the origin, and its integration is what hands mermaid the active colour
-  # scheme. A CDN import replaces both and leaves every diagram stuck in light mode.
+  # Mermaid, through Material's own SuperFences integration rather than the mermaid2 plugin,
+  # because that integration is what hands mermaid the active colour scheme - a bare CDN import
+  # leaves every diagram stuck in light mode.
+  #
+  # KNOWN GAP, and this comment used to state the opposite: Material does NOT bundle the mermaid
+  # library. Its own bundle loads `https://unpkg.com/mermaid@11/dist/mermaid.min.js` at runtime,
+  # confirmed by watching the request. So a diagram does not render for a reader with no direct
+  # egress - the reader `theme.font: false` exists to protect - and degrades to a code block.
+  # Fixing it means vendoring mermaid under docs/assets and pointing Material at it. Until then
+  # a mermaid fence is a nice-to-have, and no page may depend on one to be understood.
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
@@ -108,6 +114,7 @@ nav:
   - Getting started: getting-started.md
   - Enterprise mirrors: enterprise-mirrors.md
   - Publishing the docs: publishing.md
+  - Contributing: contributing.md
   - Architecture: architecture.md
 
 extra:

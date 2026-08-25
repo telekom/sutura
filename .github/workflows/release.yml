@@ -1,5 +1,10 @@
-# Publish on a tag: cross-built binaries and a container image. Both, because a binary is
-# what you drop on a host and an image is what a platform schedules.
+# Publish on a tag: four cross-built binaries and four container images. Both kinds, because a
+# binary is what you drop on a host and an image is what a platform schedules.
+#
+# Four of each: glibc and musl on x86_64 and aarch64. The musl pair is statically linked, which
+# is what makes it runnable on a host older than the builder and inside an image holding no libc
+# at all - and the reason the allocator is replaced, since musl's own serialises every thread on
+# one lock (see `crates/sutura-cli/src/main.rs`).
 #
 # One job, so nothing has to be handed between jobs. Actions pinned by commit.
 name: release
@@ -56,13 +61,33 @@ jobs:
 
       # `release`, not `release-performance`: the default shipped profile is the cheap one.
       # release-performance.yml builds the other, on request.
+      #
+      # FOUR targets: glibc and musl, on each architecture. The musl pair is what runs on a host
+      # whose glibc is older than the builder's, and in an image that carries no libc at all.
+      # Its static-linking claim is ASSERTED here rather than described, because a musl target
+      # that quietly linked dynamically would still build, still run on this runner, and fail
+      # only on the machine the artifact exists for.
       - name: Build and package
         run: |
           set -eu
           mkdir -p dist stage
-          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu; do
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                        x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
             nix build ".#sutura-${target}" -L -o "result-${target}"
-            file "result-${target}/bin/sutura"
+            described="$(file -b "result-${target}/bin/sutura")"
+            echo "${target}: ${described}"
+            case "$target" in
+              *-musl)
+                # `file` says "statically linked" for a plain static ELF and "static-pie linked"
+                # for a static position-independent one. Both are static and neither carries a
+                # PT_INTERP; which one you get is a rustc target-spec detail, so accept either
+                # and reject anything that names an interpreter.
+                case "$described" in
+                  *"statically linked"*|*"static-pie linked"*) ;;
+                  *) echo "::error::${target} is not statically linked: ${described}"; exit 1 ;;
+                esac
+                ;;
+            esac
             install -m755 "result-${target}/bin/sutura" stage/sutura
             tar -C stage -czf "dist/sutura-${target}.tar.gz" sutura
             ( cd dist && sha256sum "sutura-${target}.tar.gz" > "sutura-${target}.tar.gz.sha256" )
@@ -72,7 +97,16 @@ jobs:
       # Only from a tag, and only from a tag that looks like a release. Without this a
       # `workflow_dispatch` on any branch computed a tag from the branch name and moved
       # `:latest`, which is what consumers pull - unreviewed content, published.
-      - name: Image
+      #
+      # One image per binary, tagged with the RUST TRIPLE, so an image and a tarball from the
+      # same run are traceable to each other. `:<version>` and `:latest` stay the x86_64 glibc
+      # image, because that is what an unqualified `docker pull` has always meant here and a
+      # release must not quietly change what it means.
+      #
+      # Not a manifest list, deliberately: `docker manifest create` needs all four pushed first
+      # and adds a second failure mode to the step that publishes, while per-triple tags already
+      # answer "which artifact am I running". A manifest list is its own change.
+      - name: Images
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -83,22 +117,45 @@ jobs:
             v[0-9]*.[0-9]*.[0-9]*) ;;
             *) echo "::error::refusing to publish from ref $GITHUB_REF_NAME"; exit 1 ;;
           esac
-          nix build .#oci -L -o result-oci
-          ./result-oci | docker load
-          docker run --rm sutura:latest --version
-          # Prove the non-root default actually works rather than assuming it.
-          docker run --rm --user 65532:65532 sutura:latest --version
-          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
           tag="${GITHUB_REF_NAME#v}"
-          docker tag sutura:latest "${IMAGE}:${tag}"
-          docker tag sutura:latest "${IMAGE}:latest"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io -u "$ACTOR" --password-stdin
+          : > dist/image-digests.txt
+          for target in x86_64-unknown-linux-gnu aarch64-unknown-linux-gnu \
+                        x86_64-unknown-linux-musl aarch64-unknown-linux-musl; do
+            nix build ".#oci-${target}" -L -o "result-oci-${target}"
+            # Every stream script loads as `sutura:latest`, so retag before the next iteration
+            # takes that name away.
+            "./result-oci-${target}" | docker load
+            docker tag sutura:latest "${IMAGE}:${tag}-${target}"
+            case "$target" in
+              x86_64-*)
+                # Only the x86_64 images can execute here. Running the arm64 pair would need
+                # qemu-user-static registered on the runner, which this job deliberately does
+                # not install: the step that publishes should not also gain an emulator.
+                docker run --rm "${IMAGE}:${tag}-${target}" --version
+                docker run --rm "${IMAGE}:${tag}-${target}" doctor
+                # Prove the non-root default actually works rather than assuming it.
+                docker run --rm --user 65532:65532 "${IMAGE}:${tag}-${target}" --version
+                ;;
+            esac
+            docker push "${IMAGE}:${tag}-${target}"
+            # The digest is the only durable answer to "which build is running". Recorded as a
+            # release asset, because a checksum an uploader can also rewrite proves little.
+            # Read AFTER the push: RepoDigests is empty until a registry has assigned one.
+            digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}-${target}" 2>/dev/null || true)"
+            printf '%s %s\n' "$target" "${digest:-unknown}" >> dist/image-digests.txt
+          done
+          docker tag "${IMAGE}:${tag}-x86_64-unknown-linux-gnu" "${IMAGE}:${tag}"
+          docker tag "${IMAGE}:${tag}-x86_64-unknown-linux-gnu" "${IMAGE}:latest"
           docker push "${IMAGE}:${tag}"
           docker push "${IMAGE}:latest"
-          # The digest is the only durable answer to "which build is running". Recorded as a
-          # release asset, because a checksum an uploader can also rewrite proves little.
-          digest="$(docker inspect --format '{{index .RepoDigests 0}}' "${IMAGE}:${tag}" 2>/dev/null || true)"
-          printf '%s\n' "${digest:-unknown}" > dist/image-digest.txt
-          echo "image digest: ${digest:-unknown}" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Images"
+            echo
+            echo '```'
+            cat dist/image-digests.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
           docker logout ghcr.io
 
       # `gh` is preinstalled. `--clobber` makes a re-run idempotent.

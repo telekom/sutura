@@ -58,14 +58,14 @@ number it certifies.
 
 ## What it borrows
 
-Two projects got to the semantic half first, both Apache-2.0 and both worth reading:
+Two projects got there first, both Apache-2.0 and both worth reading:
 **[Wren](https://github.com/Canner/WrenAI)**, which compiles a modelled question into SQL over
 [DataFusion](https://datafusion.apache.org/), and **[Spice](https://github.com/spiceai/spiceai)**,
 also DataFusion-based, for federating and accelerating across sources.
 
-What sutura adds is identity. They answer "what does this question mean"; sutura also answers
-"who is asking, and may they see the answer". Both the semantic layer and the data system sit
-behind ports, so swapping either is an adapter rather than a rewrite.
+What sutura adds is identity. Neither answers who is asking, or whether they may see the answer.
+Both the semantic layer and the data system sit behind ports, so swapping either is an adapter
+rather than a rewrite.
 
 One adapter per data system means the same plan has to come out as valid SQL in more than
 one dialect. **[polyglot](https://github.com/tobilg/polyglot)** is that problem on its own:

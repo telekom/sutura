@@ -76,10 +76,14 @@ graph LR
 ```
 ````
 
-It is Material's own SuperFences integration, not the mermaid2 plugin and not a CDN import:
-Material ships the library with the theme, so a page fetches nothing off its origin, and
-Material's integration is what hands mermaid the active colour scheme. A CDN import replaces
-both and leaves every diagram stuck in light mode.
+It is Material's own SuperFences integration rather than the mermaid2 plugin, because that
+integration hands mermaid the active colour scheme - a bare CDN import leaves every diagram
+stuck in light mode.
+
+Material does not bundle the mermaid library. Its bundle loads it from a public CDN at runtime,
+so a diagram does not render for a reader with no direct egress; the fence degrades to a code
+block. No page should depend on a diagram to be understood until mermaid is vendored under
+`docs/assets`.
 
 ## Brand assets
 
