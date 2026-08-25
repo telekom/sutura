@@ -70,24 +70,110 @@ mirror, and the crates mirror above is all this section needs. If you do use rus
 version to exist on the mirror; a lazily-caching remote `404`s until something asks, which
 reads as "no such version".
 
-## Python and conda, via pixi
+## Conda, via pixi
 
-Put it in pixi's **global** config, which keeps mirror URLs out of the repo entirely:
+pixi is the one resolver for Python and conda here, and `pixi.toml` declares one channel:
+
+```toml
+channels = ["conda-forge"]
+```
+
+That name is public because this repository is public. The redirect to a mirror goes in pixi's
+**global** configuration instead, so the manifest resolves identically for everybody and no
+internal URL is ever committed:
+
+```toml
+# ~/.pixi/config.toml
+[mirrors]
+"https://conda.anaconda.org" = ["https://<host>/<path>/<conda>"]
+```
+
+The key is the upstream URL, the value is a list, and pixi matches the **longest** key prefix -
+so the entry above covers every channel on that host, and a longer key overrides it for one
+channel. Two things follow from the list being a list. The original URL is not tried unless you
+repeat it, and repodata is fetched from the **first** entry: that file carries the SHA256 of
+every package, so it decides what all the later downloads are checked against.
+
+Check what pixi reads rather than what you wrote:
+
+```bash
+pixi config list      # the merged values, all layers
+pixi info -vvv        # every location searched, in priority order
+```
+
+### Where that file lives
+
+Highest priority wins, and a project-local `.pixi/config.toml` is merged on top of all of it -
+which is exactly the file a mirror URL must not go in, because it is inside the repository.
+
+| | Linux | macOS | Windows |
+| --- | --- | --- | --- |
+| Global | `$PIXI_HOME/config.toml`, else `~/.pixi/config.toml` | the same | `%PIXI_HOME%\config.toml`, else `%USERPROFILE%\.pixi\config.toml` |
+| User | `$XDG_CONFIG_HOME/pixi/config.toml`, else `~/.config/pixi/config.toml` | `~/Library/Application Support/pixi/config.toml` | `%APPDATA%\pixi\config.toml` |
+| System | `/etc/pixi/config.toml` | `/etc/pixi/config.toml` | `C:\ProgramData\pixi\config.toml` |
+
+`--no-config` skips the system and user layers, and `--config-file <path>` replaces them with one
+file. Both are useful for reproducing a resolve without your machine's settings in it.
+
+## pip
+
+**This repository installs nothing from PyPI.** `pixi.toml` has `[dependencies]` only - conda
+packages from `conda-forge` - and no `[pypi-dependencies]` table, so no pip, no uv and no PyPI
+index takes part in any build, gate or docs render. There is nothing to configure, and a
+`pip.conf` on your machine changes nothing here.
+
+If you add a `[pypi-dependencies]` entry, pixi resolves it with uv, and one thing is worth
+knowing first:
 
 ```toml
 # ~/.pixi/config.toml
 [pypi-config]
 index-url = "https://<host>/<path>/<pypi>/simple"
-
-[mirrors]
-"https://conda.anaconda.org" = ["https://<host>/<path>/<conda>"]
 ```
 
-`pixi.toml` then names only public channels and the global config redirects them. `UV_INDEX_URL`
-works per-invocation for CI or a container.
+**That does not redirect anything.** `index-url` and `extra-index-urls` in the global config are
+written into a manifest by `pixi init` and are otherwise not interpreted, which is pixi's own
+documented behaviour: the manifest is meant to be complete on its own. Only `keyring-provider`
+and `allow-insecure-host` apply globally. What does redirect uv is `[mirrors]`, and it needs
+**two** entries, because the index and the files are served from different hosts:
 
-For plain pip and conda, `~/.pip/pip.conf` and `~/.condarc`. In `.condarc`, `channel_alias` is
-the one people miss: without it a bare `conda-forge` still resolves against anaconda.org.
+```toml
+# ~/.pixi/config.toml
+[mirrors]
+"https://pypi.org/simple" = ["https://<host>/<path>/<pypi>/simple"]
+"https://files.pythonhosted.org/packages" = ["https://<host>/<path>/<pypi>/packages"]
+```
+
+Getting the first and not the second is the failure that looks like a hang: the resolve succeeds
+against the mirror and every download then goes to the public host.
+
+If you run plain `pip` or `conda` on the same machine for other work, they read their own files
+and neither is used by this repository:
+
+| Tool | File | Key |
+| --- | --- | --- |
+| pip, Linux | `~/.config/pip/pip.conf` (`$XDG_CONFIG_HOME` honoured) | `index-url` under `[global]` |
+| pip, macOS | `~/Library/Application Support/pip/pip.conf` where that directory exists, else `~/.config/pip/pip.conf` | the same |
+| pip, Windows | `%APPDATA%\pip\pip.ini` | the same |
+| conda | `~/.condarc` | `channel_alias` |
+
+`~/.pip/pip.conf` still works and is the legacy path; `pip config debug` prints the exact list.
+In `.condarc`, `channel_alias` is the one people miss: it defaults to anaconda.org, so without
+it a bare `conda-forge` resolves there no matter what else you set. `conda config
+--show-sources` prints what is in effect.
+
+## Why none of these values are in the repository
+
+They configure a **network**, not a project. A contributor on a different network needs
+different ones, and both would be wrong for the public CI runner, which needs none at all. This
+repository is also public, so committing them would publish the shape of an internal estate to
+everybody who clones it. Hence the split this page describes: public defaults in the manifests,
+file locations here, values on your machine.
+
+The container build takes the same knobs as build arguments rather than as literals.
+`.env.example` documents each one and the traps that go with it, including why a sparse cargo
+index URL has to end in a slash and why a Nix substituter URL shape can make a build silently
+compile from source; `compose.dev.yaml` reads them from a gitignored `.env`.
 
 ## Docker
 

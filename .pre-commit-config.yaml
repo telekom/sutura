@@ -13,8 +13,11 @@ repos:
       # --- on commit: fast, and scoped to the touched area -------------------
       - id: rust-fmt
         name: cargo fmt
-        entry: cargo fmt --all --
-        args: ["--check"]
+        # Through xtask, not `cargo fmt --all`: `--all` formats every package cargo
+        # metadata reports, INCLUDING path dependencies that `[workspace] exclude` keeps out
+        # of the member list. It wanted to rewrite the vendored mimalloc source, which is the
+        # one thing vendoring must not do. xtask derives the package list instead.
+        entry: cargo run -q -p xtask -- fmt --check
         language: system
         files: \.rs$
         pass_filenames: false

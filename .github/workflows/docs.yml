@@ -104,8 +104,15 @@ jobs:
       - name: Install the docs environment
         run: nix run .#pixi -- install --frozen -e docs
 
+      # The TASK name, not the command line. `mkdocs build --strict --clean` is defined once,
+      # in pixi.toml, and `just docs` runs the same task - so the local build and this one
+      # cannot disagree about the flags. `--strict` is the flag that matters: without it mkdocs
+      # warns about a broken link and publishes anyway.
+      #
+      # No Rust toolchain here, deliberately. The API pages under docs/api/ are generated from
+      # rustdoc JSON and committed, because that output needs nightly and this runner has none.
       - name: Build the site
-        run: nix run .#pixi -- run --frozen -e docs mkdocs build --clean --strict
+        run: nix run .#pixi -- run --frozen -e docs docs
 
   # Only from `main` or a `v*` tag. This is the job with a write token, so what it may publish
   # from is checked before anything is fetched.
@@ -181,8 +188,15 @@ jobs:
       - name: Install the docs environment
         run: nix run .#pixi -- install --frozen -e docs
 
+      # The TASK name, not the command line. `mkdocs build --strict --clean` is defined once,
+      # in pixi.toml, and `just docs` runs the same task - so the local build and this one
+      # cannot disagree about the flags. `--strict` is the flag that matters: without it mkdocs
+      # warns about a broken link and publishes anyway.
+      #
+      # No Rust toolchain here, deliberately. The API pages under docs/api/ are generated from
+      # rustdoc JSON and committed, because that output needs nightly and this runner has none.
       - name: Build the site
-        run: nix run .#pixi -- run --frozen -e docs mkdocs build --clean --strict
+        run: nix run .#pixi -- run --frozen -e docs docs
 
       - name: Deploy with mike
         env:

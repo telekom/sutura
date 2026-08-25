@@ -59,8 +59,11 @@ aspirations. The query path is not built yet.
 
 | You want to | Read |
 | --- | --- |
-| Set up a machine and run the checks | [Getting started](getting-started.md) |
-| Build behind a proxy or with no direct egress | [Enterprise mirrors](enterprise-mirrors.md) |
+| Know what the words on the tool surface mean | [Concepts](concepts.md) |
+| Ask the short questions first | [Questions and answers](qa.md) |
 | Understand the shape of the system | [Architecture](architecture.md) |
+| Set a machine up and run the checks | [Contributing](contributing.md) |
+| Build behind a proxy or with no direct egress | [Building without direct egress](enterprise-mirrors.md) |
 | Know how the versioned site is published | [Publishing the docs](publishing.md) |
+| See what changed | [Changelog](changelog.md) |
 | Know what is guaranteed, and by what | `AGENTS.md` in the repository |

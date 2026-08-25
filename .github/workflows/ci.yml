@@ -165,6 +165,27 @@ jobs:
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.doctest -L
 
+      # The pages under docs/api/ are GENERATED from the library crates' doc comments and
+      # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
+      # else. A committed generated file rots silently, so this regenerates them and
+      # byte-compares: a doc comment that changed without a regeneration fails here instead of
+      # publishing a stale page as current. Locally the same gate is
+      # `cargo xtask check-api-docs`, and the fix it asks for is `just api`.
+      #
+      # THE ONLY NIGHTLY STEP in this workflow, deliberately. `--output-format json` is an
+      # unstable rustdoc option, so the stable toolchain everything else here uses rejects `-Z`
+      # outright. That is why it is its own flake output rather than folded into a check above:
+      # the output brings its own nightly toolchain and its own interpreter for the generator.
+      #
+      # `api` is set by classify for a library crate's sources, for the generator, for the
+      # committed pages, and for the manifests - the page prints the crate version, so a
+      # version bump alone makes every page stale. The gate is self-scoping on top of that: a
+      # change touching only private code regenerates to identical output and passes, so
+      # nothing here has to guess which Rust changes reach the public surface.
+      - name: API reference pages
+        if: steps.classify.outputs.api == 'true'
+        run: nix build .#checks.x86_64-linux.api-docs -L
+
       # A changed test must fail against base behaviour and pass with the change. Compiles
       # twice in a worktree, so it needs git history and a writable tree.
       - name: Test causality

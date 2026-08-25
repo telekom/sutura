@@ -3,7 +3,7 @@
 #
 # Channels here are public, because this repo is public. An internal mirror is configured in
 # pixi's GLOBAL config (~/.pixi/config.toml), so no internal URL is ever committed. See
-# docs/src/enterprise-mirrors.md.
+# docs/enterprise-mirrors.md.
 
 [workspace]
 name = "sutura-tooling"

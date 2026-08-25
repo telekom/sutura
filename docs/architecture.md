@@ -274,7 +274,7 @@ Two consequences follow from the direction rather than from taste. The domain na
 framework, so its test suite compiles nothing heavy and runs in well under a second, which is
 what makes it the inner loop. And adapters are feature-gated and default-off, which is why
 every lint and test entry point passes `--all-features`; see
-[Getting started](getting-started.md) for the commands.
+[Contributing](contributing.md) for the commands.
 
 ## What ships
 

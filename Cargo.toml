@@ -13,6 +13,16 @@
 [workspace]
 resolver = "3"
 members = ["crates/sutura-domain", "crates/sutura-cli", "xtask", "dev"]
+# The vendored allocator is EXCLUDED FROM MEMBERSHIP, and that is a correctness fix rather
+# than tidiness. A path dependency inside the workspace directory joins the workspace
+# automatically, and `cargo build --workspace` builds every MEMBER - which is independent of
+# who depends on it. So the `cfg(target_os = "linux")` gate in `crates/sutura-cli/Cargo.toml`
+# governs the dependency EDGE and does nothing about membership: on Windows and macOS
+# `--workspace` was building `libmimalloc-sys` on its own account, and its build script has
+# no platform primitive to compile because the vendored C is subsetted to Linux. Excluding it
+# also keeps `--workspace` clippy and tests off third-party code, which is the reason this
+# looked like a style choice the first time.
+exclude = ["vendor/mimalloc_rust"]
 
 [workspace.package]
 version = "0.1.0"
@@ -40,17 +50,14 @@ sha2 = { version = "0.11", default-features = false }
 # `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
 # Windows never compiles the C.
 #
-# `v2` is not the default and has to be asked for. Checked, not assumed: `mimalloc` 0.1.52
-# declares features `{debug, debug_in_debug, default = [], extended, local_dynamic_tls,
-# no_thp, override, secure, v2, win_direct_tls}` - there is no `v3` feature to turn off -
-# and `libmimalloc-sys` 0.1.49's build script reads
-# `if env::var("CARGO_FEATURE_V2").is_ok() { "v2" } else { "v3" }`. So the default IS the 3.x
-# line and this pins the 2.x one, which is the long-lived generation; 3.x reworked the
-# internal free-list representation.
+# VENDORED, not taken from the registry: `libmimalloc-sys` 0.1.49 bundles mimalloc 3.3.2 and
+# we ship 3.5.0. `VENDOR.md` records the upstream, the tag, the hash and the local changes;
+# `flake.nix` compiles the C into its own cached derivation and points the build script at it.
 #
 # `secure` is the deliberate half of this, and the reason it is on is argued where the
 # allocator is wired up, in `crates/sutura-cli/src/main.rs`.
-mimalloc = { version = "0.1.52", features = ["v2", "secure"] }
+# The Alpine/Tweag mimalloc C patch does not apply to this build; see issue #5.
+mimalloc = { path = "vendor/mimalloc_rust", features = ["secure"] }
 
 # ---------------------------------------------------------------- lints ----
 # A misspelled or removed lint name in the tables below is a silent no-op: it warns on
@@ -78,6 +85,13 @@ unsafe_code = "forbid"
 all         = { level = "deny", priority = -3 }
 nursery     = { level = "deny", priority = -3 }
 cargo       = { level = "deny", priority = -3 }
+# One exception to `cargo`, and it is not about our code. `negative_feature_names` fires on
+# `no_thp`, a feature of the VENDORED `libmimalloc-sys` - upstream's name, which we will not
+# rename because a local edit there is a divergence to maintain and `build.rs` reads it. The
+# lint inspects the whole dependency graph rather than the crate being compiled, so it is
+# reported against every one of our crates and cannot be scoped to the vendored package.
+# Nothing of ours has a negative feature name; if that changes, this line is what hides it.
+negative_feature_names = "allow"
 pedantic    = { level = "warn", priority = -2 }
 # `restriction` is not a category of bugs - it is a menu of bans, most of which are wrong
 # for most codebases. It is enabled anyway, at the lowest priority, because the handful
