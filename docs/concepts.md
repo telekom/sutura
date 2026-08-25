@@ -115,8 +115,11 @@ Absences by design:
 
 ## Status
 
-None of this is callable yet, and
-[What exists today](architecture.md#what-exists-today) is the inventory.
+Most of this is callable now, over a catalogue of documents in git and a `DuckDB` file:
+`sutura compile` renders the statement for a question and `sutura query` answers it.
+[What exists today](architecture.md#what-exists-today) is the inventory, and it is honest about the
+one absence that matters - there is no credential broker, so "every query runs as the calling
+principal" holds here only because a file has nobody else to be.
 
 The mechanisms came first on purpose: every claim on this page is meant to be held up by a type,
 a lint, a hook or a gate, and those are cheaper to build before there is code to retrofit them

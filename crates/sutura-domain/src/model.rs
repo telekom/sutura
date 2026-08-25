@@ -36,7 +36,8 @@ pub enum InvalidIdentifier {
     /// one worth reporting: a message naming all of them tells the reader less.
     #[error("a name may contain only letters, digits and underscore: {value:?} contains {offending:?}")]
     IllegalCharacter { value: String, offending: char },
-    /// Longer than a target data system will keep. See [`MAX_IDENTIFIER_LEN`].
+    /// Longer than a target data system will keep. The limit is 63 characters, the tightest among
+    /// the data systems targeted here.
     #[error("a name may be at most {limit} characters, {value:?} has {len}")]
     TooLong { value: String, len: usize, limit: usize },
 }

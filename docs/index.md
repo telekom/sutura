@@ -46,8 +46,14 @@ and says which parts we mean to build.
 
 ## Status
 
-The design is settled; the code is a walking skeleton. The environment, the release pipeline
-and the gates that hold the properties above exist. The query path does not.
+The query path is built, for a catalogue of documents in git and a `DuckDB` file: a question naming a
+metric, a grain, a bounded range and some dimensions compiles to one statement and executes, and
+every metric that declares a certified number reproduces it before the bundle can be served.
+
+What is not built is the part that makes the first sentence of this page true of a warehouse. There
+is no credential broker yet, so "as the person or agent asking" holds here only because a file has
+nobody else to be. The MCP and HTTP surfaces, Arrow results and federation are also still ahead.
+[What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Where to start
 
@@ -57,6 +63,6 @@ and the gates that hold the properties above exist. The query path does not.
 | Ask the short questions first | [Questions and answers](qa.md) |
 | Understand the shape of the system | [Architecture](architecture.md) |
 | Read the Rust API | [API reference](api/index.md) |
-| Install it and ask a question | [Getting started](getting-started.md), once the query path exists |
+| Install it and ask a question | [Getting started](getting-started.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.

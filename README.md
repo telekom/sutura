@@ -69,8 +69,15 @@ thirty of them, ClickHouse, Postgres and DuckDB included.
 
 ## Status
 
-The design is settled; the code is a walking skeleton. The environment, the release pipeline
-and the gates that hold the claims above exist. The query path does not.
+The query path is built for the single-player case: a catalogue of markdown documents in git, a
+question naming a metric and a bounded range, one statement generated for DuckDB, Postgres or
+ClickHouse, and execution against a DuckDB file. Every metric that declares a certified number
+re-executes and reproduces it before the bundle can be served.
+
+The part that makes the first line of this README true of a *warehouse* is not built. There is no
+credential broker yet, so "as the person or agent asking" holds here only because a file has nobody
+else to be. The MCP and HTTP surfaces, Arrow results with provenance, and federation are ahead of it.
+See [what exists today](https://telekom.github.io/sutura/latest/architecture/#what-exists-today).
 
 ## Documentation
 

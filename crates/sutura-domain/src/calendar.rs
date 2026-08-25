@@ -49,7 +49,8 @@ pub enum InvalidDate {
         #[source]
         cause: core::num::ParseIntError,
     },
-    /// A year outside [`YEAR_RANGE`].
+    /// A year outside the range this type accepts, which is 1 to 9999 so the four-digit written
+    /// form is the whole domain.
     #[error("a year must be between {} and {}, not {year}", YEAR_RANGE.start(), YEAR_RANGE.end())]
     YearOutOfRange { year: i16 },
     /// A month outside 1 to 12.
@@ -152,7 +153,7 @@ impl Date {
     /// nobody finds by trying it.
     ///
     /// `rem_euclid` rather than `%`: the remainder operator is banned by the lint table, and for a
-    /// year inside [`YEAR_RANGE`] the two agree exactly.
+    /// year inside the accepted range the two agree exactly.
     const fn is_leap_year(year: i16) -> bool {
         year.rem_euclid(4) == 0 && (year.rem_euclid(100) != 0 || year.rem_euclid(400) == 0)
     }

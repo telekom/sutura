@@ -5,10 +5,21 @@ description: The public Rust API, generated from rustdoc JSON and committed.
 
 # API reference
 
-The public Rust API, one page per library crate, **generated** from rustdoc JSON and committed.
-Today that is one crate, because one library crate exists.
+The public Rust API, one page per library crate, **generated** from rustdoc JSON and committed. The
+list is derived from `cargo metadata`, so a new library crate gets a page without anybody adding it
+here - and `cargo xtask check-api-docs` fails until that page is generated and committed.
 
-- [sutura-domain](sutura-domain.md) - the domain types
+The order below is the order a question travels in, which is also the dependency direction: every
+arrow points inward, at the domain.
+
+- [sutura-domain](sutura-domain.md) - the domain types and the port traits. Depends on nothing but
+  `serde` and `thiserror`, and a gate keeps it that way
+- [sutura-catalog-local](sutura-catalog-local.md) - a `SemanticCatalog` adapter over a directory of
+  markdown documents with YAML frontmatter
+- [sutura-semantic](sutura-semantic.md) - the compiler: resolve, plan, generate
+- [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB, for local and
+  single-file work
+- [sutura-app](sutura-app.md) - the service, generic over the ports
 
 ## These pages are generated
 

@@ -7,20 +7,552 @@
 
 The public API of `sutura-domain`, rendered from rustdoc JSON.
 
-The hexagon's interior: the types the business rules are written in, and - when the first
-adapter needs one - the port traits it names its dependencies by.
+The hexagon's interior: the types the business rules are written in, and the port traits it
+names its dependencies by.
 
 Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
-is worth more as a check than as a sentence in a design document.
+is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
+`thiserror` and their proc-macro support, and nothing else - which is why there is a hand-written
+calendar in `calendar` and no `serde_json` in any test here.
 
-**There are no port traits yet, and that is deliberate.** A port exists to invert a
-dependency on something outside the hexagon, and no adapter exists to invert - the catalog,
-warehouse and credential adapters are all still planned. A trait with no implementor and no
-caller is a guess at a signature that only the first real adapter can settle, and in a
-library crate `pub` hides it from `dead_code`, which is exactly how an unused item survives
-review. The modules below are grouped by concept so that a port lands next to the types it
-speaks in when it arrives, rather than in a module named after the trait.
+**Two ports live here now, and each arrived with the adapter that implements it.** A port exists
+to invert a dependency on something outside the hexagon, so a trait with no implementor is a
+guess at a signature that only the first real adapter can settle, and in a library crate `pub`
+hides such a guess from `dead_code`. `pinned::SemanticCatalog` arrived with the local catalog
+adapter and `warehouse::Warehouse` with the `DuckDB` one. `CredentialBroker` is still absent for
+the same reason it always was: nothing implements it yet.
+
+The modules are grouped by concept rather than named after traits, so a port sits next to the
+types it speaks in:
+
+- `model` and `calendar` are the vocabulary: names, closed sets, dates.
+- `catalog` is what a catalog says, and where its cross-references are checked.
+- `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
+- `query` is the tool surface, defined mostly by what it has no field for.
+- `warehouse` is the execution port, and the one place a generated statement is named.
+- `definitions` and `identity` hold the digest and the credential-shaped newtypes.
+
+## Module `calendar`
+
+Dates, and the bounded range a question has to carry.
+
+Hand-rolled rather than taken from a date library, and that is a boundary decision rather than
+taste: `cargo xtask check-boundaries` holds `sutura-domain` to an allowlist of `serde` and
+`thiserror` over the whole transitive tree, so a date crate would have to be argued onto that
+list. What is needed here is a calendar date with an ordering and one parser, which is less code
+than the argument would be.
+
+No clock, no time zone, no instant. A grain is a calendar concept, and "the month of June" is
+not a question about an offset from an epoch. When a time zone becomes necessary it arrives with
+the data system that needs one, not before.
+
+### `struct Date`
+
+```rust
+pub struct Date
+```
+
+A calendar date, with no time and no zone.
+
+Construct it with `Date::parse` or `Date::new`. The fields are private and ordered
+year-month-day so the derived `Ord` is chronological: a reordering of the declaration would
+silently invert every comparison, which is why the ordering is asserted in a test.
+
+#### Methods
+
+```rust
+pub const fn day(self) -> u8
+```
+
+```rust
+pub fn from_days_since_epoch(days: i32) -> Result<Self, InvalidDate>
+```
+
+A date from a count of days since 1970-01-01.
+
+Needed because a data system returns a truncated date as a day number, and the alternative
+was casting the column to text inside the generated statement, which would bake one dialect's
+idea of a date format into every dialect's SQL.
+
+Walks a year at a time rather than dividing. That is not naivety about performance: integer
+division and the remainder operator are both banned by the lint table, the loop runs at most a
+few hundred times for any date this type can hold, and the leap rule stays in one place
+instead of being re-derived as a correction term.
+
+```rust
+pub const fn month(self) -> u8
+```
+
+```rust
+pub fn new(year: i16, month: u8, day: u8) -> Result<Self, InvalidDate>
+```
+
+Builds a date, rejecting a day the month does not have.
+
+Parse rather than validate: once this returns `Ok`, nothing downstream re-checks, because the
+30th of February is unrepresentable rather than merely unwelcome.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDate>
+```
+
+Parses `YYYY-MM-DD`.
+
+The widths are fixed at four-two-two so a short year cannot be read as a long one: `26-06-01`
+is rejected rather than becoming the year 26. Fixed widths also mean a leading `-` cannot
+reach the number parser, so a negative component is a layout error rather than a date in the
+distant past.
+
+```rust
+pub fn to_iso(self) -> String
+```
+
+`YYYY-MM-DD`, which is what a bind parameter carries.
+
+```rust
+pub const fn year(self) -> i16
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum InvalidDate`
+
+```rust
+pub enum InvalidDate
+```
+
+Why a date was rejected.
+
+Each variant carries what was wrong as typed fields rather than a formatted sentence, and the
+numeric parse failure keeps its cause: a discarded cause is the difference between "the month is
+not a number" and knowing which character stopped it.
+
+#### Variants
+
+- `Malformed` - Not `YYYY-MM-DD`. Exactly one layout is accepted, because a parser that guesses between `03-04-2026` and `2026-04-03` guesses wrong for half the world.
+- `NotANumber` - A component was not a number at all.
+- `YearOutOfRange` - A year outside the range this type accepts, which is 1 to 9999 so the four-digit written form is the whole domain.
+- `MonthOutOfRange` - A month outside 1 to 12.
+- `NoSuchDay` - A well-formed date that does not exist, such as the 30th of February.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct TimeRange`
+
+```rust
+pub struct TimeRange
+```
+
+A bounded, half-open interval of dates: `start` included, `end` excluded.
+
+**Bounded is the invariant, and it is why this type exists rather than a pair of `Option`s.** An
+unbounded range is a table scan with a plausible name, and it is the shape a manipulated agent
+asks for. There is no constructor that omits an endpoint.
+
+Half-open rather than inclusive because a month is `[2026-06-01, 2026-07-01)` at every grain and
+in every dialect, while an inclusive end needs a different last day per month and per grain. One
+of those two conventions produces off-by-one bugs at month boundaries and the other does not.
+
+#### Methods
+
+```rust
+pub const fn end(self) -> Date
+```
+
+```rust
+pub fn new(start: Date, end: Date) -> Result<Self, InvalidTimeRange>
+```
+
+Builds a half-open range, rejecting an empty one.
+
+```rust
+pub const fn start(self) -> Date
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidTimeRange`
+
+```rust
+pub enum InvalidTimeRange
+```
+
+Why a range was rejected.
+
+#### Variants
+
+- `Empty` - `end` is at or before `start`.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `catalog`
+
+What a catalog says: models, the relationships between them, and the metrics defined over them.
+
+These are the types every `SemanticCatalog` adapter produces, and `Definitions::assemble` is
+the one place their cross-references are checked. That matters more than it looks: a directory of
+files and a metadata service over HTTP disagree about almost everything except this, so a check
+that lived in an adapter would be a check the other adapter did not have. Two adapters reading
+the same content must produce the same `Definitions` or one of them is wrong, and the golden
+suite asserts exactly that.
+
+Nothing here holds SQL. See `docs/adr/0001-first-party-semantic-models.md`.
+
+### `struct Model`
+
+```rust
+pub struct Model
+```
+
+One physical table, and what the catalog knows about it.
+
+`columns` is the whole set the model exposes, and it is a set rather than a list because it is
+only ever asked "does this column exist?". Declaring it at all is what lets a dimension naming a
+column that is not there be a refusal from the pinned bundle instead of an error from the data
+system, which is the difference between a governed answer and a stack trace.
+
+#### Methods
+
+```rust
+pub const fn columns(&self) -> &BTreeSet<ColumnName>
+```
+
+```rust
+pub fn description(&self) -> &str
+```
+
+```rust
+pub fn has_column(&self, column: &ColumnName) -> bool
+```
+
+```rust
+pub const fn name(&self) -> &ModelName
+```
+
+```rust
+pub const fn new(name: ModelName, source: SourceName, table: TableName, columns: BTreeSet<ColumnName>, description: String) -> Self
+```
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+```rust
+pub const fn table(&self) -> &TableName
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Relationship`
+
+```rust
+pub struct Relationship
+```
+
+A declared join between two models: two columns and a cardinality.
+
+A pair of columns rather than a condition string. The condition form is what the reference
+modelling languages use, and it is an escape hatch: `a.x = b.y OR 1 = 1` is a valid condition.
+Equality on one column each is the whole of what a model needs to say here.
+
+#### Methods
+
+```rust
+pub const fn join_type(&self) -> JoinType
+```
+
+```rust
+pub const fn name(&self) -> &RelationshipName
+```
+
+```rust
+pub const fn new(name: RelationshipName, origin_model: ModelName, origin_column: ColumnName, target_model: ModelName, target_column: ColumnName, join_type: JoinType) -> Self
+```
+
+```rust
+pub const fn origin_column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn origin_model(&self) -> &ModelName
+```
+
+```rust
+pub const fn target_column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn target_model(&self) -> &ModelName
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Dimension`
+
+```rust
+pub struct Dimension
+```
+
+An attribute a metric declares it can be broken down by.
+
+`via` is `None` for a column on the metric's own model and `Some` for one reached through exactly
+one declared relationship. **One hop, deliberately.** Two hops need a join order, join order
+changes which rows a measure sees, and "the number changed because the planner chose differently"
+is the failure this whole repository is arranged against. A second hop arrives with a plan type
+that can represent it, not with a loop here.
+
+`allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
+filtered: a filter needs an allowlist, because the alternative is comparing against a value the
+caller supplied, and the pinned bundle is the only thing entitled to say which values exist.
+
+#### Methods
+
+```rust
+pub const fn allowed_values(&self) -> Option<&BTreeSet<String>>
+```
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub fn description(&self) -> &str
+```
+
+```rust
+pub const fn is_filterable(&self) -> bool
+```
+
+May this dimension be filtered on at all?
+
+Read from the presence of an allowlist rather than from a separate flag, so the two cannot
+disagree: a `filterable: true` beside an empty allowlist would be a dimension that permits
+filtering and permits no value.
+
+```rust
+pub const fn name(&self) -> &DimensionName
+```
+
+```rust
+pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<BTreeSet<String>>, description: String) -> Self
+```
+
+```rust
+pub fn permits(&self, value: &str) -> bool
+```
+
+Is `value` one the bundle declares?
+
+A dimension with no allowlist answers `false` for everything, which is the safe direction:
+the caller gets `DimensionNotFilterable` rather than a query.
+
+```rust
+pub const fn via(&self) -> Option<&RelationshipName>
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Anchor`
+
+```rust
+pub struct Anchor
+```
+
+A number a metric is expected to produce, so that "it still means what it claimed" is checkable.
+
+The value is text rather than a float on purpose. It is compared against the canonical rendering
+of what the data system returned, and a float would make the comparison depend on how two
+languages happen to print the same bits.
+
+#### Methods
+
+```rust
+pub const fn new(range: TimeRange, value: String) -> Self
+```
+
+```rust
+pub const fn range(&self) -> TimeRange
+```
+
+```rust
+pub fn value(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Metric`
+
+```rust
+pub struct Metric
+```
+
+A certified metric: one measure over one model, and the shapes of question it will answer.
+
+#### Methods
+
+```rust
+pub const fn anchor(&self) -> Option<&Anchor>
+```
+
+```rust
+pub fn description(&self) -> &str
+```
+
+```rust
+pub fn dimension(&self, name: &DimensionName) -> Option<&Dimension>
+```
+
+```rust
+pub const fn dimensions(&self) -> &BTreeMap<DimensionName, Dimension>
+```
+
+```rust
+pub const fn grains(&self) -> &BTreeSet<Grain>
+```
+
+```rust
+pub const fn measure(&self) -> &Measure
+```
+
+```rust
+pub const fn model(&self) -> &ModelName
+```
+
+```rust
+pub const fn name(&self) -> &MetricName
+```
+
+```rust
+pub const fn new(name: MetricName, model: ModelName, measure: Measure, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: String) -> Self
+```
+
+```rust
+pub fn supports_grain(&self, grain: Grain) -> bool
+```
+
+```rust
+pub const fn time_column(&self) -> &ColumnName
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Definitions`
+
+```rust
+pub struct Definitions
+```
+
+Everything a catalog said, with its cross-references checked.
+
+`BTreeMap` throughout rather than `HashMap`, and that is load-bearing: the digest is taken over
+the serialized form of this value, and an unordered map serializes in whatever order its hasher
+chose this run. A digest that moves without the content moving is a digest nobody trusts, and
+then the pinning is decoration.
+
+#### Methods
+
+```rust
+pub fn assemble(models: Vec<Model>, relationships: Vec<Relationship>, metrics: Vec<Metric>) -> Result<Self, InconsistentDefinitions>
+```
+
+Assembles definitions from what an adapter read, checking every cross-reference.
+
+Takes vectors rather than maps so the duplicate checks are ours: a caller that built a map
+first has already silently dropped one of a duplicated pair, and "the second declaration of
+revenue won" is not a thing to discover from a number.
+
+```rust
+pub fn metric(&self, name: &MetricName) -> Option<&Metric>
+```
+
+```rust
+pub const fn metrics(&self) -> &BTreeMap<MetricName, Metric>
+```
+
+```rust
+pub fn model(&self, name: &ModelName) -> Option<&Model>
+```
+
+```rust
+pub const fn models(&self) -> &BTreeMap<ModelName, Model>
+```
+
+```rust
+pub fn relationship(&self, name: &RelationshipName) -> Option<&Relationship>
+```
+
+```rust
+pub const fn relationships(&self) -> &BTreeMap<RelationshipName, Relationship>
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InconsistentDefinitions`
+
+```rust
+pub enum InconsistentDefinitions
+```
+
+Why a set of definitions does not hold together.
+
+Every variant is a dangling reference of some kind. Catching them here, once, is what lets the
+resolver assume that a metric's model exists and that a dimension's column is real: without it
+each of those becomes a runtime branch on the query path, and the failure surfaces as a data
+system error rather than as a refusal.
+
+#### Variants
+
+- `DuplicateModel`
+- `DuplicateMetric`
+- `DuplicateRelationship`
+- `UnknownModel`
+- `UnknownMeasureColumn`
+- `UnknownTimeColumn`
+- `NoGrains`
+- `UnknownRelationship`
+- `RelationshipFromUnknownModel`
+- `RelationshipToUnknownModel`
+- `RelationshipUnknownColumn`
+- `UnknownDimensionColumn`
+- `RelationshipNotFromMetricModel`
+- `JoinWouldDuplicateRows`
+- `EmptyAllowlist`
+- `DimensionShadowsTimeBucket`
+- `DimensionShadowsMeasure`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `constant TIME_BUCKET_LABEL`
+
+The label a generated projection gives the truncated time column.
+
+It lives here rather than in the compiler because it is part of the result schema, which is a
+contract, and because `Definitions::assemble` has to know it: a dimension by this name would
+produce two columns with one label, and a caller reading a result by name would get whichever
+the data system listed first.
 
 ## Module `definitions`
 
@@ -134,3 +666,1030 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+## Module `model`
+
+The vocabulary a semantic model is written in: the names it uses, and the closed sets it
+chooses from.
+
+Every name here ends up inside a quoted identifier in generated SQL, and every aggregate and
+grain ends up as a keyword the generator emits. So the parsing is deliberately narrow: a value
+that would need escaping, or that names an operation we cannot spell, must not exist to be
+passed to the generator in the first place.
+
+**There is no free-text expression type in this module, and that is the point.** A measure is an
+aggregate over a column, never the string `sum(amount)`; a relationship is a pair of columns,
+never the string `a.x = b.y`. `docs/adr/0001-first-party-semantic-models.md` argues why: a string
+field is an escape hatch, and an escape hatch on the query path is the thing being defended
+against.
+
+### `enum InvalidIdentifier`
+
+```rust
+pub enum InvalidIdentifier
+```
+
+Why a name was rejected.
+
+The variants carry the offending input as typed fields rather than a formatted sentence: the
+variant is the contract and the `#[error]` text is a convenience for a human.
+
+#### Variants
+
+- `Empty` - Empty or whitespace-only. An unnamed column is a modelling mistake, not a wildcard.
+- `BadFirstCharacter` - Starts with something other than a letter or underscore. A leading digit is legal in some dialects and not others, so accepting it would make a model portable by luck.
+- `IllegalCharacter` - Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the one worth reporting: a message naming all of them tells the reader less.
+- `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct ModelName`
+
+```rust
+pub struct ModelName
+```
+
+The name of a model: one physical table plus what we know about it.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct TableName`
+
+```rust
+pub struct TableName
+```
+
+The name of a physical table, as the data system knows it.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct ColumnName`
+
+```rust
+pub struct ColumnName
+```
+
+The name of a column on a physical table.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct MetricName`
+
+```rust
+pub struct MetricName
+```
+
+The name of a metric: something somebody certified, such as revenue or active subscribers.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct DimensionName`
+
+```rust
+pub struct DimensionName
+```
+
+The name of a dimension a metric declares it can be broken down by.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct RelationshipName`
+
+```rust
+pub struct RelationshipName
+```
+
+The name of a declared relationship between two models.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct SourceName`
+
+```rust
+pub struct SourceName
+```
+
+The name of a data system a model's table lives in.
+
+ A plan resolves to exactly one of these, so it is the value that decides whether a question
+ is answerable at all rather than a routing hint.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum Aggregate`
+
+```rust
+pub enum Aggregate
+```
+
+The aggregates a measure may use.
+
+A closed set, and the reason is the whole of
+`docs/adr/0001-first-party-semantic-models.md`: an open set would be a string, and a string is
+SQL somebody wrote. Adding a variant is a visible diff plus a generator arm plus a golden, which
+is the review it deserves.
+
+#### Variants
+
+- `Sum`
+- `Count`
+- `CountDistinct`
+- `Avg`
+- `Min`
+- `Max`
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The name this aggregate is written with in a catalog, and in a refusal.
+
+Not the SQL spelling: how an aggregate is spelled differs per dialect and belongs to the
+generator. A domain type that knew the SQL would be a domain type that had opinions about
+`ClickHouse`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `enum Grain`
+
+```rust
+pub enum Grain
+```
+
+The time resolutions an answer may be aggregated to.
+
+Daily revenue and monthly revenue are the same metric at two grains, not two metrics, which is
+why this is a parameter of a question rather than part of a metric's name.
+
+#### Variants
+
+- `Day`
+- `Week`
+- `Month`
+- `Quarter`
+- `Year`
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum JoinType`
+
+```rust
+pub enum JoinType
+```
+
+How many rows on each side of a relationship a join may match.
+
+Recorded because it decides whether a join can change a measure's value. Joining to a
+`ManyToOne` side cannot duplicate a fact row; joining to a `OneToMany` side can, which turns a
+`sum` into a different number without any error anywhere. The resolver uses this to refuse
+rather than to optimise.
+
+#### Variants
+
+- `OneToOne`
+- `ManyToOne`
+- `OneToMany`
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+```rust
+pub const fn may_duplicate_rows(self) -> bool
+```
+
+Can a join along this relationship duplicate rows of the model it starts from?
+
+A `sum` over duplicated rows is a wrong number that looks like a right one, so the answer
+decides a refusal rather than a plan detail.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `struct Measure`
+
+```rust
+pub struct Measure
+```
+
+What a metric measures: one aggregate over one column.
+
+`Count` is the one case where the column is not read, and it still has to name one: a `COUNT(*)`
+over a joined result counts join products rather than facts. Naming the column makes the
+generator emit `COUNT("orders"."id")`, which counts the thing the model says it counts.
+
+#### Methods
+
+```rust
+pub const fn aggregate(&self) -> Aggregate
+```
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+## Module `pinned`
+
+The snapshot a question is answered against, and the port it arrives through.
+
+Definitions do not arrive live. They arrive as a `PinnedDefinitions`: a whole
+`crate::catalog::Definitions` with a version and a digest over its canonical form. Two
+consequences follow, and both are the reason this type exists rather than passing
+`Definitions` around directly.
+
+A catalog edit cannot change what a question means between two invocations, because the bundle a
+request resolves against was fixed before the request arrived. It changes the digest instead, and
+the digest travels with the answer.
+
+And the catalog cannot see who is asking. `SemanticCatalog::load` takes no request context, so
+there is nothing for an implementation to branch on. A trait that accepted one could return a
+different definition to different callers, which would make the pinning meaningless and the
+provenance a lie.
+
+### `struct DefinitionVersion`
+
+```rust
+pub struct DefinitionVersion
+```
+
+Which snapshot of the definitions this is.
+
+Free-form on purpose, because what identifies a snapshot differs per catalog: a commit id, a
+build number, an export timestamp. What is *not* free-form is its shape, because it is echoed
+into provenance and into an audit record, and a value with a newline in it can forge a second
+record.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidVersion>
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `enum InvalidVersion`
+
+```rust
+pub enum InvalidVersion
+```
+
+Why a version label was rejected.
+
+#### Variants
+
+- `Empty` - Empty or whitespace-only. An unversioned snapshot must not be able to claim it is one.
+- `ControlCharacter` - Holds a control character. This is the one that matters: provenance is written to an audit sink line by line, so a newline here appends a record nobody wrote.
+- `TooLong`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Provenance`
+
+```rust
+pub struct Provenance
+```
+
+What defined an answer, travelling with it.
+
+A result cannot be separated from what defined it, so this is a typed field a caller reads
+deliberately rather than a sentence concatenated into a channel that also carries instructions.
+
+#### Methods
+
+```rust
+pub const fn digest(&self) -> &DefinitionDigest
+```
+
+```rust
+pub const fn new(version: DefinitionVersion, digest: DefinitionDigest) -> Self
+```
+
+```rust
+pub const fn version(&self) -> &DefinitionVersion
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PinnedDefinitions`
+
+```rust
+pub struct PinnedDefinitions
+```
+
+An immutable, hashed snapshot of everything a catalog said.
+
+#### Methods
+
+```rust
+pub fn anchored_metrics(&self) -> impl Iterator<Item>
+```
+
+The metrics that declare an anchor, and therefore have to be checked before serving.
+
+```rust
+pub const fn definitions(&self) -> &Definitions
+```
+
+```rust
+pub const fn digest(&self) -> &DefinitionDigest
+```
+
+```rust
+pub const fn new(version: DefinitionVersion, digest: DefinitionDigest, definitions: Definitions) -> Self
+```
+
+Pins a set of definitions.
+
+The digest is computed by the adapter rather than here, because `sutura-domain` cannot hash:
+`sha2` is not on its allowlisted dependency tree, and a domain that could hash would be a
+domain that could re-derive what it is supposed to accept as given. What this type
+guarantees is that the three travel together, not that the third describes the first.
+
+```rust
+pub fn provenance(&self) -> Provenance
+```
+
+The provenance to attach to any answer produced from this bundle.
+
+```rust
+pub const fn version(&self) -> &DefinitionVersion
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum AnchorCheck`
+
+```rust
+pub enum AnchorCheck
+```
+
+What happened when one metric's anchor was checked.
+
+#### Variants
+
+- `Matched` - The metric reproduced its declared number.
+- `Mismatch` - It produced a different one. This is the interesting failure: the definition still runs, so nothing errors, and the number is simply not the one that was certified.
+- `NotExecuted` - The check could not run at all: the data system was unreachable, or the statement failed.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct AnchorReport`
+
+```rust
+pub struct AnchorReport
+```
+
+The outcome of checking every anchor in a bundle.
+
+Built by whoever can execute a statement, which is not this crate. It is the evidence
+`Validated::new` demands, and its shape is what makes that demand mean something: a caller
+cannot claim a bundle is validated without having recorded an outcome for every anchored metric
+in it.
+
+#### Methods
+
+```rust
+pub const fn checks(&self) -> &BTreeMap<MetricName, AnchorCheck>
+```
+
+```rust
+pub fn new() -> Self
+```
+
+```rust
+pub fn record(&mut self, metric: MetricName, check: AnchorCheck)
+```
+
+Records what happened for one metric.
+
+Last write wins, because a re-check after a transient failure should replace it rather than
+accumulate. The coverage check below is on presence, so a replaced entry cannot hide one.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum NotValidated`
+
+```rust
+pub enum NotValidated
+```
+
+Why a bundle is not validated.
+
+#### Variants
+
+- `AnchorMismatch`
+- `AnchorNotExecuted`
+- `AnchorUnchecked`
+- `UnknownMetricChecked`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Validated`
+
+```rust
+pub struct Validated<T>
+```
+
+A `T` that has been shown to hold up.
+
+**The service accepts only this, so an unvalidated bundle is unrepresentable rather than merely
+refused.** The field is private and `Validated::new` is the only way in.
+
+Generic in the type it wraps, but constructible only for `PinnedDefinitions`, and that
+asymmetry is the point: validating means checking every anchor the bundle declares, so the
+constructor has to be able to enumerate them. A blanket `Validated::new` for any `T` would be a
+wrapper that proves nothing, which is worse than no wrapper because it reads like proof.
+
+#### Methods
+
+```rust
+pub const fn get(&self) -> &T
+```
+
+```rust
+pub fn into_inner(self) -> T
+```
+
+```rust
+pub fn new(pinned: PinnedDefinitions, report: &AnchorReport) -> Result<Self, NotValidated>
+```
+
+Accepts a bundle if, and only if, every anchor it declares was checked and matched.
+
+The unknown-metric check is not tidiness: without it, a report built against a different
+bundle would satisfy the coverage check for whatever it happened to overlap, and a bundle
+would be "validated" by evidence about something else.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `trait SemanticCatalog`
+
+```rust
+pub trait SemanticCatalog
+```
+
+Where definitions come from.
+
+One trait, implemented once per catalog. A directory of files in git and a metadata service over
+HTTP are two adapters behind it, and swapping one for the other does not touch the query path.
+
+**`load` takes no request context, and that is the whole design of this port.** A catalog that
+could see the caller could return a different definition per caller, and then the digest that
+travels with an answer would describe something other than what produced it.
+
+## Module `query`
+
+The tool surface: what a caller may ask, and what comes back.
+
+**This module is the governance boundary, and it is defined by what it does not contain.**
+`Query` has no field for SQL, a table name, a filter expression or a list of row ids. An
+uncertified question is therefore unrepresentable rather than refused, which is a stronger
+property than it sounds: a refusal can be retried until something succeeds, and an absent field
+cannot.
+
+Widening this is a governance change. `AGENTS.md` says which mechanism has to still hold.
+
+### `struct Filter`
+
+```rust
+pub struct Filter
+```
+
+One equality filter: a dimension, and a value the pinned bundle declares.
+
+The value is a `String` here and a bind parameter by the time it reaches a statement. It is
+checked against the metric's allowlist first, so the parameterisation is the second line of
+defence rather than the only one.
+
+#### Methods
+
+```rust
+pub const fn dimension(&self) -> &DimensionName
+```
+
+```rust
+pub const fn new(dimension: DimensionName, value: String) -> Self
+```
+
+```rust
+pub fn value(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct Query`
+
+```rust
+pub struct Query
+```
+
+A modelled question.
+
+`deny_unknown_fields` is load-bearing rather than strict-for-its-own-sake. Without it a question
+carrying `sql:` or `table:` deserializes cleanly with the extra field dropped on the floor, and a
+caller who believes they sent SQL gets an answer to a different question. With it, the attempt is
+an error naming the field.
+
+#### Methods
+
+```rust
+pub fn dimensions(&self) -> &[DimensionName]
+```
+
+```rust
+pub fn filters(&self) -> &[Filter]
+```
+
+```rust
+pub const fn grain(&self) -> Grain
+```
+
+```rust
+pub fn literals(&self) -> BTreeSet<String>
+```
+
+The literal text this question carries, for the assertion that none of it reaches the SQL.
+
+It exists so the no-injection golden can be written as "no value from the question appears in
+the statement" rather than as a list of places to look, which is the form that goes stale the
+first time a field is added.
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+```rust
+pub const fn new(metric: MetricName, grain: Grain, range: TimeRange, dimensions: Vec<DimensionName>, filters: Vec<Filter>) -> Self
+```
+
+```rust
+pub const fn range(&self) -> TimeRange
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum RefusalReason`
+
+```rust
+pub enum RefusalReason
+```
+
+Why a question was not answered.
+
+Typed rather than prose, because the variant is the contract and the message is not. Every
+variant has a test that provokes it: a refusal nobody has seen happen is a refusal nobody knows
+works.
+
+**There is no `TimeRangeUnbounded` variant, deliberately.** `TimeRange` has no unbounded form,
+so such a refusal could never be provoked, and a variant with no test that can reach it looks
+like coverage while being dead code. The type does that job instead.
+
+Note what these variants do *not* carry: a rejected filter value is never echoed back.
+`DimensionValueNotAllowed` names the dimension and stops there. Reflecting caller-supplied text
+into a message that reaches a log, a UI and an agent's context is how a rejected value becomes
+somebody else's input.
+
+#### Variants
+
+- `MetricUnknown` - No metric of that name is in the pinned bundle.
+- `GrainNotSupported` - The metric exists and does not declare that grain. Not a narrower question: a grain the author did not render is a number nobody certified.
+- `DimensionNotPermitted` - The metric does not declare that dimension. A dimension a metric did not declare is a name that does not resolve, not a filter to apply anyway.
+- `DimensionNotFilterable` - The dimension exists but declares no value allowlist, so it can be grouped by and not filtered.
+- `DimensionValueNotAllowed` - The dimension is filterable and the value is not one the bundle declares.
+- `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
+- `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
+- `PlanSpansTwoSources` - The plan would need to read from more than one data system.
+- `SourceUnavailable` - The one data system the plan resolved to could not be reached as the calling subject.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum ToolOutcome`
+
+```rust
+pub enum ToolOutcome
+```
+
+What a tool call produced.
+
+A refusal is a *variant of the result*, not an `Err`. A caller cannot mistake it for a transport
+hiccup and retry until something works, which is what an error would invite.
+
+#### Variants
+
+- `Answer`
+- `Refusal`
+
+#### Methods
+
+```rust
+pub const fn is_refusal(&self) -> bool
+```
+
+```rust
+pub const fn refusal(&self) -> Option<&RefusalReason>
+```
+
+The refusal reason, if this is one. Convenience for tests and for an audit sink.
+
+#### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `constant MAX_DIMENSIONS`
+
+The most dimensions one question may group by.
+
+A bound for the same reason the time range is bounded: a group-by over every column is a table
+scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
+a person asks and refuses the ones a loop generates.
+
+## Module `warehouse`
+
+The execution port: the statement that goes out, and the rows that come back.
+
+The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
+it. A file read by an in-process engine and a cluster with a login are both implementations.
+
+This is the one module in the domain that names SQL, and the distinction is worth being precise
+about. `crate::query` is the *tool* surface, where SQL must be unrepresentable because the text
+would come from a caller. Here the text is something sutura generated a moment ago from a pinned
+definition, and the port has to hand it to something. What the port does *not* accept is a
+statement with values pasted into it: `GeneratedQuery` keeps them apart, so an adapter cannot
+receive a query whose parameters have already been flattened into the text.
+
+### `enum ParamValue`
+
+```rust
+pub enum ParamValue
+```
+
+A value bound to a placeholder.
+
+A closed set rather than a string, because the whole point is that these never become text on
+our side. An adapter binds them with whatever its driver offers, and the driver is what decides
+how a date is written on the wire.
+
+#### Variants
+
+- `Text`
+- `Integer`
+- `Date`
+
+#### Methods
+
+```rust
+pub fn render(&self) -> String
+```
+
+A human-readable form, for showing a plan to a person.
+
+**Display only.** It is deliberately not the SQL literal for the value: a function that
+produced one would be the thing somebody reaches for the day they want to inline a parameter,
+and inlining a parameter is the one move this type exists to prevent. Text is quoted the way
+`Debug` quotes it, which makes an empty or space-padded value visible rather than SQL-shaped.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct GeneratedQuery`
+
+```rust
+pub struct GeneratedQuery
+```
+
+A statement, its parameters, and the one data system it runs against.
+
+**Parameters are a separate field and there is no constructor that merges them.** That is the
+mechanism behind "no value from a question reaches the statement as text": to inline a value an
+adapter would have to build the string itself, which is a diff rather than an oversight.
+
+`source` rides along because a plan resolves to exactly one data system, and carrying it here is
+what lets the composition root check that the adapter it is about to call is the one the plan
+named.
+
+#### Methods
+
+```rust
+pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self
+```
+
+```rust
+pub fn params(&self) -> &[ParamValue]
+```
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+```rust
+pub fn sql(&self) -> &str
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum Value`
+
+```rust
+pub enum Value
+```
+
+One cell of a result.
+
+`Real` is deliberately last on the list of things to reach for. A measure over integer minor
+units stays exact, and an anchor comparison over a float would depend on how two languages print
+the same bits. It exists because `avg` has to land somewhere.
+
+#### Variants
+
+- `Null`
+- `Integer`
+- `Real`
+- `Text`
+
+#### Methods
+
+```rust
+pub fn render(&self) -> String
+```
+
+The canonical text form, which is what an anchor is compared against.
+
+One function so there is one answer. An anchor comparison that formatted the value at the
+call site would compare differently in two places, and the failure would look like a data
+problem rather than a formatting one.
+
+#### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `struct RowSet`
+
+```rust
+pub struct RowSet
+```
+
+A result set: the column labels, and the rows.
+
+Labels are `String` rather than `crate::model::ColumnName` because a generated projection names
+things a model did not: the truncated time bucket, and the measure under the metric's own name.
+Constraining them to model column names would mean either lying about what they are or refusing
+to name them.
+
+#### Methods
+
+```rust
+pub fn cell(&self, row: usize, column: usize) -> Option<&Value>
+```
+
+One cell, by row and column position.
+
+`Option` rather than indexing, because `indexing_slicing` is denied for library crates here
+and because a caller that has a position from `column_index` still should not be able to
+panic on a result set that came back a different shape than expected.
+
+```rust
+pub fn column_index(&self, label: &str) -> Option<usize>
+```
+
+Where a column with this label sits, if there is exactly one.
+
+`None` for a label that appears twice, not the first match. Two columns with one label means
+the projection is not what we think it is, and returning either of them would answer with a
+number from a column nobody chose. `Definitions::assemble` refuses the catalog shapes that
+could cause it, so this is the second line rather than the first.
+
+```rust
+pub fn columns(&self) -> &[String]
+```
+
+```rust
+pub fn new(columns: Vec<String>, rows: Vec<Vec<Value>>) -> Result<Self, MalformedRowSet>
+```
+
+Builds a result set, rejecting a ragged one.
+
+```rust
+pub fn rows(&self) -> &[Vec<Value>]
+```
+
+```rust
+pub const fn scalar(&self) -> Option<&Value>
+```
+
+The single cell of a single-row, single-column result, which is what an anchor check reads.
+
+`None` for any other shape rather than a panic or a silent first-cell: an anchor query that
+came back with three rows means the statement is not the one we thought, and reading its
+first cell would turn that into a wrong number.
+
+#### Implements
+
+`Clone`, `Debug`, `PartialEq`, `Serialize`
+
+### `enum MalformedRowSet`
+
+```rust
+pub enum MalformedRowSet
+```
+
+Why a result set could not be built.
+
+#### Variants
+
+- `RowWidth` - A row has a different number of cells than there are columns.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `trait Warehouse`
+
+```rust
+pub trait Warehouse
+```
+
+Where a statement runs.
+
+`dry_run` exists separately from `execute` because "would this be accepted, and how much would it
+read" is a question worth being able to ask before committing to the cost. An adapter with no
+such facility answers it by checking what it can.

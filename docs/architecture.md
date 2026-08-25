@@ -30,10 +30,14 @@ reject.
 
 ## Metadata sources are behind a port
 
-Metrics, dimensions, the glossary and lineage come from a semantic layer outside this repository.
-`SemanticCatalog` is the port they arrive through: one trait, implemented once per catalogue. A
-directory of YAML in git and a metadata catalogue with an HTTP API are two adapters behind it, and
-swapping one for the other does not touch the query path.
+Metrics, dimensions, the glossary and lineage come from a catalogue, and `SemanticCatalog` is the port
+they arrive through: one trait, implemented once per catalogue. A directory of documents in git and a
+metadata catalogue with an HTTP API are two adapters behind it, and swapping one for the other does
+not touch the query path.
+
+The catalogue may be outside this repository or in it, and
+[the first-party models decision](adr/0001-first-party-semantic-models.md) is why both are allowed. What the port
+guarantees is the same either way.
 
 Two properties of that trait carry the weight:
 
@@ -43,8 +47,10 @@ Two properties of that trait carry the weight:
   than a live read, so a catalogue edit cannot change what a question means between two invocations.
   It changes the digest, and the digest travels with the answer.
 
-Nothing here edits a definition. Editing one forks the definition from the number it certifies, which
-was the only thing certifying it bought.
+Nothing here edits a definition that arrived rendered. Editing one forks it from the number it
+certifies, which was the only thing certifying it bought. A first-party model is a different case: it
+is authored here, so reviewing a change to it is reviewing what will execute, and that review belongs
+in the same pull request as any other change to behaviour.
 
 ## Data systems are behind a second port
 
@@ -94,9 +100,8 @@ neither transport can grow a text-blob shortcut on its own.
 
 ## The semantic compiler
 
-`sutura-semantic` turns a modelled question into one statement for one data system. It does not
-exist yet: the crate is named in the layout table in `AGENTS.md` and nothing compiles it. The
-stages below are the design.
+`sutura-semantic` turns a modelled question into one statement for one data system. It exists, in
+three modules named after the three stages below.
 
 A question names a metric, some dimensions, a grain and a bounded time range. Dimension values are
 arguments, checked against an allowlist in the pinned bundle. What comes out is a statement and
@@ -112,12 +117,31 @@ a refusal naming the argument that failed.
 grouping keys, the date predicate and its bounds, and which values become bind parameters. Two things
 are settled here and nowhere else. The plan names exactly one source, so a question that would need
 two identities is refused before anything runs. And every value from the question becomes a parameter,
-so no caller-supplied value reaches the next stage as text. The plan holds no SQL.
+so no caller-supplied value reaches the next stage as text. The plan holds no SQL, and its serialized
+form is what a golden snapshot pins.
 
 **Generate.** The plan becomes one statement in one dialect, which decides identifier quoting,
 placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only stage that emits
-SQL, and what it emits is a wrapper: a projection, a `GROUP BY`, a bounded date predicate,
-parameterized values, quoted identifiers. That is all of it.
+SQL.
+
+### Two ways a definition arrives
+
+The stages above are the same either way. What differs is who wrote the statement.
+
+**A first-party model.** The catalog declares models, relationships and metrics, and the generator
+produces the whole statement from them. This is the path that is built, and
+[The first-party models decision](adr/0001-first-party-semantic-models.md) is the record: it exists because the spliced
+path below has a precondition - something upstream must already have rendered dialect-correct SQL -
+and on a laptop, or over a single file, there is no upstream to have done it.
+
+Its load-bearing constraint is that **a model may not contain a free-text SQL expression.** A measure
+is an aggregate from a closed set over a named column; a relationship is a pair of columns and a join
+type; a dimension is a column, optionally one declared relationship away. The cost is real: an
+expression over two columns cannot be said, and neither can a window function. Those belong on the
+other path.
+
+**A pinned statement**, rendered upstream and taken as given, spliced into a generated wrapper. Not
+built. The rest of this section is its design.
 
 ### The splice
 
@@ -141,10 +165,28 @@ Three costs follow:
 - The statement has to be valid in the dialect it will run in, which makes the data system part of
   what the definition means rather than a deployment choice.
 
-SQL goldens are regenerated and reviewed as a diff rather than typed, and they assert the
-passthrough byte for byte. An anchor test re-executes each pinned statement in CI and at startup,
-and a failure there fails readiness. One gap is open and recorded in `AGENTS.md`: no lint yet bans
-a transpile call on the query path, so review is what catches one.
+It remains implementable exactly as described: the dialect layer has a verbatim passthrough node
+whose generator appends the text unchanged, which no dialect pass rewrites and which has no children
+for a transform to descend into. What is missing is a reason to build it, which arrives with the first
+upstream renderer.
+
+### What holds the generated statement up
+
+Goldens per dialect, regenerated and reviewed as a diff rather than typed, over a corpus of questions
+that includes one per refusal. Beside them, four checks that are assertions rather than snapshots:
+
+- **No literal from a question appears in the statement.** Every value is a bind parameter, and the
+  parameter list is asserted to be exactly the set of literals the question carried - so a generator
+  that dropped the predicate fails it too.
+- **Every identifier and alias is quoted**, so a column called `order` is not a syntax error.
+- **Every statement parses in the dialect it was generated for.** Parse only, never re-emit: that is
+  what makes it safe, and it is what replaces having one of each data system in CI.
+- **Every declared anchor re-executes and reproduces its number**, and a bundle whose anchors were not
+  all checked cannot be served, because there is no constructor that produces one.
+
+The gap this page used to record - that no lint banned a transpile call on the query path - is closed
+differently and better: the dialect layer's `transpile` feature is not compiled, so a call to it does
+not build.
 
 ## Where the parts come from
 
@@ -209,10 +251,10 @@ leak with a refresh schedule. Spice's front door is also SQL, where ours has no 
 
 | Stage | Decided there | Ours or theirs |
 | --- | --- | --- |
-| Semantic layer | what a metric means | Neither. Authored upstream, arriving pinned; Wren is the reference shape |
+| Semantic layer | what a metric means | Both, by two routes. A first-party model is authored here and compiled; a rendered statement is authored upstream and taken as given. Wren is the reference shape for the modelling half, and the difference is that a model here may hold no SQL expression |
 | Plan | source, projection, grouping, bounds, parameters | Build first, adopt later: a type in `sutura-semantic`, DataFusion when a type stops being enough |
 | Federation | which subplan its owner runs | Adopt, once a credential exists per leg |
-| Dialect | quoting, placeholders, date arithmetic | Adopt for the wrapper, never for the splice |
+| Dialect | quoting, placeholders, date arithmetic | Adopt for what we generate, never for the splice. Two things it does not decide: placeholder style, which it renders identically for every target, and quoting, which it applies only when asked. Both are ours |
 | Execution | the connection, and which principal the data system sees | Build. One adapter per data system, and the per-request credential is the part nothing above provides |
 
 That last row is why this is a repository rather than a configuration file for one of the others.
@@ -281,16 +323,30 @@ budget here is a warehouse round trip.
 
 ## What exists today
 
-Four packages: `sutura-domain` (domain types), `sutura-cli` (the binary), `xtask` (the repo gates,
-listed by `cargo xtask --help`) and `sutura-dev` (a local development CLI). Everything else named
-on this page is design. The query path is not built.
+The query path is built, for one shape of catalog and one data system.
 
-`sutura-domain` holds no port traits yet, deliberately. A port exists to invert a dependency on
-something outside the hexagon, and no adapter exists yet to invert. A trait with no implementor and no
-caller is a guess at a signature that only the first real adapter can settle, and in a library crate
-`pub` hides it from `dead_code`. Each port arrives with the adapter beneath it, and each crate with
-the milestone that needs it.
+Nine packages. `sutura-domain` holds the domain types and two port traits, `SemanticCatalog` and
+`Warehouse`; `sutura-catalog-local` reads a directory of markdown documents with YAML frontmatter;
+`sutura-semantic` resolves, plans and generates; `sutura-exec-duckdb` executes; `sutura-app` is the
+service, generic over both ports; `sutura-cli` composes them. `xtask` holds the repo gates and
+`sutura-dev` the local development CLI.
 
-What does work is the environment, the gates and the release pipeline. Every claim on this page is
-meant to be held up by a mechanism rather than by intent, and a mechanism is cheaper to build before
-there is code to retrofit it onto.
+What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
+a filter compiles to one statement, in `DuckDB`, Postgres or `ClickHouse` dialect, and executes
+against a `DuckDB` file. Every metric that declares a certified number re-executes and reproduces it
+before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
+path because there is no constructor that produces one.
+
+**`CredentialBroker` is still absent, and it is the one that matters most.** DuckDB is a file with no
+login, so "every query runs as the calling principal" is satisfied here by there being nobody else to
+be. That is a true statement about a laptop and not about a warehouse: per-request identity arrives
+with the first data system that has grants to run under, and until then this is a compiler with a
+governed front door rather than the identity-aware runtime the rest of this page describes.
+
+Also absent: the MCP and HTTP transports, Arrow results with provenance in the schema metadata,
+federation, a budget beyond a hard row cap, a second catalog adapter, and the audit sink. The
+spliced-statement path is designed, documented above, and unimplemented.
+
+The mechanisms came first on purpose, and that has not changed: every claim on this page is meant to
+be held up by a type, a lint, a hook or a gate rather than by intent, and a mechanism is cheaper to
+build before there is code to retrofit it onto.

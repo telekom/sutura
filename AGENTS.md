@@ -29,9 +29,11 @@ case - it cannot catch a paraphrase. **The control is not writing it down here.*
 ## Layout
 
 The directory structure is the architecture: `sutura-domain` is the hexagon's interior, everything
-else is an adapter, and nothing depends on an adapter. It holds the domain types today; each port
-trait arrives with the adapter that implements it, because a trait with no implementor is a guess
-at a signature and `pub` hides it from `dead_code`.
+else is an adapter, and nothing depends on an adapter. Each port trait arrives WITH the adapter that
+implements it, because a trait with no implementor is a guess at a signature and `pub` hides it from
+`dead_code`. Two are here now - `SemanticCatalog` came with the local catalog adapter and `Warehouse`
+with the DuckDB one. `CredentialBroker` is still absent for the same reason it always was: nothing
+implements it yet.
 
 | Crate | Role |
 | --- | --- |
@@ -45,8 +47,14 @@ at a signature and `pub` hides it from `dead_code`.
 | `sutura-cli` | The binary; composes adapters |
 | `xtask` | The repo gates: boundary check (dependency direction, and the typed surface of a library crate), file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
 
-Adapters are feature-gated and default-off, so `cargo nextest run -p sutura-domain` compiles no heavy
-dependency. Keep it that way: its test suite should run in well under a second.
+The domain crate depends on nothing heavy, and `cargo check -p sutura-domain --no-default-features`
+is the inner loop for that reason: its test suite should stay well under a second.
+
+An adapter that links a native library is behind a **default-off feature on `sutura-cli`**, which is
+what keeps the musl artifacts building: nixpkgs has no musl `libduckdb`, and with the feature off the
+cross builds never ask for one. `--all-features` clippy and nextest run natively and do cover it.
+`nix/duckdb.nix` is the single code path from nixpkgs to that library, imported by both `flake.nix`
+and `devenv.nix` so the dev shell and CI cannot link two different ones.
 
 ## Commands
 
@@ -102,9 +110,9 @@ regeneration is checked rather than trusted.
 
 | Artefact | Owner | Rule |
 | --- | --- | --- |
-| Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) - **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
+| Metric definitions, their statements and anchors | **two authoring modes, and a definition uses one of them.** A *first-party model* is authored in this repository's catalog: models, relationships and metrics, from which `sutura-semantic` generates the whole statement. A *pinned statement* is rendered by an upstream semantic layer (dbt / MetricFlow) and taken as given | Either way it arrives as `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`, and the digest is over the canonical form of the parsed definitions. For a pinned statement, editing it here forks the definition from the number it certifies. `docs/adr/0001-first-party-semantic-models.md` is the decision and says why neither mode is a degraded version of the other |
 | MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
-| The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
+| The executed SQL | `sutura-semantic`. For a first-party model it generates all of it - projection, `GROUP BY`, a bounded date predicate, the single-hop join, parameterized values, quoted identifiers and aliases, a row cap. For a pinned statement it would generate only the wrapper | SQL goldens per dialect, regenerated and reviewed as a diff, never typed. The pinned-statement path is **not built**: `docs/architecture.md` describes the splice and nothing implements it |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
 | Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
@@ -122,7 +130,13 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | Refusal is a result, not an error | `ToolOutcome::Refusal { reason: RefusalReason }` is the public surface, and a test provokes every variant |
 | A catalog edit cannot change what executes | Definitions are pinned and hashed at build time; arguments validate against the **pinned** allowlist, and `SemanticCatalog::load` takes no request context, so it cannot reach the hot path |
 | An unvalidated bundle is never served | The service accepts only `Validated<PinnedDefinitions>` - anything else does not compile. The anchor test re-runs each pinned statement in CI and at startup, and failure fails readiness |
-| We never re-parse SQL we did not generate | Byte-for-byte passthrough, asserted by the SQL goldens. *Gap: no lint yet bans a transpile call on the query path - review catches it until one exists* |
+| We never re-parse SQL we did not generate | For a first-party model there is no foreign SQL on the path, so it holds by construction. The dialect layer's `transpile` feature is **not compiled** - see the feature list in the workspace manifest - so a call to it does not build, which is a stronger gate than the lint the previous version of this row wished for. The generated statement is parsed once in the golden suite, per dialect, to prove it is valid there; that check never re-emits |
+| No value from a question reaches the statement as text | Every one becomes a bind parameter, and `GeneratedQuery` keeps the statement and the parameters in separate fields with no constructor that merges them. A golden over the whole question corpus asserts that no literal a question carries appears in the SQL generated for it, and that the parameter list is exactly that set of literals - so a generator that dropped the predicate fails it too |
+| No identifier reaches the statement unquoted | The generator forces quoting, for aliases as well as identifiers, and a golden asserts it over the corpus. Without it a column called `order` is emitted bare and is a syntax error at the data system rather than here |
+| Every generated statement is valid in the data system it was generated for | The golden suite parses each one in its target dialect. Parse only: it never re-emits, so it cannot introduce a parser-differential bug, and it is what replaces having one of each data system in CI |
+| A join cannot silently change a measure | A relationship declares its cardinality, and `Definitions::assemble` refuses a dimension reached through one that may duplicate the metric's rows. A `sum` over duplicated rows is a wrong number that raises no error anywhere |
+| Two result columns cannot share a label | `Definitions::assemble` refuses a dimension named after the time bucket's label or after its own metric, which are the two labels the projection already uses. Caught at load, because the caller did not choose it |
+| A catalog document's fields are exactly what it declares | `deny_unknown_fields` on every on-disk shape. A misspelled key is otherwise dropped in silence, and the definition that loads is not the one the author wrote - `colums:` yields a model with no columns, which then refuses every question for a reason that says nothing about a typo |
 | Every query runs as the calling principal | `CredentialBroker::credential_for(&RequestContext, ..)` mints per request; a leg that cannot run as the subject returns `RefusalReason::SourceIdentityUnavailable` instead of downgrading. The nightly two-identity test asserts two users get different rows |
 | A plan cannot silently span two sources | `PlanSources` asserted `len() == 1` by the governance-invariant tests |
 | No result cache | Under row-level security a query-keyed cache is a cross-user leak. *No mechanism can prove an absence: adding any cache of rows is an architecture decision, keyed on subject first or not at all* |
