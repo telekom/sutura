@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+DimensionNotFilterable:
+  metric: recurring_revenue
+  dimension: product_name

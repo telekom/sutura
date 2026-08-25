@@ -1,0 +1,22 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rows
+---
+columns:
+  - period
+  - data_per_subscription
+rows:
+  - - Text: 2026-06-01
+    - Real: 7.119482758620686
+  - - Text: 2026-06-02
+    - Real: 8.06655172413793
+  - - Text: 2026-06-03
+    - Real: 7.9105172413793134
+  - - Text: 2026-06-04
+    - Real: 8.146206896551725
+  - - Text: 2026-06-05
+    - Real: 7.719827586206896
+  - - Text: 2026-06-06
+    - Real: 7.550517241379309
+  - - Text: 2026-06-07
+    - Real: 6.531379310344829

@@ -1,0 +1,5 @@
+metric: data_per_subscription
+grain: day
+range:
+  start: 2026-06-01
+  end: 2026-06-08

@@ -1,0 +1,18 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rows
+---
+columns:
+  - segment
+  - period
+  - recurring_revenue
+rows:
+  - - Text: business
+    - Text: 2026-06-01
+    - Integer: 66630
+  - - Text: consumer
+    - Text: 2026-06-01
+    - Integer: 123119
+  - - Text: wholesale
+    - Text: 2026-06-01
+    - Integer: 7373

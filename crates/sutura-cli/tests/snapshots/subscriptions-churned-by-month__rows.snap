@@ -1,0 +1,20 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rows
+---
+columns:
+  - period
+  - subscriptions_churned
+rows:
+  - - Text: 2026-01-01
+    - Integer: 0
+  - - Text: 2026-02-01
+    - Integer: 2
+  - - Text: 2026-03-01
+    - Integer: 4
+  - - Text: 2026-04-01
+    - Integer: 2
+  - - Text: 2026-05-01
+    - Integer: 1
+  - - Text: 2026-06-01
+    - Integer: 3

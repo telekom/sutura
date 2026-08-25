@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+GrainNotSupported:
+  metric: recurring_revenue
+  grain: day

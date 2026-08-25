@@ -1,0 +1,340 @@
+//! The example under `examples/single-player`, run as a test.
+//!
+//! **One directory, two purposes, and no second copy of either.** `examples/single-player` is what
+//! a reader is told to run, and it is also the corpus this file loads: the catalog, the CSVs and
+//! the questions are the same bytes in both roles. A quickstart that stopped working therefore
+//! fails the build rather than failing the next person who tried it, which is the only arrangement
+//! under which a README and a program cannot drift.
+//!
+//! It lives on `sutura-cli` because that crate is the composition root: it already names the local
+//! catalog adapter and the `DuckDB` one, which is exactly the pair the example needs. The test
+//! drives the LIBRARIES rather than spawning the binary. Spawning would test argument parsing and
+//! then assert on stdout, which is a slower way of asserting less.
+//!
+//! Deliberately smaller than `sutura-app`'s golden suite and not a replacement for it. That one
+//! exists to pin what the compiler decides, across three dialects and two catalog implementations.
+//! This one exists to prove that one documented directory still answers, in the one dialect its
+//! README uses.
+//!
+//! Everything that executes is behind the `exec-duckdb` feature, which is DEFAULT-OFF because
+//! there is no musl `libduckdb` for the cross builds to link against. The file has to compile with
+//! the feature off, so the tests that need a data system are gated one by one rather than the whole
+//! file being gated at the top: with the feature off, the catalog still loads, the corpus still
+//! compiles, and those are the checks that would otherwise not run in the default build at all.
+
+// `cfg(test)` because clippy only honours `allow-expect-in-tests` for code inside a `#[cfg(test)]`
+// item, and an integration test target is compiled with `--test` so it is true here. Without it
+// every `expect` in the fixture helpers below is a lint error.
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
+
+    use sutura_catalog_local::LocalCatalog;
+    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
+    use sutura_domain::query::Query;
+    use sutura_semantic::{Compiled, Dialect, compile};
+
+    /// The one dialect this example is documented for.
+    ///
+    /// The README shows `DuckDB` output and the data is CSV read by `DuckDB`, so pinning a second
+    /// dialect here would pin something the example never claims. `sutura-app`'s golden suite is
+    /// where every dialect is covered.
+    const DIALECT: Dialect = Dialect::DuckDb;
+
+    /// The version the example is stamped with in this suite.
+    ///
+    /// Fixed rather than taken from the working tree. The digest is over the parsed definitions and
+    /// does not include the version, but a version that moved between runs would still churn every
+    /// snapshot that carries provenance.
+    const VERSION: &str = "example-single-player";
+
+    /// The prefix a question file uses to say it exists to be refused.
+    ///
+    /// A convention the test reads rather than a list it keeps: a refusal fixture added to the
+    /// directory is covered by the assertions below without this file being edited, and one renamed
+    /// out of the convention starts being required to answer.
+    const REFUSED_PREFIX: &str = "refused-";
+
+    fn example_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
+    }
+
+    fn catalog_root() -> PathBuf {
+        example_root().join("catalog")
+    }
+
+    /// Every question in the corpus, sorted.
+    ///
+    /// Sorted so the corpus is a function of the directory rather than of the filesystem: an order
+    /// that changed between runs would produce snapshot churn unrelated to the change under review.
+    fn questions() -> Vec<PathBuf> {
+        let dir = example_root().join("questions");
+        let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
+            .expect("the example has a questions directory")
+            .map(|entry| entry.expect("a directory entry is readable").path())
+            .filter(|path| path.extension().is_some_and(|ext| ext == "yaml"))
+            .collect();
+        found.sort();
+        assert!(!found.is_empty(), "no questions under {}", dir.display());
+        found
+    }
+
+    fn read_question(path: &Path) -> Query {
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
+        serde_norway::from_str(&text).unwrap_or_else(|e| panic!("{} is not a question: {e}", path.display()))
+    }
+
+    /// The example catalog, read the way the `catalog` command reads it.
+    fn load() -> PinnedDefinitions {
+        let version = DefinitionVersion::parse(VERSION).expect("the fixed version is a version");
+        LocalCatalog::new(catalog_root(), version)
+            .load()
+            .unwrap_or_else(|e| panic!("the example catalog does not load: {e}"))
+    }
+
+    /// Settings every snapshot in this file uses.
+    ///
+    /// The path is set explicitly so the files land in `tests/snapshots/` rather than wherever the
+    /// macro would guess from the module path, and the module prefix is dropped so a snapshot is
+    /// named after the question it is about.
+    fn settings() -> insta::Settings {
+        let mut settings = insta::Settings::clone_current();
+        settings.set_snapshot_path("snapshots");
+        settings.set_prepend_module_to_snapshot(false);
+        settings
+    }
+
+    /// The stem of a question file, which is what its snapshots are named after.
+    fn stem(path: &Path) -> String {
+        path.file_stem()
+            .map_or_else(|| String::from("unnamed"), |s| s.to_string_lossy().into_owned())
+    }
+
+    /// A statement and the values bound to it, as `sutura compile` prints them.
+    ///
+    /// One snapshot rather than two. The parameters are here rather than in a file of their own
+    /// because the interesting property is the relationship between the two halves: every value the
+    /// question carried is in the list below the statement and none of them is in the statement
+    /// itself, and that is only readable when both are on the screen at once.
+    fn rendered(query: &sutura_domain::warehouse::GeneratedQuery) -> String {
+        use core::fmt::Write as _;
+        let mut out = String::from(query.sql());
+        out.push('\n');
+        for (index, param) in query.params().iter().enumerate() {
+            writeln!(out, "-- ${} = {}", index + 1, param.render()).expect("writing to a String cannot fail");
+        }
+        out
+    }
+
+    // ------------------------------------------------------------------------- without a database ---
+
+    #[test]
+    fn the_example_catalog_loads_and_its_digest_is_pinned() {
+        // The bug this prevents: an edit to a catalog document that changes what a metric means and
+        // is reviewed as prose. The digest is over the parsed definitions, so it moves when a
+        // measure, a filter, a grain, a dimension or a description changes, and the diff on this
+        // snapshot is what makes that visible in review rather than at runtime.
+        //
+        // It is also the number the example's README prints on its first line, which is why a
+        // reader can tell that the table they got came from the definitions they read.
+        let pinned = load();
+        settings().bind(|| {
+            insta::assert_snapshot!("example_digest", pinned.digest().as_str());
+            insta::assert_yaml_snapshot!("example_definitions", pinned.definitions());
+        });
+    }
+
+    #[test]
+    fn every_model_in_the_example_catalog_has_the_csv_the_quickstart_needs() {
+        // The bug this prevents: a model added to the catalog with no data file beside it. The
+        // quickstart then fails on the first command with a message about a missing table, which is
+        // the worst possible first impression and is invisible to a reviewer reading the catalog
+        // diff alone. Named after `table` rather than after `name`, because that is the file the
+        // adapter looks for.
+        let pinned = load();
+        let data = example_root().join("data");
+        for model in pinned.definitions().models().values() {
+            let csv = data.join(format!("{}.csv", model.table()));
+            assert!(
+                csv.is_file(),
+                "model {} declares table {} and there is no {}",
+                model.name(),
+                model.table(),
+                csv.display()
+            );
+        }
+    }
+
+    #[test]
+    fn the_example_exercises_every_shape_in_the_measure_vocabulary() {
+        // The bug this prevents: the example quietly stops being the thing it is for. Its whole
+        // purpose is to show all three measure shapes and a definitional filter in one catalog, and
+        // a metric deleted or rewritten during a refactor would leave the README claiming coverage
+        // that no longer exists. Written against the shapes rather than against metric names, so
+        // renaming a metric does not fail it and dropping a shape does.
+        let pinned = load();
+        let mut shapes: BTreeSet<&str> = BTreeSet::new();
+        let mut with_required_filter = 0_usize;
+        for metric in pinned.definitions().metrics().values() {
+            shapes.insert(metric.measure().shape());
+            if !metric.required_filters().is_empty() {
+                with_required_filter += 1;
+            }
+        }
+        assert_eq!(
+            shapes,
+            BTreeSet::from(["count_if", "ratio", "simple"]),
+            "the example is supposed to demonstrate every measure shape"
+        );
+        assert!(
+            with_required_filter > 0,
+            "no metric in the example carries a required filter, which is the one feature that \
+             changes what a metric means"
+        );
+        // A metric with a filter and one without, over the same model, is what makes the difference
+        // legible as two numbers rather than as a sentence in a README.
+        assert!(
+            with_required_filter < pinned.definitions().metrics().len(),
+            "every metric carries a required filter, so the example no longer contrasts one that does \
+             with one that does not"
+        );
+    }
+
+    #[test]
+    fn every_question_in_the_example_compiles_and_its_statement_is_pinned() {
+        // The bug this prevents: a generator change that is valid SQL, plans without complaint and
+        // asks the data system for something else. The statement and its bound values are pinned
+        // together, so a value that moved out of the parameter list and into the statement text is
+        // a diff here rather than a discovery in production.
+        //
+        // It also asserts the naming convention in both directions. A `refused-` question that
+        // started answering, or a plain question that started being refused, are both silent
+        // failures: the corpus would still pass as "every question produced an outcome", and the
+        // example would be demonstrating the opposite of what its name says.
+        let pinned = load();
+        let mut refusals = 0_usize;
+        let mut statements = 0_usize;
+        for path in questions() {
+            let name = stem(&path);
+            let question = read_question(&path);
+            let compiled = compile(&question, &pinned, DIALECT).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+            let expected_refusal = name.starts_with(REFUSED_PREFIX);
+            settings().bind(|| match compiled {
+                Compiled::Refused { ref reason } => {
+                    assert!(
+                        expected_refusal,
+                        "{name} was refused as {reason:?}, and is not named as a refusal"
+                    );
+                    refusals += 1;
+                    insta::assert_yaml_snapshot!(format!("{name}__refusal"), reason);
+                }
+                Compiled::Statement { ref query, .. } => {
+                    assert!(!expected_refusal, "{name} is named as a refusal and was answered");
+                    statements += 1;
+                    insta::assert_snapshot!(format!("{name}__statement"), rendered(query));
+                }
+            });
+        }
+        // Both halves have to be non-empty or the assertions above are vacuous: a corpus of only
+        // refusals proves the compiler refuses everything, and one with none proves nothing about
+        // refusals at all.
+        assert!(statements > 0, "no question in the example produced a statement");
+        assert!(
+            refusals > 1,
+            "the example is supposed to show a reader more than one kind of refusal"
+        );
+    }
+
+    // ------------------------------------------------------------------------- against a database ---
+
+    /// The example catalog over an in-memory `DuckDB` built from the committed CSVs.
+    ///
+    /// In memory and rebuilt per run, for the reason the `query` command gives: a database file in
+    /// a repository is a binary nobody reviews, and a fixture built from the CSV every time cannot
+    /// drift from it.
+    #[cfg(feature = "exec-duckdb")]
+    fn duckdb(pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
+        let sources = sutura_app::sources(pinned);
+        let [source] = sources.as_slice() else {
+            panic!(
+                "the example catalog is single-source, and this one names {} systems",
+                sources.len()
+            );
+        };
+        let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory((*source).clone()).expect("an in-memory database opens");
+        let data = example_root().join("data");
+        for model in pinned.definitions().models().values() {
+            let csv = data.join(format!("{}.csv", model.table()));
+            warehouse
+                .attach_csv(model.table(), &csv)
+                .unwrap_or_else(|e| panic!("could not attach {}: {e}", csv.display()));
+        }
+        warehouse
+    }
+
+    #[cfg(feature = "exec-duckdb")]
+    #[test]
+    fn every_declared_anchor_in_the_example_reproduces_its_number() {
+        // The bug this prevents: an example whose numbers are aspirational. An anchor is a figure
+        // somebody wrote into a catalog document by hand, and the only thing separating that from a
+        // guess is this test re-executing it against the committed CSVs.
+        //
+        // It fails in both directions on purpose. Edit the data and the anchor stops matching; edit
+        // the anchor and it stops matching the data. Either way the bundle is unservable rather
+        // than answering, which is the behaviour the example exists to demonstrate.
+        let pinned = load();
+        let warehouse = duckdb(&pinned);
+        let report = sutura_app::verify_anchors(&pinned, &warehouse, DIALECT);
+        settings().bind(|| insta::assert_yaml_snapshot!("example_anchor_report", &report));
+        let mut checked = 0_usize;
+        for (metric, check) in report.checks() {
+            assert_eq!(
+                *check,
+                sutura_domain::pinned::AnchorCheck::Matched,
+                "{metric} did not reproduce its declared number"
+            );
+            checked += 1;
+        }
+        assert!(
+            checked > 0,
+            "no metric in the example declares an anchor, so this test proved nothing"
+        );
+        drop(sutura_domain::pinned::Validated::new(pinned, &report).expect("a bundle whose anchors all matched is fit to serve"));
+    }
+
+    #[cfg(feature = "exec-duckdb")]
+    #[test]
+    fn every_question_in_the_example_answers_or_is_refused_and_the_rows_are_pinned() {
+        // The bug this prevents: a change that compiles to the same statement and returns different
+        // rows. Nothing upstream of the data system can catch that, which is why the rows are
+        // pinned here and not only the SQL - a CSV edited in the same commit is exactly the change
+        // that would otherwise look reviewed.
+        //
+        // The refusals are asserted rather than snapshotted: the compile test already pins the
+        // reason, and what matters at this end is that the question did not reach the data system.
+        let pinned = load();
+        let warehouse = duckdb(&pinned);
+        let report = sutura_app::verify_anchors(&pinned, &warehouse, DIALECT);
+        let validated = sutura_domain::pinned::Validated::new(pinned, &report).expect("the anchors hold");
+        for path in questions() {
+            let name = stem(&path);
+            let question = read_question(&path);
+            let outcome = sutura_app::answer(&validated, &question, &warehouse, DIALECT)
+                .unwrap_or_else(|e| panic!("{name} failed against duckdb: {e}"));
+            let expected_refusal = name.starts_with(REFUSED_PREFIX);
+            settings().bind(|| match outcome {
+                sutura_domain::query::ToolOutcome::Refusal { ref reason } => {
+                    assert!(
+                        expected_refusal,
+                        "{name} was refused as {reason:?}, and is not named as a refusal"
+                    );
+                }
+                sutura_domain::query::ToolOutcome::Answer { ref rows, .. } => {
+                    assert!(!expected_refusal, "{name} is named as a refusal and was answered");
+                    insta::assert_yaml_snapshot!(format!("{name}__rows"), rows);
+                }
+            });
+        }
+    }
+}

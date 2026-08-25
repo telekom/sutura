@@ -1,0 +1,9 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: "&report"
+---
+checks:
+  active_subscriptions: Matched
+  recurring_revenue: Matched
+  subscription_base: Matched
+  subscriptions_churned: Matched

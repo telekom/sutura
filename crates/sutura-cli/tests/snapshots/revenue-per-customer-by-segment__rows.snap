@@ -1,0 +1,18 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rows
+---
+columns:
+  - segment
+  - period
+  - revenue_per_customer
+rows:
+  - - Text: business
+    - Text: 2026-06-01
+    - Real: 6663
+  - - Text: consumer
+    - Text: 2026-06-01
+    - Real: 5596.318181818182
+  - - Text: wholesale
+    - Text: 2026-06-01
+    - Real: 7373

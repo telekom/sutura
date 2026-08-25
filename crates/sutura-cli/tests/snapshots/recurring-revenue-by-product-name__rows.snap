@@ -1,0 +1,33 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rows
+---
+columns:
+  - product_name
+  - period
+  - recurring_revenue
+rows:
+  - - Text: Internet Cable 300
+    - Text: 2026-06-01
+    - Integer: 37992
+  - - Text: Internet Fiber 1000
+    - Text: 2026-06-01
+    - Integer: 42491
+  - - Text: Mobile L Unlimited
+    - Text: 2026-06-01
+    - Integer: 39928
+  - - Text: Mobile M
+    - Text: 2026-06-01
+    - Integer: 12120
+  - - Text: Mobile S
+    - Text: 2026-06-01
+    - Integer: 12996
+  - - Text: One Home L
+    - Text: 2026-06-01
+    - Integer: 15415
+  - - Text: One Home S
+    - Text: 2026-06-01
+    - Integer: 28873
+  - - Text: TV Entertainment
+    - Text: 2026-06-01
+    - Integer: 7307

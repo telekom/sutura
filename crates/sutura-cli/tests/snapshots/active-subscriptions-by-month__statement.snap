@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rendered(query)
+---
+SELECT CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", COUNT(DISTINCT "fct_subscription_monthly"."subscription_key") AS "active_subscriptions" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) LIMIT 10000
+-- $1 = 2026-01-01
+-- $2 = 2026-07-01
+-- $3 = "active"
