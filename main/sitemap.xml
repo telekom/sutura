@@ -9,6 +9,14 @@
          <lastmod>2026-08-25</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/changelog/</loc>
+         <lastmod>2026-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/concepts/</loc>
+         <lastmod>2026-08-25</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/contributing/</loc>
          <lastmod>2026-08-25</lastmod>
     </url>
@@ -22,6 +30,18 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/publishing/</loc>
+         <lastmod>2026-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/qa/</loc>
+         <lastmod>2026-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/api/</loc>
+         <lastmod>2026-08-25</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-domain/</loc>
          <lastmod>2026-08-25</lastmod>
     </url>
 </urlset>

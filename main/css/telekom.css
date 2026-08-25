@@ -44,10 +44,3 @@
 .md-header__button.md-logo img {
   filter: brightness(0) invert(1);
 }
-
-/* The hero mark on the front page. Brand magenta measures 2.70:1 on the slate background - under
- * 3:1, and exempt from it as a logotype, but dim enough to be worth lifting to 3.43:1. The light
- * scheme needs no help, so this is scoped rather than global. */
-[data-md-color-scheme="slate"] .sutura-mark img {
-  filter: brightness(1.3);
-}
