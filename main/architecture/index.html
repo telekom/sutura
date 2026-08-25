@@ -1,0 +1,1117 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/architecture/">
+      
+      
+        <link rel="prev" href="../contributing/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>Architecture - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../css/telekom.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#architecture" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Architecture
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href=".." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Enterprise mirrors
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#serving-is-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving is MCP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-sources-are-behind-a-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sources are behind a port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-systems-are-behind-a-second-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data systems are behind a second port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-is-the-reason-for-the-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security is the reason for the shape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-semantic-compiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The semantic compiler
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The semantic compiler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-splice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The splice
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-parts-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the parts come from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hexagonal-by-construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexagonal by construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What ships
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-exists-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What exists today
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#serving-is-mcp" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Serving is MCP
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#metadata-sources-are-behind-a-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Metadata sources are behind a port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#data-systems-are-behind-a-second-port" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Data systems are behind a second port
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#security-is-the-reason-for-the-shape" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Security is the reason for the shape
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-semantic-compiler" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The semantic compiler
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The semantic compiler">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-splice" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The splice
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-parts-come-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the parts come from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#hexagonal-by-construction" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Hexagonal by construction
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-ships" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What ships
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-exists-today" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What exists today
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
+<p>This page describes the shape sutura is heading toward. Read it as the settled design and as
+the reason the repository is laid out the way it is, not as an inventory of what compiles.
+<a href="#what-exists-today">What exists today</a> at the end of the page is the inventory, and it is
+short.</p>
+<p><code>AGENTS.md</code> in the repository root holds the crate table and the invariant table. This page
+says why those tables look the way they do.</p>
+<h2 id="serving-is-mcp">Serving is MCP<a class="headerlink" href="#serving-is-mcp" title="Permanent link">&para;</a></h2>
+<p>The primary interface is an MCP server. An agent is a first-class client rather than an
+afterthought wrapped around an API built for a dashboard, and the tool surface is the whole of
+what an agent is allowed to say.</p>
+<p>That makes the tool surface the governance boundary, and it is deliberately narrow. No tool
+takes SQL. No tool takes a table name, a filter expression or a list of row ids. A question
+names a metric, some dimensions and a time range, and there is no field into which anything
+else fits. An uncertified question is unrepresentable rather than refused, and the difference
+is not pedantry: a refusal can be retried until it succeeds, and an absent field cannot.</p>
+<p>Narrow also has to stay narrow. The tool schemas are derived from the domain types rather than
+written by hand, so widening the surface changes a generated schema and shows up as a diff in
+the review that widened it.</p>
+<p>An HTTP surface sits beside the MCP one for callers that are not agents. It is a second
+transport over the same service, derived from the same types, so it cannot accept a question
+the MCP surface would reject.</p>
+<h2 id="metadata-sources-are-behind-a-port">Metadata sources are behind a port<a class="headerlink" href="#metadata-sources-are-behind-a-port" title="Permanent link">&para;</a></h2>
+<p>Metrics, dimensions, the glossary and lineage come from a semantic layer that is not this
+repository. <code>SemanticCatalog</code> is the port they arrive through: one trait, implemented once per
+catalogue. A directory of YAML in git and a metadata catalogue with an HTTP API are two
+adapters behind the same trait, and swapping one for the other does not touch the query path.</p>
+<p>Two properties of that trait carry weight:</p>
+<ul>
+<li><code>load</code> takes no request context. A catalogue cannot see who is asking, so it cannot return a
+  different definition to different callers, and a catalogue somebody has tampered with cannot
+  select what executes.</li>
+<li>Definitions arrive as a pinned, hashed snapshot. Arguments are validated against the pinned
+  bundle rather than against a live read, so a catalogue edit cannot change what a question
+  means between two invocations. It changes the digest, and the digest travels with the answer.</li>
+</ul>
+<p>Nothing here edits a definition. Editing one would fork the definition from the number it
+certifies, which is the only thing certifying it was worth.</p>
+<h2 id="data-systems-are-behind-a-second-port">Data systems are behind a second port<a class="headerlink" href="#data-systems-are-behind-a-second-port" title="Permanent link">&para;</a></h2>
+<p>Execution sits behind its own trait, separate from the catalogue one. ClickHouse and Postgres
+are the near-term targets. DuckDB covers local development and single-file work, where the data
+is a Parquet file and there is no server to authenticate against. The trait is named
+<code>Warehouse</code>, which is the port's name and not a claim about what sits behind it.</p>
+<p>These are adapters. What differs per data system is dialect, connection and how an identity is
+presented. Neither the plan nor what a metric means differs;
+<a href="#the-semantic-compiler">the semantic compiler</a> decides both.</p>
+<p>A plan resolves to exactly one data system. Federation across two is not a smaller version of
+the same problem, it is a second identity to satisfy, and a plan that cannot run as one subject
+in both places is refused rather than run partly as somebody else.</p>
+<h2 id="security-is-the-reason-for-the-shape">Security is the reason for the shape<a class="headerlink" href="#security-is-the-reason-for-the-shape" title="Permanent link">&para;</a></h2>
+<p>The three sections above are not features arranged around a core. They are what falls out of a
+single requirement: an agent may be handed a database only if the database can still tell who
+is asking.</p>
+<p><strong>The caller's identity reaches the data system.</strong> Not a service account holding the union of
+everyone's access. A credential is minted per request for the calling principal, and a request
+that cannot be run as the subject comes back as a refusal instead of falling back to the
+service's own identity. That fallback is the convenient one, and it silently turns "you may not
+see these rows" into "here are the rows". A row-level security policy that holds only for human
+callers is decorative.</p>
+<p><strong>Authorization stays in the data system.</strong> sutura keeps no copy of who may see what, because a
+copy is something that can disagree with the original. Grants, row-level policies and masking
+already exist in ClickHouse and in Postgres, they are administered by the people who own the
+data, and they are audited there. A second implementation here would produce a second answer
+and no way to tell which one is right. One consequence is worth stating plainly: there is no
+result cache. Under row-level security, a cache keyed on the query text is a cross-user leak.</p>
+<p><strong>A narrow tool surface bounds a compromised agent.</strong> For a system whose input is natural
+language from wherever the user found it, a manipulated agent is the expected case rather than
+the disaster case. The defence is not detecting the manipulation. It is that the most an
+attacker can make the agent emit is a different certified question, asked as the same caller,
+over the same pinned definitions, against the same authorization. The blast radius of a fully
+manipulated agent is the set of questions its caller could already ask.</p>
+<p><strong>Returned content is untrusted input.</strong> Rows, column descriptions and glossary text are all
+authored by somebody else, and any of it can contain something shaped like an instruction. A
+delimiter does not separate instruction from data, because the content can contain the
+delimiter, and neither does a preamble announcing that what follows is untrusted. So the
+boundary is a constraint on the wire format rather than a convention in prose. Results leave as
+Arrow, in their own frame, with provenance in the schema metadata: a typed field a caller reads
+deliberately, never a string concatenated into the channel that carries instructions.
+Descriptive text from the catalogue travels the same way. Both wire envelopes share one encoder,
+so neither transport can grow a text-blob shortcut on its own.</p>
+<h2 id="the-semantic-compiler">The semantic compiler<a class="headerlink" href="#the-semantic-compiler" title="Permanent link">&para;</a></h2>
+<p><code>sutura-semantic</code> turns a modelled question into one statement for one data system. It does not
+exist yet: the crate is named in the layout table in <code>AGENTS.md</code> and nothing compiles it. The
+stages below are the design.</p>
+<p>A question names a metric, some dimensions, a grain and a bounded time range. Dimension values
+are arguments, checked against an allowlist in the pinned bundle. What comes out is a statement
+and the values bound to it. Nothing in between is text a caller wrote.</p>
+<p><strong>Resolve.</strong> Every name in the question is looked up in the pinned snapshot. The metric has to
+exist, each dimension has to be one that metric declares, the grain has to be one it supports,
+the range has to be bounded. The lookup goes to the pinned bundle and never to a live catalogue
+read, which is what makes the answer independent of what the catalogue says at the moment of
+asking. The output is a set of definitions, or a refusal naming the argument that failed.</p>
+<p><strong>Plan.</strong> The resolved question becomes a plan: which data system owns the metric, the
+projection, the grouping keys, the date predicate and its bounds, and which values become bind
+parameters. Two things are settled here and nowhere else. The plan names exactly one source, so
+a question that would need two identities is refused before anything runs rather than half
+executed. And every value from the question becomes a parameter, so no caller-supplied value
+reaches the next stage as text. The plan holds no SQL: no quoting, no function names, no dialect.</p>
+<p><strong>Generate.</strong> The plan becomes one statement in one dialect. The dialect decides identifier
+quoting, placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only
+stage that emits SQL, and what it emits is a wrapper: a projection, a <code>GROUP BY</code>, a bounded date
+predicate, parameterized values, quoted identifiers. That is all of it.</p>
+<h3 id="the-splice">The splice<a class="headerlink" href="#the-splice" title="Permanent link">&para;</a></h3>
+<p>The certified statement is spliced into that wrapper as a derived table, byte for byte, without
+being parsed. It is the decision that separates this from a SQL generator.</p>
+<p>The statement is authored upstream by the semantic layer that renders it, and it arrives as text
+with a digest. sutura puts it in the <code>FROM ( ... )</code> position and generates around it. It does not
+read it, rewrite it, transpile it, or push a predicate into it.</p>
+<p>Parsing it would mean re-emitting it, and re-emitting it substitutes our reading of the statement
+for the author's. Every round trip through an AST is a chance to change the number quietly: a
+window frame read slightly differently, a null ordering normalized, an implicit cast made
+explicit. The digest would not move, because it covers the text we were handed rather than the
+SQL we produced, so the change would be invisible in the one place this design exists to make
+visible. Byte-for-byte passthrough is what keeps "certified" true after compilation.</p>
+<p>The cost is real and worth stating. Nothing is optimized across the splice boundary: a predicate
+in the wrapper filters the statement's output, not its input. The statement's column types are
+not known without asking the data system. And the statement has to be valid in the dialect it
+will run in, because the splice does not translate it, which makes the data system part of what
+the definition means rather than a deployment choice.</p>
+<p>The paragraph above is not what holds this. SQL goldens are regenerated and reviewed as a
+diff rather than typed, and they assert the passthrough byte for byte. An anchor test re-executes
+each pinned statement in CI and at startup, and a failure there fails readiness. One gap is open
+and recorded in <code>AGENTS.md</code>: no lint yet bans a transpile call on the query path, so review is
+what catches one until a lint does.</p>
+<h2 id="where-the-parts-come-from">Where the parts come from<a class="headerlink" href="#where-the-parts-come-from" title="Permanent link">&para;</a></h2>
+<p>The same line runs through every system of this kind: <strong>semantic layer, plan, federation,
+dialect, execution</strong>. The projects worth reading sit at different points on it. The last stage is
+the one none of them covers.</p>
+<pre class="mermaid"><code>flowchart TB
+    Q["a modelled question"]
+    SL["semantic layer&lt;br&gt;what a metric means&lt;br&gt;Wren"]
+    PL["plan&lt;br&gt;one source, grouping,&lt;br&gt;bounds, parameters&lt;br&gt;DataFusion"]
+    FD["federation&lt;br&gt;where a subplan runs&lt;br&gt;datafusion-federation, Spice"]
+    DI["dialect&lt;br&gt;quoting, placeholders, dates&lt;br&gt;polyglot"]
+    EX["execution&lt;br&gt;as the calling principal&lt;br&gt;nothing above does this"]
+    ST(["the certified statement,&lt;br&gt;spliced in unparsed"])
+    A["Arrow, with provenance"]
+
+    Q --&gt; SL --&gt; PL --&gt; FD --&gt; DI --&gt; EX --&gt; A
+    SL -.-&gt;|bytes| ST
+    ST -.-&gt; DI</code></pre>
+<p><strong>The semantic layer decides what a question means.</strong> <a href="https://github.com/Canner/WrenAI">Wren</a> is
+the reference for that shape: a modelling language, an engine that analyses and plans against it,
+and MCP as the way an agent asks. Wren models the tables and derives a metric's SQL from the
+model. We take the metric's statement as given and refuse to look inside it, which is a narrower
+job and a different guarantee. Wren also carries access rules in the model, and that is a policy
+copy in the middle tier - the thing
+<a href="#security-is-the-reason-for-the-shape">this design declines to keep</a>.</p>
+<p><strong>The plan is where a question stops being text.</strong> <a href="https://datafusion.apache.org/">DataFusion</a>
+is what Wren and Spice both build on: a logical plan representation, an optimizer you extend with
+rules, execution over Arrow, and extension points for table providers and functions. We do not
+use it. <code>sutura-domain</code> names no framework - not tokio, not arrow, not datafusion - and the query
+path is not built, so the first plan will be a small type in <code>sutura-semantic</code>. DataFusion is the
+natural substrate for the stage after that, and what would make it worth adopting is the
+optimizer and the federation rule below, not the SQL frontend. Worth noticing: the half of
+DataFusion most projects reach for first is the half we would leave switched off, because
+accepting SQL is the thing this system refuses to do.</p>
+<p><strong>Federation decides where a subplan runs, and here that is a security question.</strong>
+<a href="https://github.com/datafusion-contrib/datafusion-federation">datafusion-federation</a> registers an
+optimizer rule that finds the largest subplan a single remote source can execute and hands it to
+that source to run. The property we want is not latency. A predicate pushed into ClickHouse or
+Postgres is evaluated by ClickHouse or Postgres, under the caller's own grants, row-level
+policies and column masking. Rows excluded there never enter this process, so there is nothing
+here to re-authorize, which is how
+<a href="#security-is-the-reason-for-the-shape">authorization stays in the data system</a> once a question
+reaches more than one table. Pull the rows up and filter them locally and the filtering is ours,
+and a second implementation of a policy is what we said we would not keep. So federation arrives
+after per-leg identity rather than before it:
+<a href="#data-systems-are-behind-a-second-port">a plan resolves to one data system</a> today, and a
+federated plan whose legs cannot all run as one subject is refused rather than run partly as
+somebody else.</p>
+<p><strong>The dialect stage is one plan and many adapters.</strong>
+<a href="https://github.com/tobilg/polyglot">polyglot</a> is a Rust transpiler between more than thirty SQL
+dialects, MIT-licensed, with ClickHouse, Postgres and DuckDB all on its list. The wrapper is
+exactly its shape of problem: a projection, a <code>GROUP BY</code> and a date predicate, rendered per data
+system. It must not touch the splice. A transpiler is a parse followed by a re-emit, and that is
+the one operation the certified statement is never subjected to, so the boundary is that polyglot
+may render what we generated while the pinned bytes pass through untouched. Today that boundary
+is a review rule, not a lint.</p>
+<p><strong>Execution is where the caller's identity has to arrive.</strong>
+<a href="https://github.com/spiceai/spiceai">Spice</a> comes closest to everything above it: Rust,
+Apache-2.0, DataFusion-based, federating across thirty-odd connectors and accelerating them by
+materializing into Arrow, DuckDB, SQLite or Postgres on an interval, a trigger or a change
+stream. The federation half is what we want, and better exercised than anything we will write
+soon. The acceleration half is what we cannot take: a materialized copy is read under whoever
+refreshed it, so under row-level security it is a cross-user leak with a refresh schedule. That
+is the same reason there is no result cache. Spice's front door is also SQL, where ours has no
+field for it.</p>
+<table>
+<thead>
+<tr>
+<th>Stage</th>
+<th>Decided there</th>
+<th>Ours or theirs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Semantic layer</td>
+<td>what a metric means</td>
+<td>Neither. Authored upstream, arriving pinned; Wren is the reference shape</td>
+</tr>
+<tr>
+<td>Plan</td>
+<td>source, projection, grouping, bounds, parameters</td>
+<td>Build first, adopt later: a type in <code>sutura-semantic</code>, DataFusion when a type stops being enough</td>
+</tr>
+<tr>
+<td>Federation</td>
+<td>which subplan its owner runs</td>
+<td>Adopt, once a credential exists per leg</td>
+</tr>
+<tr>
+<td>Dialect</td>
+<td>quoting, placeholders, date arithmetic</td>
+<td>Adopt for the wrapper, never for the splice</td>
+</tr>
+<tr>
+<td>Execution</td>
+<td>the connection, and which principal the data system sees</td>
+<td>Build. One adapter per data system, and the per-request credential is the part nothing above provides</td>
+</tr>
+</tbody>
+</table>
+<p>That last row is why this is a repository rather than a configuration file for one of the others.</p>
+<h2 id="hexagonal-by-construction">Hexagonal by construction<a class="headerlink" href="#hexagonal-by-construction" title="Permanent link">&para;</a></h2>
+<p>Ports live in the domain crate. Adapters live outside it. The domain crate depends on neither:
+it names what it needs by trait, and the binary decides which implementation is passed in.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>        agent                        other callers
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>          |                                |
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>      MCP server                     HTTP / OpenAPI          transport, no logic
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>          +----------------+----------------+
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>                           |
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>                      sutura-app                             the service, generic over ports
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a>                           |
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a>                     sutura-domain                           domain types + port traits
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a>          +----------------+----------------+
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a>          |                |                |
+</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a>   SemanticCatalog     Warehouse     CredentialBroker        ports, inside the hexagon
+</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a>          |                |                |
+</span><span id="__span-0-13"><a id="__codelineno-0-13" name="__codelineno-0-13" href="#__codelineno-0-13"></a>    YAML in git,      ClickHouse,      the identity          adapters, outside it
+</span><span id="__span-0-14"><a id="__codelineno-0-14" name="__codelineno-0-14" href="#__codelineno-0-14"></a>    a metadata        Postgres,          provider
+</span><span id="__span-0-15"><a id="__codelineno-0-15" name="__codelineno-0-15" href="#__codelineno-0-15"></a>    catalogue         DuckDB
+</span></code></pre></div>
+<p><code>cargo xtask check-boundaries</code> enforces the direction, so the diagram cannot quietly stop being
+true. It fails the build if <code>sutura-domain</code> acquires a framework dependency anywhere in its
+transitive tree, which catches a framework reached through an innocuous crate as well as one
+declared outright. It fails again if a library crate's surface stops being a typed contract: a
+<code>pub</code> field on a <code>pub struct</code>, a <code>Result</code> whose error type is <code>String</code>, or a declared
+dynamic-error crate such as <code>anyhow</code>. The rule is worth more as a gate than as a paragraph,
+because a paragraph cannot fail a pull request.</p>
+<p>Two consequences follow from the direction rather than from taste. The domain names no
+framework, so its test suite compiles nothing heavy and runs in well under a second, which is
+what makes it the inner loop. And adapters are feature-gated and default-off, which is why
+every lint and test entry point passes <code>--all-features</code>; see
+<a href="../getting-started/">Getting started</a> for the commands.</p>
+<h2 id="what-ships">What ships<a class="headerlink" href="#what-ships" title="Permanent link">&para;</a></h2>
+<p>Four artifacts, two libc flavours on two architectures, each a distroless image holding one
+binary. <code>cargo xtask check-workflows</code> and the <code>one-binary</code> check together keep that true: the
+first fails if a workflow names a build output that does not exist, the second fails if an image
+carries more than the binary.</p>
+<p>The musl artifacts replace the system allocator, and that is not a performance nicety. musl's
+mallocng serialises the whole process on one lock word: <code>src/malloc/mallocng/glue.h</code> defines
+<code>rdlock</code> and <code>wrlock</code> as the same exclusive lock and <code>upgradelock</code> as a no-op, and
+<code>struct malloc_context</code> is a single global with no arenas and no per-thread cache. Measured with
+one binary and only threading toggled, the single-threaded control is a wash while a 48-core run
+goes from 4.45s on glibc to 92.16s on musl - slower than musl's own single-core run, which is
+what one global mutex predicts. Linking mimalloc in brings the same run to 3.83s, ahead of
+glibc. Expect roughly parity single-threaded and a 4-20x gap for a threaded application.</p>
+<p>mimalloc is built with <code>MI_SECURE=4</code>: guard pages, randomised placement, encoded free lists,
+double-free detection. That costs 23-43% against plain mimalloc, which is far more than
+upstream's README claims, and it is still the right trade here - mimalloc-secure remains well
+ahead of glibc, and mallocng is behind it. The hardening is paid out of a margin this project
+would not otherwise have had, and the latency budget is a warehouse round trip.</p>
+<h2 id="what-exists-today">What exists today<a class="headerlink" href="#what-exists-today" title="Permanent link">&para;</a></h2>
+<p>Four packages: <code>sutura-domain</code> (domain types), <code>sutura-cli</code> (the binary), <code>xtask</code> (the repo
+gates, listed by <code>cargo xtask --help</code>) and <code>sutura-dev</code> (a local development CLI). Everything
+else named on this page is design. The query path is not built.</p>
+<p><code>sutura-domain</code> holds no port traits yet, and that is deliberate. A port exists to invert a
+dependency on something outside the hexagon, and none of the adapters exists yet to invert. A
+trait with no implementor and no caller is a guess at a signature that only the first real
+adapter can settle, and in a library crate <code>pub</code> hides it from <code>dead_code</code>, which is how an
+unused item survives review. Each port arrives with the adapter beneath it, and each crate
+arrives with the milestone that needs it. An empty crate is a compile target and a maintenance
+surface returning nothing.</p>
+<p>What does work is the environment, the gates and the release pipeline. The order is deliberate:
+every claim on this page is meant to be held up by a mechanism rather than by intent, and a
+mechanism is cheaper to build before there is code to retrofit it onto.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
