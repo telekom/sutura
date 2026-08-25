@@ -2782,7 +2782,7 @@ dependencies = [
  "sutura-app",
  "sutura-catalog-local",
  "sutura-domain",
- "sutura-exec-duckdb",
+ "sutura-exec-datafusion",
  "sutura-semantic",
 ]
 

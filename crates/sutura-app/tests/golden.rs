@@ -40,6 +40,14 @@ mod tests {
     use sutura_domain::warehouse::Warehouse as _;
     use sutura_semantic::{Compiled, Dialect, PredicateOrigin, compile, dialect};
 
+    /// Renders a plan, because compiling no longer does.
+    ///
+    /// The dialect is named at the call site now rather than passed into `compile`, which is the
+    /// point of the split: a golden that pins SQL is asking for a rendering, and says so.
+    fn sql_for(plan: &sutura_semantic::QueryPlan, dialect: Dialect) -> sutura_domain::warehouse::GeneratedQuery {
+        sutura_semantic::generate::generate(plan, dialect).expect("a planned question renders")
+    }
+
     use crate::support::{
         HandWrittenCatalog, RecordingWarehouse, catalog_root, data_root, load_local, questions, read_question, source,
         without_descriptions,
@@ -117,14 +125,15 @@ mod tests {
         for path in questions() {
             let question = read_question(&path);
             let name = stem(&path);
-            let compiled = compile(&question, &pinned, dialect).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+            let compiled = compile(&question, &pinned).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
             let mut settings = settings();
             settings.set_snapshot_suffix(dialect.as_str());
             settings.bind(|| match compiled {
                 Compiled::Refused { ref reason } => {
                     insta::assert_yaml_snapshot!(format!("{name}__refusal"), reason);
                 }
-                Compiled::Statement { ref plan, ref query } => {
+                Compiled::Planned { ref plan } => {
+                    let query = sql_for(plan, dialect);
                     insta::assert_snapshot!(format!("{name}__sql"), query.sql());
                     insta::assert_yaml_snapshot!(format!("{name}__plan"), plan);
                     insta::assert_yaml_snapshot!(format!("{name}__params"), query.params());
@@ -212,10 +221,11 @@ mod tests {
             let question = read_question(&path);
             let literals = question.literals();
             for dialect in dialect::ALL.iter().copied() {
-                let compiled = compile(&question, &pinned, dialect).expect("the corpus compiles");
-                let Compiled::Statement { ref plan, ref query } = compiled else {
+                let compiled = compile(&question, &pinned).expect("the corpus compiles");
+                let Compiled::Planned { ref plan } = compiled else {
                     continue;
                 };
+                let query = sql_for(plan, dialect);
 
                 // Searched with the quoted identifiers removed: see `without_identifiers`.
                 let searchable = without_identifiers(query.sql());
@@ -291,8 +301,8 @@ mod tests {
             if metric.required_filters().is_empty() {
                 continue;
             }
-            let compiled = compile(&question, &pinned, Dialect::DuckDb).expect("the corpus compiles");
-            let Compiled::Statement { ref plan, .. } = compiled else {
+            let compiled = compile(&question, &pinned).expect("the corpus compiles");
+            let Compiled::Planned { ref plan } = compiled else {
                 continue;
             };
             for required in metric.required_filters() {
@@ -324,10 +334,11 @@ mod tests {
         for path in questions() {
             let question = read_question(&path);
             for dialect in dialect::ALL.iter().copied() {
-                let compiled = compile(&question, &pinned, dialect).expect("the corpus compiles");
-                let Compiled::Statement { ref query, .. } = compiled else {
+                let compiled = compile(&question, &pinned).expect("the corpus compiles");
+                let Compiled::Planned { ref plan } = compiled else {
                     continue;
                 };
+                let query = sql_for(plan, dialect);
                 assert!(
                     query.sql().contains("\"orders\""),
                     "{} for {dialect} does not quote its table:\n{}",
@@ -352,10 +363,11 @@ mod tests {
                 (Dialect::Postgres, polyglot_sql::DialectType::PostgreSQL),
                 (Dialect::ClickHouse, polyglot_sql::DialectType::ClickHouse),
             ] {
-                let compiled = compile(&question, &pinned, dialect).expect("the corpus compiles");
-                let Compiled::Statement { ref query, .. } = compiled else {
+                let compiled = compile(&question, &pinned).expect("the corpus compiles");
+                let Compiled::Planned { ref plan } = compiled else {
                     continue;
                 };
+                let query = sql_for(plan, dialect);
                 let parsed = polyglot_sql::parse(query.sql(), target);
                 assert!(
                     parsed.is_ok(),
@@ -399,7 +411,7 @@ mod tests {
                 .join("questions")
                 .join(format!("{fixture}.yaml"));
             let question = read_question(&path);
-            let compiled = compile(&question, &pinned, Dialect::DuckDb).expect("a refusal is not an error");
+            let compiled = compile(&question, &pinned).expect("a refusal is not an error");
             let reason = compiled
                 .refusal()
                 .unwrap_or_else(|| panic!("{fixture} was answered, and should have been refused"));
@@ -431,7 +443,7 @@ mod tests {
             vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
             Vec::new(),
         );
-        let compiled = compile(&question, &split, Dialect::DuckDb).expect("this is a refusal");
+        let compiled = compile(&question, &split).expect("this is a refusal");
         assert!(
             matches!(compiled.refusal(), Some(&RefusalReason::PlanSpansTwoSources { sources: 2 })),
             "expected a two-source refusal, got {:?}",
@@ -454,7 +466,7 @@ mod tests {
                 .expect("fixtures has a parent")
                 .join("questions/revenue-total-june.yaml"),
         );
-        let outcome = answer(&validated, &question, &elsewhere, Dialect::DuckDb).expect("a refusal is not an error");
+        let outcome = answer(&validated, &question, &elsewhere).expect("a refusal is not an error");
         assert!(
             matches!(outcome.refusal(), Some(&RefusalReason::SourceUnavailable { .. })),
             "expected a source refusal, got {outcome:?}"
@@ -492,7 +504,7 @@ mod tests {
                 .join("questions")
                 .join(format!("{fixture}.yaml"));
             let question = read_question(&path);
-            let outcome = answer(&validated, &question, &fake, Dialect::DuckDb).expect("a refusal is not an error");
+            let outcome = answer(&validated, &question, &fake).expect("a refusal is not an error");
             assert!(outcome.is_refusal(), "{fixture} was answered");
         }
         assert!(
@@ -522,7 +534,7 @@ mod tests {
         // from a demo. The numbers are in the catalog documents, the data is in the CSVs, and
         // nothing in between is allowed to change what they add up to.
         let pinned = load_local();
-        let report = verify_anchors(&pinned, &duckdb(), Dialect::DuckDb);
+        let report = verify_anchors(&pinned, &duckdb());
         settings().bind(|| insta::assert_yaml_snapshot!("anchor_report", &report));
         for (metric, check) in report.checks() {
             assert_eq!(*check, AnchorCheck::Matched, "{metric} did not reproduce its declared number");
@@ -547,14 +559,13 @@ mod tests {
         // unmatched row group under a null key, so the totals agree.
         let pinned = load_local();
         let warehouse = duckdb();
-        let report = verify_anchors(&pinned, &warehouse, Dialect::DuckDb);
+        let report = verify_anchors(&pinned, &warehouse);
         let validated = Validated::new(pinned, &report).expect("the anchors hold");
 
         let questions_dir = catalog_root().parent().expect("fixtures has a parent").join("questions");
         let total_of = |file: &str, label: &str| -> i64 {
             let question = read_question(&questions_dir.join(file));
-            let outcome =
-                answer(&validated, &question, &warehouse, Dialect::DuckDb).unwrap_or_else(|e| panic!("{file} failed: {e}"));
+            let outcome = answer(&validated, &question, &warehouse).unwrap_or_else(|e| panic!("{file} failed: {e}"));
             let ToolOutcome::Answer { ref rows, .. } = outcome else {
                 panic!("{file} was refused: {outcome:?}");
             };
@@ -595,7 +606,7 @@ mod tests {
         // The corruption is applied to the report rather than to a file on disk, because a test that
         // edited a fixture would leave the tree dirty when it failed.
         let pinned = load_local();
-        let mut report = verify_anchors(&pinned, &duckdb(), Dialect::DuckDb);
+        let mut report = verify_anchors(&pinned, &duckdb());
         let (first, _) = pinned
             .anchored_metrics()
             .next()
@@ -618,13 +629,13 @@ mod tests {
         // number.
         let pinned = load_local();
         let warehouse = duckdb();
-        let report = verify_anchors(&pinned, &warehouse, Dialect::DuckDb);
+        let report = verify_anchors(&pinned, &warehouse);
         let validated = Validated::new(pinned, &report).expect("the anchors hold");
         for path in questions() {
             let question = read_question(&path);
             let name = stem(&path);
-            let outcome = answer(&validated, &question, &warehouse, Dialect::DuckDb)
-                .unwrap_or_else(|e| panic!("{name} failed against duckdb: {e}"));
+            let outcome =
+                answer(&validated, &question, &warehouse).unwrap_or_else(|e| panic!("{name} failed against duckdb: {e}"));
             settings().bind(|| match outcome {
                 ToolOutcome::Refusal { ref reason } => {
                     insta::assert_yaml_snapshot!(format!("{name}__refused"), reason);
@@ -644,10 +655,11 @@ mod tests {
         let warehouse = duckdb();
         for path in questions() {
             let question = read_question(&path);
-            let compiled = compile(&question, &pinned, Dialect::DuckDb).expect("the corpus compiles");
-            let Compiled::Statement { ref plan, ref query } = compiled else {
+            let compiled = compile(&question, &pinned).expect("the corpus compiles");
+            let Compiled::Planned { ref plan } = compiled else {
                 continue;
             };
+            let query = sql_for(plan, Dialect::DuckDb);
             // `dry_run` takes the PLAN now. For this adapter that means rendering it and preparing
             // the statement, which is what resolves every table and column name - so the SQL is
             // still the useful thing to print on a failure.

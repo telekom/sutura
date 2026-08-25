@@ -30,7 +30,8 @@
 use std::path::Path;
 
 use datafusion::arrow::array::{
-    Array, BooleanArray, Date32Array, Decimal128Array, Float64Array, Int64Array, StringArray, StringViewArray,
+    Array, BooleanArray, Date32Array, Decimal128Array, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array, StringArray,
+    StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 use datafusion::arrow::datatypes::DataType;
 use datafusion::common::{Column, DFSchema, JoinType as EngineJoin, ScalarValue, TableReference};
@@ -334,17 +335,49 @@ where
 
 /// One cell, as a domain value.
 ///
-/// The mapped set is small on purpose, and an unmapped type is [`DataFusionError::UnsupportedType`]
-/// naming the column and the Arrow type rather than a `Debug` rendering. Widening a 32-bit float to
-/// an `f64` would be the tempting one and is exactly wrong: `0.1_f32` as an `f64` prints as
-/// `0.10000000149011612`, and the two adapters would then disagree about a number neither of them
-/// got wrong.
+/// **One mapping, two adapters, and the set is decided once.** This engine and the `DuckDB` data
+/// source are the two implementors of the [`Warehouse`] port, so a type that answers there and
+/// errors here means an anchor certified against one adapter does not reproduce against the other.
+/// `cell` in `crates/sutura-exec-duckdb/src/lib.rs` is the other half, and
+/// `value_mapping_tests.rs` beside this file is the table both are held to.
+///
+/// Every integer width answers, because every one of them fits an `i64` losslessly - a Parquet
+/// `INT32` column under a `min` or a `max` used to answer through the data source and error here. A
+/// 64-bit unsigned value that does not fit is rendered as text rather than wrapped: a silently
+/// truncated total is a wrong number.
+///
+/// An unmapped type is [`DataFusionError::UnsupportedType`] naming the column and the Arrow type
+/// rather than a `Debug` rendering. Widening a 32-bit float to an `f64` would be the tempting one
+/// and is exactly wrong: `0.1_f32` as an `f64` prints as `0.10000000149011612`, and the two adapters
+/// would then disagree about a number neither of them got wrong.
+///
+/// `Date64` is deliberately NOT here, and not for symmetry's sake either: the data source has no
+/// counterpart to be symmetric with - `DuckDB`'s `DATE` is a day count - and nothing on this path
+/// produces one, because `date_trunc` over a `Date32` stays a `Date32` and a Parquet `DATE` logical
+/// type reads as `Date32`. Mapping it would mean choosing what a millisecond count that is not a
+/// whole number of days means, in an arm no question can reach. An unreachable arm holding a
+/// semantic choice nobody reviewed is worse than an error naming the type.
 fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, DataFusionError> {
     if array.is_null(row) {
         return Ok(Value::Null);
     }
     match *array.data_type() {
         DataType::Int64 => Ok(Value::Integer(typed::<Int64Array>(label, array)?.value(row))),
+        // Every narrower width, because `i64::from` is lossless for all of them. Written out rather
+        // than reached through a cast so that the conversion is the compiler's business.
+        DataType::Int8 => Ok(Value::Integer(i64::from(typed::<Int8Array>(label, array)?.value(row)))),
+        DataType::Int16 => Ok(Value::Integer(i64::from(typed::<Int16Array>(label, array)?.value(row)))),
+        DataType::Int32 => Ok(Value::Integer(i64::from(typed::<Int32Array>(label, array)?.value(row)))),
+        DataType::UInt8 => Ok(Value::Integer(i64::from(typed::<UInt8Array>(label, array)?.value(row)))),
+        DataType::UInt16 => Ok(Value::Integer(i64::from(typed::<UInt16Array>(label, array)?.value(row)))),
+        DataType::UInt32 => Ok(Value::Integer(i64::from(typed::<UInt32Array>(label, array)?.value(row)))),
+        // The one width that does not fit. Text when it overflows rather than wrapped, which is what
+        // the data source does with its own `UBIGINT`: a total that came back correct must not
+        // become a negative number on the way into an answer.
+        DataType::UInt64 => {
+            let value = typed::<UInt64Array>(label, array)?.value(row);
+            Ok(i64::try_from(value).map_or_else(|_| Value::Text(value.to_string()), Value::Integer))
+        }
         DataType::Float64 => Ok(Value::Real(typed::<Float64Array>(label, array)?.value(row))),
         DataType::Utf8 => Ok(Value::Text(String::from(typed::<StringArray>(label, array)?.value(row)))),
         // The Parquet default for a string column in this version, so the affordance that reads one
@@ -601,6 +634,13 @@ impl Warehouse for DataFusionWarehouse {
         self.runtime.block_on(self.rows(plan))
     }
 }
+
+/// The half of the value mapping that is shared with the data source, in its own file.
+///
+/// Split out for the file-length gate rather than for taste: this one is already close to the
+/// 1000-line limit, and the gate's answer to that is to split the file, not to shorten the fix.
+#[cfg(test)]
+mod value_mapping_tests;
 
 #[cfg(test)]
 mod tests {

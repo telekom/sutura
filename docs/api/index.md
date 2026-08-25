@@ -16,9 +16,11 @@ arrow points inward, at the domain.
   `serde` and `thiserror`, and a gate keeps it that way
 - [sutura-catalog-local](sutura-catalog-local.md) - a `SemanticCatalog` adapter over a directory of
   markdown documents with YAML frontmatter
-- [sutura-semantic](sutura-semantic.md) - the compiler: resolve, plan, generate
-- [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB, for local and
-  single-file work
+- [sutura-semantic](sutura-semantic.md) - the compiler: resolve and plan, and render SQL on request
+- [sutura-exec-datafusion](sutura-exec-datafusion.md) - THE engine. A `Warehouse` adapter that
+  executes a plan over Arrow and generates no SQL
+- [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB as a DATA SOURCE:
+  it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped
 - [sutura-app](sutura-app.md) - the service, generic over the ports
 
 ## These pages are generated

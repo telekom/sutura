@@ -169,6 +169,20 @@ impl LocalCatalog {
     /// tree rather than of the filesystem. Files that are not documents are skipped rather than
     /// refused, so a `README.md`-adjacent `.gitkeep` or a stray image does not break a load; a
     /// document with the right extension and the wrong content still fails loudly.
+    ///
+    /// **A symlink is one of the things that is not a document, and that is what bounds the walk.**
+    /// Catalog content is untrusted, and a link pointing at an ancestor is a cycle: the walk descends
+    /// into it, finds the link again one level down, descends again, and stops only where the kernel
+    /// refuses to resolve any more links in one path - 40 of them on Linux, measured rather than
+    /// assumed. So the failure is not a hang; it is the same document collected once per level, which
+    /// is 41 copies of one metric handed to `Definitions::assemble` and a digest that depends on the
+    /// link structure rather than on the definitions. Nothing about that reads as "this catalog has a
+    /// loop in it". A loop built out of real directories - a bind mount of an ancestor - has no such
+    /// kernel limit and would not terminate; only a visited set catches that one, and nothing in this
+    /// repository mounts anything into a catalog.
+    ///
+    /// The decision is made from the directory entry's own type rather than from the path, because
+    /// `Path::is_dir` follows the link and answers about the target.
     fn documents(&self) -> Result<Vec<PathBuf>, LocalCatalogError> {
         if !self.root.is_dir() {
             return Err(LocalCatalogError::NotADirectory { path: self.root.clone() });
@@ -186,9 +200,25 @@ impl LocalCatalog {
                     cause,
                 })?;
                 let path = entry.path();
-                if path.is_dir() {
+                // The entry's OWN type, which says nothing about what a link points at. That is the
+                // whole fix: `path.is_dir()` follows the link, so a link to an ancestor came back
+                // as a directory and the walk descended into itself.
+                let kind = entry.file_type().map_err(|cause| LocalCatalogError::Io {
+                    path: path.clone(),
+                    cause,
+                })?;
+                // `is_file` and not `!is_dir()`, which is what `filetype_is_file` asks for: the lint's
+                // point is that `is_file` is false for a socket, a FIFO or a device node, and being
+                // false for those is exactly what this wants. A catalog document is a regular file;
+                // anything else carrying a `.md` name is one of the things this walk skips.
+                #[expect(
+                    clippy::filetype_is_file,
+                    reason = "a document is a regular file - a link, a socket or a device node is not, and skipping those is the point"
+                )]
+                let is_document = kind.is_file() && path.extension().is_some_and(|ext| ext == DOCUMENT_EXTENSION);
+                if kind.is_dir() {
                     pending.push(path);
-                } else if path.extension().is_some_and(|ext| ext == DOCUMENT_EXTENSION) {
+                } else if is_document {
                     // A `BTreeSet` rather than a sort at the end: the ordering is the point, and
                     // making it a property of the collection means it cannot be forgotten.
                     found.insert(path);
@@ -263,5 +293,79 @@ impl SemanticCatalog for LocalCatalog {
         let definitions = self.read_all()?;
         let digest = digest_of(&definitions)?;
         Ok(PinnedDefinitions::new(self.version.clone(), digest, definitions))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// Unix only, and that is a portability statement rather than a gap in the suite.
+    ///
+    /// The walk is what these tests exercise, and provoking the case that broke it needs a symlink.
+    /// Creating one on Windows requires either developer mode or an elevated process, so a test that
+    /// created one there would fail on a plain checkout for a reason that has nothing to do with this
+    /// code. Everything that gates - the container and CI - is Linux, so the case is covered where the
+    /// verdict is taken; the fix itself is `DirEntry::file_type`, which does not follow a link on either
+    /// platform.
+    #[cfg(unix)]
+    mod symlinks {
+        use crate::LocalCatalog;
+        use std::path::PathBuf;
+        use sutura_domain::pinned::DefinitionVersion;
+
+        fn catalog(root: PathBuf) -> LocalCatalog {
+            LocalCatalog::new(root, DefinitionVersion::parse("test-1").expect("a test version is a version"))
+        }
+
+        /// An empty directory of this test's own, cleared on the way IN.
+        ///
+        /// `tempfile` is not a dependency of this workspace and one test is not the argument for adding
+        /// one; `xtask` builds its scratch directories the same way. Cleared before rather than after so
+        /// a failing run leaves its evidence on disk and the next run still starts clean.
+        fn scratch(name: &str) -> PathBuf {
+            let dir = std::env::temp_dir().join(format!("sutura-catalog-local-{name}-{}", std::process::id()));
+            drop(std::fs::remove_dir_all(&dir));
+            std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+            dir
+        }
+
+        #[test]
+        fn a_symlink_pointing_at_an_ancestor_does_not_make_the_walk_descend_into_itself() {
+            // The bug: `path.is_dir()` follows the link, so `root/loop` answered "directory" and the
+            // walk pushed it, found `root/loop/loop` one level down, pushed that, and kept going. What
+            // this asserted before the fix is worth recording, because it is not what it looks like:
+            // the walk terminated - the kernel stops resolving after 40 links in one path - and
+            // returned `revenue.md` 41 times, once per level. So the failure was not a hang, it was one
+            // metric defined 41 times and a digest that depended on the link structure.
+            let root = scratch("symlink-loop");
+            std::fs::write(root.join("revenue.md"), "---\nkind: metric\n---\n").expect("a document is writable");
+            std::os::unix::fs::symlink(&root, root.join("loop")).expect("a symlink to the root is creatable");
+
+            let found = catalog(root.clone())
+                .documents()
+                .expect("the walk terminates and reports the one document");
+
+            assert_eq!(found, vec![root.join("revenue.md")]);
+            drop(std::fs::remove_dir_all(&root));
+        }
+
+        #[test]
+        fn a_symlink_to_a_document_outside_the_root_is_skipped_rather_than_followed() {
+            // The same rule seen from the other side, and the reason it is a rule rather than a
+            // cycle-detector: a visited set would still have followed this one. A catalog is what is IN
+            // the directory, so a link out of it is not a document - and the alternative is a catalog
+            // whose digest depends on a file the tree does not contain.
+            let root = scratch("symlink-out");
+            let outside = scratch("symlink-out-target");
+            let target = outside.join("elsewhere.md");
+            std::fs::write(&target, "---\nkind: metric\n---\n").expect("a document is writable");
+            std::fs::write(root.join("revenue.md"), "---\nkind: metric\n---\n").expect("a document is writable");
+            std::os::unix::fs::symlink(&target, root.join("linked.md")).expect("a symlink to a file is creatable");
+
+            let found = catalog(root.clone()).documents().expect("the walk reports the real document");
+
+            assert_eq!(found, vec![root.join("revenue.md")]);
+            drop(std::fs::remove_dir_all(&root));
+            drop(std::fs::remove_dir_all(&outside));
+        }
     }
 }

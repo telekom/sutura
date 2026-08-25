@@ -70,6 +70,17 @@ pub enum InvalidDate {
 /// corrects it.
 const DAYS_PER_MONTH: [u8; 12] = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 
+/// Whether a component of a written date is digits and nothing else.
+///
+/// Bytes rather than characters, and that pairs with how the widths are measured: [`Date::parse`]
+/// checks `str::len`, which is a byte count, so a component that passed a four-byte width while
+/// holding one multi-byte character has to fail here rather than be measured a second way.
+/// `is_ascii_digit` is deliberately narrower than `char::is_numeric`, which is true for digits in
+/// scripts the integer parser does not read.
+fn is_all_ascii_digits(component: &str) -> bool {
+    !component.is_empty() && component.bytes().all(|byte| byte.is_ascii_digit())
+}
+
 impl Date {
     /// Builds a date, rejecting a day the month does not have.
     ///
@@ -100,6 +111,12 @@ impl Date {
     /// is rejected rather than becoming the year 26. Fixed widths also mean a leading `-` cannot
     /// reach the number parser, so a negative component is a layout error rather than a date in the
     /// distant past.
+    ///
+    /// **A width alone was not enough, and that was a real hole.** `i16::from_str` and
+    /// `u8::from_str` both accept a leading `+`, so `+026-06-01` measured four wide and parsed as
+    /// the year 26 - exactly what the fixed width exists to refuse - and `2026-+6-+1` parsed as the
+    /// 1st of June. Every byte of every component has to be an ASCII digit, so a sign cannot occupy
+    /// the column a digit was supposed to be in.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDate> {
         let raw = raw.as_ref().trim();
         let mut parts = raw.split('-');
@@ -113,9 +130,23 @@ impl Date {
                 value: String::from(raw),
             });
         }
+        // A layout error, not a number that came out wrong, which is why it is `Malformed` and not
+        // `NotANumber`: `+026` is not a four-digit year written badly, it is three digits and a
+        // sign in a field that has room for four digits.
+        if !(is_all_ascii_digits(y) && is_all_ascii_digits(m) && is_all_ascii_digits(d)) {
+            return Err(InvalidDate::Malformed {
+                value: String::from(raw),
+            });
+        }
         // Parsed straight into the target width rather than through a wider type: four digits
         // cannot exceed `i16::MAX` and two cannot exceed `u8::MAX`, so there is no narrowing
         // conversion here to get wrong.
+        //
+        // The two checks above leave nothing for these three to reject - four ASCII digits fit an
+        // `i16` and two fit a `u8` - so `NotANumber` is unreachable from here BY CONSTRUCTION
+        // rather than by accident. The variant stays because `from_str` still returns a `Result`,
+        // and both ways of not handling one are banned in this workspace: `map_err(|_| ..)` throws
+        // away the cause and `expect` is a panic path reachable from a catalog file.
         let year = y.parse::<i16>().map_err(|cause| InvalidDate::NotANumber {
             value: String::from(raw),
             component: "year",
@@ -389,6 +420,22 @@ mod tests {
                 value: String::from("2026-6-1")
             }
         );
+        // And the form that defeated the width check while satisfying it. `i16::from_str` and
+        // `u8::from_str` accept a leading `+`, so `+026` is four bytes wide and parses as 26: the
+        // sign padded the field out to the width instead of a digit, and the caller got a bounded
+        // range two thousand years in the past that every predicate matches nothing in.
+        assert_eq!(
+            Date::parse("+026-06-01").unwrap_err(),
+            InvalidDate::Malformed {
+                value: String::from("+026-06-01")
+            }
+        );
+        assert_eq!(
+            Date::parse("2026-+6-+1").unwrap_err(),
+            InvalidDate::Malformed {
+                value: String::from("2026-+6-+1")
+            }
+        );
     }
 
     #[test]
@@ -411,15 +458,39 @@ mod tests {
         // single generator that forgot to bind would be an injection.
         drop(Date::parse("2026-06-01' OR '1'='1").expect_err("a quote must not survive into a date"));
         drop(Date::parse("").expect_err("empty is not a date"));
+        // A layout error rather than a number that came out wrong: nothing but ASCII digits reaches
+        // the number parser, so `20xx` is refused by shape and the variant says so.
         let malformed = Date::parse("20xx-06-01").expect_err("letters are not a year");
-        assert!(matches!(malformed, InvalidDate::NotANumber { component: "year", .. }));
+        assert!(
+            matches!(malformed, InvalidDate::Malformed { .. }),
+            "letters must be refused by layout, not by the number parser: {malformed:?}"
+        );
     }
 
     #[test]
-    fn a_numeric_parse_failure_keeps_its_cause() {
-        // `map_err(|_| ..)` is banned for a reason: the cause is what says whether the component
-        // was empty, overflowed or held a letter, and the variant alone does not.
-        let err = Date::parse("2026-ab-01").expect_err("letters are not a month");
+    fn a_component_that_is_not_digits_is_refused_before_the_number_parser_sees_it() {
+        // Everything a component could hold besides four-or-two ASCII digits, and each one is a
+        // layout error. `NotANumber` is therefore unreachable through `parse` by construction -
+        // which is the point of the digit gate, not an oversight in it.
+        for raw in ["2026-ab-01", "20xx-06-01", "+026-06-01", "2026-+6-01", "2026-06-+1"] {
+            assert_eq!(
+                Date::parse(raw).expect_err("not digits"),
+                InvalidDate::Malformed {
+                    value: String::from(raw)
+                },
+                "{raw}"
+            );
+        }
+        // The variant survives anyway, because `from_str` still returns a `Result` and neither
+        // `map_err(|_| ..)` nor `expect` is allowed to absorb one here. This asserts the half of it
+        // that still matters: it carries its cause rather than a formatted sentence, so `#[source]`
+        // cannot be dropped from the field without a failure here.
+        let cause = "ab".parse::<u8>().expect_err("letters are not a number");
+        let err = InvalidDate::NotANumber {
+            value: String::from("2026-ab-01"),
+            component: "month",
+            cause,
+        };
         assert!(
             core::error::Error::source(&err).is_some(),
             "the parse failure must stay reachable as a source: {err:?}"

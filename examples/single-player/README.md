@@ -4,7 +4,7 @@ A complete catalog over a small synthetic telco warehouse, and the shortest path
 clone to an answered question.
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   query examples/single-player/catalog \
         examples/single-player/questions/recurring-revenue-by-month.yaml \
         examples/single-player/data
@@ -29,8 +29,8 @@ parameter. Only then did anything run. If the second step had failed, there woul
 table: a bundle whose anchors do not hold is not fit to serve, and saying so is the whole
 point.
 
-`--features exec-duckdb` is needed because the data-system adapter is default-off. Without
-it, `compile` still renders the statement and `query` explains that it cannot run one.
+No feature flag and no database. The engine reads these CSVs directly, so `query` works in a plain
+`cargo run` - and `compile` renders the statement for any dialect without reading data at all.
 
 ## What is here
 
@@ -52,9 +52,9 @@ Three more commands, in the order a reader usually wants them:
 
 ```bash
 E=examples/single-player
-cargo run -p sutura-cli --features exec-duckdb -- catalog  $E/catalog
-cargo run -p sutura-cli --features exec-duckdb -- describe $E/catalog recurring_revenue
-cargo run -p sutura-cli --features exec-duckdb -- compile  $E/catalog $E/questions/recurring-revenue-by-region-and-family.yaml
+cargo run -p sutura-cli -- catalog  $E/catalog
+cargo run -p sutura-cli -- describe $E/catalog recurring_revenue
+cargo run -p sutura-cli -- compile  $E/catalog $E/questions/recurring-revenue-by-region-and-family.yaml
 ```
 
 `compile` needs no data at all. It prints the statement, the parameters and the plan, which
@@ -109,7 +109,7 @@ refusal is a result rather than an error, decided before anything runs, and it n
 was wrong:
 
 ```bash
-cargo run -p sutura-cli --features exec-duckdb -- \
+cargo run -p sutura-cli -- \
   query examples/single-player/catalog \
         examples/single-player/questions/refused-value-not-allowed.yaml \
         examples/single-player/data
@@ -143,7 +143,7 @@ series with one point is not a series.
 The same directory is an integration test, and there is no second copy of it:
 
 ```bash
-cargo test -p sutura-cli --features exec-duckdb --test example
+cargo test -p sutura-cli --test example
 ```
 
 It loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and

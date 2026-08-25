@@ -19,10 +19,13 @@ thiserror = { workspace = true }
 # it is the one place a corpus can be run against a real adapter and a fake without either of them
 # depending on the other.
 sutura-catalog-local = { workspace = true }
+# A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
+# to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
+# adapter today. The binary links the engine and nothing else.
 sutura-exec-duckdb = { workspace = true }
-# The second engine, for the differential test: one plan through two implementations of the port,
-# rows compared. A wrong number then has to be produced twice, the same way, by code that shares
-# nothing below the plan.
+# THE engine, and what the golden suite executes with. Also the far side of the differential test:
+# one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
+# statement that is valid SQL with different semantics is the bug class that catches.
 sutura-exec-datafusion = { workspace = true }
 insta = { workspace = true }
 serde_norway = { workspace = true }

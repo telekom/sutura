@@ -18,7 +18,8 @@ use std::collections::BTreeMap;
 
 use crate::catalog::{Anchor, Definitions};
 use crate::definitions::DefinitionDigest;
-use crate::model::MetricName;
+use crate::model::{MetricName, SourceName};
+use crate::query::RefusalReason;
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
 /// it cannot be used to smuggle a paragraph into an audit record.
@@ -167,6 +168,77 @@ impl PinnedDefinitions {
     }
 }
 
+/// A message and every cause beneath it, on one line.
+///
+/// Used by the two variants of [`NotExecutedReason`] whose own cause is a type this crate cannot
+/// name. Flattening the chain into `Display` is what keeps a driver's complaint reachable from
+/// anything that only prints an error, which is every operator-facing surface there is.
+fn flattened(message: &str, chain: &[String]) -> String {
+    let mut out = String::from(message);
+    for cause in chain {
+        out.push_str(": ");
+        out.push_str(cause);
+    }
+    out
+}
+
+/// Why one anchor produced no verdict at all.
+///
+/// Typed, one variant per branch of the check, because anchor verification is the readiness gate:
+/// when it fails, this value is the whole of what an operator gets. A single `String` here was the
+/// bug - `thiserror` prints only the outermost message, so an adapter error's `source` chain was
+/// discarded on the way in and the operator was told "the anchor query failed" and nothing else.
+///
+/// Each variant sends a reader somewhere different. A missing grain is a catalog to fix, a refusal
+/// is a governance outcome, a source mismatch is a composition root that opened the wrong data
+/// system, and only [`NotExecutedReason::Failed`] is the data system's own fault.
+///
+/// Two variants carry text rather than a typed cause, and that is a boundary rather than a
+/// shortcut: the `Warehouse` port's error is a generic parameter and the compiler's error lives in a
+/// crate the domain must not depend on, so neither type can be stored here. Both are walked to
+/// exhaustion at the call site and arrive as a message plus its chain, which is the lossless option
+/// available at that boundary.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error, serde::Serialize)]
+pub enum NotExecutedReason {
+    /// The report names a metric the bundle does not define, so there was nothing to run.
+    #[error("this bundle does not define the metric the check is about")]
+    BundleMissingMetric,
+    /// The metric declares no grain, so no single period - and therefore no single number - is
+    /// available to compare the declared one against.
+    #[error("the metric declares no grain, so an anchor range reduces to no single period")]
+    NoGrain,
+    /// The anchor's own question would not compile against the bundle that carries it.
+    #[error("the anchor's own question would not compile: {}", flattened(.message, .chain))]
+    NotCompiled { message: String, chain: Vec<String> },
+    /// The anchor's own question was refused. A governance outcome, surfaced as one: an anchor a
+    /// caller could not have asked for is not a failure of the data system.
+    #[error("the anchor's own question was refused: {reason:?}")]
+    Refused { reason: RefusalReason },
+    /// The plan names a data system this process did not open. Not prose in a report field: it is
+    /// the same condition the query path refuses, and it is a misconfigured composition root rather
+    /// than an outage.
+    #[error("the metric reads from {plan}, and the data system opened here is {warehouse}")]
+    SourceMismatch { plan: SourceName, warehouse: SourceName },
+    /// The declared range covers more than one period at the metric's coarsest grain, so the result
+    /// is several numbers and an anchor is one.
+    #[error(
+        "the anchor query returned {rows} rows, and an anchor is one number: the declared range \
+         covers more than one period at the metric's coarsest grain"
+    )]
+    NotOneNumber { rows: usize },
+    /// The result carries no column named after the metric, so there is nothing to compare.
+    #[error("the result has no single column labelled {label:?}, so there is nothing to compare")]
+    NoMeasureColumn { label: String },
+    /// The result set was not the shape it reported.
+    #[error("the result set was not the shape it reported")]
+    ResultShapeMismatch,
+    /// The data system failed the statement. `message` is the adapter's own, `chain` is every cause
+    /// beneath it - the driver error included, which is the part that names a table, a column or a
+    /// file and the part a single string used to throw away.
+    #[error("the anchor query failed: {}", flattened(.message, .chain))]
+    Failed { message: String, chain: Vec<String> },
+}
+
 /// What happened when one metric's anchor was checked.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum AnchorCheck {
@@ -180,7 +252,7 @@ pub enum AnchorCheck {
     /// Deliberately not merged with `Mismatch`. "It is wrong" and "we do not know" call for
     /// different operational responses, and collapsing them makes an outage look like a wrong
     /// number.
-    NotExecuted { reason: String },
+    NotExecuted { reason: NotExecutedReason },
 }
 
 /// The outcome of checking every anchor in a bundle.
@@ -223,8 +295,15 @@ pub enum NotValidated {
         expected: String,
         actual: String,
     },
-    #[error("metric {metric}'s anchor could not be checked: {reason}")]
-    AnchorNotExecuted { metric: MetricName, reason: String },
+    /// The reason is the `source`, not the message, so whoever renders this walks the chain and
+    /// gets the data system's own complaint. Interpolating it would have printed the outermost
+    /// message and stopped, which is the whole of what was wrong before.
+    #[error("metric {metric}'s anchor could not be checked")]
+    AnchorNotExecuted {
+        metric: MetricName,
+        #[source]
+        reason: NotExecutedReason,
+    },
     #[error("metric {metric} declares an anchor and no check was recorded for it")]
     AnchorUnchecked { metric: MetricName },
     #[error("a check was recorded for {metric}, which this bundle does not define")]
@@ -314,7 +393,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use super::{
-        AnchorCheck, AnchorReport, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN, NotValidated, PinnedDefinitions, Validated,
+        AnchorCheck, AnchorReport, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN, NotExecutedReason, NotValidated,
+        PinnedDefinitions, Validated,
     };
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::{Anchor, Definitions, Metric, Model};
@@ -437,19 +517,65 @@ mod tests {
         // data system to page somebody about. Collapsing them makes an outage look like a wrong
         // number, which is the more expensive of the two mistakes.
         let mut report = AnchorReport::new();
-        report.record(
-            metric_name("revenue"),
-            AnchorCheck::NotExecuted {
-                reason: String::from("connection refused"),
-            },
-        );
+        let reason = NotExecutedReason::Failed {
+            message: String::from("connection refused"),
+            chain: Vec::new(),
+        };
+        report.record(metric_name("revenue"), AnchorCheck::NotExecuted { reason: reason.clone() });
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
         assert_eq!(
             Validated::new(anchored, &report).unwrap_err(),
             NotValidated::AnchorNotExecuted {
                 metric: metric_name("revenue"),
-                reason: String::from("connection refused"),
+                reason,
             }
+        );
+    }
+
+    #[test]
+    fn a_failed_check_carries_its_causes_all_the_way_out() {
+        // The bug this prevents, and it shipped: the reason was one `String`, so an adapter error's
+        // own `source` chain was flattened away before it got here and the operator was told "the
+        // anchor query failed" with no table, no column and no driver error in it. Anchor
+        // verification is the readiness gate, so that message is the whole of what a failed
+        // deployment says.
+        //
+        // Asserted through `Display` and through `source`, because those are the two ways anything
+        // renders this: a chain that is only reachable by matching on the variant is a chain no log
+        // line would ever show.
+        let mut report = AnchorReport::new();
+        report.record(
+            metric_name("revenue"),
+            AnchorCheck::NotExecuted {
+                reason: NotExecutedReason::Failed {
+                    message: String::from("the statement was rejected"),
+                    chain: vec![String::from("IO error"), String::from("no such file: orders.parquet")],
+                },
+            },
+        );
+        let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
+        let error = Validated::new(anchored, &report).unwrap_err();
+        let cause = core::error::Error::source(&error).expect("the reason is the source, not the message");
+        let rendered = cause.to_string();
+        assert!(rendered.contains("no such file: orders.parquet"), "{rendered}");
+        assert_eq!(
+            rendered,
+            "the anchor query failed: the statement was rejected: IO error: no such file: orders.parquet"
+        );
+    }
+
+    #[test]
+    fn a_source_mismatch_names_both_data_systems() {
+        // It used to be a sentence in a report field. It is a governance condition - the plan names
+        // a data system this process did not open - and naming both halves is what tells an operator
+        // whether the catalog or the deployment is wrong.
+        let reason = NotExecutedReason::SourceMismatch {
+            plan: SourceName::parse("elsewhere").expect("a test source is a source"),
+            warehouse: SourceName::parse("local").expect("a test source is a source"),
+        };
+        assert_eq!(
+            reason.to_string(),
+            "the metric reads from elsewhere, and the data system opened here is local"
         );
     }
 

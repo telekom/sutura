@@ -29,7 +29,6 @@ mod tests {
     use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _, Validated};
     use sutura_domain::query::{Query, ToolOutcome};
     use sutura_domain::warehouse::{RowSet, Value};
-    use sutura_semantic::Dialect;
 
     fn fixtures() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
@@ -61,8 +60,8 @@ mod tests {
         serde_norway::from_str(&text).expect("a question file is a question")
     }
 
-    /// Both engines, each over the same CSVs.
-    fn engines() -> (
+    /// The engine and the data source, each over the same CSVs.
+    fn both_sides() -> (
         sutura_exec_duckdb::DuckDbWarehouse,
         sutura_exec_datafusion::DataFusionWarehouse,
     ) {
@@ -81,29 +80,43 @@ mod tests {
 
     /// A result as comparable text.
     ///
-    /// Rendered rather than compared as `Value`, because the two engines legitimately return
-    /// different Rust types for the same number - one hands back a `DECIMAL` where the other hands
-    /// back a wide integer - and `Value::render` is the one canonical form both are already required
-    /// to agree on. Comparing the enum would fail on a difference that is not a difference.
+    /// Rendered rather than compared as `Value`, because the two sides legitimately return different
+    /// Rust types for the same number - one hands back a `DECIMAL` where the other hands back a wide
+    /// integer - and `Value::render` is the one canonical form both are already required to agree on.
+    /// Comparing the enum would fail on a difference that is not a difference.
+    ///
+    /// **Floats are cut to twelve significant digits, and that is not a loosening.** Summing the same
+    /// rows in a different order changes the last place of an `f64`, so comparing the full binary
+    /// expansion asserts that both sides summed in the same order - which is not a property either
+    /// one promises, and not what this test is for. It has already fired once for real, on the example
+    /// corpus. Twelve digits is far beyond any figure a metric reports and far short of the noise;
+    /// integers and dates are untouched, so an exact count stays exactly compared.
     fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
         rows.rows()
             .iter()
-            .map(|row| row.iter().map(Value::render).collect())
+            .map(|row| {
+                row.iter()
+                    .map(|value| match *value {
+                        Value::Real(v) => format!("{v:.12e}"),
+                        ref other => other.render(),
+                    })
+                    .collect()
+            })
             .collect()
     }
 
     #[test]
-    fn both_engines_answer_every_question_identically() {
-        // The whole point. A wrong number now has to be produced twice, the same way, by the engine
-        // and by the oracle - one building a logical plan over Arrow, one executing rendered SQL.
+    fn the_engine_and_the_data_source_agree_on_every_question() {
+        // The whole point. A wrong number has to be produced twice, the same way, by the engine and
+        // by the data source - one building a logical plan over Arrow, one executing rendered SQL.
         //
         // Two things this caught when it was first written, both of which a snapshot would have
         // happily pinned as correct: the column LABELS disagreed, because one engine took them from
         // the driver's result schema and the other built them from the plan; and the two disagreed
         // on row ORDER until both sorted by the grouped expressions.
         let pinned = load();
-        let (duck, fusion) = engines();
-        let report = verify_anchors(&pinned, &duck, Dialect::DuckDb);
+        let (duck, fusion) = both_sides();
+        let report = verify_anchors(&pinned, &duck);
         let validated = Validated::new(pinned, &report).expect("the anchors hold");
 
         let mut compared = 0_usize;
@@ -113,19 +126,17 @@ mod tests {
                 .file_stem()
                 .map_or_else(|| String::from("unnamed"), |s| s.to_string_lossy().into_owned());
 
-            let from_duck =
-                answer(&validated, &question, &duck, Dialect::DuckDb).unwrap_or_else(|e| panic!("{name}: duckdb failed: {e}"));
-            let from_fusion = answer(&validated, &question, &fusion, Dialect::DuckDb)
-                .unwrap_or_else(|e| panic!("{name}: datafusion failed: {e}"));
+            let from_duck = answer(&validated, &question, &duck).unwrap_or_else(|e| panic!("{name}: duckdb failed: {e}"));
+            let from_fusion = answer(&validated, &question, &fusion).unwrap_or_else(|e| panic!("{name}: datafusion failed: {e}"));
 
             match (from_duck, from_fusion) {
                 (ToolOutcome::Answer { rows: ref a, .. }, ToolOutcome::Answer { rows: ref b, .. }) => {
                     assert_eq!(
                         a.columns(),
                         b.columns(),
-                        "{name}: the two engines labelled the result differently"
+                        "{name}: the two sides labelled the result differently"
                     );
-                    assert_eq!(rendered(a), rendered(b), "{name}: the two engines returned different rows");
+                    assert_eq!(rendered(a), rendered(b), "{name}: the two sides returned different rows");
                     compared = compared.saturating_add(1);
                 }
                 (ToolOutcome::Refusal { reason: ref a }, ToolOutcome::Refusal { reason: ref b }) => {
@@ -135,12 +146,12 @@ mod tests {
                     assert_eq!(
                         format!("{a:?}"),
                         format!("{b:?}"),
-                        "{name}: the two engines refused for different reasons"
+                        "{name}: the two sides refused for different reasons"
                     );
                 }
                 (duck_outcome, fusion_outcome) => {
                     panic!(
-                        "{name}: one engine answered and the other refused\n  duckdb: \
+                        "{name}: one side answered and the other refused\n  duckdb: \
                          {duck_outcome:?}\n  datafusion: {fusion_outcome:?}"
                     );
                 }
@@ -148,24 +159,24 @@ mod tests {
         }
         assert!(
             compared > 0,
-            "no question produced an answer from both engines, so this compared nothing"
+            "no question produced an answer from both sides, so this compared nothing"
         );
     }
 
     #[test]
-    fn both_engines_reproduce_every_declared_anchor() {
-        // An anchor is the number somebody certified. Checking it against two engines is what makes
-        // "the definition still means what it claimed" independent of which engine happens to be
-        // configured - and it is what would catch an engine-specific arithmetic difference, which is
-        // exactly the class of bug a single-engine anchor check cannot see.
+    fn both_sides_reproduce_every_declared_anchor() {
+        // An anchor is the number somebody certified. Checking it both ways is what makes "the
+        // definition still means what it claimed" independent of which side computed it, and it is
+        // what would catch an arithmetic difference between the two - exactly the class of thing a
+        // one-sided anchor check cannot see.
         let pinned = load();
-        let (duck, fusion) = engines();
-        let from_duck = verify_anchors(&pinned, &duck, Dialect::DuckDb);
-        let from_fusion = verify_anchors(&pinned, &fusion, Dialect::DuckDb);
+        let (duck, fusion) = both_sides();
+        let from_duck = verify_anchors(&pinned, &duck);
+        let from_fusion = verify_anchors(&pinned, &fusion);
         assert_eq!(
             from_duck.checks(),
             from_fusion.checks(),
-            "the two engines disagree about whether the anchors hold"
+            "the engine and the data source disagree about whether the anchors hold"
         );
         assert!(
             !from_duck.checks().is_empty(),

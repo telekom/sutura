@@ -58,6 +58,15 @@ pub enum GenerateError {
     /// `order` becomes a syntax error at the data system instead of an error here.
     #[error("an alias for {label:?} did not come back as an alias, so it could not be quoted")]
     UnquotableAlias { label: String },
+    /// A plan that carries no predicate at all.
+    ///
+    /// Unreachable: a plan always carries the two bounds of its `TimeRange`, which cannot be
+    /// unbounded. Its own variant rather than a sentinel string inside another one, because the
+    /// variant is what a caller matches on - and worded exactly as `sutura_exec_datafusion`'s
+    /// `NoPredicate`, so the SQL path and the engine name one condition identically rather than
+    /// describing it twice.
+    #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
+    NoPredicate,
 }
 
 /// The dialect layer's name for a data system.
@@ -264,9 +273,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         // Unreachable: a plan always carries its two range bounds, because a `TimeRange` cannot be
         // unbounded. Written as a branch rather than an `expect` because a panic here would be
         // reachable from a catalog file.
-        return Err(GenerateError::UnquotableAlias {
-            label: String::from("<no predicate: a plan must carry its bounded range>"),
-        });
+        return Err(GenerateError::NoPredicate);
     };
     let where_clause = clauses.fold(first, Expr::and);
 

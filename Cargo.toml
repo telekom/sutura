@@ -66,8 +66,12 @@ serde_norway = "0.9"
 # render for. Three things about the feature set are load-bearing and were found by building
 # rather than by reading:
 #
-#   * `builder` is on even though we never call the fluent builder, because `generate` does not
-#     compile without it in 0.9.2 (an unconditional reference to the builder module).
+#   * `builder` is REQUIRED, and not incidentally: the fluent builder is how every statement here
+#     is assembled. `Expression::Select` has upwards of thirty fields and no `Default`, so a struct
+#     literal for it is a list nobody can review - which is the first thing
+#     `crates/sutura-semantic/src/generate.rs` says, and every call in that file goes through
+#     `polyglot_sql::builder`. Dropping this feature does not build. Do not read the absence of a
+#     `builder::` call in the manifest's neighbourhood as evidence it is unused.
 #   * `stacker` is default-on upstream for stack-growth protection, and turning defaults off
 #     removes it. We only generate and never parse, so no recursion here is input-driven, but
 #     an abort is an availability bug and the guard costs nothing.
@@ -87,8 +91,10 @@ polyglot-sql = { version = "0.9.2", default-features = false, features = [
 # from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
 # the `libduckdb` nixpkgs already builds, wired up in `flake.nix` and `devenv.nix`.
 #
-# The adapter that uses it is behind a default-off feature on `sutura-cli`, and that is what
-# keeps the musl cross builds working: there is no musl `libduckdb` to link against.
+# It is a DATA SOURCE, not an engine, and the adapter that uses it is a **development**
+# dependency - of `sutura-app`'s test suite, and of nothing that ships. That is what keeps the musl
+# cross builds working: there is no musl `libduckdb` for a shipped binary to link against. Its job
+# is to prove the SQL we render actually runs.
 duckdb = "1.10505"
 
 # The in-process engine, for the adapter that executes a plan without rendering it. It has no

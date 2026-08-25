@@ -41,6 +41,7 @@ Why this data system could not answer.
 - `UnsupportedType` - A column came back as a type this adapter does not map.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
+- `Render` - The plan could not be rendered as SQL.
 - `Attach`
 
 ### Implements

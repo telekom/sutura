@@ -27,10 +27,14 @@ The modules are grouped by concept rather than named after traits, so a port sit
 types it speaks in:
 
 - `model` and `calendar` are the vocabulary: names, closed sets, dates.
+- `measure` is what a metric measures, as a closed vocabulary of shapes rather than an
+  expression language.
+- `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
 - `query` is the tool surface, defined mostly by what it has no field for.
-- `warehouse` is the execution port, and the one place a generated statement is named.
+- `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
+  generating any SQL is a first-class implementation of it rather than a special case.
 - `definitions` and `identity` hold the digest and the credential-shaped newtypes.
 
 ## Module `calendar`
@@ -64,6 +68,21 @@ silently invert every comparison, which is why the ordering is asserted in a tes
 ```rust
 pub const fn day(self) -> u8
 ```
+
+```rust
+pub fn days_since_epoch(self) -> i32
+```
+
+Days since 1970-01-01, which is how a columnar engine stores a date.
+
+The inverse of `Date::from_days_since_epoch`, and the two are asserted to round-trip. It
+exists because an in-process engine takes a date as an `i32` day count rather than as text:
+there is no statement for a date literal to be written into, so the value is handed over as
+the number the column actually holds.
+
+Counted by walking years, for the same reason the inverse does: integer division and the
+remainder operator are both banned by the lint table, the loop runs at most a few hundred
+times for any date this type can hold, and the leap rule stays in one place.
 
 ```rust
 pub fn from_days_since_epoch(days: i32) -> Result<Self, InvalidDate>
@@ -103,6 +122,12 @@ The widths are fixed at four-two-two so a short year cannot be read as a long on
 is rejected rather than becoming the year 26. Fixed widths also mean a leading `-` cannot
 reach the number parser, so a negative component is a layout error rather than a date in the
 distant past.
+
+**A width alone was not enough, and that was a real hole.** `i16::from_str` and
+`u8::from_str` both accept a leading `+`, so `+026-06-01` measured four wide and parsed as
+the year 26 - exactly what the fixed width exists to refuse - and `2026-+6-+1` parsed as the
+1st of June. Every byte of every component has to be an ASCII digit, so a sign cannot occupy
+the column a digit was supposed to be in.
 
 ```rust
 pub fn to_iso(self) -> String
@@ -440,8 +465,14 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(name: MetricName, model: ModelName, measure: Measure, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: String) -> Self
+pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: String) -> Self
 ```
+
+```rust
+pub fn required_filters(&self) -> &[RequiredFilter]
+```
+
+The predicates every question about this metric carries, whether the caller asked or not.
 
 ```rust
 pub fn supports_grain(&self, grain: Grain) -> bool
@@ -528,6 +559,7 @@ system error rather than as a refusal.
 - `DuplicateRelationship`
 - `UnknownModel`
 - `UnknownMeasureColumn`
+- `UnknownRequiredFilterColumn`
 - `UnknownTimeColumn`
 - `NoGrains`
 - `UnknownRelationship`
@@ -666,6 +698,146 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+## Module `measure`
+
+What a metric measures, and the filters that are part of its definition rather than of a
+question.
+
+**A closed vocabulary of shapes, not a closed set of aggregates, and the difference is the whole
+design of this module.** The first version of this crate allowed exactly one aggregate over one
+column, which was safe and could not express the metrics people actually certify: a revenue that
+means "active subscriptions only", an average revenue per user that is one aggregate divided by
+another, a churn rate that is a conditional count over a distinct count. Two of seven real
+metrics fitted; five did not.
+
+The security property was never "one aggregate". It was **no free-text SQL**: every leaf is a
+column the model declares, every operation is a variant the generator has an arm for, and there
+is no string anywhere that reaches a statement unexamined. Three shapes and four predicates buy
+back the expressiveness while keeping exactly that.
+
+What is still unrepresentable, deliberately: an expression over two columns
+(`sum(price * quantity)`), a window function, a three-table join. Those need an expression
+language, and an expression language on this path is the escape hatch
+`docs/adr/0001-first-party-semantic-models.md` argues against. They belong to a definition
+rendered upstream and taken as given.
+
+### `struct AggregatedColumn`
+
+```rust
+pub struct AggregatedColumn
+```
+
+One aggregate applied to one declared column.
+
+The building block of every measure shape below. `Count` is the case where the column is not
+read and still has to be named: a `COUNT(*)` over a joined result counts join products rather
+than facts, so naming the column is what makes the generated count count the thing the model
+says it counts.
+
+#### Methods
+
+```rust
+pub const fn aggregate(&self) -> Aggregate
+```
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum Measure`
+
+```rust
+pub enum Measure
+```
+
+What a metric measures.
+
+Externally tagged, so a document names its shape: `simple:`, `count_if:` or `ratio:`. That makes
+a measure's shape a word an author writes rather than something inferred from which fields are
+present, and it makes an unrecognised shape an error naming what it found.
+
+#### Variants
+
+- `Simple` - One aggregate over one column: `SUM(amount_cents)`.
+- `CountIf` - How many rows have this boolean column true.
+- `Ratio` - One aggregate divided by another: an average revenue per user, a rate, a share.
+
+#### Methods
+
+```rust
+pub fn columns(&self) -> Vec<&ColumnName>
+```
+
+Every column this measure reads.
+
+One place, so `crate::catalog::Definitions` can check them all against the model without
+knowing the shapes, and so a shape added here cannot be forgotten there.
+
+```rust
+pub const fn shape(&self) -> &'static str
+```
+
+The name of this shape, for a refusal or a description.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum RequiredFilter`
+
+```rust
+pub enum RequiredFilter
+```
+
+A predicate that is part of what a metric means.
+
+**Definitional, not a question.** `mrr` means recurring revenue *from active subscriptions*, and
+a statement that omits that predicate returns a different number under the same name - the exact
+failure this repository exists to prevent, arrived at by omission rather than by tampering. So a
+required filter is applied to every question about the metric, and a caller cannot see it, choose
+it or turn it off.
+
+Its values come from the catalog rather than from a caller, and they are still bound as
+parameters rather than written into the statement. Not because the catalog is untrusted in the
+way a caller is, but because a value that is sometimes inlined and sometimes bound is a generator
+with two paths, and the inlining path is the one that would eventually be handed caller text.
+
+Externally tagged for the same reason `Measure` is: the operator is a word, not an inference.
+
+#### Variants
+
+- `Equals` - `column = value`.
+- `NotEquals` - `column <> value`. Note what this does NOT match in SQL: a null column. `NotEquals` on a nullable column excludes null rows, and a definition that means "everything except x, including unknown" needs `IsNull` beside it - which does not exist yet, because nothing has needed it.
+- `IsTrue` - `column IS TRUE`, for a boolean column.
+- `IsNotNull` - `column IS NOT NULL`.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn value(&self) -> Option<&String>
+```
+
+The value this filter compares against, if it compares against one.
+
+`None` for the two that need no value, which is what tells the generator whether to emit a
+placeholder and the plan whether to bind a parameter.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `model`
 
@@ -1009,36 +1181,6 @@ decides a refusal rather than a plan detail.
 
 `Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
 
-### `struct Measure`
-
-```rust
-pub struct Measure
-```
-
-What a metric measures: one aggregate over one column.
-
-`Count` is the one case where the column is not read, and it still has to name one: a `COUNT(*)`
-over a joined result counts join products rather than facts. Naming the column makes the
-generator emit `COUNT("orders"."id")`, which counts the thing the model says it counts.
-
-#### Methods
-
-```rust
-pub const fn aggregate(&self) -> Aggregate
-```
-
-```rust
-pub const fn column(&self) -> &ColumnName
-```
-
-```rust
-pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
-```
-
-#### Implements
-
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
-
 ## Module `pinned`
 
 The snapshot a question is answered against, and the port it arrives through.
@@ -1180,6 +1322,45 @@ pub const fn version(&self) -> &DefinitionVersion
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `enum NotExecutedReason`
+
+```rust
+pub enum NotExecutedReason
+```
+
+Why one anchor produced no verdict at all.
+
+Typed, one variant per branch of the check, because anchor verification is the readiness gate:
+when it fails, this value is the whole of what an operator gets. A single `String` here was the
+bug - `thiserror` prints only the outermost message, so an adapter error's `source` chain was
+discarded on the way in and the operator was told "the anchor query failed" and nothing else.
+
+Each variant sends a reader somewhere different. A missing grain is a catalog to fix, a refusal
+is a governance outcome, a source mismatch is a composition root that opened the wrong data
+system, and only `NotExecutedReason::Failed` is the data system's own fault.
+
+Two variants carry text rather than a typed cause, and that is a boundary rather than a
+shortcut: the `Warehouse` port's error is a generic parameter and the compiler's error lives in a
+crate the domain must not depend on, so neither type can be stored here. Both are walked to
+exhaustion at the call site and arrive as a message plus its chain, which is the lossless option
+available at that boundary.
+
+#### Variants
+
+- `BundleMissingMetric` - The report names a metric the bundle does not define, so there was nothing to run.
+- `NoGrain` - The metric declares no grain, so no single period - and therefore no single number - is available to compare the declared one against.
+- `NotCompiled` - The anchor's own question would not compile against the bundle that carries it.
+- `Refused` - The anchor's own question was refused. A governance outcome, surfaced as one: an anchor a caller could not have asked for is not a failure of the data system.
+- `SourceMismatch` - The plan names a data system this process did not open. Not prose in a report field: it is the same condition the query path refuses, and it is a misconfigured composition root rather than an outage.
+- `NotOneNumber` - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.
+- `NoMeasureColumn` - The result carries no column named after the metric, so there is nothing to compare.
+- `ResultShapeMismatch` - The result set was not the shape it reported.
+- `Failed` - The data system failed the statement. `message` is the adapter's own, `chain` is every cause beneath it - the driver error included, which is the part that names a table, a column or a file and the part a single string used to throw away.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`, `Serialize`
+
 ### `enum AnchorCheck`
 
 ```rust
@@ -1245,7 +1426,7 @@ Why a bundle is not validated.
 #### Variants
 
 - `AnchorMismatch`
-- `AnchorNotExecuted`
+- `AnchorNotExecuted` - The reason is the `source`, not the message, so whoever renders this walks the chain and gets the data system's own complaint. Interpolating it would have printed the outermost message and stopped, which is the whole of what was wrong before.
 - `AnchorUnchecked`
 - `UnknownMetricChecked`
 
@@ -1307,6 +1488,367 @@ HTTP are two adapters behind it, and swapping one for the other does not touch t
 **`load` takes no request context, and that is the whole design of this port.** A catalog that
 could see the caller could return a different definition per caller, and then the digest that
 travels with an answer would describe something other than what produced it.
+
+## Module `plan`
+
+What we decided to execute, and the two things nothing else may decide.
+
+**A plan lives in the domain rather than in the compiler, and that is what let a second kind of
+adapter exist.** The `Warehouse` port used to take a rendered statement, which quietly said that
+every data system speaks SQL. One does not: an in-process engine executes a logical plan over
+Arrow and generates no SQL at all. So the port takes a `QueryPlan` and *how* to execute it is
+the adapter's business - render a statement, or build a plan of its own.
+
+That is worth more than the tidiness. Rendering SQL for a local file was where every dialect bug
+lived: a truncated date coming back as a timestamp, an alias emitted unquoted, a `GROUP BY` given
+an aliased expression, a placeholder in the wrong syntax. An adapter that never renders SQL
+cannot have any of them.
+
+A plan holds no SQL. Its serialized form is what a golden snapshot pins, so a change to what we
+decided shows up as a reviewable diff rather than as a different number.
+
+### `struct PlanColumn`
+
+```rust
+pub struct PlanColumn
+```
+
+A column, qualified by the table it is read from.
+
+Qualified always, even when there is only one table. An unqualified column in a statement that
+later grows a join binds to whichever table happens to have it, and that is a wrong number rather
+than an error.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+```rust
+pub const fn new(table: TableName, column: ColumnName) -> Self
+```
+
+```rust
+pub const fn table(&self) -> &TableName
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PlanJoin`
+
+```rust
+pub struct PlanJoin
+```
+
+One join, as the plan will make it.
+
+#### Methods
+
+```rust
+pub const fn join_type(&self) -> JoinType
+```
+
+```rust
+pub const fn new(relationship: RelationshipName, table: TableName, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
+```
+
+```rust
+pub const fn origin(&self) -> &PlanColumn
+```
+
+```rust
+pub const fn relationship(&self) -> &RelationshipName
+```
+
+```rust
+pub const fn table(&self) -> &TableName
+```
+
+```rust
+pub const fn target(&self) -> &PlanColumn
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PlanBucket`
+
+```rust
+pub struct PlanBucket
+```
+
+The truncated time column, and the label it is projected under.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &PlanColumn
+```
+
+```rust
+pub const fn grain(&self) -> Grain
+```
+
+```rust
+pub fn label(&self) -> &str
+```
+
+```rust
+pub const fn new(label: String, grain: Grain, column: PlanColumn) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PlanKey`
+
+```rust
+pub struct PlanKey
+```
+
+One group-by key.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &PlanColumn
+```
+
+```rust
+pub fn label(&self) -> &str
+```
+
+```rust
+pub const fn new(label: String, column: PlanColumn) -> Self
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum PlanMeasure`
+
+```rust
+pub enum PlanMeasure
+```
+
+What is measured, under what label, with every column resolved to a table.
+
+The shape is `Measure`'s, restated over `PlanColumn` rather than `ColumnName`: the plan
+knows which table each column comes from and the catalog does not have to.
+
+#### Variants
+
+- `Simple`
+- `CountIf`
+- `Ratio`
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum PlanPredicate`
+
+```rust
+pub enum PlanPredicate
+```
+
+One predicate in the plan's filter, and which parameter carries its value.
+
+The parameter index is recorded rather than implied by position, so a reader of a plan can see
+which value goes where without reconstructing the generator's ordering in their head - and so an
+adapter that binds by index cannot disagree with one that binds by order.
+
+#### Variants
+
+- `AtOrAfter` - `column >= param`, the inclusive start of the range.
+- `Before` - `column < param`, the exclusive end.
+- `Equals`
+- `NotEquals`
+- `IsTrue`
+- `IsNotNull`
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &PlanColumn
+```
+
+```rust
+pub const fn param(&self) -> Option<usize>
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum PredicateOrigin`
+
+```rust
+pub enum PredicateOrigin
+```
+
+Where a predicate came from.
+
+Recorded because it is the difference between a number being wrong and a caller being refused. A
+definitional predicate is part of what the metric means and a caller cannot see or remove it; a
+requested one came from the question and was checked against an allowlist. Keeping the two
+distinguishable in the plan is what lets a golden assert that the definitional ones are always
+present.
+
+#### Variants
+
+- `Definition` - From the metric's own definition: a required filter, or the bounded time range.
+- `Requested` - From the question, having passed the pinned allowlist.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PlanFilter`
+
+```rust
+pub struct PlanFilter
+```
+
+A predicate and where it came from.
+
+#### Methods
+
+```rust
+pub const fn new(origin: PredicateOrigin, predicate: PlanPredicate) -> Self
+```
+
+```rust
+pub const fn origin(&self) -> PredicateOrigin
+```
+
+```rust
+pub const fn predicate(&self) -> &PlanPredicate
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct QueryPlan`
+
+```rust
+pub struct QueryPlan
+```
+
+One statement's worth of decisions, and no SQL.
+
+#### Methods
+
+```rust
+pub const fn bucket(&self) -> &PlanBucket
+```
+
+```rust
+pub fn definitional_params(&self) -> Vec<&ParamValue>
+```
+
+Every parameter a definitional predicate binds.
+
+Used by the golden that asserts a required filter is bound rather than written into the
+statement.
+
+```rust
+pub fn filters(&self) -> &[PlanFilter]
+```
+
+```rust
+pub fn joins(&self) -> &[PlanJoin]
+```
+
+```rust
+pub fn keys(&self) -> &[PlanKey]
+```
+
+```rust
+pub const fn measure(&self) -> &PlanMeasure
+```
+
+```rust
+pub fn measure_label(&self) -> &str
+```
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+```rust
+pub const fn new(source: SourceName, metric: MetricName, table: TableName, joins: Vec<PlanJoin>, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+```
+
+```rust
+pub fn params(&self) -> &[ParamValue]
+```
+
+```rust
+pub const fn range(&self) -> TimeRange
+```
+
+```rust
+pub fn result_labels(&self) -> Vec<String>
+```
+
+The labels this plan's result will carry, in order.
+
+One definition, so an adapter that builds a schema and an adapter that renders a projection
+cannot disagree about it - which is the whole reason two adapters can be compared against
+each other at all.
+
+```rust
+pub const fn row_limit(&self) -> u32
+```
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+```rust
+pub const fn table(&self) -> &TableName
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `fn plan_measure`
+
+```rust
+pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::model::ColumnName) -> PlanColumn) -> PlanMeasure
+```
+
+Restated over plan columns, so an adapter does not need the catalog to know which table a
+measure's column comes from.
+
+### `fn plan_required_filter`
+
+```rust
+pub fn plan_required_filter(filter: &crate::measure::RequiredFilter, column: PlanColumn, bind: impl FnOnce(String) -> usize) -> PlanPredicate
+```
+
+A required filter as a plan predicate, binding a parameter when it needs one.
+
+`bind` is called only for the operators that compare against a value, and returns the index it
+was stored at. Passing the binding in rather than returning a value keeps the parameter list in
+one place: the caller owns the order, which is what the placeholder-position contract depends on.
+
+### `constant MAX_ROWS`
+
+The most rows any plan may return.
+
+A hard cap rather than a budget, for now. A bounded range and a bounded set of group-by keys
+still permit a large result, and the cost of that lands on a shared data system. When there is a
+real budget this becomes its floor.
 
 ## Module `query`
 
@@ -1688,8 +2230,13 @@ Why a result set could not be built.
 pub trait Warehouse
 ```
 
-Where a statement runs.
+Where a plan runs.
 
-`dry_run` exists separately from `execute` because "would this be accepted, and how much would it
-read" is a question worth being able to ask before committing to the cost. An adapter with no
-such facility answers it by checking what it can.
+**The port takes a `crate::plan::QueryPlan`, not a statement, and that is what makes a second
+kind of adapter possible.** Taking a rendered statement said that every data system speaks SQL.
+An in-process engine does not: it executes a logical plan over Arrow and generates no SQL at all.
+So the plan is the contract and rendering is one adapter's private business.
+
+`dry_run` exists separately from `execute` because "would this be accepted" is worth being able
+to ask before committing to the cost of an answer. An adapter with no such facility answers it by
+checking what it can.

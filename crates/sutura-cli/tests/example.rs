@@ -16,11 +16,10 @@
 //! This one exists to prove that one documented directory still answers, in the one dialect its
 //! README uses.
 //!
-//! Everything that executes is behind the `exec-duckdb` feature, which is DEFAULT-OFF because
-//! there is no musl `libduckdb` for the cross builds to link against. The file has to compile with
-//! the feature off, so the tests that need a data system are gated one by one rather than the whole
-//! file being gated at the top: with the feature off, the catalog still loads, the corpus still
-//! compiles, and those are the checks that would otherwise not run in the default build at all.
+//! Every test here executes. There used to be a feature gate, because the only adapter that could
+//! run anything was `DuckDB` and there is no musl `libduckdb` for the cross builds to link against.
+//! The engine ships now, so there is no build in which this example cannot be run - and no half of
+//! this file that CI skips.
 
 // `cfg(test)` because clippy only honours `allow-expect-in-tests` for code inside a `#[cfg(test)]`
 // item, and an integration test target is compiled with `--test` so it is true here. Without it
@@ -37,10 +36,35 @@ mod tests {
 
     /// The one dialect this example is documented for.
     ///
-    /// The README shows `DuckDB` output and the data is CSV read by `DuckDB`, so pinning a second
-    /// dialect here would pin something the example never claims. `sutura-app`'s golden suite is
-    /// where every dialect is covered.
+    /// The README shows `DuckDB` output, so pinning a second dialect here would pin something the
+    /// example never claims. Nothing executes it: the engine renders no SQL, so this dialect only
+    /// decides what the statement snapshots say. `sutura-app`'s suite covers every dialect.
     const DIALECT: Dialect = Dialect::DuckDb;
+
+    /// A result set as text, with floats cut to a precision two engines can agree on.
+    ///
+    /// **Not cosmetic.** Pinning a raw `f64` pins its full binary expansion, and two engines
+    /// computing the same ratio over the same rows legitimately differ in the last place - summing
+    /// in a different order is enough to do it. A snapshot of that asserts WHICH ENGINE RAN, which
+    /// is not what this test is for, and it goes red on a change that altered no number anybody
+    /// cares about. That is exactly what happened when the engine took this example over from the
+    /// data-source adapter: seven of eleven digits agreed and the snapshot failed.
+    ///
+    /// Twelve significant digits - far beyond any figure this example reports, far short of the
+    /// noise. Integers and dates are untouched, so an exact count stays exactly asserted.
+    fn stable(rows: &sutura_domain::warehouse::RowSet) -> Vec<Vec<String>> {
+        rows.rows()
+            .iter()
+            .map(|row| {
+                row.iter()
+                    .map(|value| match *value {
+                        sutura_domain::warehouse::Value::Real(v) => format!("{v:.12e}"),
+                        ref other => other.render(),
+                    })
+                    .collect()
+            })
+            .collect()
+    }
 
     /// The version the example is stamped with in this suite.
     ///
@@ -218,7 +242,7 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let compiled = compile(&question, &pinned, DIALECT).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
+            let compiled = compile(&question, &pinned).unwrap_or_else(|e| panic!("{name} would not compile: {e}"));
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match compiled {
                 Compiled::Refused { ref reason } => {
@@ -229,10 +253,11 @@ mod tests {
                     refusals += 1;
                     insta::assert_yaml_snapshot!(format!("{name}__refusal"), reason);
                 }
-                Compiled::Statement { ref query, .. } => {
+                Compiled::Planned { ref plan } => {
                     assert!(!expected_refusal, "{name} is named as a refusal and was answered");
                     statements += 1;
-                    insta::assert_snapshot!(format!("{name}__statement"), rendered(query));
+                    let query = sutura_semantic::generate::generate(plan, DIALECT).expect("a planned question renders");
+                    insta::assert_snapshot!(format!("{name}__statement"), rendered(&query));
                 }
             });
         }
@@ -248,13 +273,12 @@ mod tests {
 
     // ------------------------------------------------------------------------- against a database ---
 
-    /// The example catalog over an in-memory `DuckDB` built from the committed CSVs.
+    /// The example catalog, executed by the engine over the committed CSVs.
     ///
-    /// In memory and rebuilt per run, for the reason the `query` command gives: a database file in
-    /// a repository is a binary nobody reviews, and a fixture built from the CSV every time cannot
-    /// drift from it.
-    #[cfg(feature = "exec-duckdb")]
-    fn duckdb(pinned: &PinnedDefinitions) -> sutura_exec_duckdb::DuckDbWarehouse {
+    /// No database and nothing to load: the engine reads the files, for the reason the `query`
+    /// command gives - a database file in a repository is a binary nobody reviews, and a fixture
+    /// read from the CSV every time cannot drift from it.
+    fn engine(pinned: &PinnedDefinitions) -> sutura_exec_datafusion::DataFusionWarehouse {
         let sources = sutura_app::sources(pinned);
         let [source] = sources.as_slice() else {
             panic!(
@@ -262,7 +286,7 @@ mod tests {
                 sources.len()
             );
         };
-        let warehouse = sutura_exec_duckdb::DuckDbWarehouse::in_memory((*source).clone()).expect("an in-memory database opens");
+        let warehouse = sutura_exec_datafusion::DataFusionWarehouse::new((*source).clone()).expect("the engine starts");
         let data = example_root().join("data");
         for model in pinned.definitions().models().values() {
             let csv = data.join(format!("{}.csv", model.table()));
@@ -273,7 +297,6 @@ mod tests {
         warehouse
     }
 
-    #[cfg(feature = "exec-duckdb")]
     #[test]
     fn every_declared_anchor_in_the_example_reproduces_its_number() {
         // The bug this prevents: an example whose numbers are aspirational. An anchor is a figure
@@ -284,8 +307,8 @@ mod tests {
         // the anchor and it stops matching the data. Either way the bundle is unservable rather
         // than answering, which is the behaviour the example exists to demonstrate.
         let pinned = load();
-        let warehouse = duckdb(&pinned);
-        let report = sutura_app::verify_anchors(&pinned, &warehouse, DIALECT);
+        let warehouse = engine(&pinned);
+        let report = sutura_app::verify_anchors(&pinned, &warehouse);
         settings().bind(|| insta::assert_yaml_snapshot!("example_anchor_report", &report));
         let mut checked = 0_usize;
         for (metric, check) in report.checks() {
@@ -303,7 +326,6 @@ mod tests {
         drop(sutura_domain::pinned::Validated::new(pinned, &report).expect("a bundle whose anchors all matched is fit to serve"));
     }
 
-    #[cfg(feature = "exec-duckdb")]
     #[test]
     fn every_question_in_the_example_answers_or_is_refused_and_the_rows_are_pinned() {
         // The bug this prevents: a change that compiles to the same statement and returns different
@@ -314,14 +336,13 @@ mod tests {
         // The refusals are asserted rather than snapshotted: the compile test already pins the
         // reason, and what matters at this end is that the question did not reach the data system.
         let pinned = load();
-        let warehouse = duckdb(&pinned);
-        let report = sutura_app::verify_anchors(&pinned, &warehouse, DIALECT);
+        let warehouse = engine(&pinned);
+        let report = sutura_app::verify_anchors(&pinned, &warehouse);
         let validated = sutura_domain::pinned::Validated::new(pinned, &report).expect("the anchors hold");
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let outcome = sutura_app::answer(&validated, &question, &warehouse, DIALECT)
-                .unwrap_or_else(|e| panic!("{name} failed against duckdb: {e}"));
+            let outcome = sutura_app::answer(&validated, &question, &warehouse).unwrap_or_else(|e| panic!("{name} failed: {e}"));
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match outcome {
                 sutura_domain::query::ToolOutcome::Refusal { ref reason } => {
@@ -332,7 +353,7 @@ mod tests {
                 }
                 sutura_domain::query::ToolOutcome::Answer { ref rows, .. } => {
                     assert!(!expected_refusal, "{name} is named as a refusal and was answered");
-                    insta::assert_yaml_snapshot!(format!("{name}__rows"), rows);
+                    insta::assert_yaml_snapshot!(format!("{name}__rows"), stable(rows));
                 }
             });
         }

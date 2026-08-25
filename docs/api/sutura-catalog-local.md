@@ -130,6 +130,11 @@ misspelled key would otherwise be dropped in silence, and the definition that lo
 one the author wrote: `colums:` yields a model with no columns, which then refuses every question
 about it for a reason that says nothing about a typo.
 
+`sutura_domain::measure` is the one exception, and the `measure` field of `MetricDoc` argues
+for it where a reader will be standing when they wonder. In short: those types already carry
+exactly this format's representation, and mirroring seven variants here would buy nothing but a
+place to forget the eighth.
+
 ### `enum DocumentKind`
 
 ```rust
@@ -247,16 +252,6 @@ pub struct RelationshipDoc
 
 ```rust
 pub fn into_domain(self) -> Relationship
-```
-
-#### Implements
-
-`Debug`, `Deserialize<'de>`
-
-### `struct MeasureDoc`
-
-```rust
-pub struct MeasureDoc
 ```
 
 #### Implements

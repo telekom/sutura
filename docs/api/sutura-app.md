@@ -49,7 +49,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 ## `fn answer`
 
 ```rust
-pub fn answer<W>(definitions: &sutura_domain::pinned::Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouse: &W, dialect: sutura_semantic::Dialect) -> Answered<W>
+pub fn answer<W>(definitions: &sutura_domain::pinned::Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouse: &W) -> Answered<W>
 ```
 
 Answers one question, or says why it will not.
@@ -62,7 +62,7 @@ question answered here.
 ## `fn verify_anchors`
 
 ```rust
-pub fn verify_anchors<W>(pinned: &sutura_domain::pinned::PinnedDefinitions, warehouse: &W, dialect: sutura_semantic::Dialect) -> sutura_domain::pinned::AnchorReport
+pub fn verify_anchors<W>(pinned: &sutura_domain::pinned::PinnedDefinitions, warehouse: &W) -> sutura_domain::pinned::AnchorReport
 ```
 
 Re-executes every declared anchor and reports what each produced.

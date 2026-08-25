@@ -160,14 +160,8 @@ fn doctor() {
     );
     println!("  target       : {}", std::env::consts::ARCH);
     println!("  allocator    : {ALLOCATOR_NAME}");
-    println!(
-        "  data systems : {}",
-        if cfg!(feature = "exec-duckdb") {
-            "duckdb"
-        } else {
-            "none compiled in"
-        }
-    );
+    println!("  engine       : datafusion (arrow, in process)");
+    println!("  data systems : none - this build reads files, and pushes down to nothing");
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");

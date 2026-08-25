@@ -7,22 +7,27 @@
 
 The public API of `sutura-semantic`, rendered from rustdoc JSON.
 
-The semantic compiler: a modelled question becomes one statement for one data system.
+The semantic compiler: a modelled question becomes one plan for one data system.
 
 Three stages, in three modules, and the split is the design rather than tidiness:
 
 1. **Resolve** looks every name up in the pinned snapshot. Its only outputs are references into
    that bundle and refusals naming the argument that failed. It cannot reach a live catalog,
    because it is handed a `PinnedDefinitions` and nothing else.
-2. **Plan** (`plan::Plan`) settles the two things nothing else may settle: which single data
+2. **Plan** settles what nothing else may settle: which single data
    system the statement runs against, and which values become bind parameters. It holds no SQL,
    and its serialized form is what a golden snapshot pins.
 3. **Generate** (`generate`) renders the plan for one dialect. It is the only module that
    produces SQL and the only one that names the dialect layer.
 
-`compile` runs all three. It returns a `Compiled` rather than a `Result` of a statement,
-because a refusal is an answer: a caller must not be able to mistake "you may not ask that" for
-a transport failure and retry until something works.
+**`compile` runs the first two, and stops.** Stage 3 is not part of compiling, because the
+`Warehouse` port takes a plan: an adapter that executes over Arrow renders nothing, and a
+SQL-speaking adapter renders for the dialect it alone knows. Whoever wants SQL calls
+`generate::generate` and names the dialect there.
+
+`compile` returns a `Compiled` rather than a `Result` of a plan, because a refusal is an
+answer: a caller must not be able to mistake "you may not ask that" for a transport failure and
+retry until something works.
 
 **Nothing here parses SQL, and nothing here translates between dialects.** There is no foreign
 SQL on this path to parse: the statement is generated from a model, so the rule holds by
@@ -42,22 +47,16 @@ A refusal is a variant here rather than an `Err`, which is the same choice
 
 ### Variants
 
-- `Statement` - The question resolved, and here is the statement and the plan behind it.
+- `Planned` - The question resolved, and this is what we decided to execute.
 - `Refused` - The question was refused, and this is why.
 
 ### Methods
 
 ```rust
-pub const fn plan(&self) -> Option<&Plan>
+pub const fn plan(&self) -> Option<&DomainPlan>
 ```
 
 The plan, if the question resolved.
-
-```rust
-pub const fn query(&self) -> Option<&GeneratedQuery>
-```
-
-The generated statement, if the question resolved.
 
 ```rust
 pub const fn refusal(&self) -> Option<&RefusalReason>
@@ -69,34 +68,33 @@ The refusal, if there was one.
 
 `Debug`
 
-## `enum CompileError`
-
-```rust
-pub enum CompileError
-```
-
-Why compilation failed, as opposed to being refused.
-
-Neither variant is something a caller did. A broken bundle is an operator's problem and a
-generator failure is ours, so neither is offered to the caller as a refusal they might retry
-differently.
-
-### Variants
-
-- `Bundle`
-- `Generate`
-
-### Implements
-
-`Debug`, `Display`, `Error`
-
 ## `fn compile`
 
 ```rust
-pub fn compile(query: &sutura_domain::query::Query, pinned: &sutura_domain::pinned::PinnedDefinitions, dialect: Dialect) -> Result<Compiled, CompileError>
+pub fn compile(query: &sutura_domain::query::Query, pinned: &sutura_domain::pinned::PinnedDefinitions) -> Result<Compiled, BundleInconsistent>
 ```
 
-Resolves, plans and generates.
+Resolves and plans. It does not render.
+
+**The dialect used to be an argument here, and that was a parameter that could lie.** Compiling
+rendered a statement alongside the plan, and the one caller that answers questions threw the
+statement away - because the port takes a plan, and a SQL-speaking adapter renders its own. So the
+dialect decided nothing, while a caller could hand this `Postgres` and a `DuckDB` warehouse and
+nothing anywhere would notice the disagreement.
+
+Rendering now lives where the dialect is actually known: `generate::generate`, called by the
+adapter that speaks that dialect. Whoever wants SQL asks for it.
+
+The error type is `BundleInconsistent` rather than an enum, because after the split that is the
+only way this can fail. A refused question is not a failure and comes back as `Compiled`.
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -204,33 +202,38 @@ test below rather than being silently untested.
 
 ## Module `generate`
 
-Generate: the plan becomes one statement in one dialect.
+Generate: a plan becomes one statement in one dialect.
 
-This is the only module that names the dialect layer, so a pre-1.0 API change upstream touches
-one file. It is also the only module that produces SQL.
+The only module that names the dialect layer, so a pre-1.0 API change upstream touches one file,
+and the only one that produces SQL. An adapter that executes a plan without rendering it - the
+in-process engine - never calls anything here.
 
-Four things about how the dialect layer is used, each measured rather than assumed:
+Five things about how the dialect layer is used, every one of them measured rather than assumed,
+and every one of them looking right until it was rendered:
 
-**The fluent builder, not the AST structs.** The `Expression` enum's `Select` has upwards of
-thirty fields and no `Default`, so hand-building one is a list nobody can review. The builder
-panics on misuse rather than returning an error, which is why every call here is on a shape that
-was proved to work; nothing a catalog or a caller supplies changes which builder method runs.
+**The fluent builder, not the AST structs.** `Expression::Select` has upwards of thirty fields
+and no `Default`, so hand-building one is a list nobody can review. The builder panics on misuse
+rather than returning an error, which is why every call here is on a shape that was proved to
+work and nothing a catalog or a caller supplies changes which builder method runs.
 
-**Identifiers are force-quoted.** The generator quotes an identifier only if it was quoted in the
-source, is a reserved word, or the config says always. Ours were never in any source, so a column
-called `order` would be emitted bare. `always_quote_identifiers` fixes that for identifiers and
-does **not** cover aliases, which the generator writes from a separate `Identifier` whose `quoted`
-flag we set ourselves.
+**Identifiers are force-quoted, aliases included.** The generator quotes only what was quoted in
+its source, is a reserved word, or the config forces. Ours were never in any source, so a column
+called `order` would be emitted bare. `always_quote_identifiers` covers identifiers and does
+**not** cover aliases, which come from a separate `Identifier` whose flag we set ourselves.
 
 **`GROUP BY` gets the unaliased expressions.** Passing the aliased ones emits `GROUP BY x AS y`,
-which is not valid in any of the three targets. It looked right until it was rendered.
+which no target accepts.
+
+**The time bucket is cast to a date.** `DATE_TRUNC` over a date returns a TIMESTAMP in two of the
+three targets, so without the cast the type of the `period` column is whatever each dialect chose
+and every adapter would need to know which.
 
 **Placeholders are ours.** The dialect layer renders every placeholder as `?` whatever the target,
-and carries a per-dialect `parameter_token` it never reads, so Postgres would get `?` and reject
-it. `crate::dialect::PlaceholderStyle` is what decides.
+and carries a per-dialect `parameter_token` it never reads - so Postgres would be sent `?` and
+reject it. `crate::dialect::PlaceholderStyle` decides.
 
-**`transpile` is never called, and is not even compiled.** See `clippy.toml` and the feature list
-in the workspace manifest.
+`transpile` is never called and is not compiled. See `clippy.toml` and the feature list in the
+workspace manifest.
 
 ### `enum GenerateError`
 
@@ -240,13 +243,14 @@ pub enum GenerateError
 
 Why a statement could not be rendered.
 
-Not a refusal: a caller cannot cause one of these, and there is nothing they could ask
-differently. A plan that cannot be rendered is a bug here or upstream.
+Not a refusal: a caller cannot cause one of these and there is nothing they could ask
+differently. A plan that will not render is a bug here or upstream.
 
 #### Variants
 
 - `Render`
-- `UnquotableAlias` - The builder produced something that is not an alias, so the alias identifier could not be quoted. Reported rather than ignored: silently emitting an unquoted alias is how a metric named `order` becomes a syntax error at the data system.
+- `UnquotableAlias` - The builder produced something that is not an alias, so its identifier could not be quoted.
+- `NoPredicate` - A plan that carries no predicate at all.
 
 #### Implements
 
@@ -255,61 +259,7 @@ differently. A plan that cannot be rendered is a bug here or upstream.
 ### `fn generate`
 
 ```rust
-pub fn generate(plan: &crate::plan::Plan, dialect: crate::dialect::Dialect) -> Result<sutura_domain::warehouse::GeneratedQuery, GenerateError>
+pub fn generate(plan: &sutura_domain::plan::QueryPlan, dialect: crate::dialect::Dialect) -> Result<sutura_domain::warehouse::GeneratedQuery, GenerateError>
 ```
 
-Renders a plan as one statement, and pairs it with its parameters.
-
-## Module `plan`
-
-Plan: the resolved question becomes something owned, and two things are settled here and
-nowhere else.
-
-**The plan names exactly one data system.** A question whose join would reach a second one is
-refused before anything runs, because a second data system is a second identity to satisfy, and a
-plan that runs partly as somebody else is the failure this design exists to prevent.
-
-**Every value from the question becomes a bind parameter.** They are collected here, in the order
-the generated statement will refer to them, so no caller-supplied value reaches the generator as
-text. The generator has no access to the question at all.
-
-A plan holds no SQL. Its public contract is its serialized form: it is the artifact a golden
-snapshot pins, so a change to what we plan shows up as a reviewable diff rather than as a
-different number.
-
-### `struct Plan`
-
-```rust
-pub struct Plan
-```
-
-One statement's worth of decisions, and no SQL.
-
-#### Methods
-
-```rust
-pub const fn metric(&self) -> &MetricName
-```
-
-The metric this plan answers about. Public because a caller that gets a plan back wants to
-know what it is a plan for without deserializing it.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `use None`
-
-The label the truncated time column is projected under.
-
-Re-exported from the domain rather than defined here, because it is part of the result schema and
-`Definitions::assemble` has to refuse a dimension by this name for the same reason: two columns
-with one label is a result a caller cannot read.
-
-### `constant MAX_ROWS`
-
-The most rows any generated statement may return.
-
-A hard cap rather than a budget, for now. It exists because a bounded range and a bounded set of
-group-by keys still permit a large result, and the cost of that lands on a shared data system.
-When there is a real budget this becomes its floor.
+Renders a plan as one statement, paired with its parameters.

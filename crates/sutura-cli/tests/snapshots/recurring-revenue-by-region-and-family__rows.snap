@@ -1,82 +1,76 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rows
+expression: stable(rows)
 ---
-columns:
-  - region
-  - product_family
-  - period
-  - recurring_revenue
-rows:
-  - - Text: central
-    - Text: convergent
-    - Text: 2026-06-01
-    - Integer: 19165
-  - - Text: central
-    - Text: fixed_internet
-    - Text: 2026-06-01
-    - Integer: 13830
-  - - Text: central
-    - Text: mobile
-    - Text: 2026-06-01
-    - Integer: 17495
-  - - Text: central
-    - Text: tv
-    - Text: 2026-06-01
-    - Integer: 1249
-  - - Text: east
-    - Text: convergent
-    - Text: 2026-06-01
-    - Integer: 17207
-  - - Text: east
-    - Text: fixed_internet
-    - Text: 2026-06-01
-    - Integer: 7665
-  - - Text: east
-    - Text: mobile
-    - Text: 2026-06-01
-    - Integer: 5415
-  - - Text: east
-    - Text: tv
-    - Text: 2026-06-01
-    - Integer: 2311
-  - - Text: north
-    - Text: fixed_internet
-    - Text: 2026-06-01
-    - Integer: 27161
-  - - Text: north
-    - Text: mobile
-    - Text: 2026-06-01
-    - Integer: 13747
-  - - Text: north
-    - Text: tv
-    - Text: 2026-06-01
-    - Integer: 1249
-  - - Text: south
-    - Text: fixed_internet
-    - Text: 2026-06-01
-    - Integer: 11165
-  - - Text: south
-    - Text: mobile
-    - Text: 2026-06-01
-    - Integer: 8789
-  - - Text: south
-    - Text: tv
-    - Text: 2026-06-01
-    - Integer: 1249
-  - - Text: west
-    - Text: convergent
-    - Text: 2026-06-01
-    - Integer: 7916
-  - - Text: west
-    - Text: fixed_internet
-    - Text: 2026-06-01
-    - Integer: 20662
-  - - Text: west
-    - Text: mobile
-    - Text: 2026-06-01
-    - Integer: 19598
-  - - Text: west
-    - Text: tv
-    - Text: 2026-06-01
-    - Integer: 1249
+- - central
+  - convergent
+  - 2026-06-01
+  - "19165"
+- - central
+  - fixed_internet
+  - 2026-06-01
+  - "13830"
+- - central
+  - mobile
+  - 2026-06-01
+  - "17495"
+- - central
+  - tv
+  - 2026-06-01
+  - "1249"
+- - east
+  - convergent
+  - 2026-06-01
+  - "17207"
+- - east
+  - fixed_internet
+  - 2026-06-01
+  - "7665"
+- - east
+  - mobile
+  - 2026-06-01
+  - "5415"
+- - east
+  - tv
+  - 2026-06-01
+  - "2311"
+- - north
+  - fixed_internet
+  - 2026-06-01
+  - "27161"
+- - north
+  - mobile
+  - 2026-06-01
+  - "13747"
+- - north
+  - tv
+  - 2026-06-01
+  - "1249"
+- - south
+  - fixed_internet
+  - 2026-06-01
+  - "11165"
+- - south
+  - mobile
+  - 2026-06-01
+  - "8789"
+- - south
+  - tv
+  - 2026-06-01
+  - "1249"
+- - west
+  - convergent
+  - 2026-06-01
+  - "7916"
+- - west
+  - fixed_internet
+  - 2026-06-01
+  - "20662"
+- - west
+  - mobile
+  - 2026-06-01
+  - "19598"
+- - west
+  - tv
+  - 2026-06-01
+  - "1249"

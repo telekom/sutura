@@ -179,6 +179,18 @@ impl DuckDbWarehouse {
     }
 
     /// One cell, as a domain value.
+    ///
+    /// **One mapping, two adapters.** The other implementor of the [`Warehouse`] port is the
+    /// in-process engine, and a plan may be answered by either: a rule that held here and not there
+    /// would mean an anchor certified against one adapter not reproducing against the other, which
+    /// is the thing the differential suite exists to notice. So the set of types that answer, and
+    /// the set that are refused, is decided once and written down in both places - `cell` in
+    /// `crates/sutura-exec-datafusion/src/lib.rs` is the other half, and
+    /// `every_type_this_adapter_maps_answers_what_the_engine_answers` in the tests below is the
+    /// table both are held to.
+    ///
+    /// Every integer width answers, because all of them fit an `i64` losslessly. A 64-bit unsigned
+    /// value that does not is rendered as text rather than wrapped. A 32-bit float is refused.
     fn cell(index: usize, value: DuckValue) -> Result<Value, DuckDbError> {
         let unsupported = |duckdb_type: &'static str| DuckDbError::UnsupportedType {
             column: index,
@@ -198,7 +210,16 @@ impl DuckDbWarehouse {
             // it does not fit, rather than wrapped: a silently truncated total is a wrong number.
             DuckValue::UBigInt(v) => Ok(i64::try_from(v).map_or_else(|_| Value::Text(v.to_string()), Value::Integer)),
             DuckValue::HugeInt(v) => Ok(i64::try_from(v).map_or_else(|_| Value::Text(v.to_string()), Value::Integer)),
-            DuckValue::Float(v) => Ok(Value::Real(f64::from(v))),
+            // REFUSED, not widened, and the two adapters have to say the same thing here. This arm
+            // was `Value::Real(f64::from(v))`, which is the tempting one and is exactly wrong:
+            // `0.1_f32` as an `f64` renders as `0.10000000149011612`. The in-process engine refuses
+            // `Float32` for that reason - the comment is on `cell` in
+            // `crates/sutura-exec-datafusion/src/lib.rs` - so widening here meant one plan answering
+            // two different numbers depending on which adapter ran it, and an anchor certified
+            // against one not reproducing against the other.
+            DuckValue::Float(_) => Err(unsupported(
+                "REAL; a 32-bit float has no exact 64-bit rendering, so it is refused rather than widened",
+            )),
             DuckValue::Double(v) => Ok(Value::Real(v)),
             // Text, so an exact decimal stays exact. Turning it into an `f64` here is how a total
             // that was correct in the data system stops being correct in an answer.
@@ -276,5 +297,121 @@ impl Warehouse for DuckDbWarehouse {
     fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
         let query = Self::render(plan)?;
         self.run(&query)
+    }
+}
+
+/// The value mapping, as a table.
+///
+/// **The table is duplicated on purpose, and the duplication is the test.** The two `cell` functions
+/// live in different crates - this one takes a `duckdb::types::Value` and the engine's takes an
+/// Arrow array - and neither crate may depend on the other: they are two implementors of one port,
+/// and a shared test helper would have to live in the domain, which is not allowed to know that
+/// either of them exists. So the agreement is asserted as the same expected column written out in
+/// both places: here, and in `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. The two
+/// test names quote each other, so a change to one that is not made to the other shows up as a
+/// failing assertion rather than as a disagreement nobody notices until an anchor stops
+/// reproducing.
+///
+/// The alternative - one test that calls both adapters - is a test in `sutura-app`, which is where
+/// `tests/differential.rs` already runs one plan through both and compares the rows. That test can
+/// only see the types a fixture CSV produces, which is why the table below is not redundant with it:
+/// it reaches the widths a Parquet file has and a CSV never will.
+#[cfg(test)]
+mod tests {
+    use super::{DuckDbError, DuckDbWarehouse};
+    use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
+    use sutura_domain::calendar::Date;
+    use sutura_domain::warehouse::Value;
+
+    /// One row of the shared table: what the value is called, what the driver hands over, and the
+    /// domain value both adapters have to produce for it. Named because the tuple is over the
+    /// `type_complexity` threshold this workspace tightened, and a `Vec<(..)>` of three is where it
+    /// starts to be unreadable anyway.
+    type Case = (&'static str, DuckValue, Value);
+
+    fn day(iso: &str) -> Date {
+        Date::parse(iso).expect("a test date is a date")
+    }
+
+    #[test]
+    fn every_type_this_adapter_maps_answers_what_the_engine_answers() {
+        // The twin of `every_type_the_engine_maps_answers_what_the_data_source_answers` in
+        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. Same logical values, same
+        // expected column, one row per width - because a Parquet `INT32` column under a `min` or a
+        // `max` used to answer here and error there.
+        // Boundary values rather than round ones, written in hex where the decimal form is a bit
+        // pattern nobody reads: an arm that reached for the wrong width would come back truncated
+        // or sign-flipped, and 42 would survive that.
+        let cases: Vec<Case> = vec![
+            ("NULL", DuckValue::Null, Value::Null),
+            ("BOOLEAN true", DuckValue::Boolean(true), Value::Integer(1)),
+            ("BOOLEAN false", DuckValue::Boolean(false), Value::Integer(0)),
+            ("TINYINT", DuckValue::TinyInt(i8::MIN), Value::Integer(-128)),
+            ("SMALLINT", DuckValue::SmallInt(i16::MIN), Value::Integer(-0x8000)),
+            ("INTEGER", DuckValue::Int(i32::MAX), Value::Integer(0x7FFF_FFFF)),
+            ("BIGINT", DuckValue::BigInt(i64::MIN), Value::Integer(i64::MIN)),
+            ("UTINYINT", DuckValue::UTinyInt(u8::MAX), Value::Integer(255)),
+            ("USMALLINT", DuckValue::USmallInt(u16::MAX), Value::Integer(0xFFFF)),
+            ("UINTEGER", DuckValue::UInt(u32::MAX), Value::Integer(0xFFFF_FFFF)),
+            ("UBIGINT that fits an i64", DuckValue::UBigInt(42), Value::Integer(42)),
+            (
+                "UBIGINT that does not",
+                DuckValue::UBigInt(u64::MAX),
+                Value::Text(String::from("18446744073709551615")),
+            ),
+            ("DOUBLE", DuckValue::Double(0.1), Value::Real(0.1)),
+            (
+                "DECIMAL stays text so it stays exact",
+                DuckValue::Decimal(Decimal::new(9, 2, 12_345).expect("a test decimal is a decimal")),
+                Value::Text(String::from("123.45")),
+            ),
+            (
+                "VARCHAR",
+                DuckValue::Text(String::from("north")),
+                Value::Text(String::from("north")),
+            ),
+            (
+                "DATE as ISO text",
+                DuckValue::Date32(day("2026-06-01").days_since_epoch()),
+                Value::Text(String::from("2026-06-01")),
+            ),
+        ];
+        for (name, raw, expected) in cases {
+            assert_eq!(DuckDbWarehouse::cell(0, raw).expect(name), expected, "{name}");
+        }
+    }
+
+    #[test]
+    fn a_32_bit_float_is_refused_here_because_it_is_refused_there() {
+        // The finding this arm exists for. It was `Value::Real(f64::from(v))`, and the engine's
+        // `cell` refused `Float32` in the same release - so one plan over a `REAL` column answered
+        // 0.10000000149011612 through the data source and errored through the engine. Refusing is
+        // the half of the disagreement that can be fixed without inventing a rendering: there is no
+        // `f64` that is `0.1_f32`, and picking one silently is how a number nobody got wrong stops
+        // matching itself.
+        let error = DuckDbWarehouse::cell(3, DuckValue::Float(0.1)).expect_err("a 32-bit float is not mapped");
+        assert!(matches!(error, DuckDbError::UnsupportedType { column: 3, .. }), "{error:?}");
+        let message = error.to_string();
+        assert!(message.contains("REAL"), "{message}");
+        // And the type that DOES answer, so this is not a test that would pass with every float
+        // refused.
+        assert_eq!(
+            DuckDbWarehouse::cell(3, DuckValue::Double(0.1)).expect("a 64-bit float is mapped"),
+            Value::Real(0.1)
+        );
+    }
+
+    #[test]
+    fn a_type_neither_adapter_maps_names_itself_rather_than_being_rendered() {
+        // A `Debug` fallback here would flow into an answer looking like data, and an anchor
+        // comparison against it would pass or fail for a reason nobody could read.
+        for raw in [
+            DuckValue::Blob(vec![0_u8, 1_u8]),
+            DuckValue::Timestamp(TimeUnit::Microsecond, 0),
+            DuckValue::List(vec![DuckValue::Int(1)]),
+        ] {
+            let error = DuckDbWarehouse::cell(1, raw).expect_err("an unmapped type is an error");
+            assert!(matches!(error, DuckDbError::UnsupportedType { column: 1, .. }), "{error:?}");
+        }
     }
 }

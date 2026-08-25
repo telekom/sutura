@@ -1,20 +1,16 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rows
+expression: stable(rows)
 ---
-columns:
-  - period
-  - recurring_revenue
-rows:
-  - - Text: 2026-01-01
-    - Integer: 237320
-  - - Text: 2026-02-01
-    - Integer: 232822
-  - - Text: 2026-03-01
-    - Integer: 216700
-  - - Text: 2026-04-01
-    - Integer: 206160
-  - - Text: 2026-05-01
-    - Integer: 202994
-  - - Text: 2026-06-01
-    - Integer: 197122
+- - 2026-01-01
+  - "237320"
+- - 2026-02-01
+  - "232822"
+- - 2026-03-01
+  - "216700"
+- - 2026-04-01
+  - "206160"
+- - 2026-05-01
+  - "202994"
+- - 2026-06-01
+  - "197122"

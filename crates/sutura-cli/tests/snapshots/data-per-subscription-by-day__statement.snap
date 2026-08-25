@@ -1,6 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rendered(query)
+expression: rendered(&query)
 ---
 SELECT CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) AS "period", CAST(SUM("fct_usage_daily"."data_gb") AS DOUBLE) / NULLIF(COUNT(DISTINCT "fct_usage_daily"."subscription_key"), 0) AS "data_per_subscription" FROM "fct_usage_daily" WHERE "fct_usage_daily"."usage_date" >= ? AND "fct_usage_daily"."usage_date" < ? GROUP BY CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) ORDER BY CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) LIMIT 10000
 -- $1 = 2026-06-01

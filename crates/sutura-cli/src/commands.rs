@@ -1,7 +1,7 @@
 //! The commands, and the only place adapters are chosen.
 //!
-//! This is the composition root: it is where a directory becomes a [`LocalCatalog`] and a file
-//! becomes a `DuckDB` connection. Nothing above it names an adapter, which is what lets the same
+//! This is the composition root: it is where a directory becomes a [`LocalCatalog`] and a set of
+//! files becomes a running engine. Nothing above it names an adapter, which is what lets the same
 //! service code be exercised against a fake.
 //!
 //! `Result<_, String>` throughout, deliberately. The boundary gate fails that in a library crate and
@@ -14,24 +14,12 @@ use std::process::ExitCode;
 
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::measure::RequiredFilter;
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
-use sutura_domain::query::Query;
-// Both are only reachable from `query`, which is behind the adapter feature.
-#[cfg(feature = "exec-duckdb")]
-use sutura_domain::query::ToolOutcome;
-#[cfg(feature = "exec-duckdb")]
+use sutura_domain::model::{ModelName, SourceName, TableName};
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _, Validated};
+use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Value;
+use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_semantic::{Compiled, Dialect};
-
-// Only the `query` command validates a bundle and prints rows, and it is behind the adapter
-// feature - so these are too. Without the gate a build with no data-system adapter fails on an
-// unused import and a dead function, which is the DEFAULT build and the one the musl artifacts use.
-#[cfg(feature = "exec-duckdb")]
-use sutura_domain::model::TableName;
-#[cfg(feature = "exec-duckdb")]
-use sutura_domain::pinned::Validated;
-#[cfg(feature = "exec-duckdb")]
-use sutura_exec_duckdb::DuckDbWarehouse;
 
 /// The version a locally-read catalog is stamped with when the caller did not say.
 ///
@@ -39,6 +27,22 @@ use sutura_exec_duckdb::DuckDbWarehouse;
 /// version that repeats it leaves no way to tell two builds of identical content apart. A real
 /// deployment passes a commit id.
 const DEFAULT_VERSION: &str = "local-working-tree";
+
+/// The one data system this build can open, and the name it answers to.
+///
+/// **A constant here rather than whatever the catalog declared, and that is the whole of the fix.**
+/// The engine is the in-process one: it reads the CSV and Parquet files in the directory the CALLER
+/// passed on the command line. Naming it after the catalog's declared source made
+/// `plan.source() != warehouse.source()` in `sutura-app` true by construction, so the one guard that
+/// stops a plan running against the wrong data system was satisfied rather than checked - and a
+/// catalog declaring a real data system got an engine that answered its certified metric out of the
+/// caller's files, under that bundle's provenance and digest. Fixed at build time, the app's check is
+/// a check again and [`open_engine`] refuses everything else.
+///
+/// The value is what every catalog in this repository already declares, so the gate arrives without
+/// moving any bundle's digest. Renaming it is a catalog edit in every example plus a new digest, not
+/// a code change here.
+const ENGINE_SOURCE: &str = "local";
 
 /// The metric's definitional filters, for a person reading a catalog.
 ///
@@ -186,11 +190,12 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
         };
         let pinned = load(Path::new(&root))?;
         let question = read_question(Path::new(&question_path))?;
-        match sutura_semantic::compile(&question, &pinned, dialect).map_err(|e| render(&e))? {
+        match sutura_semantic::compile(&question, &pinned).map_err(|e| render(&e))? {
             Compiled::Refused { reason } => {
                 println!("refused: {reason:?}");
             }
-            Compiled::Statement { plan, query } => {
+            Compiled::Planned { plan } => {
+                let query = sutura_semantic::generate::generate(&plan, dialect).map_err(|e| render(&e))?;
                 println!("-- dialect {dialect}");
                 println!("{}", query.sql());
                 println!();
@@ -208,7 +213,6 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
 }
 
 /// `query <dir> <question> <data-dir>`: check the anchors, then answer.
-#[cfg(feature = "exec-duckdb")]
 pub(crate) fn query(args: &[String]) -> ExitCode {
     report((|| {
         let usage = "query <catalog-dir> <question.yaml> <data-dir>";
@@ -217,56 +221,76 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let data = arg(args, 2, "data-dir", usage)?;
 
         let pinned = load(Path::new(&root))?;
-        let warehouse = open_duckdb(&pinned, Path::new(&data))?;
+        let engine = open_engine(&pinned, Path::new(&data))?;
 
         // The order is the governance: anchors first, and `Validated::new` is the only way to get a
         // bundle the service will answer from. A corrupted anchor stops here rather than answering.
-        let report = sutura_app::verify_anchors(&pinned, &warehouse, Dialect::DuckDb);
+        let report = sutura_app::verify_anchors(&pinned, &engine);
         let validated =
             Validated::new(pinned, &report).map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
 
         let question = read_question(Path::new(&question_path))?;
-        let outcome = sutura_app::answer(&validated, &question, &warehouse, Dialect::DuckDb).map_err(|e| render(&e))?;
+        let outcome = sutura_app::answer(&validated, &question, &engine).map_err(|e| render(&e))?;
         print_outcome(&outcome);
         Ok(())
     })())
 }
 
-/// Opens an in-memory `DuckDB` and exposes one CSV per model.
+/// Starts the engine and registers one file per model.
 ///
-/// In memory and rebuilt per run on purpose: a database file in a repository is a binary nobody
-/// reviews, and a fixture built from the CSV every time cannot drift from it.
-#[cfg(feature = "exec-duckdb")]
-fn open_duckdb(pinned: &PinnedDefinitions, data: &Path) -> Result<DuckDbWarehouse, String> {
+/// The engine reads the files itself, so there is no database to create and nothing to keep in step
+/// with the CSVs. A `.parquet` beside a model's table name is preferred over a `.csv` because it
+/// carries its own types; a CSV has to be sniffed.
+///
+/// It refuses a catalog that names anything other than [`ENGINE_SOURCE`]. The engine has its own
+/// identity and does not borrow the catalog's: a catalog naming a data system nothing here can open
+/// gets no engine, rather than one wearing that data system's name over the caller's files.
+fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<DataFusionWarehouse, String> {
     let sources = sutura_app::sources(pinned);
-    let source = match sources.as_slice() {
+    let declared = match sources.as_slice() {
         [only] => (*only).clone(),
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
         many => {
             return Err(format!(
-                "this catalog spans {} data systems, and this build opens one",
+                "this catalog spans {} data systems, and a plan runs against one",
                 many.len()
             ));
         }
     };
-    let warehouse = DuckDbWarehouse::in_memory(source).map_err(|e| render(&e))?;
-    for model in pinned.definitions().models().values() {
-        let csv = data.join(format!("{}.csv", model.table()));
-        if !csv.is_file() {
-            return Err(format!("model {} needs {}, which is not there", model.name(), csv.display()));
-        }
-        attach(&warehouse, model.table(), &csv)?;
+    let engine_source =
+        SourceName::parse(ENGINE_SOURCE).map_err(|e| format!("the built-in engine source name is not a name: {e}"))?;
+    if declared != engine_source {
+        return Err(format!(
+            "this catalog reads from {declared}, and this build has no adapter for it: the only data \
+             system it can open is {engine_source}, the in-process engine over the CSV and Parquet \
+             files in the directory given to this command"
+        ));
     }
-    Ok(warehouse)
+    let engine = DataFusionWarehouse::new(engine_source).map_err(|e| render(&e))?;
+    for model in pinned.definitions().models().values() {
+        attach(&engine, model.name(), model.table(), data)?;
+    }
+    Ok(engine)
 }
 
-#[cfg(feature = "exec-duckdb")]
-fn attach(warehouse: &DuckDbWarehouse, table: &TableName, csv: &Path) -> Result<(), String> {
-    warehouse.attach_csv(table, csv).map_err(|e| render(&e))
+/// Registers one model's file, preferring Parquet.
+fn attach(engine: &DataFusionWarehouse, model: &ModelName, table: &TableName, data: &Path) -> Result<(), String> {
+    let parquet = data.join(format!("{table}.parquet"));
+    if parquet.is_file() {
+        return engine.attach_parquet(table, &parquet).map_err(|e| render(&e));
+    }
+    let csv = data.join(format!("{table}.csv"));
+    if csv.is_file() {
+        return engine.attach_csv(table, &csv).map_err(|e| render(&e));
+    }
+    Err(format!(
+        "model {model} needs {} or {}, and neither is there",
+        csv.display(),
+        parquet.display()
+    ))
 }
 
 /// Prints an outcome as a table, or as the refusal it is.
-#[cfg(feature = "exec-duckdb")]
 fn print_outcome(outcome: &ToolOutcome) {
     match *outcome {
         ToolOutcome::Refusal { ref reason } => println!("refused: {reason:?}"),
@@ -284,15 +308,90 @@ fn print_outcome(outcome: &ToolOutcome) {
     }
 }
 
-/// The stub that stands in for `query` when the adapter is not compiled.
-///
-/// A command that says why it is absent, rather than an unknown-command error that reads like a
-/// typo. The adapter is default-off because there is no musl `libduckdb` to link the cross builds
-/// against, so a binary without it is the normal case rather than a mistake.
-#[cfg(not(feature = "exec-duckdb"))]
-pub(crate) fn query(_args: &[String]) -> ExitCode {
-    eprintln!("sutura: this build has no data-system adapter compiled in.");
-    eprintln!("  Rebuild with `--features exec-duckdb` to answer questions from a DuckDB file.");
-    eprintln!("  `compile` works without one: it renders the statement and stops.");
-    ExitCode::from(2)
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, BTreeSet};
+    use std::path::{Path, PathBuf};
+
+    use sutura_domain::catalog::{Definitions, Metric, Model};
+    use sutura_domain::definitions::DefinitionDigest;
+    use sutura_domain::measure::{AggregatedColumn, Measure};
+    use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+
+    use super::{ENGINE_SOURCE, load, open_engine};
+
+    const DIGEST: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+    fn example() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
+    }
+
+    /// A bundle whose one model claims to live in a data system nothing here can open, over a table
+    /// the example's data directory happens to have a file for.
+    ///
+    /// The file is what makes the test mean something: without it the old code failed on a missing
+    /// CSV and the refusal would be indistinguishable from that.
+    fn bundle_naming_another_data_system() -> PinnedDefinitions {
+        let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
+        let model = Model::new(
+            ModelName::parse("customers").expect("a test model is a model"),
+            SourceName::parse("production_warehouse").expect("a test source is a source"),
+            TableName::parse("dim_customer").expect("a test table is a table"),
+            BTreeSet::from([column("customer_key"), column("signed_at")]),
+            String::new(),
+        );
+        let metric = Metric::new(
+            MetricName::parse("customers_signed").expect("a test metric is a metric"),
+            ModelName::parse("customers").expect("a test model is a model"),
+            Measure::Simple(AggregatedColumn::new(Aggregate::Count, column("customer_key"))),
+            Vec::new(),
+            column("signed_at"),
+            BTreeSet::from([Grain::Month]),
+            BTreeMap::new(),
+            None,
+            String::new(),
+        );
+        let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
+        PinnedDefinitions::new(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            DefinitionDigest::parse(DIGEST).expect("a real digest is a digest"),
+            definitions,
+        )
+    }
+
+    #[test]
+    fn a_catalog_naming_another_data_system_gets_no_engine() {
+        // THE BUG THIS EXISTS FOR, and it was reachable from the command line. `open_engine` named
+        // the engine after whatever source the catalog declared, so a catalog saying
+        // `source: production_warehouse` got an in-process engine calling itself
+        // `production_warehouse` and reading the files in the directory the CALLER passed. Then
+        // `sutura query` answered that catalog's certified metric out of those files, stamped with
+        // the real bundle's version and digest - and `sutura-app`'s own
+        // `plan.source() != warehouse.source()` guard could not fire, because naming the engine
+        // after the catalog satisfied it by construction.
+        //
+        // Before the fix this call RETURNED AN ENGINE: `dim_customer.csv` is there, so nothing else
+        // failed either.
+        let error = open_engine(&bundle_naming_another_data_system(), &example().join("data"))
+            .expect_err("a catalog naming another data system must not get this engine");
+        assert!(
+            error.contains("production_warehouse") && error.contains("no adapter"),
+            "the refusal must name the data system it has no adapter for: {error}"
+        );
+    }
+
+    #[test]
+    fn the_documented_example_still_opens() {
+        // The other half: the gate is worth nothing if it also refuses the catalog the quickstart
+        // tells a reader to run. This is the one test that exercises `open_engine`'s own happy path,
+        // which the example suite reaches only through the libraries.
+        let pinned = load(&example().join("catalog")).expect("the example catalog loads");
+        let engine = open_engine(&pinned, &example().join("data")).expect("the example catalog opens");
+        assert_eq!(
+            sutura_domain::warehouse::Warehouse::source(&engine).as_str(),
+            ENGINE_SOURCE,
+            "the engine answers to its own name, not to the catalog's"
+        );
+    }
 }

@@ -1,20 +1,16 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rows
+expression: stable(rows)
 ---
-columns:
-  - period
-  - subscription_base
-rows:
-  - - Text: 2026-01-01
-    - Integer: 70
-  - - Text: 2026-02-01
-    - Integer: 70
-  - - Text: 2026-03-01
-    - Integer: 68
-  - - Text: 2026-04-01
-    - Integer: 64
-  - - Text: 2026-05-01
-    - Integer: 62
-  - - Text: 2026-06-01
-    - Integer: 61
+- - 2026-01-01
+  - "70"
+- - 2026-02-01
+  - "70"
+- - 2026-03-01
+  - "68"
+- - 2026-04-01
+  - "64"
+- - 2026-05-01
+  - "62"
+- - 2026-06-01
+  - "61"

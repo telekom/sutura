@@ -1,16 +1,12 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rows
+expression: stable(rows)
 ---
-columns:
-  - period
-  - voice_minutes
-rows:
-  - - Text: 2026-06-01
-    - Real: 757.7000000000002
-  - - Text: 2026-06-02
-    - Real: 628.6999999999999
-  - - Text: 2026-06-03
-    - Real: 713.1999999999998
-  - - Text: 2026-06-04
-    - Real: 794.2
+- - 2026-06-01
+  - "7.577000000000e2"
+- - 2026-06-02
+  - "6.287000000000e2"
+- - 2026-06-03
+  - "7.132000000000e2"
+- - 2026-06-04
+  - "7.942000000000e2"

@@ -1,6 +1,6 @@
 ---
 source: crates/sutura-cli/tests/example.rs
-expression: rendered(query)
+expression: rendered(&query)
 ---
 SELECT CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", SUM(CASE WHEN "fct_subscription_monthly"."churned_in_month" THEN 1 ELSE 0 END) AS "subscriptions_churned" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? GROUP BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) LIMIT 10000
 -- $1 = 2026-01-01
