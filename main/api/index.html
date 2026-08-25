@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="The public Rust API, generated from rustdoc JSON and committed.">
       
       
       
@@ -866,17 +866,6 @@
   
 </li>
       
-        <li class="md-nav__item">
-  <a href="#what-is-not-yet-enforced" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What is not yet enforced
-      
-    </span>
-  </a>
-  
-</li>
-      
     </ul>
   
 </nav>
@@ -904,44 +893,41 @@ Today that is one crate, because one library crate exists.</p>
 <li><a href="sutura-domain/">sutura-domain</a> - the domain types</li>
 </ul>
 <h2 id="these-pages-are-generated">These pages are generated<a class="headerlink" href="#these-pages-are-generated" title="Permanent link">&para;</a></h2>
-<p>Do not edit them. Every page carries a header saying so. The source of the text is the doc
-comments in the crate, and a correction belongs there.</p>
-<p>Two commands produce them, from the repository root and inside the dev shell, where the bare
-<code>cargo</code> is the pinned nightly:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>rustdoc<span class="w"> </span>-q<span class="w"> </span>-p<span class="w"> </span>sutura-domain<span class="w"> </span>--all-features<span class="w"> </span>--<span class="w"> </span>-Z<span class="w"> </span>unstable-options<span class="w"> </span>--output-format<span class="w"> </span>json
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>python<span class="w"> </span>docs/.tools/rustdoc_to_markdown.py<span class="w"> </span>target/doc/sutura_domain.json
+<p>Do not edit them; every page carries a header saying so. The source of the text is the doc comments
+in the crate, and a correction belongs there. Regenerate with:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>just<span class="w"> </span>api
 </span></code></pre></div>
-<p>The first is nightly-only: <code>--output-format json</code> is an unstable rustdoc option. That is not a new
-pin, it is the nightly this repository already keeps for the cranelift backend
-(<code>devco/rust-toolchain-nightly.toml</code>). The second reads the JSON and writes markdown, using the pixi
-interpreter and the standard library only.</p>
-<p>rustdoc JSON carries a <code>format_version</code> that changes between nightlies. The generator reads it and
-refuses to run on a number it was not written for, printing the value it found against the value it
-expected. A generator that guessed would one day emit a page with the interesting parts silently
-missing, which is worse than a failed run.</p>
+<p>That runs two steps. <code>cargo rustdoc --output-format json</code> is nightly-only, because that is an
+unstable rustdoc option - not a new pin, but the nightly this repository already keeps for the
+cranelift backend (<code>devco/rust-toolchain-nightly.toml</code>). <code>docs/.tools/rustdoc_to_markdown.py</code> then
+reads the JSON and writes markdown, using the pixi interpreter and the standard library only.</p>
+<p>rustdoc JSON carries a <code>format_version</code> that changes between nightlies. The generator refuses to run
+on a number it was not written for, printing the value it found against the value it expected. A
+generator that guessed would one day emit a page with the interesting parts silently missing.</p>
+<p><code>cargo xtask check-api-docs</code> regenerates and byte-compares, so a doc comment that changed without a
+regeneration fails the gate instead of publishing a stale page as current. CI runs it as the
+<code>api-docs</code> flake check, its only nightly step, and it is self-scoping: a change touching only
+private code regenerates to identical output and passes.</p>
 <h2 id="why-markdown-rather-than-rustdocs-own-site">Why markdown rather than rustdoc's own site<a class="headerlink" href="#why-markdown-rather-than-rustdocs-own-site" title="Permanent link">&para;</a></h2>
 <p><code>cargo doc</code> produces a complete static site with its own search index. That index is rustdoc's, not
-this site's, and the two cannot be merged: mkdocs indexes markdown at build time. Publishing the
-HTML would give a reader two search boxes and no way to know which one to use.</p>
-<p>Generating markdown instead means the API is in the <strong>same</strong> search as the prose on every other
-page. It is the shape <code>mkdocstrings</code> uses for Python, which reads structured data and emits pages
-rather than scraping a rendered site.</p>
+this site's, and the two cannot be merged, because mkdocs indexes markdown at build time.
+Publishing the HTML would give a reader two search boxes and no way to know which one to use.</p>
+<p>Generating markdown puts the API in the <strong>same</strong> search as the prose on every other page. It is the
+shape <code>mkdocstrings</code> uses for Python: read structured data, emit pages, rather than scrape a
+rendered site.</p>
 <p>The trade is depth. These pages carry each public item, its signature, its documentation, its
 methods and the traits it implements. They do not carry rustdoc's source links, its type-directed
-navigation or its "implementors" listings. If you need those, run <code>cargo doc --workspace --no-deps</code>
-locally and open what it writes under <code>target/doc</code>.</p>
-<h2 id="what-is-not-yet-enforced">What is not yet enforced<a class="headerlink" href="#what-is-not-yet-enforced" title="Permanent link">&para;</a></h2>
-<p>The pages are committed, so nothing needs a nightly toolchain to publish the site. The cost is that
-nothing <strong>fails</strong> when a source change lands without a regeneration: a stale page reads as current.
-Closing it needs a nightly toolchain in CI to regenerate and byte-compare, the same treatment the
-tool schemas will get once they exist. Until then, regenerating is a step in review rather than a
-gate, and this paragraph is here so the gap is visible rather than assumed away.</p>
+navigation or its "implementors" listings. For those, run <code>cargo doc --workspace --no-deps</code> and open
+what it writes under <code>target/doc</code>.</p>
 
 
 
 
 
 
+
+  
+  
 
 
 

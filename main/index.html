@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="What sutura is, what it guarantees, and which page to read next.">
       
       
       
@@ -25,7 +25,7 @@
     
     
       
-        <title>sutura</title>
+        <title>Introduction - sutura</title>
       
     
     
@@ -996,11 +996,11 @@
 <h1 id="sutura">sutura<a class="headerlink" href="#sutura" title="Permanent link">&para;</a></h1>
 <p>sutura answers questions about data <strong>as the person or agent asking</strong>, using metric
 definitions somebody certified, and refuses when it cannot do either.</p>
-<p>Give an agent a database connection and it will answer with SQL it invented, run under
-whatever credential the service happens to hold. Both halves are wrong. The number is
-uncertified, so nobody can say whether "revenue" means what finance means by it. And the
-rows come back according to what the <em>service</em> may read, not what the <em>caller</em> may read,
-which is how a row-level security policy becomes decorative.</p>
+<p>Give an agent a database connection and it answers with SQL it invented, run under whatever
+credential the service holds. Two failures, not one. The number is uncertified, so nobody can
+say whether "revenue" means what finance means by it. And the rows are the ones the <em>service</em>
+may read rather than the ones the <em>caller</em> may read, which is how a row-level security policy
+becomes decorative.</p>
 <h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1029,31 +1029,25 @@ which is how a row-level security policy becomes decorative.</p>
 </tbody>
 </table>
 <p>Those mechanisms are the design. <a href="architecture/">Architecture</a> says how the four force the
-shape of the system and which parts are compiled today; <code>AGENTS.md</code> in the repository lists
+shape of the system and which parts are compiled today. <code>AGENTS.md</code> in the repository lists
 every invariant beside the type, lint or gate that enforces it.</p>
 <h2 id="what-it-borrows">What it borrows<a class="headerlink" href="#what-it-borrows" title="Permanent link">&para;</a></h2>
-<p>sutura is not a new idea about semantic layers. Two projects got there first, both Apache-2.0
-and both worth reading:</p>
+<p>Two Apache-2.0 projects got there first.</p>
 <ul>
 <li><strong><a href="https://github.com/Canner/WrenAI">Wren</a></strong> compiles a modelled question into SQL over
-  <a href="https://datafusion.apache.org/">DataFusion</a>. The compile-a-plan-from-a-model shape comes
-  from there.</li>
-<li><strong><a href="https://github.com/spiceai/spiceai">Spice</a></strong>, also DataFusion-based, federates and
-  accelerates queries across sources.</li>
+  <a href="https://datafusion.apache.org/">DataFusion</a>. The compile-a-plan-from-a-model shape comes from
+  there.</li>
+<li><strong><a href="https://github.com/spiceai/spiceai">Spice</a></strong>, also DataFusion-based, federates and accelerates
+  queries across sources.</li>
 </ul>
-<p>Between them they cover compiling a question and federating it. What sutura adds is identity:
-not only what a question means, but who is asking and whether they may see the answer. Every
-query executes as the caller rather than as the service, which is the requirement that makes
-chatting with data safe to expose to an agent at all.</p>
-<p>A third project sits one port down. Every data system adapter has to emit the same plan as
-valid SQL in its own dialect, and <strong><a href="https://github.com/tobilg/polyglot">polyglot</a></strong> is a
-Rust transpiler between more than thirty of them, ClickHouse, Postgres and DuckDB included.</p>
-<p><a href="architecture/#where-the-parts-come-from">Where the parts come from</a> sets each of them on the
-line from a modelled question to executed SQL, and says which parts we mean to build.</p>
+<p>Between them they cover compiling a question and federating it. What sutura adds is identity: not
+only what a question means, but who is asking and whether they may see the answer.</p>
+<p><a href="architecture/#where-the-parts-come-from">Where the parts come from</a> sets those two and
+<a href="https://github.com/tobilg/polyglot">polyglot</a> on the line from a modelled question to executed SQL,
+and says which parts we mean to build.</p>
 <h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
-<p>The design is settled and the code is a walking skeleton. What works today is the environment,
-the release pipeline, and the gates that keep the properties above from quietly becoming
-aspirations. The query path is not built yet.</p>
+<p>The design is settled; the code is a walking skeleton. The environment, the release pipeline
+and the gates that hold the properties above exist. The query path does not.</p>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1076,33 +1070,29 @@ aspirations. The query path is not built yet.</p>
 <td><a href="architecture/">Architecture</a></td>
 </tr>
 <tr>
-<td>Set a machine up and run the checks</td>
-<td><a href="contributing/">Contributing</a></td>
+<td>Read the Rust API</td>
+<td><a href="api/">API reference</a></td>
 </tr>
 <tr>
-<td>Build behind a proxy or with no direct egress</td>
-<td><a href="enterprise-mirrors/">Building without direct egress</a></td>
-</tr>
-<tr>
-<td>Know how the versioned site is published</td>
-<td><a href="publishing/">Publishing the docs</a></td>
+<td>Install it and ask a question</td>
+<td><a href="getting-started/">Getting started</a>, once the query path exists</td>
 </tr>
 <tr>
 <td>See what changed</td>
 <td><a href="changelog/">Changelog</a></td>
 </tr>
-<tr>
-<td>Know what is guaranteed, and by what</td>
-<td><code>AGENTS.md</code> in the repository</td>
-</tr>
 </tbody>
 </table>
+<p>To work <em>on</em> sutura, start at <a href="contributing/">Contributing</a> under <strong>Development</strong>.</p>
 
 
 
 
 
 
+
+  
+  
 
 
 

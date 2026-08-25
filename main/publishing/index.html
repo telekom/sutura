@@ -6,7 +6,7 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="How every version of this site stays published, and the one setting no workflow can make.">
       
       
       
@@ -1020,15 +1020,14 @@
 
 
 <h1 id="publishing-the-docs">Publishing the docs<a class="headerlink" href="#publishing-the-docs" title="Permanent link">&para;</a></h1>
-<p>Every version of this site stays published. <code>main</code> has a directory, each release has its own,
-and a URL somebody cited a year ago still resolves to the text they read.</p>
-<p>That versioning is <a href="https://github.com/jimporter/mike">mike</a>'s job, not ours.
-<code>.github/workflows/docs.yml</code> builds the site with mkdocs-material and hands it to mike, which
-owns the <code>gh-pages</code> branch: the version directories, <code>versions.json</code>, the root redirect and the
-<code>.nojekyll</code> marker. The version selector in the header is Material's own, driven by
-<code>extra.version.provider: mike</code> in <code>mkdocs.yml</code>.</p>
-<p>Both tools come from the pinned nixpkgs through <code>nix run .#mkdocs</code> and <code>nix run .#mike</code>, so the
-site is built by the same versions CI uses and there is no pip or npm anywhere in the path.</p>
+<p>Every version of this site stays published. <code>main</code> has a directory, each release has its own, and a
+URL somebody cited a year ago still resolves to the text they read.</p>
+<p>That is <a href="https://github.com/jimporter/mike">mike</a>'s job. <code>.github/workflows/docs.yml</code> builds the site
+with mkdocs-material and hands it to mike, which owns the <code>gh-pages</code> branch: the version directories,
+<code>versions.json</code>, the root redirect and the <code>.nojekyll</code> marker. The header's version selector is
+Material's own, driven by <code>extra.version.provider: mike</code> in <code>mkdocs.yml</code>.</p>
+<p>Both tools come from pixi's isolated <code>docs</code> environment, so a local build uses the versions CI does
+and there is no pip and no npm in the path.</p>
 <h2 id="the-layout-mike-produces">The layout mike produces<a class="headerlink" href="#the-layout-mike-produces" title="Permanent link">&para;</a></h2>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>gh-pages/
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>  index.html      redirect to the default version, written by `mike set-default`
@@ -1070,54 +1069,53 @@ site is built by the same versions CI uses and there is no pip or npm anywhere i
 </tr>
 </tbody>
 </table>
-<p>Nothing deletes a version directory: neither the workflow nor mike is asked to, and the publish
-never force-pushes. A concurrent publish makes the job fail rather than overwrite, because a
-failed job is recoverable and a deleted version is not.</p>
-<p>The root redirect points at <code>latest</code> once a release exists. Before the first release there is no
-<code>latest</code>, so the workflow sets the default to <code>main</code> - the site has a working root from the very
-first deployment rather than after the first tag.</p>
+<p>Nothing deletes a version directory, and the publish never force-pushes. A concurrent publish makes
+the job fail rather than overwrite: a failed job is recoverable and a deleted version is not.</p>
+<p>The root redirect points at <code>latest</code> once a release exists. Before the first release the workflow
+sets the default to <code>main</code>, so the site has a working root from the first deployment rather than
+from the first tag.</p>
 <h2 id="the-one-repository-setting">The one repository setting<a class="headerlink" href="#the-one-repository-setting" title="Permanent link">&para;</a></h2>
-<p>Publishing works from a cold start: mike creates <code>gh-pages</code> itself when it is absent. <em>Serving</em>
-needs one manual step that no workflow can perform. In <strong>Settings -&gt; Pages -&gt; Build and
+<p>Publishing works from a cold start, because mike creates <code>gh-pages</code> itself when it is absent.
+<em>Serving</em> needs one manual step that no workflow can perform. In <strong>Settings -&gt; Pages -&gt; Build and
 deployment</strong>:</p>
 <ul>
 <li><strong>Source: Deploy from a branch</strong></li>
 <li><strong>Branch: <code>gh-pages</code>, folder <code>/ (root)</code></strong></li>
 </ul>
-<p>Then the site answers at <a href="https://telekom.github.io/sutura/">https://telekom.github.io/sutura/</a>.</p>
-<p>Two things about that:</p>
-<ul>
-<li><strong>The branch has to exist first.</strong> The dropdown lists only branches that are already there, so
-  let the <code>docs</code> workflow run once before looking for <code>gh-pages</code> in it. A push to <code>main</code> touching
-  any documentation path does it, and so does a manual <code>workflow_dispatch</code>.</li>
-<li><strong>Not "GitHub Actions".</strong> That source serves one uploaded artifact as the whole site: a single
-  current version, no history, no version directories. It is also the source that fails a
-  deployment with a bare <code>HttpError: Not Found</code> while Pages is switched off. The branch source
-  has neither property - the publish succeeds whether Pages is on or not, and switching it on
-  afterwards makes everything already on the branch visible at once.</li>
-</ul>
-<p>Until the setting is made, versions accumulate on the branch and the site answers nothing. That
-is a visible, recoverable state, which is why the workflow does not fail on it.</p>
+<p>The site then answers at <a href="https://telekom.github.io/sutura/">https://telekom.github.io/sutura/</a>.</p>
+<div class="admonition warning">
+<p class="admonition-title">The branch has to exist first</p>
+<p>The dropdown lists only branches that are already there, so let the <code>docs</code> workflow run once
+before looking for <code>gh-pages</code> in it. A push to <code>main</code> touching any documentation path does it,
+and so does a manual <code>workflow_dispatch</code>.</p>
+</div>
+<p>Do not pick <strong>GitHub Actions</strong> as the source. It serves one uploaded artifact as the whole site: one
+current version, no history, no version directories. It is also the source that fails a deployment
+with a bare <code>HttpError: Not Found</code> while Pages is switched off. The branch source has neither
+property, so the publish succeeds whether Pages is on or not.</p>
+<p>Until the setting is made, versions accumulate on the branch and the site answers nothing. That state
+is visible and recoverable, which is why the workflow does not fail on it.</p>
 <h2 id="diagrams">Diagrams<a class="headerlink" href="#diagrams" title="Permanent link">&para;</a></h2>
-<p>Mermaid works. Fence a diagram and Material renders it:</p>
+<p>Fence a diagram as <code>mermaid</code> and Material renders it:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>```mermaid
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>graph LR
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>  A[Caller] --&gt; B[sutura]
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>```
 </span></code></pre></div>
-<p>It is Material's own SuperFences integration rather than the mermaid2 plugin, because that
-integration hands mermaid the active colour scheme - a bare CDN import leaves every diagram
-stuck in light mode.</p>
-<p>Material does not bundle the mermaid library. Its bundle loads it from a public CDN at runtime,
-so a diagram does not render for a reader with no direct egress; the fence degrades to a code
-block. No page should depend on a diagram to be understood until mermaid is vendored under
-<code>docs/assets</code>.</p>
+<p>It is Material's own SuperFences integration rather than the mermaid2 plugin, because that integration
+hands mermaid the active colour scheme. A bare CDN import leaves every diagram stuck in light mode.</p>
+<div class="admonition warning">
+<p class="admonition-title">Mermaid is not bundled</p>
+<p>Material's bundle loads the mermaid library from a public CDN at runtime, so a diagram does not
+render for a reader with no direct egress and the fence degrades to a code block. No page may
+depend on a diagram to be understood until mermaid is vendored under <code>docs/assets</code>.</p>
+</div>
 <h2 id="brand-assets">Brand assets<a class="headerlink" href="#brand-assets" title="Permanent link">&para;</a></h2>
-<p><code>docs/css/telekom.css</code> makes Telekom magenta (<code>#E20074</code>) the Material <code>custom</code> primary and
-accent. It is deliberately small: the header, links and hover states come from four variables,
-and the two colour schemes differ only because <code>#E20074</code> clears WCAG AA on Material's light
-background and not on its dark one. The ratios are recorded next to each value.</p>
-<p>Both slots are filled, by an original mark rather than by any Telekom trademark:</p>
+<p><code>docs/css/telekom.css</code> makes Telekom magenta (<code>#E20074</code>) the Material <code>custom</code> primary and accent.
+The header, links and hover states come from four variables. The two colour schemes differ only
+because <code>#E20074</code> clears WCAG AA on Material's light background and not on its dark one; the measured
+ratios sit next to each value.</p>
+<p>Both image slots are filled by an original mark rather than by any Telekom trademark:</p>
 <table>
 <thead>
 <tr>
@@ -1139,46 +1137,52 @@ background and not on its dark one. The ratios are recorded next to each value.<
 </tr>
 </tbody>
 </table>
-<p>The mark is a hexagon cut into two congruent halves whose seam never closes - a seam being what
-<em>sutura</em> means, and the hexagon being the ports-and-adapters shape. Each half is the other
-rotated 180 degrees about the centre, so the optical weight is equal by construction rather than
-by eye, and the seam channel reads as an S. The favicon is drawn separately rather than scaled:
-the primary mark turns to mud at 16px.</p>
-<p>The <strong>T and the wordmark are deliberately absent.</strong> They are trademarks, nothing here
-approximates one, and no asset without verifiable provenance was used.</p>
-<p>One rule in <code>docs/css/telekom.css</code> exists because of a thing only a render revealed: Material's
-header carries the brand magenta in <em>both</em> colour schemes, so a magenta mark on it is invisible.
-<code>brightness(0) invert(1)</code> flattens the artwork and turns it white, joining the header text -
+<p>The mark is a hexagon cut into two congruent halves whose seam never closes: a seam is what <em>sutura</em>
+means, the hexagon is the ports-and-adapters shape, and the seam channel reads as an S. Each half is
+the other rotated 180 degrees about the centre, so the optical weight is equal by construction. The
+favicon is drawn separately rather than scaled, because the primary mark turns to mud at 16px.</p>
+<p>The <strong>T and the wordmark are deliberately absent.</strong> They are trademarks, nothing here approximates
+one, and no asset without verifiable provenance was used. TeleNeo, the brand face, is licensed and
+cannot be redistributed here, and linking a font CDN would break the self-contained rule, so
+Material's own font stack is used instead.</p>
+<p>Material's header carries the brand magenta in <em>both</em> colour schemes, so a magenta mark on it is
+invisible. <code>brightness(0) invert(1)</code> flattens the artwork and turns it white, joining the header text:
 one filter rather than a second white-only file to keep in sync.</p>
-<p><code>cargo xtask check-docs</code> validates both keys, so a path that stops resolving fails a gate
-instead of silently rendering nothing.</p>
-<p>TeleNeo, the brand face, is not shipped: it is licensed, this repository has no right to
-redistribute it, and linking a font CDN would break the self-contained rule. Material's own font
-stack is used instead.</p>
+<p><code>cargo xtask check-docs</code> validates both keys, so a path that stops resolving fails a gate instead of
+silently rendering nothing.</p>
 <h2 id="running-it-by-hand">Running it by hand<a class="headerlink" href="#running-it-by-hand" title="Permanent link">&para;</a></h2>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>mkdocs<span class="w"> </span>build<span class="w"> </span>--clean<span class="w"> </span>--strict<span class="w">     </span><span class="c1"># render to ./site</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a>mkdocs<span class="w"> </span>serve<span class="w">                      </span><span class="c1"># live reload on http://127.0.0.1:8000</span>
+<p>Render the site to <code>site/</code>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>just<span class="w"> </span>docs
 </span></code></pre></div>
-<p><code>--strict</code> is not optional in CI and should not be optional locally either: it is what turns a
-dead link, an orphan page and a bad anchor into a failure.</p>
-<p>To deploy a version by hand - CI normally does this - mike needs the branch and a git identity:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>gh-pages:gh-pages<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
-</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a>mike<span class="w"> </span>deploy<span class="w"> </span>--update-aliases<span class="w"> </span>--alias-type<span class="o">=</span>redirect<span class="w"> </span><span class="m">0</span>.2.0<span class="w"> </span>latest
-</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a>mike<span class="w"> </span>set-default<span class="w"> </span>latest
-</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a>mike<span class="w"> </span>list<span class="w">                         </span><span class="c1"># what is published</span>
+<p>Serve it with live reload on <a href="http://127.0.0.1:8000">http://127.0.0.1:8000</a>:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>just<span class="w"> </span>docs-serve
 </span></code></pre></div>
-<p><code>--alias-type=redirect</code> is not optional and is not mike's default. By default an alias is a git
-<strong>symlink</strong>, and GitHub Pages does not resolve one: <code>latest/</code> would serve the text <code>0.2.0</code> rather
-than the documentation. <code>redirect</code> writes a real HTML redirect for every page instead, so
+<p>Both run <code>mkdocs</code> with <code>--strict</code>, which is what turns a dead link, an orphan page and a bad anchor
+into a failure. It is not optional in CI and should not be optional locally.</p>
+<p>Deploy one version by hand, which CI normally does. mike needs the branch to be present and a git
+identity:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>git<span class="w"> </span>fetch<span class="w"> </span>origin<span class="w"> </span>gh-pages:gh-pages<span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="nb">true</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a>just<span class="w"> </span>docs-deploy<span class="w"> </span><span class="m">0</span>.2.0
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a>just<span class="w"> </span>docs-list
+</span></code></pre></div>
+<p><code>just docs-deploy</code> passes <code>--alias-type=redirect</code>, which is not mike's default. By default an alias
+is a git <strong>symlink</strong>, and GitHub Pages does not resolve one: <code>latest/</code> would serve the text <code>0.2.0</code>
+rather than the documentation. <code>redirect</code> writes a real HTML redirect for every page, so
 <code>latest/publishing/</code> lands on <code>0.2.0/publishing/</code> and not merely on the version root.</p>
-<p>Add <code>--push</code> to send it to the remote. Without <code>--push</code> mike only writes the local <code>gh-pages</code>
-branch, which is the safe way to see what a deployment would contain.</p>
+<p><code>--push</code> is deliberately absent from the task, so a local deploy only writes the local <code>gh-pages</code>
+branch. That is the safe way to see what a deployment would contain. Anything else mike can do -
+moving an alias, <code>set-default</code> - goes through the escape hatch, which appends its arguments:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>pixi<span class="w"> </span>run<span class="w"> </span>--frozen<span class="w"> </span>-e<span class="w"> </span>docs<span class="w"> </span>mike<span class="w"> </span>set-default<span class="w"> </span>latest
+</span></code></pre></div>
 
 
 
 
 
 
+
+  
+  
 
 
 
