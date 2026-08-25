@@ -24,9 +24,25 @@ repos:
 
       # `--all-features` is not optional here: the adapters are feature-gated and
       # default-off, so without it clippy inspects almost nothing and reports success.
+      #
+      # THROUGH `nix/stable-env.sh`, and this is the fix rather than the decoration. That file's own
+      # header says why: "Clippy's lint set differs between channels and this repo enables the whole
+      # `restriction` category with `-D warnings`. Nightly clippy knows lints stable does not, so
+      # gating on nightly means local failures CI cannot reproduce and local passes CI rejects." It
+      # then says it is sourced by the devenv gate scripts and the justfile recipes - and this hook
+      # was not one of them, so every commit inside the dev shell gated on NIGHTLY clippy while CI
+      # gated on stable.
+      #
+      # That is not theoretical. A nightly moved and brought `rest_pattern_accessible_field` and
+      # `assert_is_empty` with it, and the hook went red on files nobody had touched - including
+      # `xtask/src/text.rs`, which is what makes this pre-existing rather than a new rule. `-D
+      # warnings` turns each one into a wall in front of every commit in the repository.
+      #
+      # `bash -c` because `language: system` runs the entry as a command rather than through a
+      # shell, so there is nothing to source it otherwise.
       - id: rust-clippy
-        name: cargo clippy (-D warnings, all features)
-        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        name: cargo clippy (-D warnings, all features, on stable)
+        entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
