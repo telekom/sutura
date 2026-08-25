@@ -78,7 +78,10 @@ fmt:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    cargo fmt --all
+    # `xtask fmt` and NOT `cargo fmt --all`. `--all` reaches path dependencies that are not
+    # workspace members, which means it rewrites the vendored allocator - the one thing vendoring
+    # must never do. xtask/src/fmt.rs derives the member list and explains it at length.
+    cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
 # `--all-features` is not optional here: adapters are default-off, so without it clippy
@@ -141,7 +144,7 @@ gates: hygiene
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    cargo fmt --all -- --check
+    cargo run -q -p xtask -- fmt --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features

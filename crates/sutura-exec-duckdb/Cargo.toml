@@ -1,0 +1,21 @@
+[package]
+name = "sutura-exec-duckdb"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter over DuckDB, for local development and single-file work."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# Linked against the system `libduckdb` rather than built from source: the `bundled` feature
+# compiles DuckDB's C++ inside every build, which in the Nix sandbox is minutes and gigabytes per
+# derivation. `flake.nix` and `devenv.nix` provide the library and the two variables that find it.
+duckdb = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

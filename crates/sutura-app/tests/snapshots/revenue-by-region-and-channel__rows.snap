@@ -1,0 +1,42 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: rows
+---
+columns:
+  - region
+  - channel
+  - period
+  - revenue
+rows:
+  - - Text: north
+    - Text: store
+    - Text: 2026-06-01
+    - Integer: 25072
+  - - Text: north
+    - Text: web
+    - Text: 2026-06-01
+    - Integer: 200000
+  - - Text: north
+    - Text: web
+    - Text: 2026-07-01
+    - Integer: 10000
+  - - Text: south
+    - Text: store
+    - Text: 2026-06-01
+    - Integer: 45050
+  - - Text: south
+    - Text: store
+    - Text: 2026-07-01
+    - Integer: 20000
+  - - Text: south
+    - Text: web
+    - Text: 2026-06-01
+    - Integer: 199900
+  - - Text: west
+    - Text: store
+    - Text: 2026-06-01
+    - Integer: 1
+  - - Text: west
+    - Text: web
+    - Text: 2026-07-01
+    - Integer: 30000

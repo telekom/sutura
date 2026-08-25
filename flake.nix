@@ -77,9 +77,17 @@
           # workspace at all, and crane's filter is written for first-party Rust and drops
           # both them and the C. Without this the build fails in `cargo check` with
           # "failed to read vendor/mimalloc_rust/Cargo.toml".
+          #
+          # Keep `crates/*/tests/**` WHOLESALE, and this one is the trap. crane keeps Cargo
+          # inputs, which means `.rs`, `Cargo.toml` and `Cargo.lock` - so the golden suite's
+          # fixtures (markdown catalog documents, CSV data, question files) and its committed
+          # `.snap` snapshots are all dropped. The suite then COMPILES and finds no fixtures,
+          # which is a green check over nothing. `just test` in the dev shell reads the real
+          # tree and would not notice, so `just ci` is the only thing that catches it.
           filter = path: type:
             (builtins.match ".*rust-toolchain\.toml$" path != null)
             || (builtins.match ".*/vendor(/.*)?$" path != null)
+            || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -119,17 +127,53 @@
         # shape as `repo::root()` returning the wrong directory.
         apiDocsWriter = pkgs.writeShellApplication {
           name = "sutura-api-docs";
-          runtimeInputs = [ pkgs.python3 ];
+          # clang and lld because `.cargo/config.toml` selects them as the linker, and this app runs
+          # outside the dev shell that would otherwise have them. Without them every build script
+          # in the tree fails with "linker `clang` not found", which reads like a broken toolchain.
+          runtimeInputs = [ pkgs.python3 pkgs.clang pkgs.lld duckdb.package ];
           text = ''
             if [ ! -f flake.nix ] || [ ! -f Cargo.toml ]; then
               echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
               exit 1
             fi
             export PATH="${(import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly}/bin:$PATH"
-            # One library crate today. A second one is two more lines here and in the gate.
-            cargo rustdoc -q -p sutura-domain --all-features -- \
-              -Z unstable-options --output-format json
-            exec python3 docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+            # `--all-features` reaches the adapters, and one of them links libduckdb. This app runs
+            # OUTSIDE the dev shell - that is the point of it - so the three variables have to be
+            # here too, from the same nix/duckdb.nix the shell and the checks read.
+            export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
+            export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
+            export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}"
+
+            # DERIVED, not listed. `checks.api-docs` reads the library crates out of `cargo
+            # metadata`, so a hardcoded list here is a list that goes stale silently: the gate would
+            # ask for a page this writer never generates, and the fix it names would not produce it.
+            # This is the same query, so the two cannot disagree.
+            libs=$(cargo metadata --format-version 1 --no-deps | python3 -c '
+            import json, sys
+            meta = json.load(sys.stdin)
+            names = sorted(
+                p["name"]
+                for p in meta["packages"]
+                if any("lib" in t["kind"] for t in p["targets"])
+            )
+            print(" ".join(names))
+            ')
+            if [ -z "$libs" ]; then
+              echo "no library crates found: cargo metadata returned none" >&2
+              exit 1
+            fi
+            for lib in $libs; do
+              echo "api-docs: $lib"
+              cargo rustdoc -q -p "$lib" --all-features -- \
+                -Z unstable-options --output-format json
+              # rustdoc names its JSON after the crate's Rust identifier, so a package with a
+              # hyphen becomes a file with an underscore.
+              # The target directory variable, and not a literal `target/`: a developer who redirects the target
+              # directory - onto a faster volume, say - would otherwise get a "no such file" from
+              # the generator rather than the pages they asked for.
+              json="''${CARGO_TARGET_DIR:-target}/doc/$(printf '%s' "$lib" | tr - _).json"
+              python3 docs/.tools/rustdoc_to_markdown.py "$json"
+            done
           '';
         };
 
@@ -140,6 +184,12 @@
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
+
+        # The data system the local Warehouse adapter links against, resolved by the SAME file
+        # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
+        # explains why the crate is built without its `bundled` feature, and why the run-time path
+        # is a third variable rather than an afterthought.
+        duckdb = import ./nix/duckdb.nix { inherit pkgs; };
 
         commonArgs = {
           inherit src;
@@ -154,7 +204,15 @@
           # sandbox has neither unless we say so, and a flake that linked differently from
           # the dev shell would reintroduce exactly the drift this flake exists to remove.
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
-        };
+          # `buildInputs` and not `nativeBuildInputs`: this is a library the built artifact links
+          # against, not a tool that runs during the build, and `strictDeps = true` above makes the
+          # distinction load-bearing rather than stylistic.
+          #
+          # Only the NATIVE args carry it. The cross builds below deliberately do not: nixpkgs has
+          # no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature so
+          # the musl artifacts never ask for one.
+          buildInputs = [ duckdb.package ];
+        } // duckdb.env;
 
         # The two profiles we ship.
         #
@@ -516,6 +574,11 @@
           nextest = craneLib.cargoNextest (commonArgs // {
             inherit cargoArtifacts;
             cargoNextestExtraArgs = "--workspace --all-features";
+            # `insta` writes a `.snap.new` beside a snapshot that did not match and then fails. In
+            # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
+            # diff in the log and nothing else. It is also the setting that makes a MISSING
+            # snapshot a failure rather than something quietly created and passed.
+            INSTA_UPDATE = "no";
           });
 
           # The image is supposed to hold one executable and no toolchain. It held three and

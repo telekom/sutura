@@ -1,0 +1,31 @@
+[package]
+name = "sutura-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The service: generic over the ports, holding no framework types."
+
+[dependencies]
+sutura-domain = { workspace = true }
+sutura-semantic = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The golden suite lives here because this is the lowest crate that can see both ports at once, so
+# it is the one place a corpus can be run against a real adapter and a fake without either of them
+# depending on the other.
+sutura-catalog-local = { workspace = true }
+sutura-exec-duckdb = { workspace = true }
+insta = { workspace = true }
+serde_norway = { workspace = true }
+# Parse-only, and test-only: it proves the generated statement is valid in each target dialect
+# without needing one of each data system in CI. It never re-emits, so it cannot introduce the
+# parser-differential problem that makes translation unusable on the query path.
+polyglot-sql = { workspace = true }
+
+[lints]
+workspace = true

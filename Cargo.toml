@@ -12,7 +12,16 @@
 
 [workspace]
 resolver = "3"
-members = ["crates/sutura-domain", "crates/sutura-cli", "xtask", "dev"]
+members = [
+  "crates/sutura-domain",
+  "crates/sutura-catalog-local",
+  "crates/sutura-semantic",
+  "crates/sutura-app",
+  "crates/sutura-exec-duckdb",
+  "crates/sutura-cli",
+  "xtask",
+  "dev",
+]
 # The vendored allocator is EXCLUDED FROM MEMBERSHIP, and that is a correctness fix rather
 # than tidiness. A path dependency inside the workspace directory joins the workspace
 # automatically, and `cargo build --workspace` builds every MEMBER - which is independent of
@@ -33,9 +42,59 @@ repository = "https://github.com/telekom/sutura"
 
 [workspace.dependencies]
 sutura-domain = { path = "crates/sutura-domain" }
+sutura-catalog-local = { path = "crates/sutura-catalog-local" }
+sutura-semantic = { path = "crates/sutura-semantic" }
+sutura-app = { path = "crates/sutura-app" }
+sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
+# was archived by its author: the original still resolves and still parses, and it is exactly
+# the kind of dependency `cargo-deny`'s advisory database flags for being unmaintained. Same
+# API, so the choice is invisible above the parse call.
+serde_norway = "0.9"
+
+# The dialect layer. It renders a statement AST into one target dialect: identifier quoting,
+# keyword casing and date truncation all differ per data system, and this is what knows how.
+#
+# `default-features = false` is not tuning. The default set pulls `all-dialects`, which is 33
+# dialects across roughly 270 000 lines of generated match arms; we compile the three we
+# render for. Three things about the feature set are load-bearing and were found by building
+# rather than by reading:
+#
+#   * `builder` is on even though we never call the fluent builder, because `generate` does not
+#     compile without it in 0.9.2 (an unconditional reference to the builder module).
+#   * `stacker` is default-on upstream for stack-growth protection, and turning defaults off
+#     removes it. We only generate and never parse, so no recursion here is input-driven, but
+#     an abort is an availability bug and the guard costs nothing.
+#   * `transpile` is deliberately ABSENT. See `clippy.toml`: translating between dialects is a
+#     parse followed by a re-emit, it does not reliably repair the differences that matter, and
+#     not compiling it is a stronger statement than not calling it.
+polyglot-sql = { version = "0.9.2", default-features = false, features = [
+  "generate",
+  "builder",
+  "stacker",
+  "dialect-duckdb",
+  "dialect-postgresql",
+  "dialect-clickhouse",
+] }
+
+# The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++
+# from source, which in the Nix build sandbox is minutes and gigabytes per derivation. We link
+# the `libduckdb` nixpkgs already builds, wired up in `flake.nix` and `devenv.nix`.
+#
+# The adapter that uses it is behind a default-off feature on `sutura-cli`, and that is what
+# keeps the musl cross builds working: there is no musl `libduckdb` to link against.
+duckdb = "1.10505"
+
+# Snapshot testing, for the golden suite. Test-only.
+#
+# The goldens it holds are the generated SQL, the plan and the pinned bundle - artifacts that
+# are regenerated and reviewed as a diff, never typed by hand, because a hand-written
+# expectation asserts what we wish the generator did.
+insta = { version = "1", features = ["yaml", "glob"] }
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
 #

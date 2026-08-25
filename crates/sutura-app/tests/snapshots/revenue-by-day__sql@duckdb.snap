@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: query.sql()
+---
+SELECT CAST(DATE_TRUNC('day', "orders"."order_date") AS DATE) AS "period", SUM("orders"."amount_cents") AS "revenue" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY CAST(DATE_TRUNC('day', "orders"."order_date") AS DATE) ORDER BY CAST(DATE_TRUNC('day', "orders"."order_date") AS DATE) LIMIT 10000

@@ -1,0 +1,12 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: rows
+---
+columns:
+  - period
+  - revenue
+rows:
+  - - Text: 2026-06-28
+    - Integer: 1
+  - - Text: 2026-06-30
+    - Integer: 75000

@@ -1,0 +1,37 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: plan
+---
+source: local
+metric: revenue
+table: orders
+joins: []
+bucket:
+  label: period
+  grain: day
+  column:
+    table: orders
+    column: order_date
+keys: []
+measure:
+  label: revenue
+  aggregate: sum
+  column:
+    table: orders
+    column: amount_cents
+time_column:
+  table: orders
+  column: order_date
+start_param: 0
+end_param: 1
+filters: []
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 28
+  - Date:
+      year: 2026
+      month: 7
+      day: 1
+row_limit: 10000

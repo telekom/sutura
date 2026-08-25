@@ -1,0 +1,15 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: rows
+---
+columns:
+  - segment
+  - period
+  - revenue
+rows:
+  - - Text: business
+    - Text: 2026-06-01
+    - Integer: 50073
+  - - Text: retail
+    - Text: 2026-06-01
+    - Integer: 419950

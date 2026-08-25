@@ -28,6 +28,13 @@ pixi.lock
 # length is a function of the domain types.
 docs/generated/*
 
+# The API reference pages, written by `nix run .#api-docs` from rustdoc JSON and byte-compared
+# by `cargo xtask check-api-docs`. Their length is a function of how much public surface a crate
+# has and how well it is documented, so a line budget here would be a budget on doc comments.
+# Editing one by hand is already caught: every page carries a generated-file header and the gate
+# regenerates and compares.
+docs/api/*.md
+
 # Vendored third-party source: the allocator's C and the two crates that wrap it. Upstream's
 # file lengths are not ours to budget, and pinning individual paths would mean editing this
 # list on every version bump. `VENDOR.md` records what is vendored, from where, and why.

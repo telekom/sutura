@@ -32,6 +32,10 @@ let
   };
   toolchains = import ./nix/toolchains.nix { inherit rustPkgs; };
 
+  # The data system the local Warehouse adapter links against, resolved by the SAME file
+  # flake.nix imports so the dev shell and CI cannot link two different libduckdbs.
+  duckdb = import ./nix/duckdb.nix { inherit pkgs; };
+
   # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
   # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
   rustToolchain = toolchains.nightly;
@@ -70,6 +74,12 @@ in
   # where the snippet is then a no-op - which is exactly right for CI.
   env.SUTURA_STABLE_BIN = stableBin;
 
+  # Build-time and run-time paths to libduckdb, from nix/duckdb.nix. Spelled out there, once,
+  # including why the run-time one is separate and what breaks without it.
+  env.DUCKDB_LIB_DIR = duckdb.env.DUCKDB_LIB_DIR;
+  env.DUCKDB_INCLUDE_DIR = duckdb.env.DUCKDB_INCLUDE_DIR;
+  env.LD_LIBRARY_PATH = duckdb.env.LD_LIBRARY_PATH;
+
   env.CARGO_UNSTABLE_CODEGEN_BACKEND = "true";
   env.CARGO_PROFILE_DEV_CODEGEN_BACKEND = "cranelift";
 
@@ -80,6 +90,12 @@ in
     # in devco/rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
     # PATH collision - the gates override it back to stable per-command.
     rustToolchain
+
+    # The data system the local Warehouse adapter links against, and its CLI, which is handy for
+    # looking at a fixture by hand. Listed here rather than inside the `with pkgs` block below
+    # because `duckdb` is a let-binding in this file and reading it as `pkgs.duckdb` in one place
+    # and the binding in another is exactly the drift nix/duckdb.nix exists to remove.
+    duckdb.package
   ] ++ (with pkgs; [
     # Linking dominates the inner loop; .cargo/config.toml points at these.
     clang

@@ -1,0 +1,10 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: rows
+---
+columns:
+  - period
+  - average_order
+rows:
+  - - Text: 2026-06-01
+    - Real: 58752.875

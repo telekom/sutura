@@ -1,0 +1,23 @@
+[package]
+name = "sutura-semantic"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The semantic compiler: a modelled question becomes one statement for one data system."
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+# The dialect layer. Renders a statement AST into one target dialect: it is what knows that
+# `ClickHouse` spells `DATE_TRUNC` as `dateTrunc` and `SUM` as `sum`, which is not a difference
+# worth maintaining by hand. Confined to `generate.rs` so a pre-1.0 API change touches one file.
+polyglot-sql = { workspace = true }
+
+
+[lints]
+workspace = true

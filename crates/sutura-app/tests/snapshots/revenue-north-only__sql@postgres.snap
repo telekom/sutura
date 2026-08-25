@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: query.sql()
+---
+SELECT "orders"."channel" AS "channel", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) AS "period", SUM("orders"."amount_cents") AS "revenue" FROM "orders" JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."order_date" >= $1 AND "orders"."order_date" < $2 AND "customers"."region_code" = $3 GROUP BY "orders"."channel", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) ORDER BY "orders"."channel", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) LIMIT 10000

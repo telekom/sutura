@@ -1,0 +1,15 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: rows
+---
+columns:
+  - channel
+  - period
+  - revenue
+rows:
+  - - Text: store
+    - Text: 2026-06-01
+    - Integer: 70123
+  - - Text: web
+    - Text: 2026-06-01
+    - Integer: 399900

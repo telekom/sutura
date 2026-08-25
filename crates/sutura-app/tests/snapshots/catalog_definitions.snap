@@ -1,0 +1,124 @@
+---
+source: crates/sutura-app/tests/golden.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: customers
+    columns:
+      - id
+      - region_code
+      - segment
+    description: "One row per customer. Attributes only: nothing here is additive, so joining to it\ncannot change a measure."
+  orders:
+    name: orders
+    source: local
+    table: orders
+    columns:
+      - amount_cents
+      - channel
+      - customer_id
+      - order_date
+      - order_id
+    description: "One row per order, as booked.\n\nMoney is held in minor units so that a total is exact. A metric that summed a\ndecimal column would depend on how two languages happen to print the same bits,\nand an anchor comparison over that is a test that fails for the wrong reason."
+relationships:
+  orders_customer:
+    name: orders_customer
+    origin_model: orders
+    origin_column: customer_id
+    target_model: customers
+    target_column: id
+    join_type: many_to_one
+metrics:
+  average_order:
+    name: average_order
+    model: orders
+    measure:
+      aggregate: avg
+      column: amount_cents
+    time_column: order_date
+    grains:
+      - month
+    dimensions: {}
+    anchor: ~
+    description: "Mean booked order value, in minor units.\n\nDeliberately carries no anchor. An average is not exact in binary, so pinning one\nas text would be pinning a formatting decision rather than a number. The two\nmetrics that do carry anchors are integer sums, where the comparison is exact."
+  orders_placed:
+    name: orders_placed
+    model: orders
+    measure:
+      aggregate: count
+      column: order_id
+    time_column: order_date
+    grains:
+      - day
+      - month
+    dimensions:
+      region:
+        name: region
+        column: region_code
+        via: orders_customer
+        allowed_values:
+          - north
+          - south
+          - west
+        description: ""
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "8"
+    description: "How many orders were booked.\n\nCounts the order key rather than rows. Over a joined result those are different\nnumbers, and the one that means \"orders\" is the key."
+  revenue:
+    name: revenue
+    model: orders
+    measure:
+      aggregate: sum
+      column: amount_cents
+    time_column: order_date
+    grains:
+      - day
+      - month
+    dimensions:
+      channel:
+        name: channel
+        column: channel
+        via: ~
+        allowed_values:
+          - store
+          - web
+        description: "Where the order was placed. On the order itself, so no join."
+      region:
+        name: region
+        column: region_code
+        via: orders_customer
+        allowed_values:
+          - north
+          - south
+          - west
+        description: "The customer region, reached through one declared relationship."
+      segment:
+        name: segment
+        column: segment
+        via: orders_customer
+        allowed_values: ~
+        description: "Declared without a value list, so it can be grouped by and not filtered on.\n"
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "470023"
+    description: "Total booked order value, in minor units.\n\nThe anchor is the number this metric produced for June 2026 when it was\ncertified. It is re-executed on every run and at startup: a definition that has\nstopped meaning what it claimed fails readiness rather than answering."

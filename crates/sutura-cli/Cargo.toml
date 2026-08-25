@@ -13,8 +13,24 @@ description = "The sutura binary. Composes adapters; contains no business logic.
 name = "sutura"
 path = "src/main.rs"
 
+[features]
+# The DuckDB Warehouse adapter, and DEFAULT-OFF for a reason that is not taste: nixpkgs has no musl
+# `libduckdb`, and two of the four shipped artifacts are musl. With this off, `nix build
+# .#sutura-x86_64-unknown-linux-musl` and the `one-binary` check over the cross targets do not see
+# duckdb at all, while `--all-features` clippy and nextest - which run natively - still cover it.
+#
+# `compile` works without it. The `query` command is replaced by one that says why it is absent.
+default = []
+exec-duckdb = ["dep:sutura-exec-duckdb"]
+
 [dependencies]
+sutura-app = { workspace = true }
+sutura-catalog-local = { workspace = true }
 sutura-domain = { workspace = true }
+sutura-semantic = { workspace = true }
+# A question arrives as a file a person wrote, so it is read the same way a catalog document is.
+serde_norway = { workspace = true }
+sutura-exec-duckdb = { workspace = true, optional = true }
 
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`:
 # this way the C is never compiled - not even a build script - on a macOS or Windows laptop,
