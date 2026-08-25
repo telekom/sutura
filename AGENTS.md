@@ -68,10 +68,8 @@ the pinned **stable** (`rust-toolchain.toml`) in front and gives it its own targ
 
 CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
 needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
-a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here, and
-fmt/clippy/tests run the same cargo subcommands under the same stable pin, because the gates go
-through `nix/stable-env.sh` here and CI has only stable to begin with. Add a gate in one place only
-and the omission shows up as a diff.
+a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here. Add a gate
+in one place only and the omission shows up as a diff.
 
 ```bash
 cargo check -p sutura-domain --no-default-features   # fast inner loop
@@ -101,13 +99,9 @@ stax                                                 # stacked branches / PRs
   inner loop, not the gate.
 - The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
   here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
-- `rust-toolchain.toml` is the authority for anything shipped: CI, the release build and the OCI
-  image. `nix/toolchains.nix` is the one place that turns either pin into a compiler, imported by
-  both `flake.nix` and `devenv.nix`.
 - nix is the **only** pin for any tool whose version changes what it reports - zizmor, actionlint,
   shellcheck, clippy, nextest, cargo-deny. pixi holds only `prek` and `python`, which cannot change
   a verdict. `cargo xtask check-pins` fails if a tool appears in both.
-- Use `rg` to search and `fd` to find files.
 - If tooling is missing, report the exact install command and ask before installing it.
 
 ## Canonical Sources And Generated Output
@@ -260,26 +254,18 @@ Do not skip it silently.
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.
 - `devco/` - config that only this repo's own tooling reads.
-- `devco/max-lines-ignore` - the only place a file can be exempted from the 1000-line limit, and
-  the list of what may not be.
-- `xtask/` - the gates: `check-boundaries` (two halves: which way dependencies point, and whether a
-  library crate's types and errors are a typed contract), `max-lines`, `unused-deps`, `line-endings`,
-  `text-hygiene`, `commit-msg`, `check-skills`, `check-docs`, `test-causality`, plus `classify` /
-  `check-changed` / `changed-packages`, which decide what a diff requires. Classification **fails open**: an unmapped path, a bad base ref or an empty diff all
-  run everything and say why, because the expensive failure is a new directory being skipped
-  silently, not a wasted CI minute. Each is
-  unit-tested by `cargo nextest run --workspace`, because a gate with no test is a gate nobody has seen
-  fail. They list files via `git ls-files` where git is available and fall back to walking the tree
-  where it is not - the Nix sandbox has the source but no `.git`, and a gate that returned an empty
-  file list there would pass while checking nothing.
+- `xtask/` - every gate, each unit-tested, because a gate with no test is one nobody has seen
+  fail. `cargo xtask --help` lists them; `hygiene` runs the cheap ones. `classify` /
+  `check-changed` / `changed-packages` decide what a diff requires, and **fail open**: an
+  unmapped path, a bad base ref or an empty diff all run everything and say why, because the
+  expensive failure is a new directory silently skipped, not a wasted CI minute.
 - `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
   build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
   LTO). None of them installs devenv.
 - `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
-- `docs/` - the published site (mkdocs-material, versioned by mike: `mkdocs.yml` at the root,
-  pages in `docs/`). Installing the environment, building without direct egress, the layout, the
-  invariants and the gates. `cargo xtask check-docs` fails if a page is in no `nav` entry, if a
-  `nav` entry names a file that is not there, or if an asset `mkdocs.yml` references is missing.
+- `docs/` - the published site: mkdocs-material, versioned by mike, `mkdocs.yml` at the root.
+  `cargo xtask check-docs` fails on a page in no `nav` entry, a `nav` entry with no file, or a
+  missing asset.
 - `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
 - `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.
