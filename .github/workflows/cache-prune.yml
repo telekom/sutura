@@ -1,0 +1,171 @@
+# Delete the build caches belonging to CLOSED pull requests, weekly and on request.
+#
+# GitHub already prunes: an entry idle for 7 days is evicted, and past the 10 GB repository
+# limit it evicts least-recently-used until the total fits. So this file is not here because
+# nothing collects the garbage - it is here because LRU is the wrong policy for this repo.
+#
+# The Actions cache is scoped by ref. A cache written by a pull request lands under
+# `refs/pull/<n>/merge` and can only ever be restored by a run on that same ref, so once the
+# pull request is closed it is dead weight - nothing will read it again. LRU does not know
+# that, so a dead entry from a merged branch competes for the quota with the
+# `refs/heads/main` entries that every future pull request restores from, and evicts them by
+# being touched more recently.
+#
+# Measured before this file existed: 4.31 GB across 2120 entries - 43% of the quota - held by
+# eight closed pull requests, against a total of 10.73 GB that was already OVER the limit and
+# evicting continuously. The largest single dead entry was 139 MB.
+#
+# What it costs when it is wrong: re-running CI on an already-closed pull request rebuilds
+# from scratch instead of restoring. That is slower and still correct, and it is rare enough
+# to be the right trade against evicting main's cache.
+#
+# NOT event-driven, deliberately. `pull_request: closed` from a fork gets a read-only token
+# and could not delete anything, and `pull_request_target` would hand a full token to a
+# workflow triggered by an outside contributor. A schedule needs neither.
+#
+# THIRD-PARTY ACTIONS: none - and no checkout either. This reads and deletes through the API
+# and never needs the source tree.
+name: cache-prune
+
+on:
+  schedule:
+    # Monday 04:23 UTC, before the week's work and off the hour: scheduled jobs on the hour
+    # queue behind everyone else's.
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      budget:
+        description: "Maximum caches to delete in one run"
+        required: false
+        default: "800"
+      dry_run:
+        description: "List what would be deleted, delete nothing"
+        type: boolean
+        required: false
+        default: false
+
+permissions: {}
+
+concurrency:
+  # Two runs would race to delete the same ids and the loser would log 404s as failures.
+  group: cache-prune
+  cancel-in-progress: false
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      actions: write        # delete cache entries
+      pull-requests: read   # decide which pull requests are still open
+    steps:
+      - name: Delete caches belonging to closed pull requests
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          # `inputs` is empty on a schedule, so both carry the scheduled default.
+          BUDGET: ${{ inputs.budget || '800' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: |
+          set -euo pipefail
+
+          # A non-numeric budget would reach `head -n` and abort there with a worse message.
+          case "$BUDGET" in ''|*[!0-9]*) echo "::error::budget must be a number, got '$BUDGET'"; exit 1 ;; esac
+
+          # OPEN pull requests first, and the run ABORTS if this fails. Fail closed: an empty
+          # list read as "nothing is open" would mark every cache dead and delete the lot. The
+          # same rule the xtask gates learned - a check that could not run must not report a
+          # finding - applied to a step that deletes.
+          if ! gh api --paginate "repos/${REPO}/pulls?state=open&per_page=100" \
+                 --jq '.[].number' > open.txt 2>err.txt; then
+            echo "::error::could not list open pull requests; refusing to guess what is closed"
+            cat err.txt >&2
+            exit 1
+          fi
+          echo "open pull requests: $(paste -sd, open.txt || echo none)"
+
+          # Every cache entry, paged until a page comes back empty.
+          : > all.tsv
+          page=1
+          while :; do
+            gh api "repos/${REPO}/actions/caches?per_page=100&page=${page}" \
+              --jq '.actions_caches[] | [.id, .ref, .size_in_bytes, .key] | @tsv' > page.tsv
+            [ -s page.tsv ] || break
+            cat page.tsv >> all.tsv
+            page=$((page + 1))
+            # A guard, not a limit: 200 pages is 20000 entries, far past anything real.
+            # `if` and not `&& break`: under `set -e` a failing test as the loop body's last
+            # command exits the script instead of continuing the loop.
+            if [ "$page" -gt 200 ]; then
+              echo "::warning::stopped paging at 200 pages"
+              break
+            fi
+          done
+          total=$(wc -l < all.tsv)
+          echo "cache entries: ${total}"
+
+          # DEAD = scoped to a pull-request merge ref whose pull request is not open. The ref
+          # pattern is an anchored allowlist: `refs/heads/main` and every tag scope can never
+          # match it, so no rule elsewhere has to protect them.
+          : > dead.tsv
+          while IFS=$'\t' read -r id ref size key; do
+            case "$ref" in
+              refs/pull/*/merge) ;;
+              *) continue ;;
+            esac
+            n="${ref#refs/pull/}"; n="${n%/merge}"
+            case "$n" in ''|*[!0-9]*) continue ;; esac
+            if grep -qx "$n" open.txt; then continue; fi
+            printf '%s\t%s\t%s\t%s\n' "$size" "$id" "$ref" "$key" >> dead.tsv
+          done < all.tsv
+
+          if [ ! -s dead.tsv ]; then
+            echo "nothing to prune: no cache belongs to a closed pull request"
+            exit 0
+          fi
+
+          # Largest first, so a budgeted run frees the most space it can.
+          sort -rn -o dead.tsv dead.tsv
+          dead_count=$(wc -l < dead.tsv)
+          # awk and not bc: bc is not guaranteed on a runner image and this needs no precision.
+          dead_bytes=$(awk -F'	' '{s+=$1} END{print s+0}' dead.tsv)
+          echo "dead: ${dead_count} entr(ies), $((dead_bytes / 1000000)) MB"
+
+          head -n "$BUDGET" dead.tsv > batch.tsv
+          batch_bytes=$(awk -F'	' '{s+=$1} END{print s+0}' batch.tsv)
+
+          {
+            echo "### cache-prune"
+            echo
+            echo "| | entries | size |"
+            echo "| --- | --- | --- |"
+            echo "| dead (closed pull requests) | ${dead_count} | $((dead_bytes / 1000000)) MB |"
+            echo "| this run | $(wc -l < batch.tsv) | $((batch_bytes / 1000000)) MB |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "::notice::dry run: would delete $(wc -l < batch.tsv) entr(ies), $((batch_bytes / 1000000)) MB"
+            cut -f2,3 batch.tsv | head -20
+            exit 0
+          fi
+
+          # One DELETE per entry - the API has no bulk form that does not also need a key - so
+          # the budget exists to stay clear of the hourly request limit for GITHUB_TOKEN. A
+          # failed delete is a warning and not a failure: the usual cause is an entry GitHub
+          # evicted between the listing and here, which is the outcome we wanted anyway.
+          ok=0; fail=0
+          while IFS=$'\t' read -r size id ref key; do
+            if gh api -X DELETE "repos/${REPO}/actions/caches/${id}" --silent 2>/dev/null; then
+              ok=$((ok + 1))
+            else
+              fail=$((fail + 1))
+              echo "::warning::could not delete cache ${id} (${ref}); it may already be gone"
+            fi
+          done < batch.tsv
+
+          echo "deleted ${ok}, failed ${fail}"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          echo "Deleted ${ok}, failed ${fail}." >> "$GITHUB_STEP_SUMMARY"
+          if [ "$dead_count" -gt "$(wc -l < batch.tsv)" ]; then
+            echo "::notice::$((dead_count - $(wc -l < batch.tsv))) dead entr(ies) remain; raise the budget or wait for the next run"
+          fi
