@@ -123,13 +123,21 @@ ENV http_proxy=${HTTP_PROXY_URL} \
     no_proxy=${NO_PROXY_LIST} \
     NO_PROXY=${NO_PROXY_LIST}
 
+# `build-users-group =` (empty) is not optional on this base, and its absence is silent
+# until it isn't. Nix's default is to drop privileges to a `nixbld` group when it builds a
+# derivation locally; the nixos/nix image creates those users, and a Debian base does not.
+# So substitution worked fine and anything that had to be BUILT died with
+#   error: the group 'nixbld' specified in 'build-users-group' does not exist
+# which took out `devenv shell` and every local build in the container. Empty means build as
+# the calling user, which is what a single-user container wants anyway.
+#
 # Flakes are a prerequisite, not a preference: flake.nix is how the release image and the
 # cross-compiled binaries are built. Written idempotently so a base that already provides
 # this is left alone.
 RUN set -eu; \
     mkdir -p /etc/nix; \
     grep -q 'experimental-features' /etc/nix/nix.conf 2>/dev/null \
-      || printf 'experimental-features = nix-command flakes\nmax-jobs = auto\n' >> /etc/nix/nix.conf; \
+      || printf 'experimental-features = nix-command flakes\nmax-jobs = auto\nbuild-users-group =\n' >> /etc/nix/nix.conf; \
     printf 'substituters = %s\ntrusted-public-keys = %s\n' "${NIX_SUBSTITUTER}" "${NIX_TRUSTED_KEY}" \
       >> /etc/nix/nix.conf; \
     echo "substituters: ${NIX_SUBSTITUTER}"; \
