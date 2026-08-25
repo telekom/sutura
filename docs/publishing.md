@@ -92,18 +92,29 @@ accent. It is deliberately small: the header, links and hover states come from f
 and the two colour schemes differ only because `#E20074` clears WCAG AA on Material's light
 background and not on its dark one. The ratios are recorded next to each value.
 
-Two slots are **empty**, because the T and the wordmark are trademarks and no asset with
-verifiable provenance was to hand. Nothing is approximated; drop the official files in and add
-the two lines:
+Both slots are filled, by an original mark rather than by any Telekom trademark:
 
-| Slot | Drop the official file at | Then add to `mkdocs.yml` under `theme:` |
+| Slot | File | `mkdocs.yml` key |
 | --- | --- | --- |
-| Header mark | `docs/assets/logo.svg` | `logo: assets/logo.svg` |
-| Favicon | `docs/assets/favicon.svg` | `favicon: assets/favicon.svg` |
+| Header mark | `docs/assets/sutura.svg` | `logo: assets/sutura.svg` |
+| Favicon | `docs/assets/favicon.svg`, plus `favicon.png` | `favicon: assets/favicon.svg` |
 
-Until then Material uses its own mark, which is a working default rather than a broken image.
-`cargo xtask check-docs` validates whichever of those keys is present, so a path that stops
-resolving fails a gate instead of silently rendering nothing.
+The mark is a hexagon cut into two congruent halves whose seam never closes - a seam being what
+*sutura* means, and the hexagon being the ports-and-adapters shape. Each half is the other
+rotated 180 degrees about the centre, so the optical weight is equal by construction rather than
+by eye, and the seam channel reads as an S. The favicon is drawn separately rather than scaled:
+the primary mark turns to mud at 16px.
+
+The **T and the wordmark are deliberately absent.** They are trademarks, nothing here
+approximates one, and no asset without verifiable provenance was used.
+
+One rule in `docs/css/telekom.css` exists because of a thing only a render revealed: Material's
+header carries the brand magenta in *both* colour schemes, so a magenta mark on it is invisible.
+`brightness(0) invert(1)` flattens the artwork and turns it white, joining the header text -
+one filter rather than a second white-only file to keep in sync.
+
+`cargo xtask check-docs` validates both keys, so a path that stops resolving fails a gate
+instead of silently rendering nothing.
 
 TeleNeo, the brand face, is not shipped: it is licensed, this repository has no right to
 redistribute it, and linking a font CDN would break the self-contained rule. Material's own font
