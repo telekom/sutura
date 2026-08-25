@@ -9,7 +9,7 @@
       "repo": "https://microsoft.github.io/rust-guidelines",
       "ref": "agents/all.txt",
       "upstream_path": "-",
-      "sha256": "f20b4e423c39777948bb7e248bc1d8c90d51a8de78cd087037d16af26194835b"
+      "sha256": "91f49f9eac3295c0d58c20076aa41f583334645bbb6e49e72d36e4da144e5fbd"
     },
     {
       "name": "oauth",

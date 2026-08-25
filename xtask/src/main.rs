@@ -15,10 +15,12 @@ mod docs;
 mod guidance;
 mod line_endings;
 mod max_lines;
+mod pins;
 mod repo;
 mod skills;
 mod text;
 mod unused_deps;
+mod workflows;
 
 use std::process::ExitCode;
 
@@ -94,6 +96,12 @@ const TASKS: &[Task] = &[
         run: max_lines::run,
     },
     Task {
+        name: "check-pins",
+        description: "no tool is pinned by both nix and pixi",
+        kind: Kind::Hygiene,
+        run: pins::run,
+    },
+    Task {
         name: "unused-deps",
         description: "every declared dependency is actually used",
         kind: Kind::Hygiene,
@@ -122,6 +130,12 @@ const TASKS: &[Task] = &[
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene,
         run: guidance::run,
+    },
+    Task {
+        name: "check-workflows",
+        description: "every flake output a workflow names exists",
+        kind: Kind::Hygiene,
+        run: workflows::run,
     },
     Task {
         name: "check-docs",

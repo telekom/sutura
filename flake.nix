@@ -53,7 +53,19 @@
         # separate "cross" x86_64 derivation would compile the whole tree a second time
         # for a byte-identical result. `packages.sutura-x86_64-unknown-linux-gnu` is an
         # alias to the native build instead - see `crossPackages` below.
-        crossTargets = [ "aarch64-unknown-linux-gnu" ];
+        crossTargets = [
+          "aarch64-unknown-linux-gnu"
+          # The statically linked pair, and `x86_64-unknown-linux-musl` counts as a CROSS target
+          # even on an x86_64 builder: the CPU is the same but the libc is not, so it is a real
+          # second compile rather than the byte-identical one the comment above rules out.
+          #
+          # Why ship them at all: a musl artifact has no dynamic loader and no libc version
+          # floor, so it runs on a host older than the builder and in a `FROM scratch` image.
+          # What it costs is the allocator - see `crates/sutura-cli/src/main.rs`, because musl's
+          # own is why mimalloc is not optional here.
+          "x86_64-unknown-linux-musl"
+          "aarch64-unknown-linux-musl"
+        ];
 
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
@@ -67,6 +79,16 @@
         # The same pin as a package, for the tools that need `cargo` on PATH rather than a
         # crane derivation around it.
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
+
+        # The pinned cargo, for the one workflow that has to touch Cargo.lock.
+        cargoWrapper = pkgs.writeShellApplication {
+          name = "sutura-cargo";
+          text = ''
+            export PATH="${rustToolchain}/bin:$PATH"
+            exec cargo "$@"
+          '';
+        };
+
 
         craneLibFor = sys:
           (crane.mkLib pkgs).overrideToolchain
@@ -130,6 +152,7 @@
         # cross linker comes from pkgsCross, so no developer needs a local cross setup.
         crossFor = { target, profile }:
           let
+            isMusl = pkgs.lib.hasSuffix "-linux-musl" target;
             crossPkgs = import nixpkgs {
               inherit system;
               overlays = [ (import rust-overlay) ];
@@ -144,6 +167,27 @@
               # and CI's gates job cover correctness.
               doCheck = false;
               strictDeps = true;
+            } // pkgs.lib.optionalAttrs isMusl {
+              # THE C COMPILER. mimalloc is C, so a musl target needs a compiler that knows
+              # MUSL's headers rather than the host's - compile against glibc headers and link
+              # against musl and mimalloc takes its `__GLIBC__` code paths. Nothing is added to
+              # `nativeBuildInputs` for it: `crossPkgs.stdenv` already carries the musl cross
+              # cc, and crane's `mkCrossToolchainEnv` exports it to the `cc` crate as
+              # `CC_<triple>` / `CXX_<triple>` / `AR_<triple>` plus the `TARGET_*` aliases, and
+              # to cargo as `CARGO_TARGET_<TRIPLE>_LINKER`. The static-linking rustflags are in
+              # `.cargo/config.toml`, which explains why they cannot live here.
+              #
+              # `-DMI_LIBC_MUSL=1` is upstream's musl switch, and it has to be a COMPILE DEFINE
+              # rather than the environment variable of the same name: that name is a CMake
+              # option, and `libmimalloc-sys` builds with the `cc` crate and never reads it.
+              # nixpkgs' own mimalloc derivation sets it whenever the host libc is musl. In
+              # mimalloc v2 it switches off `MI_USE_BUILTIN_THREAD_POINTER`
+              # (`include/mimalloc/prim.h`), so the thread id comes from the TLS slot instead of
+              # `__builtin_thread_pointer`. `CFLAGS_<triple>` is the `cc` crate's per-target
+              # hook; it is appended to the flags cc already computed, not a replacement for
+              # them, and it beats `TARGET_CFLAGS` / `CFLAGS` in cc's lookup order so nothing
+              # in the sandbox can shadow it.
+              "CFLAGS_${builtins.replaceStrings [ "-" ] [ "_" ] target}" = "-DMI_LIBC_MUSL=1";
             };
           in
           crossLib.buildPackage (args // {
@@ -186,12 +230,34 @@
               value = nativeFor v.profile;
             }]))
           variants);
+
+        # Every target that becomes a published artifact: the cross list plus the host triple,
+        # which is built natively rather than cross-built. One list, so the packages, the
+        # images and the one-binary check cannot disagree about what "shipped" means.
+        releaseTargets = pkgs.lib.unique (crossTargets
+          ++ (if hostRustTarget == null then [ ] else [ hostRustTarget ]));
+
+        # The subset that can become a container image. A darwin host triple lands in
+        # `releaseTargets` and must not.
+        imageTargets = builtins.filter (t: pkgs.lib.hasInfix "-linux-" t) releaseTargets;
+
+        # The OCI `architecture` field for a target triple. Not cosmetic: an image built from an
+        # aarch64 binary that claims `amd64` gets scheduled onto a node that cannot run it, and
+        # the failure surfaces as a crash loop rather than as a rejected placement.
+        ociArch = target: if pkgs.lib.hasPrefix "aarch64-" target then "arm64" else "amd64";
+
         # Contents are the binary, CA certificates and tzdata. NO shell and NO package
         # manager: the attack surface of a governed service should be one executable, and it
         # is also the mechanical proof that no interpreter is in the query path.
-        ociFor = bin: pkgs.dockerTools.streamLayeredImage {
+        #
+        # `cacert` and `tzdata` come from the NATIVE package set even in a cross image, and
+        # deliberately: both outputs are data only - PEM text and endian-fixed TZif files - so
+        # cross-building them would add a toolchain closure per architecture for a byte-for-byte
+        # identical result. The binary is the only architecture-dependent thing in here.
+        ociFor = { bin, architecture }: pkgs.dockerTools.streamLayeredImage {
           name = "sutura";
           tag = "latest";
+          inherit architecture;
           # Pinned, not `now`: an image whose digest changes on every build cannot be the
           # thing a deployment pins.
           created = "1970-01-01T00:00:01Z";
@@ -214,9 +280,18 @@
             };
           };
         };
+
+        # One image per shipped target, named after the RUST triple like the binaries are, so a
+        # published image and a published tarball can be traced back to the same build.
+        ociImages = builtins.listToAttrs (map
+          (t: {
+            name = "oci-${t}";
+            value = ociFor { bin = crossPackages."sutura-${t}"; architecture = ociArch t; };
+          })
+          imageTargets);
       in
       {
-        packages = crossPackages // {
+        packages = crossPackages // ociImages // {
           default = sutura;
           inherit sutura;
 
@@ -233,15 +308,26 @@
             meta.mainProgram = "xtask";
           });
 
-          # `nix build .#oci` -> a loadable image tarball.
+          # `nix build .#oci` -> a loadable image tarball, from the native binary.
           #
           # streamLayeredImage, not buildLayeredImage: it avoids materialising a
           # multi-hundred-MB tarball in the store just to push it. See `ociFor`.
-          oci = ociFor sutura;
+          #
+          # `ociImages` above contributes the per-target set, `oci-<triple>` - four images for
+          # four binaries. This keeps the unqualified name because it is what a developer and
+          # the release workflow reach for, and on an x86_64 builder it is the same derivation
+          # as `oci-x86_64-unknown-linux-gnu`.
+          oci = ociFor {
+            bin = sutura;
+            architecture = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
+          };
 
           # The same image built from the performance binary, so a release shipping the
           # optimised profile ships a matching image rather than a mismatched pair.
-          oci-performance = ociFor (nativeFor "release-performance");
+          oci-performance = ociFor {
+            bin = nativeFor "release-performance";
+            architecture = if pkgs.stdenv.hostPlatform.isAarch64 then "arm64" else "amd64";
+          };
         };
 
         # `nix flake check` IS the gate. Every entry reuses `cargoArtifacts`, so the
@@ -267,23 +353,41 @@
           # The image is supposed to hold one executable and no toolchain. It held three and
           # a full cargo, so this is a check rather than a sentence in a comment. Reads the
           # closure, so a compile-time store-path reference cannot sneak back in either.
-          one-binary = pkgs.runCommand "sutura-one-binary" { } ''
-            set -eu
-            count="$(ls ${sutura}/bin | wc -l)"
-            if [ "$count" != "1" ]; then
-              echo "the shipped package holds $count binaries, expected 1:" >&2
-              ls ${sutura}/bin >&2
-              exit 1
-            fi
-            # A toolchain in the closure means something baked a build-time path into the
-            # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
-            if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ sutura ]; }}/store-paths; then
-              echo "a Rust toolchain is in the runtime closure:" >&2
-              grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ sutura ]; }}/store-paths >&2
-              exit 1
-            fi
-            touch $out
-          '';
+          #
+          # EVERY shipped target, not just the native one. There are four release artifacts now
+          # and the invariant is a property of each: a cross build has its own dependency
+          # derivation and its own `cargoExtraArgs`, so "the native package holds one binary"
+          # says nothing about the musl one. The price is that this check pulls the cross builds
+          # in, which is what it costs for the assertion to be true rather than assumed.
+          one-binary =
+            let
+              shipped = map (target: { inherit target; drv = crossPackages."sutura-${target}"; }) imageTargets;
+              checkOne = p: ''
+                echo "one-binary: ${p.target}"
+                count="$(ls ${p.drv}/bin | wc -l)"
+                if [ "$count" != "1" ]; then
+                  echo "${p.target}: the shipped package holds $count binaries, expected 1:" >&2
+                  ls ${p.drv}/bin >&2
+                  exit 1
+                fi
+                # A toolchain in the closure means something baked a build-time path into the
+                # binary. That is how cargo got in: `env!("CARGO")` in a workspace member.
+                if grep -qE '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths; then
+                  echo "${p.target}: a Rust toolchain is in the runtime closure:" >&2
+                  grep -E '(cargo|rustc|rust-minimal)-[0-9]' ${pkgs.closureInfo { rootPaths = [ p.drv ]; }}/store-paths >&2
+                  exit 1
+                fi
+              '';
+            in
+            pkgs.runCommand "sutura-one-binary" { } ''
+              set -eu
+              ${pkgs.lib.concatMapStrings checkOne shipped}
+              touch $out
+            '';
+
+          # pixi exists because nix does not run on every host we develop on - so a few tools
+          # are pinned twice, and a second pin is a second source of truth unless something
+          # checks it. nix is the authority; this fails if pixi.lock disagrees.
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
@@ -371,27 +475,52 @@
         # whatever nixpkgs-unstable points at when the job runs - an unreviewed, mutable input
         # executing in jobs that hold a write token. It also contradicted this file's whole
         # premise. As apps they come from `flake.lock` like everything else.
+        # The workflow and shell linters, from the LOCKED nixpkgs. CI reached these through
+        # `nix run .#pixi -- run zizmor`, which took the VERSION from pixi.lock - so nix pinned
+        # the compiler and pixi pinned the linters, and nothing checked that the two agreed.
+        # One authority, and no second pin to keep in step: these three are deliberately
+        # NOT in pixi.toml. Their version decides what they REPORT, so naming them twice
+        # would mean two pins plus a synchroniser to keep them honest - which is what was
+        # tried first. `cargo xtask check-pins` enforces the split instead.
+        apps.zizmor = {
+          type = "app";
+          program = "${pkgs.zizmor}/bin/zizmor";
+        };
+        apps.actionlint = {
+          type = "app";
+          program = "${pkgs.actionlint}/bin/actionlint";
+        };
+        apps.shellcheck = {
+          type = "app";
+          program = "${pkgs.shellcheck}/bin/shellcheck";
+        };
+
         apps.betterleaks = {
           type = "app";
           program = "${pkgs.betterleaks}/bin/betterleaks";
         };
         # The pinned cargo, for the one workflow that has to touch Cargo.lock. `nix develop`
         # was used here and could never have worked: this flake exposes no devShells.
+        # writeShellApplication, not `toString (writeShellScript ...)`: the latter yields a
+        # store path that nothing in the closure realises, so `nix run` fails with "No such
+        # file or directory" naming the wrapper itself. An app whose program lives inside a
+        # package gets that package built.
         apps.cargo = {
           type = "app";
-          program = builtins.toString (pkgs.writeShellScript "sutura-cargo" ''
-            export PATH="${rustToolchain}/bin:$PATH"
-            exec cargo "$@"
-          '');
+          program = "${cargoWrapper}/bin/sutura-cargo";
         };
         apps.git-cliff = {
           type = "app";
           program = "${pkgs.git-cliff}/bin/git-cliff";
         };
-        apps.mdbook = {
-          type = "app";
-          program = "${pkgs.mdbook}/bin/mdbook";
-        };
+        # No mkdocs or mike app, deliberately. The docs toolchain is Python, and it lives in
+        # pixi's isolated `docs` environment - `pixi run --frozen -e docs docs`.
+        #
+        # It WAS here, as a `python3.withPackages`, and it did not work: mike shells out to
+        # `mkdocs`, and the composed environment produced an mkdocs that ran but could not
+        # import `pymdownx`, so `mike deploy` failed after naming the version. Two resolvers
+        # for one interpreter is what that failure looks like. One resolver per language:
+        # pixi owns Python, nix owns the rest.
         apps.pixi = {
           type = "app";
           program = "${pkgs.pixi}/bin/pixi";

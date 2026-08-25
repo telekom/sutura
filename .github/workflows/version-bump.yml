@@ -106,9 +106,15 @@ jobs:
           sed -i "s/^version = \".*\"/version = \"${plain}\"/" Cargo.toml
           grep -A1 '^\[workspace.package\]' Cargo.toml
           # Cargo.lock records member versions, so it has to move with the manifest or a
-          # `--locked` build fails on the very commit just tagged. `--offline` so a release
-          # cannot pick up a dependency update as a side effect.
-          nix run .#cargo -- metadata --offline --format-version 1 >/dev/null
+          # `--locked` build fails on the very commit just tagged.
+          #
+          # `update --workspace`, not `metadata --offline`. The intent was to stop a release
+          # quietly picking up a dependency update, and `--offline` was the wrong instrument:
+          # on a fresh runner the registry cache is empty, so it cannot resolve anything and
+          # fails with "no matching package named `serde`". `--workspace` gives the same
+          # guarantee properly - it re-locks the workspace members and cannot touch a
+          # third-party version - and it may use the network to read the index it needs.
+          nix run .#cargo -- update --workspace
 
       - name: Commit and tag
         if: steps.next.outputs.release == 'true'

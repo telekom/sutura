@@ -7,7 +7,16 @@
 # reporting clean. Same reasoning as `--all-features` for clippy.
 [graph]
 all-features = true
-targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+# Every target a release publishes, musl included. Not cosmetic: `targets` is what decides
+# which `[target.'cfg(..)'.dependencies]` tables count, so a triple missing from this list is a
+# dependency tree nothing audits. The allocator is declared under `cfg(target_os = "linux")`,
+# which all four satisfy, but the next platform-gated dependency will not be so forgiving.
+targets = [
+  "x86_64-unknown-linux-gnu",
+  "aarch64-unknown-linux-gnu",
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+]
 
 [advisories]
 version = 2

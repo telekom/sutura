@@ -15,17 +15,81 @@ channels = ["conda-forge"]
 platforms = ["linux-64", "linux-aarch64", "win-64", "osx-arm64"]
 
 [dependencies]
-# Static analysis for GitHub Actions: finds what a YAML schema check cannot - template
-# injection through `${{ }}` into `run:`, an over-permissive token, an unpinned action,
-# checkout of untrusted code under `pull_request_target`.
-# conda-forge rather than the PyPI wheel: one resolver, one lock.
-zizmor = ">=1.9"
+# THE RULE: one resolver per language. pixi owns every Python package; nix owns everything
+# else and every tool whose version decides what a GATE reports.
+#
+# Everything that reports findings - zizmor, actionlint, shellcheck, betterleaks, clippy,
+# nextest, cargo-deny - is pinned by nix and ONLY by nix, because a different version reports
+# differently and two pins for one verdict is two sources of truth. Pinning them here as well
+# and generating this table from flake.nix was tried; it worked, and it was still a
+# synchroniser standing between two pins. Removing the overlap removes the need for it.
+#
+# What is left runs or interprets other things. A different prek still runs the same hooks; a
+# different 3.13 still runs the same script. Neither can change what a gate concludes, so a
+# range is honest here and there is nothing to keep in step.
+#
+# The docs toolchain is Python, so it lives here rather than in a `python3.withPackages` in
+# flake.nix - which is where it started, and it did not work. mike shells out to mkdocs, and
+# composing them through nix produced an environment where `mkdocs` ran but could not import
+# `pymdownx`; two resolvers for one interpreter is exactly the failure that predicts. One
+# resolver owns the interpreter and everything in it.
+#
+# It is an ISOLATED feature, not a dependency of the default environment: the docs env pulls
+# in mkdocs-material and its whole tree, and a hook runner has no business resolving against
+# that. `pixi run -e docs <task>` is the only way in.
+#
+# `cargo xtask check-pins` fails if a tool ever appears both here and as a flake app.
+
+# The hook runner. Here rather than in the dev shell because a git hook runs in whatever
+# environment the commit came from, and outside `devenv shell` a nix-provided prek is not on
+# PATH - every hook failed with "prek: not found" and blocked the commit outright. pixi's
+# env lives in the repo, so `pixi run prek` resolves from anywhere.
+prek = ">=0.4.14,<0.5"
 
 # For the skill-sync script. The only Python this repo runs, and it runs at maintenance time
-# rather than on the query path - see the no-interpreter invariant in AGENTS.md.
-python = ">=3.11,<3.14"
-actionlint = ">=1.7.12,<2"
-shellcheck = ">=0.11.0,<0.12"
+# rather than on any gate or query path - see the no-interpreter invariant in AGENTS.md.
+python = ">=3.13,<3.14"
+
+# ---------------------------------------------------------------------------- docs ---
+# Isolated on purpose. `solve-group` is deliberately absent: sharing one with the default
+# environment would make the linters resolve against mkdocs-material's tree, and a docs bump
+# could then move a gate's version. Separate solve, separate env, no interaction.
+[feature.docs.dependencies]
+# The site generator and the theme.
+#
+# The `<2` ceiling is a DECISION, not caution. Material for MkDocs prints a warning on every
+# build about what MkDocs 2.0 does, and three of its points rule it out here: the plugin system
+# is removed, so mike and every extension we use stop working; there is no migration path; and
+# it is currently UNLICENSED, which a public Apache-2.0 repo cannot depend on at all. There is
+# also no Material release targeting it. Raise this ceiling only when Material itself does.
+# https://squidfunk.github.io/mkdocs-material/blog/2026/02/18/mkdocs-2.0/
+mkdocs = ">=1.6.1,<2"
+mkdocs-material = ">=9.7,<10"
+# The versioned publisher. mike writes each version into its own directory on `gh-pages`,
+# maintains versions.json and renders the root redirect.
+mike = ">=2.1.3,<3"
+# `pymdownx.superfences`, which mkdocs.yml names for the mermaid fence. mkdocs-material
+# depends on it but does not re-export it, and mike's mkdocs subprocess must be able to
+# import it - it could not when the two came from different resolvers.
+pymdown-extensions = ">=11,<12"
+
+[feature.docs.tasks]
+# `--strict`: mkdocs warns about a broken link and publishes anyway, which is how a docs site
+# rots. `cargo xtask check-docs` covers the nav-versus-disk half.
+docs = "mkdocs build --strict --clean"
+docs-serve = "mkdocs serve"
+# `--alias-type=redirect`: mike's default alias is a git SYMLINK, which GitHub Pages does not
+# resolve - `latest/` would serve the literal text "0.3.0" rather than the page.
+docs-deploy = "mike deploy --update-aliases --alias-type=redirect"
+docs-list = "mike list"
+# Escape hatch for exercising the publish path without touching gh-pages: pass
+# `-b <branch>`. Any extra argument reaches mike, since a pixi task appends what follows.
+mike = "mike"
+
+[environments]
+# The default environment stays small: the hook runner and the maintenance interpreter.
+# `docs` is its own, so neither can perturb the other's solve.
+docs = { features = ["docs"], no-default-feature = true }
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched
@@ -37,11 +101,6 @@ skills-refresh = "python .agents/skills-sync.py"
 skills-relock = "python .agents/skills-sync.py --offline"
 # Just the Microsoft guidelines. A no-op when their content has not changed.
 ms-rust-refresh = "python .agents/skills/engineering/ms-rust/generate.py"
-# `regular` is the default persona. `pedantic` adds stylistic findings and is not the gate,
-# so the gate does not depend on opinions that change between releases.
-zizmor = "zizmor .github/workflows"
-# actionlint and shellcheck were installed and locked but gated nothing: `just lint-ci` called a
-# `shellcheck-run` task that did not exist, so its second line could never succeed.
-actionlint = "actionlint"
-shellcheck-run = "shellcheck .claude/hooks/ponytail-session-start.sh"
-zizmor-pedantic = "zizmor --persona pedantic .github/workflows"
+# Installing the hooks and running them, so both go through the same prek.
+hooks-install = "prek install --hook-type pre-commit --hook-type pre-push --hook-type commit-msg"
+hooks-run = "prek run --all-files"

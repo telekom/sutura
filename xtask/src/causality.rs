@@ -92,18 +92,43 @@ pub(crate) fn plan(files: &[ChangedFile]) -> Plan {
     // files. Detect it by asking whether the file has added lines outside a test context.
     let inseparable: Vec<String> = files
         .iter()
-        .filter(|(path, added)| test_files.contains(path) && has_non_test_additions(added))
+        .filter(|(path, added)| test_files.contains(path) && !is_dedicated_test_target(path) && has_non_test_additions(added))
         .map(|(path, _)| path.clone())
         .collect();
 
-    if !inseparable.is_empty() && impl_only.is_empty() {
+    // A test in an inseparable file cannot be proven by reverting OTHER files: its own
+    // implementation sits in the same file, and that file is not reverted precisely because it
+    // holds the tests. So those tests are excluded from the proof rather than counted in it.
+    //
+    // The condition here was `!inseparable.is_empty() && impl_only.is_empty()`, which was wrong
+    // in a way that made the gate lie. With even one separable impl file present it took the
+    // Separable path, reverted that file, ran the inseparable tests anyway - and they passed,
+    // because nothing they exercise had been reverted. It then reported "green against base
+    // behaviour" and blamed the author for a partition the gate itself had chosen. Adding two
+    // new gate modules, each impl and tests in one new file, alongside an edit to `main.rs` is
+    // exactly that shape.
+    let provable: Vec<String> = test_files.iter().filter(|p| !inseparable.contains(p)).cloned().collect();
+
+    if provable.is_empty() {
         return Plan::NotSeparable { files: inseparable };
     }
 
     Plan::Separable {
         revert: impl_only,
-        test_files,
+        test_files: provable,
     }
+}
+
+/// Is this file a dedicated test target, where every line is test code?
+///
+/// Cargo compiles `tests/` as separate integration binaries, so such a file has no
+/// implementation to revert - the whole file is the test. `has_non_test_additions` cannot tell:
+/// it looks for a `#[cfg(test)]` or `mod tests` marker, which an integration test has no reason
+/// to write, so a plain `fn t() {}` there reads as an implementation change. Without this the
+/// canonical good case - an impl file plus a separate integration test - was misfiled as
+/// inseparable and the gate declined to prove the very shape it exists for.
+fn is_dedicated_test_target(path: &str) -> bool {
+    path.contains("/tests/") || path.starts_with("tests/")
 }
 
 /// Are there added lines that are plainly not test code?
@@ -518,6 +543,27 @@ mod tests {
         match plan(&files) {
             Plan::NotSeparable { files } => {
                 assert_eq!(files, vec![String::from("crates/x/src/a.rs")]);
+            }
+            other => panic!("expected NotSeparable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn an_unrelated_impl_file_does_not_make_an_inseparable_one_provable() {
+        // The bug this replaced: a change that adds a new module (impl and tests in one file)
+        // AND edits an unrelated impl file took the Separable path, reverted only the unrelated
+        // file, then failed the author because the new module's tests still passed - which they
+        // could not help doing, since their own implementation was never reverted.
+        let files = vec![
+            (
+                String::from("xtask/src/workflows.rs"),
+                lines(&["fn collect() {}", "#[cfg(test)]", "mod tests {", "    #[test]"]),
+            ),
+            (String::from("xtask/src/main.rs"), lines(&["mod workflows;"])),
+        ];
+        match plan(&files) {
+            Plan::NotSeparable { files } => {
+                assert_eq!(files, vec![String::from("xtask/src/workflows.rs")]);
             }
             other => panic!("expected NotSeparable, got {other:?}"),
         }

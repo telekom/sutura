@@ -28,7 +28,29 @@ serde_json = "1"
 thiserror = "2"
 # For the skill-lock hash. Not hand-rolled: 60 lines of bit-twiddling under an
 # `indexing_slicing` ban, to reimplement something audited.
-sha2 = "0.11"
+#
+# `default-features = false` on purpose. 0.11 dropped the `std` feature and made `oid` a
+# default, which pulls `const-oid` in for a use this repo does not have - and 0.10 held the
+# tree back anyway, because `crypto-common` 0.1 pinned `generic-array = "=0.14.7"` exactly, so
+# no patch release of it was reachable. 0.11 replaces that chain with `hybrid-array` and the
+# exact pin goes away. Only the `Digest` trait is used here, which needs no feature at all.
+sha2 = { version = "0.11", default-features = false }
+
+# The global allocator, Linux only. `sutura-cli` inherits this under a
+# `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
+# Windows never compiles the C.
+#
+# `v2` is not the default and has to be asked for. Checked, not assumed: `mimalloc` 0.1.52
+# declares features `{debug, debug_in_debug, default = [], extended, local_dynamic_tls,
+# no_thp, override, secure, v2, win_direct_tls}` - there is no `v3` feature to turn off -
+# and `libmimalloc-sys` 0.1.49's build script reads
+# `if env::var("CARGO_FEATURE_V2").is_ok() { "v2" } else { "v3" }`. So the default IS the 3.x
+# line and this pins the 2.x one, which is the long-lived generation; 3.x reworked the
+# internal free-list representation.
+#
+# `secure` is the deliberate half of this, and the reason it is on is argued where the
+# allocator is wired up, in `crates/sutura-cli/src/main.rs`.
+mimalloc = { version = "0.1.52", features = ["v2", "secure"] }
 
 # ---------------------------------------------------------------- lints ----
 # A misspelled or removed lint name in the tables below is a silent no-op: it warns on
@@ -177,17 +199,27 @@ lto = "off"
 codegen-units = 256
 # Cranelift: DEVELOPMENT ONLY, never CI and never a shipped artifact.
 #
-# It can cut debug codegen time substantially, but it CHANGES codegen - so a bug that
-# reproduces under one backend and not the other is a real possibility. If CI validated a
-# cranelift build, it would be validating something we do not ship.
+# It cuts debug codegen time substantially, and it CHANGES codegen - so a bug that reproduces
+# under one backend and not the other is a real possibility. CI validating a cranelift build
+# would be validating something we do not ship.
 #
-# Enable it per-developer in an uncommitted `.cargo/config.toml` override or
-# `devenv.local.nix`, not here:
-#     [unstable]
-#     codegen-backend = true
-#     [profile.dev]
-#     codegen-backend = "cranelift"
-# CI pins SUTURA_CODEGEN_BACKEND=default and never sets it.
+# Nothing to set here. The backend is nightly-only, so it is enabled where the nightly
+# toolchain lives: devenv.nix exports CARGO_UNSTABLE_CODEGEN_BACKEND and
+# CARGO_PROFILE_DEV_CODEGEN_BACKEND, and rust-toolchain-nightly.toml pins the compiler and
+# the `rustc-codegen-cranelift-preview` component.
+#
+# This comment used to instruct developers to add `[unstable] codegen-backend = true` and set
+# `codegen-backend = "cranelift"` themselves. That could not work: the pinned toolchain is
+# stable, where `-Zcodegen-backend` does not exist. Environment rather than a committed
+# `.cargo/config.toml` for the same reason - an `[unstable]` table there is read by CI too,
+# and would fail every stable build.
+#
+# Consequences, both deliberate:
+#   - The dev shell's bare `cargo` is nightly. Gates are not: they source nix/stable-env.sh,
+#     which puts stable in front, because clippy's lint set differs between channels and this
+#     workspace gates on the whole `restriction` category.
+#   - Stable gets its own target directory. Alternating compilers in one directory
+#     invalidates every artifact in it, which would cost more than cranelift saves.
 
 [profile.dev.package."*"]
 opt-level = 3

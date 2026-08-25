@@ -62,10 +62,13 @@ registry = "sparse+https://<host>/<path>/<crates>/index/"
 `sparse+` is required and the trailing slash matters; without them cargo expects a git index
 and fails with a confusing clone error.
 
-`rustup` is not involved in the Nix path - `flake.nix` and `devenv.nix` both resolve
-`rust-toolchain.toml` through rust-overlay. If you do use rustup, set `RUSTUP_DIST_SERVER` and
-`RUSTUP_UPDATE_ROOT`. Note that an exact version pin needs that version to exist on the
-mirror; a lazily-caching remote `404`s until something asks, which reads as "no such version".
+`rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve both pinned
+toolchains through rust-overlay - `rust-toolchain.toml`, and `rust-toolchain-nightly.toml`
+for the local inner loop - so the compilers come from the Nix cache rather than from a rustup
+mirror, and the crates mirror above is all this section needs. If you do use rustup, set
+`RUSTUP_DIST_SERVER` and `RUSTUP_UPDATE_ROOT`. Note that an exact version pin needs that
+version to exist on the mirror; a lazily-caching remote `404`s until something asks, which
+reads as "no such version".
 
 ## Python and conda, via pixi
 
@@ -136,7 +139,7 @@ so a proxy exported in your shell changes nothing. It belongs in the daemon's en
 curl -fsS https://<host>/<path>/<nix-cache>/nix-cache-info
 nix build --print-out-paths nixpkgs#hello        # the part that needs credentials
 curl -fsS https://<host>/<path>/<crates>/index/config.json
-pixi run python -c "print('ok')"
+pixi run --frozen python -c "print('ok')"
 docker pull <docker-mirror>/nixos/nix:2.35.2
 ```
 

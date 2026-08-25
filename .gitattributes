@@ -1,6 +1,6 @@
 # Normalise to LF in the repository. The build, CI and the release image are all Linux;
 # a CRLF shell script fails there with "bad interpreter", and the pre-commit hook is a
-# shell script — so this file is what keeps the leak guard working on a fresh clone.
+# shell script - so this file is what keeps the leak guard working on a fresh clone.
 * text=auto eol=lf
 
 # Never touch these.

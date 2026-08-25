@@ -22,23 +22,63 @@
 { pkgs, lib, config, inputs, ... }:
 
 let
-  # The compiler pin lives in rust-toolchain.toml and is resolved the SAME way here as in
-  # flake.nix - rust-overlay reading the file directly. Going through
-  # `languages.rust.{channel,version}` instead was tried and silently produced a shell
-  # with no cargo on PATH, which is a worse failure than a loud one.
+  # Both compiler pins are resolved by nix/toolchains.nix, the SAME file flake.nix imports -
+  # one code path from a pin to a compiler. Going through `languages.rust.{channel,version}`
+  # instead was tried and silently produced a shell with no cargo on PATH, which is a worse
+  # failure than a loud one.
   rustPkgs = import inputs.nixpkgs {
     system = pkgs.stdenv.hostPlatform.system;
     overlays = [ (import inputs.rust-overlay) ];
   };
-  rustToolchain = rustPkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+  toolchains = import ./nix/toolchains.nix { inherit rustPkgs; };
+
+  # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
+  # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
+  rustToolchain = toolchains.nightly;
+
+  # The stable toolchain's bin directory, prepended by every gate script.
+  #
+  # This split is deliberate and the alternative was worse. Clippy's lint set differs between
+  # channels, and this repo enables the whole `restriction` category with `-D warnings`: a
+  # nightly clippy reports lints stable has never heard of, so running the gates on nightly
+  # means local failures CI does not have and local passes CI rejects. Build fast on nightly,
+  # gate on exactly what CI gates on.
+  stableBin = "${toolchains.stable}/bin";
+
+  # Wrap a gate so it runs on stable, in its own target directory. The snippet is a
+  # real shell file so shellcheck lints it and the justfile can source the SAME one -
+  # "run this the way CI runs it" is defined once.
+  onStable = body: ""
+    + "set -e
+"
+    + "# shellcheck source=nix/stable-env.sh
+"
+    + "source ${./nix/stable-env.sh}
+"
+    + body;
 in
 {
+
+  # Cranelift, enabled rather than described. Cargo.toml told developers to set
+  # `profile.dev.codegen-backend` themselves, which could not work: the profile key needs the
+  # `-Zcodegen-backend` unstable flag, and the toolchain it documented was stable.
+  #
+  # Environment rather than .cargo/config.toml because that file is committed and read by CI
+  # too - an `[unstable]` table there would fail every stable build. These variables exist
+  # only inside this shell.
+  # Read by nix/stable-env.sh, which every gate sources. Unset outside this shell,
+  # where the snippet is then a no-op - which is exactly right for CI.
+  env.SUTURA_STABLE_BIN = stableBin;
+
+  env.CARGO_UNSTABLE_CODEGEN_BACKEND = "true";
+  env.CARGO_PROFILE_DEV_CODEGEN_BACKEND = "cranelift";
 
   # Every one of these was verified present in nixpkgs before being listed: a name that
   # does not resolve fails the WHOLE shell evaluation, not just that package.
   packages = [
-    # The pinned toolchain: rustc, cargo, clippy, rustfmt and the components named in
-    # rust-toolchain.toml. First in the list so it wins any PATH collision.
+    # The pinned NIGHTLY toolchain: rustc, cargo, clippy, rustfmt and the components named
+    # in rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
+    # PATH collision - the gates override it back to stable per-command.
     rustToolchain
   ] ++ (with pkgs; [
     # Linking dominates the inner loop; .cargo/config.toml points at these.
@@ -57,9 +97,6 @@ in
     # cites a task rather than a command line that drifts from the one people run.
     just
 
-    # Hook runner: a single Rust binary, so hooks need no Python runtime.
-    prek
-
     # Stacked branches - this plan is a chain of dependent changes by construction.
     # `stax` rebases a stack; `gh-stack` describes one (PR bodies and cross-links) for a
     # stack that was built by hand. See the `stacked-branches` skill.
@@ -68,10 +105,6 @@ in
 
     # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
     gh
-
-    # The documentation site. A Nix tool, not a Python one, so it belongs here rather than
-    # in pixi.toml. CI builds the same book with `nix run nixpkgs#mdbook`.
-    mdbook
 
     # Python lives behind pixi only; this is just the launcher.
     pixi
@@ -127,7 +160,6 @@ in
     echo "  clippy     $(cargo clippy --version 2>/dev/null || echo MISSING)"
     echo "  nextest    $(cargo nextest --version 2>/dev/null || echo MISSING)"
     echo "  cargo-deny $(cargo deny --version 2>/dev/null || echo MISSING)"
-    echo "  prek       $(prek --version 2>/dev/null || echo MISSING)"
     echo "  pixi       $(pixi --version 2>/dev/null || echo MISSING)"
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
@@ -140,35 +172,39 @@ in
     # Formatting includes line endings: rustfmt does not normalise CRLF, and a carriage
     # return kept inside a Nix ''...'' string becomes part of a shell argument - which
     # produces errors naming a lint or flag that looks byte-identical to the correct one.
-    fmt.exec = ''
+    fmt.exec = onStable ''
       set -e
       cargo fmt --all
       cargo run -q -p xtask -- text-hygiene --fix
     '';
     # `--all-features` because the adapters are feature-gated and default-off: without it
     # these commands lint and test almost nothing and still pass.
-    lint.exec = "cargo clippy --workspace --all-targets --all-features -- -D warnings";
-    test.exec = "cargo nextest run --workspace --all-features";
-    boundaries.exec = "cargo run -q -p xtask -- check-boundaries";
-    max-lines.exec = "cargo run -q -p xtask -- max-lines";
-    line-endings.exec = "cargo run -q -p xtask -- line-endings";
-    check-skills.exec = "cargo run -q -p xtask -- check-skills";
-    check-guidance.exec = "cargo run -q -p xtask -- check-guidance";
+    lint.exec = onStable "cargo clippy --workspace --all-targets --all-features -- -D warnings";
+    test.exec = onStable "cargo nextest run --workspace --all-features";
+    boundaries.exec = onStable "cargo run -q -p xtask -- check-boundaries";
+    max-lines.exec = onStable "cargo run -q -p xtask -- max-lines";
+    line-endings.exec = onStable "cargo run -q -p xtask -- line-endings";
+    check-skills.exec = onStable "cargo run -q -p xtask -- check-skills";
+    check-guidance.exec = onStable "cargo run -q -p xtask -- check-guidance";
     # The whole worktree, not just staged changes: `secrets` is for a sweep, the hook is
     # for a commit.
-    secrets.exec = "betterleaks dir . --redact --verbose";
-    check-docs.exec = "cargo run -q -p xtask -- check-docs";
-    unused-deps.exec = "cargo run -q -p xtask -- unused-deps";
+    secrets.exec = "betterleaks dir . --config .gitleaks.toml --redact --verbose";
+    check-docs.exec = onStable "cargo run -q -p xtask -- check-docs";
+    unused-deps.exec = onStable "cargo run -q -p xtask -- unused-deps";
 
-    # The book. `docs` renders to docs/book (gitignored); `docs-serve` watches and reloads.
-    # The gate above is what proves it is complete - mdbook builds an unreachable page just
-    # as happily as a linked one.
-    docs.exec = "mdbook build docs";
-    docs-serve.exec = "mdbook serve docs";
+    # The site. `docs` renders to site/ (gitignored); `docs-serve` watches and reloads.
+    #
+    # `--strict` so a broken link or an unrecognised config key fails rather than warning:
+    # mkdocs is happy to publish a page nothing navigates to, and `check-docs` above is what
+    # proves the nav and the files on disk agree in both directions.
+    # Through pixi's isolated `docs` environment - see the note in flake.nix beside
+    # `apps.pixi`. The toolchain is Python and pixi is the one resolver for Python.
+    docs.exec = "pixi run --frozen -e docs docs";
+    docs-serve.exec = "pixi run --frozen -e docs docs-serve";
 
     # The cheap structural gates, grouped so CI can run them FIRST: a 1200-line file or a
     # dead dependency should fail in seconds, not after clippy and the test suite.
-    hygiene.exec = ''
+    hygiene.exec = onStable ''
       set -e
       cargo run -q -p xtask -- hygiene
     '';
@@ -179,7 +215,7 @@ in
     # It judges the COMMITTED branch diff, not the working tree: that is what a reviewer
     # will see. Hence the clean-tree requirement - a dirty tree means the thing being
     # checked is not the thing being proposed.
-    ship-check.exec = ''
+    ship-check.exec = onStable ''
       set -eu
       base="''${SHIP_CHECK_BASE_REF:-origin/main}"
 
@@ -201,7 +237,7 @@ in
       echo "ship-check: $merge_base..HEAD"
 
       echo "== commit-stage hooks over the branch diff"
-      prek run --from-ref "$merge_base" --to-ref HEAD
+      pixi run --frozen prek run --from-ref "$merge_base" --to-ref HEAD
 
       echo "== the gates' own unit tests"
       # A gate with no test is a gate nobody has seen fail, and these are the checks
@@ -212,14 +248,14 @@ in
       cargo run -q -p xtask -- test-causality --since "$merge_base"
 
       echo "== pre-push hooks"
-      prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
+      pixi run --frozen prek run --hook-stage pre-push --from-ref "$merge_base" --to-ref HEAD
 
       echo "ship-check: green"
     '';
 
     # Spelled out rather than calling `hygiene`, so this list does not depend on another
     # script being on PATH first. Cheapest first: fail before paying for clippy.
-    gates.exec = ''
+    gates.exec = onStable ''
       set -e
       cargo run -q -p xtask -- hygiene
       cargo fmt --all -- --check

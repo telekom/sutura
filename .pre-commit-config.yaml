@@ -50,9 +50,13 @@ repos:
         pass_filenames: true
 
       # --- on push: the expensive gates -------------------------------------
+      # Through nix/run-gate.sh, which falls back to nix and then to a notice. Called
+      # `cargo nextest` directly before, and on a host without it every push was blocked
+      # with "no such command" - a hook that cannot run must not be a wall. CI runs this
+      # unconditionally, so the fallback delays a finding rather than losing it.
       - id: rust-tests
         name: cargo nextest (all features)
-        entry: cargo nextest run --workspace --all-features
+        entry: bash nix/run-gate.sh tests
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -66,9 +70,18 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
+      # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
+      # finding in a file committed long ago reaches CI unseen - which is exactly what happened.
+      - id: secret-sweep
+        name: secrets, whole tree (as CI scans it)
+        entry: bash nix/run-gate.sh secrets
+        language: system
+        pass_filenames: false
+        stages: [pre-push]
+
       - id: cargo-deny
         name: advisories, licences, bans, sources
-        entry: cargo deny check
+        entry: bash nix/run-gate.sh supply-chain
         language: system
         pass_filenames: false
         stages: [pre-push]
@@ -82,20 +95,38 @@ repos:
         language: system
         stages: [commit-msg]
 
-      # Secret detection on the staged diff. From nixpkgs via the dev shell, so it needs no
-      # network at commit time. `--redact` keeps the finding out of the terminal scrollback
-      # and out of any CI log.
+      # Secret detection on the staged diff, when the tool is available. `--redact` keeps a
+      # finding out of terminal scrollback and out of any log.
+      #
+      # It says so and continues when betterleaks is absent, which is deliberate and is not a
+      # gate failing open: a hook is bypassable with `--no-verify`, so it was never the
+      # enforcement point. CI runs the scan over the whole tree ungated, and that is what
+      # decides. Blocking every commit on a host where the tool cannot be installed would only
+      # teach people to pass `--no-verify` habitually, which costs more than it saves.
       - id: betterleaks
-        name: detect hardcoded secrets
-        entry: betterleaks git --pre-commit --redact --staged --verbose
+        name: detect hardcoded secrets (CI is authoritative)
+        entry: >-
+          sh -c 'command -v betterleaks >/dev/null 2>&1 ||
+          { echo "betterleaks not on PATH - skipped here; CI enforces the scan"; exit 0; };
+          betterleaks git --pre-commit --config .gitleaks.toml --redact --staged --verbose'
         language: system
         pass_filenames: false
 
       # Workflow static analysis: template injection into `run:`, over-permissive tokens,
-      # untrusted checkout. From pixi, so it needs no Rust build.
+      # untrusted checkout.
+      #
+      # Through nix, which is the ONLY pin for it - the version decides what it reports, so a
+      # second pin in pixi would be a second verdict. Skipped with a notice where nix is
+      # absent, the same way the secret scan behaves: CI runs it unconditionally, so a skip
+      # here delays the finding to the PR rather than losing it.
       - id: zizmor
         name: GitHub Actions static analysis
-        entry: pixi run --frozen zizmor
+        # A block scalar, not a plain one: the command contains `: `, which YAML reads as a
+        # mapping inside a plain scalar and rejects outright.
+        entry: >-
+          bash -c 'command -v nix >/dev/null 2>&1
+          && exec nix run .#zizmor -- .github/workflows
+          || echo "zizmor skipped - no nix on this host, CI enforces it"'
         language: system
         files: ^\.github/workflows/.*\.ya?ml$
         pass_filenames: false

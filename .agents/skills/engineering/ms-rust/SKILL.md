@@ -53,7 +53,7 @@ gate), `M-SINGLE-ITEM-PATH` (`unreachable_pub` is denied), `M-PANIC-IS-STOP` and
 ## Refreshing
 
 ```bash
-pixi run ms-rust-refresh
+pixi run --frozen ms-rust-refresh
 ```
 
 Regenerates from upstream and updates `all.txt.sha256`. It is a no-op when the content has

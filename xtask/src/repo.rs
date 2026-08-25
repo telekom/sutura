@@ -20,6 +20,11 @@ const SKIP_DIRS: &[&str] = &[
     "result",
     "node_modules",
     "__pycache__",
+    // The rendered docs site. Gitignored, so `git ls-files` never lists it - but the walk
+    // fallback does, and mkdocs-material vendors a 6708-line lunr bundle that fails
+    // `max-lines`. A developer who ran `just docs` could not then pass the gates, which is a
+    // gate punishing someone for building the thing the gate exists to protect.
+    "site",
 ];
 
 /// The workspace root, derived from this crate's manifest rather than from the current
@@ -204,6 +209,28 @@ pub(crate) fn collect_text_files(root: &Path, dir: &Path, out: &mut Vec<String>)
             out.push(rel);
         }
     }
+}
+
+/// Paths that are SYMLINKS in the index but may be pointer files on disk.
+///
+/// git stores mode 120000 for these. On a platform without symlink support - or with
+/// `core.symlinks=false` - it writes a small text file containing the target path instead, with
+/// no trailing newline, because a symlink target has none.
+///
+/// Where `.git` is available a gate skips them by reading the index. Where it is NOT - the Nix
+/// build sandbox, and Docker's `COPY . .` - a gate walks the tree, sees a 17-byte regular file
+/// and fails it for a missing final newline. That is why the Dockerfile's `build` target could
+/// never succeed from a Windows checkout, and why `checks.hygiene` failed in the sandbox.
+///
+/// Skipping by path rather than by content: "a tiny file whose text happens to be a relative
+/// path" is not a shape worth guessing at, and `cargo xtask check-skills` still verifies these
+/// are mode 120000 wherever git can be asked - so the invariant keeps a mechanism rather than
+/// becoming an exemption.
+pub(crate) const INDEX_SYMLINKS: &[&str] = &[".claude/skills", ".codex/skills", ".opencode/skills"];
+
+/// Is this path one of the index symlinks above?
+pub(crate) fn is_index_symlink(path: &str) -> bool {
+    INDEX_SYMLINKS.contains(&path)
 }
 
 /// How much of a file to inspect before deciding whether it is text.

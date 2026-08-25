@@ -1,0 +1,143 @@
+# The documentation site: mkdocs-material, versioned by mike.
+#
+# The versioning is the reason for this stack rather than mdBook. mike publishes each version
+# into its own directory on `gh-pages`, maintains `versions.json`, renders the root redirect and
+# feeds the version selector Material already ships - all of which had to be hand-written under
+# mdBook. `docs/publishing.md` describes the resulting layout.
+#
+# Every tool named here comes from the pinned nixpkgs through `nix run .#mkdocs` / `.#mike`, so
+# there is no pip and no npm in the build and the flake stays the single source of truth.
+
+site_name: sutura
+site_description: Answers questions about data as the person or agent asking, using metric definitions somebody certified.
+site_url: https://telekom.github.io/sutura/
+repo_url: https://github.com/telekom/sutura
+repo_name: telekom/sutura
+# `docs/` is the source directory, the mkdocs default. The pages used to sit under `docs/src/`
+# for mdBook; nothing needs the extra level now, and the flat layout is the one every mkdocs
+# reader expects.
+edit_uri: edit/main/docs/
+
+theme:
+  name: material
+  # Material otherwise emits a stylesheet link to fonts.googleapis.com and a preconnect to
+  # fonts.gstatic.com on every page. `false` drops both and falls back to the system font stack,
+  # which is what keeps the site self-contained - it has to render behind a proxy with no direct
+  # egress, and a page that phones a CDN also puts every reader in that CDN's logs. Checked by
+  # `cargo xtask check-docs`, because the default is the insecure one and nothing else would say.
+  font: false
+  # Paths relative to the docs directory. `cargo xtask check-docs` fails if either stops
+  # resolving: mkdocs renders a broken image for a missing logo rather than failing the build.
+  logo: assets/sutura.svg
+  favicon: assets/favicon.svg
+  icon:
+    repo: fontawesome/brands/github
+  features:
+    - content.code.copy
+    - content.tooltips
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - search.suggest
+    - search.highlight
+    - toc.follow
+  palette:
+    # Auto, following the reader's system preference, and first so it is the default.
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Switch to light mode
+    # `custom` for both, because Telekom magenta is not one of Material's named palette
+    # colours. The values live in docs/css/telekom.css, per scheme, with the measured contrast
+    # ratio beside each - see the comment at the top of that file for why they differ.
+    - scheme: default
+      media: "(prefers-color-scheme: light)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+    - scheme: slate
+      media: "(prefers-color-scheme: dark)"
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  # Mermaid, through Material's own SuperFences integration rather than the mermaid2 plugin,
+  # because that integration is what hands mermaid the active colour scheme - a bare CDN import
+  # leaves every diagram stuck in light mode.
+  #
+  # KNOWN GAP, and this comment used to state the opposite: Material does NOT bundle the mermaid
+  # library. Its own bundle loads `https://unpkg.com/mermaid@11/dist/mermaid.min.js` at runtime,
+  # confirmed by watching the request. So a diagram does not render for a reader with no direct
+  # egress - the reader `theme.font: false` exists to protect - and degrades to a code block.
+  # Fixing it means vendoring mermaid under docs/assets and pointing Material at it. Until then
+  # a mermaid fence is a nice-to-have, and no page may depend on one to be understood.
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+
+# Explicit, not derived from filenames. A nav that falls out of directory order silently
+# reorders itself when a page is added, and `cargo xtask check-docs` checks this list against
+# the files on disk in both directions.
+nav:
+  - Introduction: index.md
+  - Getting started: getting-started.md
+  - Enterprise mirrors: enterprise-mirrors.md
+  - Publishing the docs: publishing.md
+  - Contributing: contributing.md
+  - Architecture: architecture.md
+
+extra:
+  version:
+    provider: mike
+    # Which version the "you are reading an old version" banner points at. `latest` is the
+    # alias mike moves onto each release.
+    default: latest
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/telekom/sutura
+
+extra_css:
+  - css/telekom.css
+
+# With `mkdocs build --strict` every one of these becomes an error. `omitted_files` is what
+# makes a page that is in no nav entry fail the build, which is the same rule check-docs
+# enforces without needing a Python environment.
+validation:
+  omitted_files: warn
+  absolute_links: relative_to_docs
+  unrecognized_links: warn
+  anchors: warn
+
+watch:
+  - mkdocs.yml

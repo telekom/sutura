@@ -215,7 +215,9 @@ fn library_count(root: &Path) -> usize {
 /// `.claude/settings.json`, and it stopped being true: the entries were added to the index and
 /// a later `git add -A` on a checkout with `core.symlinks=false` replaced them. Nothing
 /// noticed, because a claim in a README enforces nothing.
-const AGENT_SKILL_LINKS: &[&str] = &[".claude/skills", ".codex/skills", ".opencode/skills"];
+// The same list `text-hygiene` skips, so the set that is exempt from the newline rule and
+// the set whose symlink mode is verified cannot drift apart.
+use crate::repo::INDEX_SYMLINKS as AGENT_SKILL_LINKS;
 
 /// The symlink target the entries must have.
 const LINK_TARGET: &str = "../.agents/skills";
@@ -231,12 +233,30 @@ fn link_problems(root: &Path) -> Vec<String> {
         .args(["ls-files", "--stage", "--"])
         .args(AGENT_SKILL_LINKS)
         .output();
+    // `Ok` means git RAN, not that it succeeded. A missing binary is `Err`; a present binary
+    // outside a repository is `Ok` with a non-zero status and empty stdout - and reading that
+    // empty listing as "the index has no such entry" reported all three links missing in
+    // exactly the environment the doc comment above says cannot be judged. That is what broke
+    // the Dockerfile's `build` target, where `COPY . .` brings the tree and no `.git`.
+    //
+    // The same distinction as the supply-chain gate: a check that could not run must not
+    // report a finding.
     let Ok(out) = out else {
-        // No git: cannot judge. The other checks still ran.
         return Vec::new();
     };
+    if !out.status.success() {
+        return Vec::new();
+    }
     let listing = String::from_utf8_lossy(&out.stdout);
+    problems_in_listing(root, &listing)
+}
 
+/// Judge an index listing that git DID produce.
+///
+/// Split out so the two failure modes can be told apart in a test: an empty listing from a
+/// successful `git ls-files` genuinely means the entries are gone, while git being unable to
+/// answer at all means nothing - and conflating them is the bug this split exists to prevent.
+fn problems_in_listing(root: &Path, listing: &str) -> Vec<String> {
     let mut problems = Vec::new();
     for link in AGENT_SKILL_LINKS {
         let entry = listing.lines().find(|l| l.ends_with(link));
@@ -256,6 +276,37 @@ fn link_problems(root: &Path) -> Vec<String> {
         }
     }
     problems
+}
+
+#[cfg(test)]
+mod link_tests {
+    use std::path::Path;
+
+    #[test]
+    fn an_empty_listing_from_a_successful_run_means_the_links_are_gone() {
+        // This is the CORRECT reading when git answered. The bug was reaching this conclusion
+        // after git had exited non-zero with nothing to say.
+        let problems = super::problems_in_listing(Path::new("."), "");
+        assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len());
+        assert!(problems.iter().all(|p| p.contains("is missing")));
+    }
+
+    #[test]
+    fn a_regular_file_is_named_as_such_rather_than_missing() {
+        // Mode 100644 instead of 120000: the shape `git add -A` produces on a checkout with no
+        // symlink support. Worth its own message, because the fix is different.
+        let listing = super::AGENT_SKILL_LINKS
+            .iter()
+            .map(|l| format!("100644 0000000000000000000000000000000000000000 0	{l}"))
+            .collect::<Vec<_>>()
+            .join(
+                "
+",
+            );
+        let problems = super::problems_in_listing(Path::new("."), &listing);
+        assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len());
+        assert!(problems.iter().all(|p| p.contains("not a symlink")));
+    }
 }
 
 /// Library skills are exempt from routing but not from provenance. An imported skill with no

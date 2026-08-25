@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 52 60" width="52" height="60" role="img" color="#E20074" fill="currentColor">
+  <title>sutura</title>
+  <!--
+    The mark is a seam. A regular hexagon - the ports-and-adapters shape - is cut into two
+    pieces that key into each other and never touch.
+
+    Geometry, all of it integer and all of it load-bearing:
+      * The two polygons are CONGRUENT. Each is the other rotated 180 degrees about (26,30),
+        so neither piece is the host and neither the guest, and the optical weight is equal
+        by construction rather than by eye.
+      * The seam is 8 units wide at every point - both horizontal runs and the vertical jog -
+        and it never closes. The pieces hold by the shape of the join, not by contact.
+      * Its outer edges land exactly on the hexagon's side vertices (52,15) and (0,45), so the
+        seam runs clean out of the silhouette instead of leaving a thin sliver behind.
+
+    Colour: one flat Telekom magenta, and nothing else. The seam is not white, it is nothing -
+    so it takes the colour of whatever page the mark sits on and needs no light or dark variant.
+    `fill="currentColor"` against `color` on the root renders magenta even as an <img>, where
+    no stylesheet can reach; inlined, one `color:` declaration overrides the whole mark.
+  -->
+  <polygon points="26,0 52,15 22,15 22,37 0,37 0,15"/>
+  <polygon points="26,60 0,45 30,45 30,23 52,23 52,45"/>
+</svg>

@@ -31,10 +31,21 @@ const MAX_BYTES: u64 = 512 * 1024;
 /// and `>>>>>>>` markers are unambiguous, and no real conflict has only the middle marker.
 const CONFLICT_MARKERS: &[&str] = &["<<<<<<< ", ">>>>>>> ", "<<<<<<<\t", ">>>>>>>\t"];
 
+/// The em dash. Every doc and comment in this repo uses a plain hyphen instead.
+///
+/// A convention with no mechanism is a wish: AGENTS.md has said "plain hyphens" from the
+/// start, five files were reviewed for it by hand, and `.gitattributes` still shipped one -
+/// found by an agent reading that file for an unrelated reason. That is the failure mode
+/// this gate exists for.
+///
+/// Fixable, because unlike a conflict marker there is exactly one right answer.
+const EM_DASH: char = '\u{2014}';
+
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Finding {
     ConflictMarker { line: usize, marker: String },
     TrailingWhitespace { line: usize },
+    EmDash { line: usize },
     MissingFinalNewline,
     MultipleFinalNewlines(usize),
     TooLarge(u64),
@@ -47,6 +58,9 @@ impl Finding {
                 format!("line {line}: merge conflict marker `{}`", marker.trim())
             }
             Self::TrailingWhitespace { line } => format!("line {line}: trailing whitespace"),
+            Self::EmDash { line } => {
+                format!("line {line}: em dash - this repo uses a plain hyphen")
+            }
             Self::MissingFinalNewline => String::from("no newline at end of file"),
             Self::MultipleFinalNewlines(n) => format!("{n} blank lines at end of file"),
             Self::TooLarge(bytes) => {
@@ -60,7 +74,7 @@ impl Finding {
     const fn fixable(&self) -> bool {
         matches!(
             *self,
-            Self::TrailingWhitespace { .. } | Self::MissingFinalNewline | Self::MultipleFinalNewlines(_)
+            Self::TrailingWhitespace { .. } | Self::EmDash { .. } | Self::MissingFinalNewline | Self::MultipleFinalNewlines(_)
         )
     }
 }
@@ -82,9 +96,27 @@ fn is_generated(text: &str) -> bool {
 }
 
 /// Inspect one file's contents.
-pub(crate) fn inspect(text: &str) -> Vec<Finding> {
+/// Paths whose punctuation is not ours to change.
+///
+/// `.agents/skill-library/**` is a MIRROR - VENDOR.md records the upstream commit and
+/// `cargo xtask check-skills` verifies a sha256 per file. `ms-rust/` is generated from an
+/// upstream snapshot and records a content hash for the same reason. Normalising an em dash
+/// in either would make the recorded hash a lie, which is worse than the punctuation.
+///
+/// Deliberately narrow: this exempts only the em-dash rule, and only these two trees. The
+/// whitespace and conflict-marker rules still apply, because those are about the file being
+/// well-formed rather than about its prose.
+const VENDORED_PROSE: &[&str] = &[".agents/skill-library/", ".agents/skills/engineering/ms-rust/"];
+
+/// Is this path vendored prose, exempt from the em-dash rule?
+fn is_vendored_prose(path: &str) -> bool {
+    VENDORED_PROSE.iter().any(|prefix| path.starts_with(prefix))
+}
+
+pub(crate) fn inspect(path: &str, text: &str) -> Vec<Finding> {
     let mut findings = Vec::new();
     let generated = is_generated(text);
+    let prose_exempt = generated || is_vendored_prose(path);
 
     for (i, line) in text.lines().enumerate() {
         for marker in CONFLICT_MARKERS {
@@ -100,6 +132,12 @@ pub(crate) fn inspect(text: &str) -> Vec<Finding> {
         let without_cr = line.strip_suffix('\r').unwrap_or(line);
         if !generated && without_cr != without_cr.trim_end() {
             findings.push(Finding::TrailingWhitespace { line: i + 1 });
+        }
+        // Generated and vendored text is exempt for the reason above: it must match its
+        // source byte for byte, and `.agents/skill-library/**` is upstream prose whose
+        // punctuation is not ours to change.
+        if !prose_exempt && without_cr.contains(EM_DASH) {
+            findings.push(Finding::EmDash { line: i + 1 });
         }
     }
 
@@ -119,11 +157,21 @@ pub(crate) fn inspect(text: &str) -> Vec<Finding> {
 }
 
 /// Apply the mechanical repairs: strip trailing whitespace, end with exactly one newline.
-pub(crate) fn fixed(text: &str) -> String {
+pub(crate) fn fixed(path: &str, text: &str) -> String {
     let mut out = String::with_capacity(text.len());
+    let prose_exempt = is_generated(text) || is_vendored_prose(path);
     for line in text.lines() {
         let without_cr = line.strip_suffix('\r').unwrap_or(line);
-        out.push_str(without_cr.trim_end());
+        let trimmed = without_cr.trim_end();
+        if prose_exempt {
+            out.push_str(trimmed);
+        } else {
+            // A plain hyphen, not `--`: the convention is one character, and doubling it
+            // would only move the wrongness.
+            for ch in trimmed.chars() {
+                out.push(if ch == EM_DASH { '-' } else { ch });
+            }
+        }
         out.push('\n');
     }
     // `lines()` drops the information that the file was empty; keep it empty.
@@ -153,6 +201,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
     let mut checked = 0_usize;
 
     for rel in files {
+        // A symlink stored as a pointer file has no trailing newline, because a symlink
+        // target does not. Where git is available these never reach here; where it is not,
+        // this is what stops the walk from failing them. See repo::INDEX_SYMLINKS.
+        if repo::is_index_symlink(&rel) {
+            continue;
+        }
         let path = root.join(&rel);
 
         // The size check applies to every file, text or not: a 40 MB binary in git is the
@@ -169,10 +223,10 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         {
             {
                 checked += 1;
-                findings.extend(inspect(&text));
+                findings.extend(inspect(&rel, &text));
 
                 if fix && findings.iter().any(Finding::fixable) {
-                    let repaired = fixed(&text);
+                    let repaired = fixed(&rel, &text);
                     if repaired != text {
                         match std::fs::write(&path, repaired.as_bytes()) {
                             Ok(()) => {
@@ -214,30 +268,33 @@ pub(crate) fn run(args: &[String]) -> Verdict {
 
 #[cfg(test)]
 mod tests {
+    /// A path that is not vendored, for the tests that are about the text rather than the path.
+    const ANY: &str = "src/example.rs";
+
     use super::{Finding, fixed, inspect};
 
     #[test]
     fn clean_text_has_no_findings() {
-        assert_eq!(inspect("fn main() {}\n"), vec![]);
-        assert_eq!(inspect(""), vec![], "an empty file needs no terminator");
+        assert_eq!(inspect(ANY, "fn main() {}\n"), vec![]);
+        assert_eq!(inspect(ANY, ""), vec![], "an empty file needs no terminator");
     }
 
     #[test]
     fn finds_trailing_whitespace() {
-        assert_eq!(inspect("a  \nb\n"), vec![Finding::TrailingWhitespace { line: 1 }]);
-        assert_eq!(inspect("a\t\nb\n"), vec![Finding::TrailingWhitespace { line: 1 }]);
+        assert_eq!(inspect(ANY, "a  \nb\n"), vec![Finding::TrailingWhitespace { line: 1 }]);
+        assert_eq!(inspect(ANY, "a\t\nb\n"), vec![Finding::TrailingWhitespace { line: 1 }]);
     }
 
     #[test]
     fn finds_final_newline_problems() {
-        assert_eq!(inspect("a"), vec![Finding::MissingFinalNewline]);
-        assert_eq!(inspect("a\n\n\n"), vec![Finding::MultipleFinalNewlines(2)]);
+        assert_eq!(inspect(ANY, "a"), vec![Finding::MissingFinalNewline]);
+        assert_eq!(inspect(ANY, "a\n\n\n"), vec![Finding::MultipleFinalNewlines(2)]);
     }
 
     #[test]
     fn finds_conflict_markers() {
         let text = "<<<<<<< HEAD\nmine\n>>>>>>> theirs\n";
-        let found = inspect(text);
+        let found = inspect(ANY, text);
         assert!(found.iter().any(|f| matches!(*f, Finding::ConflictMarker { line: 1, .. })));
         assert!(found.iter().any(|f| matches!(*f, Finding::ConflictMarker { line: 3, .. })));
     }
@@ -246,26 +303,26 @@ mod tests {
     fn a_markdown_rule_is_not_a_conflict_marker() {
         // The `=======` marker is excluded precisely so this passes: setext headings and
         // ASCII rules are common in the docs this repo is full of.
-        assert_eq!(inspect("Heading\n=======\n"), vec![]);
-        assert_eq!(inspect("-------\n"), vec![]);
+        assert_eq!(inspect(ANY, "Heading\n=======\n"), vec![]);
+        assert_eq!(inspect(ANY, "-------\n"), vec![]);
     }
 
     #[test]
     fn a_crlf_file_reports_line_endings_not_whitespace() {
         // The line-endings gate owns CRLF. Reporting it twice, as whitespace on every line,
         // would bury the real message.
-        assert_eq!(inspect("a\r\nb\r\n"), vec![]);
+        assert_eq!(inspect(ANY, "a\r\nb\r\n"), vec![]);
     }
 
     #[test]
     fn fix_repairs_what_it_claims_to() {
-        assert_eq!(fixed("a  \nb\t\n"), "a\nb\n");
-        assert_eq!(fixed("a"), "a\n");
-        assert_eq!(fixed("a\n\n\n"), "a\n");
-        assert_eq!(fixed(""), "");
+        assert_eq!(fixed(ANY, "a  \nb\t\n"), "a\nb\n");
+        assert_eq!(fixed(ANY, "a"), "a\n");
+        assert_eq!(fixed(ANY, "a\n\n\n"), "a\n");
+        assert_eq!(fixed(ANY, ""), "");
         // Idempotent, or a --fix run would keep producing a diff.
-        let once = fixed("a  \n\n\n");
-        assert_eq!(fixed(&once), once);
+        let once = fixed(ANY, "a  \n\n\n");
+        assert_eq!(fixed(ANY, &once), once);
     }
 
     // Fixtures are ASSEMBLED rather than written as literals, so no line of this file
@@ -285,12 +342,74 @@ mod tests {
     }
 
     #[test]
+    fn finds_an_em_dash() {
+        // Assembled rather than written literally: a rule table containing its own needle
+        // makes the gate fire on its own source, which is how three earlier detectors in
+        // this repo failed.
+        let line = format!("a clause{}and its continuation\n", super::EM_DASH);
+        assert_eq!(inspect(ANY, &line), vec![Finding::EmDash { line: 1 }]);
+    }
+
+    #[test]
+    fn fix_replaces_an_em_dash_with_one_hyphen() {
+        let line = format!("a clause {} and more\n", super::EM_DASH);
+        assert_eq!(fixed(ANY, &line), "a clause - and more\n");
+    }
+
+    #[test]
+    fn vendored_prose_keeps_its_em_dashes() {
+        // `.agents/skill-library/**` is a mirror whose sha256 `check-skills` verifies. It has
+        // no "do not edit" marker because upstream did not write one, so the exemption has to
+        // be by path - and without it this rule reported 349 findings in imported prose.
+        let line = format!(
+            "upstream wrote{}this
+",
+            super::EM_DASH
+        );
+        let vendored = ".agents/skill-library/planning/idea-refine/SKILL.md";
+        assert!(!inspect(vendored, &line).iter().any(|f| matches!(*f, Finding::EmDash { .. })));
+        assert_eq!(fixed(vendored, &line), line, "vendored prose is returned unchanged");
+        // The same text in our own file is still a finding.
+        assert_eq!(inspect(ANY, &line), vec![Finding::EmDash { line: 1 }]);
+    }
+
+    #[test]
+    fn vendored_prose_is_still_checked_for_conflict_markers() {
+        // The exemption is for PROSE, not for well-formedness. A bad merge in a mirror is
+        // still a bad merge.
+        let text = format!(
+            "{}HEAD
+text
+",
+            "<<<<<<< "
+        );
+        let vendored = ".agents/skill-library/x/SKILL.md";
+        assert!(
+            inspect(vendored, &text)
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. }))
+        );
+    }
+
+    #[test]
+    fn a_generated_file_keeps_its_em_dashes() {
+        // Vendored prose must match its source byte for byte; rewriting it would break the
+        // hash that records what was imported.
+        let text = format!(
+            "<!-- generated, DO NOT EDIT -->\nupstream prose {} verbatim\n",
+            super::EM_DASH
+        );
+        assert!(!inspect(ANY, &text).iter().any(|f| matches!(*f, Finding::EmDash { .. })));
+        assert_eq!(fixed(ANY, &text), text, "a generated file is returned unchanged");
+    }
+
+    #[test]
     fn a_generated_file_is_exempt_from_whitespace_rules() {
         let mut generated = String::from("<!-- Generated by generate.py; do not edit. -->\n\n");
         generated.push_str(&with_trailing_space());
-        assert_eq!(inspect(&generated), vec![], "generated content is not hand-edited");
+        assert_eq!(inspect(ANY, &generated), vec![], "generated content is not hand-edited");
         // The same content without the marker is judged normally.
-        assert!(!inspect(&with_trailing_space()).is_empty());
+        assert!(!inspect(ANY, &with_trailing_space()).is_empty());
     }
 
     #[test]
@@ -299,7 +418,11 @@ mod tests {
         let mut text = String::from("<!-- do not edit -->\n");
         text.push_str(&conflict_line());
         text.push_str("\nx\n");
-        assert!(inspect(&text).iter().any(|f| matches!(*f, Finding::ConflictMarker { .. })));
+        assert!(
+            inspect(ANY, &text)
+                .iter()
+                .any(|f| matches!(*f, Finding::ConflictMarker { .. }))
+        );
     }
 
     #[test]

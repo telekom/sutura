@@ -8,7 +8,7 @@
 #   [silent]  Generated, vendored or lock-like output. Nobody hand-edits it and a line
 #             budget could only be met by deleting the thing it describes. No output.
 #   [warn]    Hand-written files over the limit with a split already agreed. Prints WARN
-#             on every run and does NOT fail — visible debt, not an exemption.
+#             on every run and does NOT fail - visible debt, not an exemption.
 #
 # What cannot be listed here at all: anything under `crates/` or `xtask/`. The gate
 # rejects such a pattern and fails, because an exemption list that can swallow first-party
@@ -31,5 +31,5 @@ docs/generated/*
 [warn]
 
 # Empty on purpose: every hand-written file in this repo is under the limit. An entry here
-# is a promise to split a file, not a way to silence the gate — and it keeps printing until
+# is a promise to split a file, not a way to silence the gate - and it keeps printing until
 # somebody keeps that promise.

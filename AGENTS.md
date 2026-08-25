@@ -39,7 +39,7 @@ at a signature and `pub` hides it from `dead_code`.
 | `sutura-semantic` | `Query` → plan → `GeneratedQuery` |
 | `sutura-app` | The service; generic over ports, holds no framework types |
 | `sutura-catalog-local` / `-datahub` | `SemanticCatalog` adapters (git YAML / catalog) |
-| `sutura-exec-duckdb` / `-bigquery` | `Warehouse` adapters |
+| `sutura-exec-clickhouse` / `-postgres` / `-duckdb` | `Warehouse` adapters. The near-term targets are ClickHouse and Postgres, with DuckDB for local and single-file work - see `docs/architecture.md`. `Warehouse` is the PORT's name and says nothing about what sits behind it |
 | `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
 | `sutura-mcp` / `sutura-http` | Transport only, no business logic |
 | `sutura-cli` | The binary; composes adapters |
@@ -51,29 +51,44 @@ dependency. Keep it that way: its test suite should run in well under a second.
 ## Commands
 
 `direnv` loads the devenv on `cd` - run `direnv allow` once per clone. Nix + devenv provisions the
-shell and owns the task names; pixi owns Python only; `prek` runs the hooks.
+shell and owns the task names; pixi owns the hook runner and the maintenance interpreter, nothing
+that reports findings; `prek` runs the hooks.
+
+**Two toolchains, and it matters which one you get.** The dev shell's bare `cargo` is the pinned
+**nightly** (`rust-toolchain-nightly.toml`), because the cranelift codegen backend is nightly-only
+and it is what makes the inner loop fast. Every gate instead sources `nix/stable-env.sh`, which puts
+the pinned **stable** (`rust-toolchain.toml`) in front and gives it its own target directory. So:
+
+- Running a `just` task or a devenv script gets stable - the same compiler CI uses.
+- Typing `cargo clippy` yourself gets nightly, whose lint set differs. This repo gates on the whole
+  clippy `restriction` category with `-D warnings`, so nightly will report lints stable has never
+  heard of. **Do not conclude the branch is red from a bare `cargo clippy`** - run `just lint`.
+- The separate target directory is not optional: alternating compilers in one directory invalidates
+  every artifact in it.
 
 CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
 needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
 a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here, and
-fmt/clippy/tests run the same cargo subcommands under the same `rust-toolchain.toml` pin. Add a
-gate in one place only and the omission shows up as a diff.
+fmt/clippy/tests run the same cargo subcommands under the same stable pin, because the gates go
+through `nix/stable-env.sh` here and CI has only stable to begin with. Add a gate in one place only
+and the omission shows up as a diff.
 
 ```bash
 cargo check -p sutura-domain --no-default-features   # fast inner loop
-cargo nextest run                                    # tests
-cargo clippy --workspace --all-targets --all-features -- -D warnings
+test                                                 # tests, on stable
+lint                                                 # clippy, on stable
 hygiene                                              # line endings, max-lines, unused deps, boundaries
 cargo xtask classify --since origin/main             # what does this change require?
 cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
 gates                                                # hygiene + fmt, clippy, tests, deny
-docs                                                 # render the book to docs/book
-docs-serve                                           # the book with live reload
+docs                                                 # render the site to ./site
+docs-serve                                           # the site with live reload
 prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
 nix build .#oci                                      # the release image
 nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
 nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
-pixi run <task>                                      # Python tooling only
+pixi run --frozen <task>                                    # hooks and skill sync only
+just update                                          # bump flake.lock, pixi.lock, Cargo.lock
 stax                                                 # stacked branches / PRs
 ```
 
@@ -86,7 +101,12 @@ stax                                                 # stacked branches / PRs
   inner loop, not the gate.
 - The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
   here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
-- `rust-toolchain.toml` pins the compiler and Nix reads it via `fromTOML` - one pin everywhere.
+- `rust-toolchain.toml` is the authority for anything shipped: CI, the release build and the OCI
+  image. `nix/toolchains.nix` is the one place that turns either pin into a compiler, imported by
+  both `flake.nix` and `devenv.nix`.
+- nix is the **only** pin for any tool whose version changes what it reports - zizmor, actionlint,
+  shellcheck, clippy, nextest, cargo-deny. pixi holds only `prek` and `python`, which cannot change
+  a verdict. `cargo xtask check-pins` fails if a tool appears in both.
 - Use `rg` to search and `fd` to find files.
 - If tooling is missing, report the exact install command and ask before installing it.
 
@@ -100,7 +120,8 @@ regeneration is checked rather than trusted.
 | Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) - **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
 | MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
 | The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
-| Compiler version | `rust-toolchain.toml` | One pin; do not add a second in CI or in the image |
+| Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
+| Compiler version, local inner loop | `rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
 | Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
@@ -255,9 +276,9 @@ Do not skip it silently.
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
   LTO). None of them installs devenv.
 - `.agents/skills/` - task guidance, entered through the router. Not a substitute for this file.
-- `docs/` - the published book (mdBook: `docs/book.toml`, pages in `docs/src/`). Installing the
-  environment, building without direct egress, the layout, the invariants and the gates.
-  `cargo xtask check-docs` fails if a page is unreachable from `docs/src/SUMMARY.md` or a
-  chapter names a file that is not there.
+- `docs/` - the published site (mkdocs-material, versioned by mike: `mkdocs.yml` at the root,
+  pages in `docs/`). Installing the environment, building without direct egress, the layout, the
+  invariants and the gates. `cargo xtask check-docs` fails if a page is in no `nav` entry, if a
+  `nav` entry names a file that is not there, or if an asset `mkdocs.yml` references is missing.
 - `VENDOR.md` - third-party material adapted here, with upstream, licence, commit and changes.
 - `docs/adr/` - sutura's decisions, in sutura's own numbering. Cite nothing external.

@@ -17,7 +17,7 @@ __pycache__/
 .direnv/
 .devenv/
 .devenv.flake.nix
-# Personal, uncommitted devenv overrides — the escape hatch that stops people
+# Personal, uncommitted devenv overrides - the escape hatch that stops people
 # editing devenv.nix to make their own machine work.
 devenv.local.nix
 
@@ -32,5 +32,5 @@ devenv.local.nix
 # Ponytail activation flag: local, per-developer.
 .ponytail-active
 
-# The rendered book. `mdbook build docs` writes it; the markdown in docs/src is the source.
-/docs/book
+# The rendered site. `mkdocs build` writes it; the markdown in docs/ is the source.
+/site
