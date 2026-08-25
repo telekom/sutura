@@ -65,23 +65,25 @@ a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` scri
 in one place only and the omission shows up as a diff.
 
 ```bash
-cargo check -p sutura-domain --no-default-features   # fast inner loop
-test                                                 # tests, on stable
-lint                                                 # clippy, on stable
-hygiene                                              # line endings, max-lines, unused deps, boundaries
-cargo xtask classify --since origin/main             # what does this change require?
-cargo xtask check-changed <paths>                    # cargo check, narrowed to those packages
-gates                                                # hygiene + fmt, clippy, tests, deny
-docs                                                 # render the site to ./site
-docs-serve                                           # the site with live reload
-prek run --all-files                                 # hooks (config: .pre-commit-config.yaml)
-nix build .#oci                                      # the release image
-nix build .#sutura-performance                       # fat-LTO build; opt-in, never automatic
-nix build .#checks.x86_64-linux.hygiene              # what CI runs, without devenv
-pixi run --frozen <task>                                    # hooks and skill sync only
-just update                                          # bump flake.lock, pixi.lock, Cargo.lock
-stax                                                 # stacked branches / PRs
+just check          # fast inner loop, domain crate only
+just lint           # clippy, on stable
+just test           # tests, on stable
+just hygiene        # the cheap structural gates
+just gates          # everything CI runs
+just ship-check     # the finishing sequence
+just classify       # what does this change require?
+just check-changed <paths>
+just causality      # red-before-green proof
+just hooks          # every hook over every file
+just ci             # what CI runs, through nix, no devenv
+just docs           # render the site
+just image          # the release image
+just build-all      # all four shipped binaries
+just update         # bump every lock
 ```
+
+`just` with no argument lists the rest. A task is the only name worth citing: it is one place
+to change, and `cargo xtask check-guidance` fails on a citation of a task that does not exist.
 
 - `--all-features` is not optional. Adapters are feature-gated and default-off, so a bare
   `cargo clippy --workspace` inspects almost nothing and still reports success.

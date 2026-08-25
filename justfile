@@ -103,6 +103,24 @@ test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
+# cargo check, narrowed to the packages owning the given paths.
+check-changed +paths:
+    cargo run -q -p xtask -- check-changed {{ paths }}
+
+# What CI runs, through nix, without entering the dev shell. The one command that needs no
+# devenv - useful for reproducing a red pipeline locally.
+ci:
+    nix build .#checks.x86_64-linux.hygiene -L
+    nix build .#checks.x86_64-linux.fmt -L
+    nix build .#checks.x86_64-linux.clippy -L
+    nix build .#checks.x86_64-linux.nextest -L
+    nix build .#checks.x86_64-linux.doctest -L
+
+# The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
+# has measured yet.
+perf:
+    nix build .#sutura-performance
+
 # ---------------------------------------------------------------- the gates ---
 
 # One line, because xtask owns the list (`Kind::Hygiene` in its task table). It used to be
