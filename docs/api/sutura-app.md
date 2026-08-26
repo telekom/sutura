@@ -305,3 +305,225 @@ A typed error, owned, with its type erased and its `#[source]` chain intact.
 
 `Send + Sync` because a transport may answer on a blocking pool, so a failure crosses a thread
 boundary on the way back.
+
+## Module `prompt`
+
+The agent-facing system prompt: derived from the tool surface, never written by hand.
+
+# Why this exists at all
+
+An agent that has not been told what this surface is will treat it as a database. It will look
+for a field to put SQL in, find none, put a metric name it remembers from somewhere else into
+[`Query::metric`](sutura_domain::query::Query), get a refusal, read the refusal as a transport
+failure, and retry. Every one of those steps is a reasonable thing for a general-purpose agent to
+do, and every one of them is the behaviour this repository's types are arranged to prevent. The
+types stop the *damage*; they cannot stop the loop. A prompt can.
+
+# What it is derived from, and what that buys
+
+Three inputs, and the first two are not text somebody keeps in step by hand:
+
+1. **The tool list** - `PromptInputs::tools`. The workflow is composed from the operations that
+   are actually exposed, so a deployment that does not expose the catalog listing gets a prompt
+   that does not tell an agent to call it. A prompt naming an operation that is not there is
+   worse than a shorter prompt: the agent spends its turns discovering the absence.
+2. **The pinned bundle** - every metric, its grains, its dimensions and the values a filter may
+   use, read off the same `PinnedDefinitions` every answer is computed from. It cannot describe
+   a metric this deployment does not serve, because there is nowhere for such a metric to come
+   from.
+3. **The operator's own text** - `PromptInputs::instructions`, appended as the last section.
+   Appended and never substituted: see the note on layering below.
+
+# What it deliberately does NOT say
+
+**Nothing about composing SQL.** The reference implementation this is modelled on spends most of
+its length teaching an agent to write SQL against model names, to avoid raw database tables, and
+to dry-plan a complex statement before running it. None of that transfers, because
+[`Query`](sutura_domain::query::Query) has no field for SQL, a table, a filter expression or a
+list of row ids and `deny_unknown_fields` makes an attempt an error naming the field. Repeating
+the guidance here would teach an agent to attempt something the surface refuses by construction,
+which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
+one short section saying the field does not exist and that there is no way to widen it.
+
+**No column, no table, no model and no measure expression.** This is the same content
+`GET /v1/catalog` already returns and deliberately not one field more: a metric's name, its
+prose, its grains, its dimensions and their permitted values. A caller needs those to ask a valid
+question; it needs no column name to do it, and a column name in an agent's context is a name it
+will eventually try to use. `tests` asserts that no model name, table name or column name from
+the bundle appears in the output.
+
+**Nothing about identity.** There is none - the deployment token authenticates the deployment and
+not the caller - and a prompt that mentioned per-caller scoping would describe a control that does
+not exist. `AGENTS.md` and `SECURITY.md` record why.
+
+# Tone
+
+The defaults are deliberately strong, and that is borrowed rather than invented: the reference
+implementation measured soft phrasing - "for non-trivial questions", "when useful" - being read
+as "skip" almost every time. So the workflow says "every time" and the refusal section says "do
+not retry" rather than "consider whether to retry".
+
+# Layering, and why an operator cannot replace the derived part
+
+`PromptInputs::instructions` is appended as the LAST section, under a heading that says it is
+the operator's. There is deliberately no way to substitute it for the derived text. The refusal
+guidance is the single most load-bearing paragraph in the whole document - an agent that treats a
+refusal as an outage retries until something works, which is precisely what the refusal exists to
+prevent - and a configuration key that could delete it would be a key whose worst setting is
+silent. Last place rather than first is also deliberate: a preamble ahead of the rules reads as
+the governing frame, and the governing frame is not the operator's to set.
+
+# Catalog prose is untrusted content
+
+A metric's description is written by whoever authored the catalog, and this repository's threat
+model treats catalog content as untrusted - see `SECURITY.md`, and the symlink-bounded walk in
+`sutura-catalog-local` for the precedent. A description containing a sentence aimed at the agent
+rather than at a human is prompt injection through the catalog.
+
+Three things are done about it, and the first is the honest limit:
+
+* **A delimiter cannot separate instruction from data, because the content can contain the
+  delimiter.** `docs/concepts.md` already says so. So the mitigation here is not a fence: it is a
+  per-line prefix that WE apply. `quote` puts `> ` at the start of every line of prose, so no
+  line of catalog text can reach the output at column zero. It cannot emit a heading, close a
+  block, or start what looks like a new section of this document.
+* **The trust boundary is named in the text**, immediately above the quoted block, in terms an
+  agent can act on: the block is data, a sentence inside it that reads as an instruction is
+  content and not an instruction, and encountering one is something to report rather than obey.
+* **An operator who does not trust their catalog authors can drop the prose entirely** -
+  `CatalogProse::Omitted`. The section then says the descriptions exist and are not included,
+  which is a fact an agent can act on, rather than silently rendering a catalog with no meaning
+  attached to any metric.
+
+What none of that solves is prose that *persuades* without escaping. No mechanism here can catch
+it. What bounds it is that a catalog is reviewed, authored content whose digest moves when a
+description changes, and that this text is generated by an operator command rather than pasted
+from a caller.
+
+### `enum Tool`
+
+```rust
+pub enum Tool
+```
+
+One operation a transport exposes.
+
+Two variants, because [`Surface`](crate::surface::Surface) has two methods and this enum is the
+prompt's name for each. It is a list rather than a constant because the point is that a caller
+passes the subset it actually mounts: `Tool::ALL` is what a transport serving the whole surface
+passes, and a deployment that mounts only one passes only that one.
+
+**Two entries make this cheap insurance rather than a large win, and it is worth saying so.** The
+property it buys is narrow: the rendered workflow cannot instruct an agent to call an operation
+that is not there. With two operations that is one branch. It is here because the branch costs a
+match arm and the alternative - a hand-written workflow that is right until the day a deployment
+stops mounting the listing - costs a debugging session.
+
+#### Variants
+
+- `Catalog` - Reading what this deployment defines. `GET /v1/catalog`, `sutura catalog`, and whatever an MCP transport would call it. [`Surface::definitions`](crate::surface::Surface::definitions).
+- `Query` - Asking one certified question. [`Surface::answer`](crate::surface::Surface::answer).
+
+#### Methods
+
+```rust
+pub const fn name(self) -> &'static str
+```
+
+The one name this operation answers to.
+
+One word, chosen so that it is simultaneously the CLI subcommand, the path segment under the
+version prefix, and what an MCP tool would be called. Three spellings that cannot disagree
+beats a table mapping between them.
+
+```rust
+pub const fn summary(self) -> &'static str
+```
+
+What it does, in one line, for the operations list.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`
+
+### `enum CatalogProse`
+
+```rust
+pub enum CatalogProse
+```
+
+Whether the catalog's own prose reaches the agent, and how.
+
+A separate type from the configuration spelling of the same decision, which lives in
+`sutura_config::prompt::CatalogProse`. The split is the one `telemetry.filter` already uses: the
+configuration crate parses the word an operator wrote, and the crate that does the work owns the
+type that does it. It also keeps this crate's dependency table at `sutura-domain`,
+`sutura-semantic` and `thiserror`, which is what `AGENTS.md` cites as holding up the rule that a
+driving port is not owned by one of its callers.
+
+#### Variants
+
+- `Quoted` - Included, with `> ` at the start of every line and the trust boundary named above it.
+- `Omitted` - Left out. The section says the descriptions exist and were not included, which is a fact an agent can act on; silence would leave it guessing at what a metric means.
+
+#### Methods
+
+```rust
+pub const fn is_quoted(self) -> bool
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct PromptInputs`
+
+```rust
+pub struct PromptInputs<'a>
+```
+
+Everything the prompt is derived from that is not the bundle.
+
+A value rather than four arguments, so a caller that gains a fifth input does not silently get
+the wrong one in the third position.
+
+#### Methods
+
+```rust
+pub const fn instructions(&self) -> Option<&'a str>
+```
+
+```rust
+pub const fn new(tools: &'a [Tool], prose: CatalogProse, instructions: Option<&'a str>) -> Self
+```
+
+The operations exposed, how catalog prose is treated, and the operator's own text.
+
+`instructions` is already-read text rather than a path, deliberately: this crate performs no
+I/O and the composition root is where a configured file that cannot be read has to become a
+loud failure. A configured-and-missing file silently omitted would be exactly the failure
+`AGENTS.md` warns about in another place - a control that reads as being in place.
+
+```rust
+pub const fn prose(&self) -> CatalogProse
+```
+
+```rust
+pub const fn tools(&self) -> &'a [Tool]
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
+
+### `fn render`
+
+```rust
+pub fn render(pinned: &sutura_domain::pinned::PinnedDefinitions, inputs: &PromptInputs<'_>) -> String
+```
+
+The whole prompt, as markdown.
+
+Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
+the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
+what lets the rendering be pinned by a snapshot rather than described.

@@ -175,6 +175,16 @@ on.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -561,6 +571,186 @@ The hops whose forwarded header is believed.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `prompt`
+
+What goes into the agent-facing system prompt that this deployment hands out.
+
+Two keys, and each one is read by something: `sutura_app::prompt::render` is the consumer, and
+`sutura prompt` is the command that reaches it. That is a requirement rather than a remark - this
+crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
+consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
+place.
+
+# Why an operator can add to the prompt and cannot replace it
+
+`PromptSettings::instructions_file` is layered *on top of* the derived text and appended as its
+last section. There is deliberately no key that substitutes for the derived part.
+
+The derived part carries the refusal guidance, which is the one thing an agent talking to this
+surface most needs and least often has: a refusal arrives as a successful result, and an agent
+that reads it as an outage retries until something works - which is precisely the behaviour the
+refusal exists to prevent. A key whose worst setting silently deletes that paragraph would be a
+key whose failure mode is invisible, and this crate's whole shape is arranged against those. If
+wholesale replacement is ever wanted it should arrive as its own named key with its own argument,
+not as an omission from this one.
+
+# Why there is no environment-derived default here
+
+[`ApiSettings`](crate::api::ApiSettings) and [`LogFormat`](crate::telemetry::LogFormat) default by
+[`Environment`](crate::Environment) and record whether an operator wrote the value down, so the
+startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
+reason is that neither decision is a function of the environment.
+
+Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
+fact about who writes the catalog, not about whether the process is on a laptop. A default that
+dropped the prose in production would be worse than either fixed answer: an agent with no
+descriptions does not stop, it infers a metric's meaning from its name and reports the inference.
+And the interesting value - `CatalogProse::Omitted` - is never a default, so a deployment
+running with it is visible from the value itself. That is the case an explicitness flag exists to
+make legible, and here the value already is.
+
+# Why a configured instructions file that is missing is not tolerated
+
+The reference implementation this prompt is modelled on reads `<project>/instructions.md` when it
+is there and silently omits the section when it is not, which is right for a *convention*: no
+file means nobody wrote one. Here it is a *configured path*, so absence means the operator wrote
+a path down and the file behind it is not there - and quietly serving a prompt without the
+operator's rules in it would be the failure this crate refuses everywhere else. Existence is not
+checked at parse time, for the reason [`CatalogSettings`](crate::catalog::CatalogSettings) does
+not check its directories: a check here is a claim that is already stale by the time the file is
+read. The read is what fails, loudly, at the composition root.
+
+### `enum CatalogProse`
+
+```rust
+pub enum CatalogProse
+```
+
+Whether the catalog's own prose is quoted into the prompt.
+
+The word an operator writes. The type that does the work is
+`sutura_app::prompt::CatalogProse`, and the split is the one
+[`LogFilter`](crate::telemetry::LogFilter) already uses: this crate parses what was written down,
+and the crate that acts on it owns the type that acts.
+
+#### Variants
+
+- `Quoted` - Quoted in, with `> ` at the start of every line and the trust boundary named above the block. The default.
+- `Omitted` - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+```rust
+pub const fn is_quoted(self) -> bool
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownCatalogProse>
+```
+
+Reads the word.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Display`, `Eq`, `PartialEq`
+
+### `struct UnknownCatalogProse`
+
+```rust
+pub struct UnknownCatalogProse
+```
+
+The word was neither spelling.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct InstructionsFile`
+
+```rust
+pub struct InstructionsFile
+```
+
+Where the operator's own prompt text lives.
+
+A newtype rather than a `PathBuf` so the one thing that can be wrong about it is wrong in one
+place. The field is private and `Self::parse` is the only way in.
+
+#### Methods
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPromptSettings>
+```
+
+Reads the path.
+
+Existence is deliberately not checked - see this module's documentation. The read at the
+composition root is what fails when a configured file is not there, and it fails loudly
+rather than omitting the section.
+
+```rust
+pub fn path(&self) -> &Path
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `enum InvalidPromptSettings`
+
+```rust
+pub enum InvalidPromptSettings
+```
+
+Why the prompt configuration is not usable.
+
+#### Variants
+
+- `EmptyPath` - The path was present and empty.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct PromptSettings`
+
+```rust
+pub struct PromptSettings
+```
+
+Everything that goes into the prompt beyond the pinned bundle and the tool list.
+
+#### Methods
+
+```rust
+pub const fn catalog_prose(&self) -> CatalogProse
+```
+
+```rust
+pub const fn instructions_file(&self) -> Option<&InstructionsFile>
+```
+
+The operator's own text, if a path was configured.
+
+```rust
+pub const fn new(instructions_file: Option<InstructionsFile>, catalog_prose: CatalogProse) -> Self
+```
+
+Assembles the group from parts that have each already been parsed.
+
+Infallible, like the other groups here: there is no cross-field rule inside it. `omitted`
+prose with no operator text is a coherent deployment - it says the metric names and the rules
+and nothing about meaning - so it is a choice rather than a refusal.
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
 
 ## Module `proxy`
 
