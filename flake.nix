@@ -107,6 +107,12 @@
             || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
             || (builtins.match ".*/crates/[^/]+/src(/.*)?$" path != null)
             || (builtins.match ".*/examples(/.*)?$" path != null)
+            # `xtask` is a repo-inspection tool, so its tests read repo files by design. Named
+            # file by file rather than by directory: `docs/` holds the generated API pages and
+            # churns, and matching all of it would put every prose edit in the Rust build's
+            # derivation hash - a rebuild of the closure for a typo.
+            || (builtins.match ".*/nix(/.*)?$" path != null)
+            || (builtins.match ".*/docs/crap\.md$" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -254,26 +260,31 @@
         releaseArgs = commonArgs // { CARGO_PROFILE = "release"; };
 
         # Dependencies, compiled ONCE and reused by the build and by every check. This is
-        # the reason to use crane rather than a plain buildRustPackage: a naive layout
-        # recompiles the dependency tree for clippy, for the tests and for the build, and
-        # on this dependency set that is most of the wall clock.
-        cargoArtifacts = craneLib.buildDepsOnly releaseArgs;
-
-        # The same, scoped to `xtask` alone, for the gates that are not about the workspace's
-        # code. Measured, not guessed: `checks.hygiene` runs `cargo run -p xtask -- hygiene`,
-        # which checks nav entries, line endings, text hygiene and file lengths - and it was
-        # inheriting `cargoArtifacts`, so it pulled DataFusion, Arrow and DuckDB in order to
-        # lint markdown. On one push that cost the `docs` workflow **26.3 minutes** against
-        # 0.7 for the same derivation in `ci`, which had the closure cached already.
+        # ONE dependency closure for everything CI does except ship a binary, at opt-level 0.
         #
-        # `xtask`'s own tree is small, so this is a much smaller build and one that no
-        # dependency bump of the engine can invalidate. It does not replace `cargoArtifacts`
-        # anywhere that compiles workspace code - clippy, nextest and the release build all
-        # still want the full closure and share one copy of it.
-        xtaskArtifacts = craneLib.buildDepsOnly (releaseArgs // {
-          pname = "sutura-xtask-deps";
-          cargoExtraArgs = "--package xtask";
-        });
+        # Measured, on the run that first got there: `nextest` spent 57 minutes compiling to run
+        # **1.567 seconds** of tests, because every test binary links DataFusion, Arrow and
+        # DuckDB. At this profile the same check builds and runs in 1 min 5 s. Our own crates are
+        # small; the minutes were all dependencies, which is exactly what opt-level 0 on the
+        # closure addresses.
+        #
+        # Named in BOTH places, and that is half the fix. `clippy`, `nextest`, `doctest` and
+        # `crap` were built from `commonArgs`, which sets no `CARGO_PROFILE`, while the artifacts
+        # they inherited were built as `release`. Cargo stores artifacts per profile and the two
+        # derivations are provably different - `pkb4gj15` against `v7whyzp6f` - so a check could
+        # not reuse deps built under the other profile. `nix eval` now shows one drv hash across
+        # every consumer.
+        #
+        # There is deliberately no second, smaller closure. An `xtask`-only one was tried: it
+        # made `checks.hygiene` standalone-cheap but gave CI two dependency builds and two cache
+        # entries for one dependency set, which is the opposite of what a shared cache is for.
+        # At opt-level 0 the full closure is cheap enough that scoping it buys less than the
+        # duplication costs.
+        #
+        # `release` stays for the shipped binary and the cross artifacts - the only place an
+        # optimised build is worth paying for.
+        ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
+        ciArtifacts = craneLib.buildDepsOnly ciArgs;
 
         # A native build for one profile. For `release` the deps derivation is identical to
         # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
@@ -573,15 +584,13 @@
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
           # nothing but `nix` on the runner.
           #
-          # `xtaskArtifacts`, and this is the one that moved the needle. The comment here used
-          # to say reusing `cargoArtifacts` "costs no extra dependency build", which was true
-          # and beside the point: it costs the WAIT for a dependency build this binary does not
-          # need. `classify` is the FIRST step in the pipeline, so on a cold cache the whole
-          # closure - DataFusion, Arrow, DuckDB - was on the critical path before the pipeline
-          # could decide what to run. That step was 23.9 minutes on the push that added the
-          # engine, and it is the step everything else waits behind.
-          xtask = craneLib.buildPackage (releaseArgs // {
-            cargoArtifacts = xtaskArtifacts;
+          # `ciArtifacts`: this binary is what CI runs as `nix run .#xtask -- classify`, and
+          # `classify` is the FIRST step, so on a cold cache whatever it waits for is on the
+          # critical path before the pipeline can decide what to run. That step was 23.9 minutes
+          # on the push that added the engine. At opt-level 0 it is a fraction of that, and it is
+          # the same closure every gate uses rather than a second one.
+          xtask = craneLib.buildPackage (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             pname = "xtask";
             cargoExtraArgs = "--package xtask";
             doCheck = false;
@@ -620,13 +629,26 @@
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
           # would still report success.
-          clippy = craneLib.cargoClippy (commonArgs // {
-            inherit cargoArtifacts;
+          clippy = craneLib.cargoClippy (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
-          nextest = craneLib.cargoNextest (commonArgs // {
-            inherit cargoArtifacts;
+          nextest = craneLib.cargoNextest (ciArgs // {
+            cargoArtifacts = ciArtifacts;
+            # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
+            # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
+            # BY DESIGN - `nix/crap.nix` against `docs/crap.md`, `devco/max-lines-ignore`, the
+            # workflows. The golden suites read fixtures and `examples/`. Every one of those is
+            # invisible under crane's filter, so each new one was a green local run and a red
+            # CI step: three found that way already, and the fourth was found here.
+            #
+            # It costs nothing where the cost would matter. `ciArtifacts` above still builds
+            # from the FILTERED source, and that is the expensive derivation - the dependency
+            # closure. This only widens what the cheap half sees: our own crates, and the tests.
+            # `checks.hygiene` has been doing exactly this since it was written, for the same
+            # reason, and the filter clauses stay because clippy and the release build read them.
+            src = ./.;
             cargoNextestExtraArgs = "--workspace --all-features";
             # `insta` writes a `.snap.new` beside a snapshot that did not match and then fails. In
             # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
@@ -676,8 +698,8 @@
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (releaseArgs // {
-            inherit cargoArtifacts;
+          doctest = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             pnameSuffix = "-doctest";
             doCheck = false;
             buildPhaseCargoCommand = "cargo test --doc --workspace --all-features";
@@ -698,21 +720,16 @@
           # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
           # to walking the tree instead of failing.
           #
-          # `--release` reuses `cargoArtifacts` rather than compiling xtask's dependency
-          # set a second time under the dev profile.
-          # `xtaskArtifacts`, not `cargoArtifacts`: this gate reads files, so it has no reason
-          # to wait for the engine's dependency tree. See the note beside `xtaskArtifacts`.
-          #
-          # `src = ./.` and not the filtered `src`, deliberately: the gates judge the WHOLE
-          # tree - nav entries against pages on disk, line endings, prose style, file lengths -
-          # so a filtered copy would make several of them pass by seeing less.
-          hygiene = craneLib.mkCargoDerivation (commonArgs // {
-            cargoArtifacts = xtaskArtifacts;
+          # `--release` is gone from the command below: at `ci` the profile is already what
+          # every other check uses, so naming a second one here would compile xtask against a
+          # different dependency set for no gain.
+          hygiene = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             src = ./.;
             pnameSuffix = "-hygiene";
             doCheck = false;
             buildPhaseCargoCommand = ''
-              cargo run --release -q -p xtask -- hygiene
+              cargo run -q -p xtask -- hygiene
             '';
           });
 
@@ -783,8 +800,8 @@
           #
           # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
           # without it the run fails on a path it cannot create.
-          crap = craneLib.mkCargoDerivation (commonArgs // {
-            inherit cargoArtifacts;
+          crap = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             src = ./.;
             pnameSuffix = "-crap";
             doCheck = false;
