@@ -223,6 +223,33 @@
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
 
+        # What cargo needs to LINK this workspace, outside a build sandbox, as shell lines.
+        #
+        # The checks do not need this: crane puts `duckdb.package` in `buildInputs` and the nix
+        # builder sets the linker search path from it. An app is a plain shell script outside
+        # any build sandbox, so it inherits nothing and has to say so itself.
+        #
+        # Two separate omissions, found one after the other, both in `apps.causality`:
+        #
+        #   - It exported only `PATH`, and `--all-features` pulls `sutura-exec-duckdb`, which
+        #     links `-lduckdb`: `ld.lld: error: unable to find library -lduckdb`. Only visible
+        #     after a disk fix let the gate run far enough to reach the linker, which is why a
+        #     pre-existing gap looked like a new regression.
+        #   - `.cargo/config.toml` sets `linker = "clang"` with `-fuse-ld=lld` and neither was on
+        #     PATH. The dev shell's `runtimeInputs` comment says precisely what that looks like -
+        #     "every build script fails with linker `clang` not found" - and the apps never got
+        #     the same treatment. It PASSED in CI and failed locally, which is the wrong way
+        #     round: `ubuntu-latest` ships clang, so the gate was depending on ambient tooling
+        #     in the one place this flake exists to make ambient tooling irrelevant.
+        #
+        # One binding, so the next app that shells out to cargo cannot omit half of it.
+        cargoLinkEnv = ''
+          export PATH="${pkgs.clang}/bin:${pkgs.lld}/bin:$PATH"
+          export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
+          export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
+          export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        '';
+
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
         # nixpkgs, which is a hash-pinned prebuilt, and why.
@@ -868,6 +895,8 @@
             # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
             # the run fails with "no such command" rather than a verdict.
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
+
+            ${cargoLinkEnv}
             exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };
@@ -886,7 +915,9 @@
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-crap" ''
             export PATH="${rustToolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
-            exec cargo run --release -q -p xtask -- crap "$@"
+
+            ${cargoLinkEnv}
+            exec cargo run -q --profile ci -p xtask -- crap "$@"
           '');
         };
 
