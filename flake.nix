@@ -868,7 +868,7 @@
             # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
             # the run fails with "no such command" rather than a verdict.
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
-            exec cargo run --release -q -p xtask -- test-causality "$@"
+            exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };
 

@@ -1,0 +1,57 @@
+name: Reclaim runner disk
+description: >
+  Delete the preinstalled SDKs a GitHub-hosted runner ships and this repository does not use,
+  so a large Nix closure has room to extract.
+
+inputs:
+  minimum-gb:
+    description: >
+      Fail if less than this many GB are available after the cleanup. 0 disables the check.
+      A gate rather than a wish: running out of disk halfway through a compile reports itself
+      as a compiler error, which is the most expensive way to learn about a full disk.
+    required: false
+    default: "0"
+
+outputs:
+  available-gb:
+    description: GB available on / after the cleanup.
+    value: ${{ steps.reclaim.outputs.available-gb }}
+
+# A LOCAL composite action, not a third-party one. Every action this repository calls is pinned
+# by digest and reviewed, and the work here is four `rm` calls - adding a supply-chain
+# dependency to delete directories would cost more than it saves. Local also means it cannot
+# drift from the workflows that use it: one file, one behaviour, no version to bump.
+#
+# THIS CANNOT AFFECT NIX CACHING, and that is worth stating because it looks like it might.
+# Everything removed is a preinstalled SDK under /usr or /opt. Callers run this BEFORE
+# installing Nix, so `/nix/store` does not exist yet; and the cache `magic-nix-cache` restores
+# from is a remote service reached over the network, not a path on this disk.
+#
+# `/opt/hostedtoolcache` is deliberately left alone: actions resolve tools through it, and
+# nothing reclaimed here is worth breaking a setup step for.
+runs:
+  using: composite
+  steps:
+    - id: reclaim
+      shell: bash
+      run: |
+        set -u
+        avail() { df --output=avail -BG / | tail -1 | tr -dc '0-9'; }
+        before=$(avail)
+
+        # `|| true` on each: a future runner image that drops one of these paths must not fail
+        # the build over a directory that was already gone.
+        sudo rm -rf /usr/local/lib/android || true
+        sudo rm -rf /usr/share/dotnet || true
+        sudo rm -rf /opt/ghc /usr/local/.ghcup || true
+        sudo rm -rf /usr/local/share/boost || true
+
+        after=$(avail)
+        printf 'reclaim-disk: %sG -> %sG available (+%sG)\n' "$before" "$after" "$((after - before))"
+        echo "available-gb=$after" >> "$GITHUB_OUTPUT"
+
+        minimum='${{ inputs.minimum-gb }}'
+        if [ "$minimum" -gt 0 ] && [ "$after" -lt "$minimum" ]; then
+          printf 'reclaim-disk: FAILED - %sG available, %sG required\n' "$after" "$minimum" >&2
+          exit 1
+        fi

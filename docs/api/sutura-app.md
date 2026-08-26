@@ -314,7 +314,7 @@ The agent-facing system prompt: derived from the tool surface, never written by 
 
 An agent that has not been told what this surface is will treat it as a database. It will look
 for a field to put SQL in, find none, put a metric name it remembers from somewhere else into
-[`Query::metric`](sutura_domain::query::Query), get a refusal, read the refusal as a transport
+`Query::metric`, get a refusal, read the refusal as a transport
 failure, and retry. Every one of those steps is a reasonable thing for a general-purpose agent to
 do, and every one of them is the behaviour this repository's types are arranged to prevent. The
 types stop the *damage*; they cannot stop the loop. A prompt can.
@@ -339,7 +339,7 @@ Three inputs, and the first two are not text somebody keeps in step by hand:
 **Nothing about composing SQL.** The reference implementation this is modelled on spends most of
 its length teaching an agent to write SQL against model names, to avoid raw database tables, and
 to dry-plan a complex statement before running it. None of that transfers, because
-[`Query`](sutura_domain::query::Query) has no field for SQL, a table, a filter expression or a
+`Query` has no field for SQL, a table, a filter expression or a
 list of row ids and `deny_unknown_fields` makes an attempt an error naming the field. Repeating
 the guidance here would teach an agent to attempt something the surface refuses by construction,
 which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is

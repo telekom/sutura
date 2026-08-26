@@ -4,7 +4,7 @@
 //!
 //! An agent that has not been told what this surface is will treat it as a database. It will look
 //! for a field to put SQL in, find none, put a metric name it remembers from somewhere else into
-//! [`Query::metric`](sutura_domain::query::Query), get a refusal, read the refusal as a transport
+//! `Query::metric`, get a refusal, read the refusal as a transport
 //! failure, and retry. Every one of those steps is a reasonable thing for a general-purpose agent to
 //! do, and every one of them is the behaviour this repository's types are arranged to prevent. The
 //! types stop the *damage*; they cannot stop the loop. A prompt can.
@@ -29,7 +29,7 @@
 //! **Nothing about composing SQL.** The reference implementation this is modelled on spends most of
 //! its length teaching an agent to write SQL against model names, to avoid raw database tables, and
 //! to dry-plan a complex statement before running it. None of that transfers, because
-//! [`Query`](sutura_domain::query::Query) has no field for SQL, a table, a filter expression or a
+//! `Query` has no field for SQL, a table, a filter expression or a
 //! list of row ids and `deny_unknown_fields` makes an attempt an error naming the field. Repeating
 //! the guidance here would teach an agent to attempt something the surface refuses by construction,
 //! which costs a turn and teaches it the wrong model of what it is talking to. What replaces it is
@@ -333,7 +333,7 @@ const SOURCE_UNAVAILABLE: Guide = Guide {
 /// reader who stops early should have read the actionable ones.
 ///
 /// The exhaustiveness mechanism is in [`tests`]: a function there maps every
-/// [`RefusalReason`](sutura_domain::query::RefusalReason) variant to its entry with a total match,
+/// `RefusalReason` variant to its entry with a total match,
 /// so a variant added to the domain does not compile until somebody opens this file. *What that does
 /// not force is the corpus in that test gaining a member, so the set equality it asserts is a second
 /// net rather than the first.*

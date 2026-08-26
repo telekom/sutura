@@ -68,6 +68,18 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # BEFORE nix installs, because /nix/store is what fills. `ubuntu-latest` ships ~25 GB of
+      # SDKs this repository does not use against a 14 GB budget, and both `Doctests` and
+      # `Test causality` have died on `No space left on device` compiling a dependency closure
+      # that is legitimately one of the largest in the ecosystem.
+      #
+      # A local composite action so `docs`, `release` and the cross matrix can call the same
+      # thing. See `.github/actions/reclaim-disk` for why it is local and why it cannot affect
+      # the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "40"
+
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -325,6 +337,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own
