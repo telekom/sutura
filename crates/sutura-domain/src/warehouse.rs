@@ -78,16 +78,105 @@ impl GeneratedQuery {
     }
 }
 
+/// Why a floating-point cell was refused.
+///
+/// Two variants rather than one, because the two faults have different causes and a reader chasing
+/// one is not chasing the other: an infinity is a non-zero quantity divided by zero, and a `NaN` is
+/// zero divided by zero. The variant carries the value rather than a formatted sentence, for the
+/// reason every error in this crate does.
+#[derive(Debug, thiserror::Error, PartialEq)]
+pub enum NotFinite {
+    /// Infinite, in either direction.
+    #[error("{value} is not a finite number")]
+    Infinite { value: f64 },
+    /// Not a number at all. Its own variant rather than a value on the one above, because `NaN`
+    /// compares unequal to itself: an [`Infinite`] carrying one would make two of these errors
+    /// unequal for a reason that has nothing to do with what happened.
+    ///
+    /// [`Infinite`]: NotFinite::Infinite
+    #[error("NaN is not a number")]
+    NotANumber,
+}
+
+/// A real number a result may carry: finite, and nothing else.
+///
+/// **Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+/// A cell used to be a raw `f64`, so `inf`, `-inf` and `NaN` were all representable, and
+/// [`Value::render`] turned the first of them into the string `"inf"` - an answer under a metric's
+/// own certified name that reads as data and is not a number. The route in was a ratio measure
+/// declaring `zero_denominator: fails`: both adapters cast the numerator to a floating type before
+/// dividing, so the division is IEEE float division, and IEEE float division by zero does not fail.
+/// It answers `inf`, or `NaN` when both halves are zero.
+///
+/// Making the domain type refuse a non-finite value closes all three at once, at the one boundary
+/// every adapter has to cross, rather than guarding the one variant that exposed it. An adapter that
+/// gets one back has an error naming the column, which is what `fails` was always claiming to mean.
+///
+/// Construct it with [`parse`]. The field is private, so a non-finite value is unrepresentable
+/// rather than merely rejected. There is deliberately no `Deref` and no arithmetic: two finite
+/// numbers divide to a non-finite one, so a type that let the result back in without passing
+/// [`parse`] again would be the hole this closes. [`Value`] is `Serialize` only today - if it ever
+/// gains `Deserialize`, this needs `#[serde(try_from = ..)]` routing through [`parse`], because a
+/// derived one writes straight into the private field.
+///
+/// [`parse`]: Real::parse
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct Real(f64);
+
+impl Real {
+    /// Parses a real number, rejecting a non-finite one.
+    pub const fn parse(value: f64) -> Result<Self, NotFinite> {
+        if value.is_nan() {
+            return Err(NotFinite::NotANumber);
+        }
+        if value.is_infinite() {
+            return Err(NotFinite::Infinite { value });
+        }
+        Ok(Self(value))
+    }
+
+    /// The number, for a caller that has to do arithmetic on it.
+    ///
+    /// Named rather than reached through `Deref`, so the point at which the invariant stops applying
+    /// is a call somebody wrote.
+    #[inline]
+    pub const fn get(self) -> f64 {
+        self.0
+    }
+}
+
+/// Shortest round-trip formatting, so a value that came back as an exact decimal is rendered as one
+/// rather than as its binary expansion. Delegated rather than reimplemented, and this is the one
+/// definition [`Value::render`] uses.
+impl core::fmt::Display for Real {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::Display::fmt(&self.0, f)
+    }
+}
+
+/// Exponent form, forwarding the formatter's precision.
+///
+/// It exists because comparing two engines' floats is done at a fixed number of significant digits -
+/// summing the same rows in a different order changes the last place of an `f64` - and `{:.12e}` is
+/// how that comparison is written. A formatting trait rather than `get`, so the comparison does not
+/// have to leave the type to be expressed.
+impl core::fmt::LowerExp for Real {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        core::fmt::LowerExp::fmt(&self.0, f)
+    }
+}
+
 /// One cell of a result.
 ///
-/// `Real` is deliberately last on the list of things to reach for. A measure over integer minor
+/// [`Real`] is deliberately last on the list of things to reach for. A measure over integer minor
 /// units stays exact, and an anchor comparison over a float would depend on how two languages print
-/// the same bits. It exists because `avg` has to land somewhere.
+/// the same bits. It exists because `avg` has to land somewhere - and it is a checked type rather
+/// than an `f64`, so the one thing a float can be that a number cannot does not fit in a cell.
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub enum Value {
     Null,
     Integer(i64),
-    Real(f64),
+    Real(Real),
     Text(String),
 }
 
@@ -101,8 +190,7 @@ impl Value {
         match *self {
             Self::Null => String::from("null"),
             Self::Integer(v) => v.to_string(),
-            // Shortest round-trip formatting, so a value that came back as an exact decimal is
-            // rendered as one rather than as its binary expansion.
+            // One definition of what a real number looks like, on the type that carries one.
             Self::Real(v) => v.to_string(),
             Self::Text(ref v) => v.clone(),
         }
@@ -230,12 +318,16 @@ pub trait Warehouse {
 
 #[cfg(test)]
 mod tests {
-    use super::{GeneratedQuery, MalformedRowSet, ParamValue, RowSet, Value};
+    use super::{GeneratedQuery, MalformedRowSet, NotFinite, ParamValue, Real, RowSet, Value};
     use crate::calendar::Date;
     use crate::model::SourceName;
 
     fn source() -> SourceName {
         SourceName::parse("local").expect("a test source is a source")
+    }
+
+    fn real(value: f64) -> Real {
+        Real::parse(value).expect("a test literal is finite")
     }
 
     #[test]
@@ -319,6 +411,58 @@ mod tests {
         assert_eq!(Value::Text(String::from("north")).render(), "north");
         assert_eq!(Value::Null.render(), "null");
         // Shortest round-trip: an exact decimal comes back as one rather than as 0.30000000000000004.
-        assert_eq!(Value::Real(0.3_f64).render(), "0.3");
+        assert_eq!(Value::Real(real(0.3_f64)).render(), "0.3");
+    }
+
+    #[test]
+    fn a_cell_cannot_hold_a_number_that_is_not_one() {
+        // THE BUG THIS EXISTS FOR. `Real` used to be a raw `f64`, so a ratio measure declaring
+        // `zero_denominator: fails` answered the string "inf" under its own certified metric name:
+        // both adapters cast the numerator to a floating type before dividing, so the division is
+        // IEEE float division, and IEEE float division by zero does not fail. Nothing between the
+        // data system and the caller looked at the value, because nothing had a place to.
+        //
+        // Asserted over all three of the class rather than over the one variant that exposed it: a
+        // guard on the division would have left `-inf` and `NaN` representable.
+        assert_eq!(
+            Real::parse(f64::INFINITY).unwrap_err(),
+            NotFinite::Infinite { value: f64::INFINITY }
+        );
+        assert_eq!(
+            Real::parse(f64::NEG_INFINITY).unwrap_err(),
+            NotFinite::Infinite {
+                value: f64::NEG_INFINITY
+            }
+        );
+        assert_eq!(Real::parse(f64::NAN).unwrap_err(), NotFinite::NotANumber);
+        // The messages an adapter's error chain ends in, so the reader is told which of the three.
+        assert_eq!(
+            Real::parse(f64::INFINITY).unwrap_err().to_string(),
+            "inf is not a finite number"
+        );
+        assert_eq!(
+            Real::parse(f64::NEG_INFINITY).unwrap_err().to_string(),
+            "-inf is not a finite number"
+        );
+        assert_eq!(Real::parse(f64::NAN).unwrap_err().to_string(), "NaN is not a number");
+
+        // And what a real number still does, so this is not a test that would pass with every float
+        // refused. Zero and the subnormals are finite, and a metric that legitimately answers zero
+        // must not be caught by a check aimed at a division by it.
+        for finite in [0.0_f64, -0.0_f64, 0.3_f64, f64::MIN, f64::MAX, f64::MIN_POSITIVE] {
+            // Compared as bits rather than with `==`, which `float_cmp` bans for the reason it exists:
+            // the assertion here is that the value came through UNCHANGED, and bit equality is that
+            // claim exactly. It also keeps negative zero distinguishable from zero.
+            assert_eq!(real(finite).get().to_bits(), finite.to_bits(), "{finite} is a finite number");
+        }
+    }
+
+    #[test]
+    fn a_real_number_renders_the_same_way_wherever_it_is_formatted() {
+        // `Value::render` is what an anchor is compared against and `{:.12e}` is what a differential
+        // comparison between two engines uses. Both go through this one type, so neither can drift
+        // into its own idea of what the number looks like.
+        assert_eq!(format!("{}", real(0.3_f64)), "0.3");
+        assert_eq!(format!("{:.12e}", real(190_007.333_333_333_34_f64)), "1.900073333333e5");
     }
 }

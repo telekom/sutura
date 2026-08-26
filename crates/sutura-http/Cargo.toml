@@ -1,0 +1,53 @@
+[package]
+name = "sutura-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The HTTP surface. Transport only: it goes through the ports and decides nothing a question depends on."
+
+[dependencies]
+# The service, behind the ports. This crate calls `answer` and `verify_and_validate` and nothing
+# else; every rule about what may be answered lives on the other side of that call.
+sutura-app = { workspace = true }
+sutura-config = { workspace = true }
+sutura-domain = { workspace = true }
+# For one value type - `Shutdown` - and not for anything this crate installs. `sutura-runtime` owns
+# the process-global setup and is called by the composition root; nothing here touches a subscriber,
+# a panic hook or a signal handler. The dependency exists so `serve` can arm its drain deadline
+# after shutdown is asked for, which needs to observe the signal twice.
+sutura-runtime = { workspace = true }
+axum = { workspace = true }
+# Directly, for `middleware::StateInformationMiddleware` in the limiter's type. It is part of the
+# signature because emitting the remaining-quota headers is a construction-time choice.
+governor = { workspace = true }
+serde = { workspace = true }
+# The interface description is serialized once at startup and served from a clone, and the wire
+# shapes are asserted on as JSON in the tests, because the JSON is the contract.
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# `net` for the listener, `time` for the drain deadline, `rt`/`macros` for the handlers, and
+# `sync` for what `Shutdown` is built on. See the amendment on the workspace entry: this ADDS to
+# the base set the engine asks for, and does not change what the CLI links.
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tower_governor = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+# For `digest_of`: the canonical form a bundle is hashed by belongs to the catalog adapter that
+# owns it, so a test fixture pins the same digest a real load would.
+sutura-catalog-local = { workspace = true }
+# The router tests drive the real router with `oneshot`, which needs a multi-threaded runtime
+# because a query handler moves its work onto the blocking pool.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

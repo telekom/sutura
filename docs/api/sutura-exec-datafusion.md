@@ -57,6 +57,7 @@ map" send a reader to three different places.
 - `Execute`
 - `UnsupportedType` - A column came back as a type this adapter does not map.
 - `Downcast` - The schema said one Arrow type and the array was another.
+- `NotFinite` - A floating-point column came back as a value that is not a number.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.

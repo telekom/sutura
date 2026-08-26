@@ -1,96 +1,48 @@
-//! Shared machinery for the golden suite: where the fixtures are, and the two fakes.
+//! The fakes and the oracle: the stand-ins that let the whole surface be tested with no data system.
 //!
 //! In `tests/support/mod.rs` rather than `tests/support.rs` so cargo does not build it as a test
 //! target of its own.
 //!
-//! **Two implementations of each port, which is what makes the suite mean anything.** A corpus run
-//! against one implementation tests that implementation. Run against two it tests the port: the
-//! hand-written catalog is an independent statement of what the markdown says, and the recording
-//! warehouse is what lets every refusal and every generated statement be checked with no database
-//! at all.
+//! **Nothing here is a registered adapter, and that line is the point.** `tests/adapters/mod.rs` holds
+//! the registry and the two registration traits: an entry there is something somebody could deploy.
+//! What is here cannot be deployed and is not meant to be:
+//!
+//! - [`HandWrittenCatalog`] is the **oracle**. Every registered catalog adapter is compared against
+//!   it, and it is compared against nothing. Two adapters reading the same content must produce the
+//!   same `Definitions`, and with one real adapter that claim is untestable - so the second statement
+//!   of those definitions is written out in Rust, by hand, from the fixture documents. Generated from
+//!   them it would agree by construction; sharing their parser it would share its bugs.
+//! - [`RecordingWarehouse`] and [`CertifiedNumbers`] are **fakes**. Ports get fakes rather than mocked
+//!   HTTP: the port is a Rust trait, so the honest stand-in is a type that implements it, and a test
+//!   asserting on the text of an HTTP request would prove something about the test. They are what lets
+//!   every refusal be checked with no database at all.
+//! - [`TwoSourceCatalog`] provokes one refusal. It is built in code rather than as a fixture
+//!   directory, because a fixture catalog spanning two data systems would make every other test in the
+//!   suite span two.
+//!
+//! Only one test target includes this module, because a fake is used where it is needed rather than
+//! everywhere: `unused_imports` and `dead_code` are both `deny` in the workspace lint table, so an
+//! item one target did not use would fail the build of the other.
 
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
 
-use sutura_catalog_local::{LocalCatalog, digest_of};
+use sutura_catalog_local::digest_of;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::QueryPlan;
-use sutura_domain::query::Query;
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
-/// The version the goldens are pinned under.
-///
-/// Fixed, not derived from the working tree. A version that moved between runs would put a new value
-/// in every snapshot that carries provenance, and then no snapshot would mean anything.
-pub(crate) const VERSION: &str = "golden-fixture-1";
-
-/// The one data system the fixture catalog reads from.
-pub(crate) const SOURCE: &str = "local";
-
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
-
-pub(crate) fn catalog_root() -> PathBuf {
-    fixtures().join("catalog")
-}
-
-pub(crate) fn data_root() -> PathBuf {
-    fixtures().join("data")
-}
-
-pub(crate) fn source() -> SourceName {
-    SourceName::parse(SOURCE).expect("the fixture source name is a name")
-}
-
-fn version() -> DefinitionVersion {
-    DefinitionVersion::parse(VERSION).expect("the fixture version is a version")
-}
-
-/// Every question in the corpus, in sorted order.
-///
-/// Sorted so the corpus is a function of the directory rather than of the filesystem: a suite whose
-/// order changes between runs produces snapshot churn that has nothing to do with the change under
-/// review.
-pub(crate) fn questions() -> Vec<PathBuf> {
-    let dir = fixtures().join("questions");
-    let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
-        .expect("the questions directory is there")
-        .map(|entry| entry.expect("a directory entry is readable").path())
-        .filter(|path| path.extension().is_some_and(|ext| ext == "yaml"))
-        .collect();
-    found.sort();
-    assert!(!found.is_empty(), "no questions under {}", dir.display());
-    found
-}
-
-pub(crate) fn read_question(path: &Path) -> Query {
-    let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("could not read {}: {e}", path.display()));
-    serde_norway::from_str(&text).unwrap_or_else(|e| panic!("{} is not a question: {e}", path.display()))
-}
-
-/// The catalog as the markdown adapter reads it.
-pub(crate) fn load_local() -> PinnedDefinitions {
-    LocalCatalog::new(catalog_root(), version())
-        .load()
-        .unwrap_or_else(|e| panic!("the fixture catalog does not load: {e}"))
-}
+use crate::adapters::{CatalogUnderTest, load, source, version};
 
 // ------------------------------------------------------------------ the hand-written catalog ---
 
-/// The same catalog, stated in Rust.
-///
-/// It exists to be compared against the markdown one. Two adapters reading the same content must
-/// produce the same [`Definitions`], and with one real adapter that claim is untestable: this is the
-/// second implementation. It is written from the fixture documents by hand on purpose, because a
-/// version generated from them would agree with them by construction and prove nothing.
+/// The same catalog, stated in Rust. **The oracle, and deliberately not a registry entry.**
 ///
 /// Descriptions are left empty here. They are prose that only the markdown carries, so the
 /// comparison is made over [`without_descriptions`] rather than pretending this file repeats them.
@@ -148,6 +100,7 @@ fn tables() -> ModelsAndJoins {
             column("customer_id"),
             column("channel"),
             column("amount_cents"),
+            column("refunded"),
         ]),
         String::new(),
     );
@@ -171,7 +124,19 @@ fn tables() -> ModelsAndJoins {
 }
 
 /// Every metric the fixture declares.
+///
+/// Two lists rather than one, split where the vocabulary was widened: the ones the original
+/// "one aggregate over one column" could express, and the ones it could not. Split for the same
+/// reason [`tables`] is split out - a fixture catalog is a list of literals, and one function
+/// holding all of them grows with every shape the vocabulary gains.
 fn metrics() -> Vec<Metric> {
+    let mut all = metrics_the_original_vocabulary_could_express();
+    all.extend(metrics_the_original_vocabulary_could_not());
+    all
+}
+
+/// One aggregate over one column, no filter, no ratio.
+fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
     let revenue = Metric::new(
         MetricName::parse("revenue").expect("a name"),
         ModelName::parse("orders").expect("a name"),
@@ -220,9 +185,15 @@ fn metrics() -> Vec<Metric> {
         String::new(),
     );
 
-    // The two shapes the old vocabulary could not express, mirroring the fixture documents of
-    // the same names. They are the reason this catalog exists: if the markdown reader and this
-    // hand-written one disagree about a ratio or a required filter, one of them is wrong.
+    vec![revenue, orders_placed, average_order]
+}
+
+/// A ratio, a required filter, and both `zero_denominator` words.
+///
+/// Mirroring the fixture documents of the same names. They are the reason this catalog exists: if
+/// the markdown reader and this hand-written one disagree about a ratio or a required filter, one of
+/// them is wrong.
+fn metrics_the_original_vocabulary_could_not() -> Vec<Metric> {
     let average_order_value = Metric::new(
         MetricName::parse("average_order_value").expect("a name"),
         ModelName::parse("orders").expect("a name"),
@@ -253,7 +224,28 @@ fn metrics() -> Vec<Metric> {
         String::new(),
     );
 
-    vec![revenue, orders_placed, average_order, average_order_value, web_revenue]
+    // The other `zero_denominator` word, mirroring the fixture document of the same name. It is the
+    // only metric here that chooses `fails`, and the reason it exists is that a variant nothing
+    // executes is not covered: the enum had a test for its spelling and nothing for its behaviour.
+    let revenue_per_refunded_order = Metric::new(
+        MetricName::parse("revenue_per_refunded_order").expect("a name"),
+        ModelName::parse("orders").expect("a name"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::CountIf {
+                column: column("refunded"),
+            },
+            zero_denominator: ZeroDenominator::Fail,
+        },
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+
+    vec![average_order_value, web_revenue, revenue_per_refunded_order]
 }
 
 impl SemanticCatalog for HandWrittenCatalog {
@@ -266,8 +258,7 @@ impl SemanticCatalog for HandWrittenCatalog {
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let (models, joins) = tables();
         let definitions = Definitions::assemble(models, joins, metrics()).expect("the hand-written catalog holds together");
-        let digest = digest_of(&definitions).expect("the definitions hash");
-        Ok(PinnedDefinitions::new(version(), digest, definitions))
+        Ok(PinnedDefinitions::pin(version(), definitions, digest_of).expect("the definitions hash"))
     }
 }
 
@@ -276,7 +267,7 @@ impl SemanticCatalog for HandWrittenCatalog {
 /// The comparison the differential oracle actually makes. Prose lives in the markdown and nowhere
 /// else, so comparing it would be comparing one implementation against a copy of itself. Everything
 /// that decides what executes is compared.
-pub(crate) fn without_descriptions(definitions: &Definitions) -> Definitions {
+fn without_descriptions(definitions: &Definitions) -> Definitions {
     let models = definitions
         .models()
         .values()
@@ -327,14 +318,27 @@ pub(crate) fn without_descriptions(definitions: &Definitions) -> Definitions {
     Definitions::assemble(models, joins, metrics).expect("stripping prose cannot break consistency")
 }
 
+/// Everything a registered catalog says that decides what executes, with prose stripped.
+pub(crate) fn executable_definitions<C>() -> Definitions
+where
+    C: CatalogUnderTest,
+{
+    without_descriptions(load::<C>().definitions())
+}
+
+/// What every registered catalog has to say, stated independently of all of them.
+pub(crate) fn oracle_definitions() -> Definitions {
+    let pinned = HandWrittenCatalog.load().expect("the hand-written catalog cannot fail");
+    without_descriptions(pinned.definitions())
+}
+
 // ------------------------------------------------------------------------ the fake warehouse ---
 
 /// A warehouse that runs nothing and remembers what it was asked.
 ///
-/// What lets the plan and SQL goldens, and every refusal, be checked with no database. It is a fake
-/// rather than a mock of a wire protocol: the port is a Rust trait, so the honest stand-in is a type
-/// that implements it. A test asserting on the text of an HTTP request would prove something about
-/// the test.
+/// What lets every refusal be checked with no database. It is a fake rather than a mock of a wire
+/// protocol: the port is a Rust trait, so the honest stand-in is a type that implements it. A test
+/// asserting on the text of an HTTP request would prove something about the test.
 pub(crate) struct RecordingWarehouse {
     source: SourceName,
     seen: RefCell<Vec<String>>,
@@ -391,6 +395,86 @@ impl Warehouse for RecordingWarehouse {
     }
 }
 
+// -------------------------------------------------------------- the certified-numbers fake ---
+
+/// A data system that answers every anchor query with the number its catalog document certified.
+///
+/// It exists because `sutura_app::Validated` is minted by `sutura_app::verify_and_validate` and by
+/// nothing else, so a test that is not *about* anchors still has to obtain its bundle from a real
+/// verification pass. This is what makes that cheap, and it is what keeps the property this file is
+/// built around: every refusal checked with no database at all.
+///
+/// **What it replaced was not a fake, it was a forgery.** The suite used to build an `AnchorReport`
+/// by hand - `Matched` recorded for every anchored metric, nothing executed - and hand it to a
+/// constructor that returned a bundle the service would serve. So `Validated` proved that this file
+/// had asserted something, and the assertion was free. Here a statement is planned, pushed at a
+/// warehouse, and the number that comes back is compared with the declared one; the only thing this
+/// type gets to decide is what the data system says.
+pub(crate) struct CertifiedNumbers {
+    source: SourceName,
+    numbers: BTreeMap<String, String>,
+}
+
+impl CertifiedNumbers {
+    /// The declared number of every anchored metric in `pinned`.
+    ///
+    /// Read off the bundle rather than written out, so a metric gaining an anchor does not make an
+    /// unrelated test fail for a reason that has nothing to do with it.
+    pub(crate) fn of(pinned: &PinnedDefinitions) -> Self {
+        Self {
+            source: source(),
+            numbers: pinned
+                .anchored_metrics()
+                .map(|(name, anchor)| (String::from(name.as_str()), String::from(anchor.value())))
+                .collect(),
+        }
+    }
+
+    /// The same data system, with one metric answering something else.
+    ///
+    /// A definition that has stopped computing its own number, which is the condition an anchor
+    /// exists to catch and the one thing a bundle must not be servable after.
+    pub(crate) fn misreporting(mut self, metric: &MetricName, value: &str) -> Self {
+        drop(self.numbers.insert(String::from(metric.as_str()), String::from(value)));
+        self
+    }
+}
+
+impl Warehouse for CertifiedNumbers {
+    type Error = Never;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+        Ok(())
+    }
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "the one-cell result is built from a literal shape, so a failure to build it is a \n                  broken test rather than an input to handle"
+    )]
+    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        // Labelled after the plan's metric, because that is the column an anchor check looks for. A
+        // metric this fake holds no number for answers nothing, which reads as a mismatch rather
+        // than as a pass.
+        let label = String::from(plan.metric().as_str());
+        let value = self.numbers.get(&label).cloned().unwrap_or_default();
+        Ok(RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"))
+    }
+}
+
+/// The fixture bundle, validated the only way there is: by running its anchors.
+///
+/// For the tests that need a servable bundle and are about something else - a refusal, a source
+/// mismatch. `sutura_app::verify_and_validate` is the whole of the path, so this cannot drift into
+/// asserting a bundle is fit to serve without the anchors having been executed.
+pub(crate) fn validated_bundle(pinned: PinnedDefinitions) -> sutura_app::Validated<PinnedDefinitions> {
+    let certified = CertifiedNumbers::of(&pinned);
+    sutura_app::verify_and_validate(pinned, &certified).expect("a catalog's own declared numbers reproduce themselves")
+}
+
 /// June 2026, the range the fixture anchors use.
 ///
 /// Exposed because the two-source refusal test builds a question by hand rather than from a file.
@@ -400,10 +484,8 @@ pub(crate) fn june_range() -> TimeRange {
 
 /// The fixture catalog with `customers` moved to a second data system.
 ///
-/// Built in code rather than as a fixture directory, because a fixture catalog spanning two data
-/// systems would make every other test in the suite span two. It exists to provoke one refusal:
-/// a plan whose join would reach a second data system is refused before anything runs, because a
-/// second data system is a second identity to satisfy.
+/// It exists to provoke one refusal: a plan whose join would reach a second data system is refused
+/// before anything runs, because a second data system is a second identity to satisfy.
 pub(crate) fn two_source_catalog() -> TwoSourceCatalog {
     TwoSourceCatalog
 }
@@ -459,7 +541,6 @@ impl SemanticCatalog for TwoSourceCatalog {
         );
         let definitions = Definitions::assemble(vec![orders, customers], joins, vec![revenue])
             .expect("a two-source catalog is still internally consistent");
-        let digest = digest_of(&definitions).expect("the definitions hash");
-        Ok(PinnedDefinitions::new(version(), digest, definitions))
+        Ok(PinnedDefinitions::pin(version(), definitions, digest_of).expect("the definitions hash"))
     }
 }

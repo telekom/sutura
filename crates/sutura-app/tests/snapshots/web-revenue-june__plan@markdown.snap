@@ -1,0 +1,66 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: web_revenue
+table: orders
+joins: []
+bucket:
+  label: period
+  grain: month
+  column:
+    table: orders
+    column: order_date
+keys: []
+measure:
+  simple:
+    term:
+      aggregate:
+        aggregate: sum
+        column:
+          table: orders
+          column: amount_cents
+measure_label: web_revenue
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: orders
+          column: order_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: orders
+          column: order_date
+        param: 1
+  - origin: definition
+    predicate:
+      equals:
+        column:
+          table: orders
+          column: channel
+        param: 2
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 1
+  - Date:
+      year: 2026
+      month: 7
+      day: 1
+  - Text: web
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 7
+    day: 1
+row_limit: 10000

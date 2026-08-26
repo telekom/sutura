@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+period	revenue
+Text(2026-06-28)	Integer(1)
+Text(2026-06-30)	Integer(75000)

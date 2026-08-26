@@ -1,0 +1,56 @@
+# The built-in defaults, compiled into the binary.
+#
+# EMBEDDED rather than shipped as a file, and that is the first decision in this file. A default
+# that lives on disk is a default that can be missing, and a service whose configuration file was
+# not mounted should not fall back to something nobody wrote down. So this is always the bottom
+# layer, every key has a value here, and a deployment's own file overrides what it wants to change
+# rather than restating the whole tree.
+#
+# The values are the SAFE posture, not the convenient one:
+#
+#   * `server.host` is loopback. This service has no per-caller identity, so its bind address is
+#     its whole perimeter, and reaching it from another host is an explicit decision made in two
+#     places (`security.expose_beyond_loopback` and an access token) rather than a default.
+#   * `security.access_token` is absent, which is only permitted on loopback and outside
+#     production. Anything else refuses to start.
+#   * `rate_limit.enabled` is true. Off is a decision; a limiter that has to be switched on is one
+#     somebody forgets.
+#
+# Overriding: a file layered on top of this (`<dir>/base.yaml`, then `<dir>/<environment>.yaml`),
+# then an environment variable per key - `SUTURA__SERVER__PORT`, `SUTURA__SECURITY__ACCESS_TOKEN`.
+# The environment is chosen by `SUTURA_ENVIRONMENT` alone and is deliberately not a key here.
+
+server:
+  # Loopback. See above: this is a security default, not a convenience one.
+  host: "127.0.0.1"
+  port: 8080
+  request_timeout_seconds: 30
+  # A modelled question is a few hundred bytes. 64 KiB is generous by three orders of magnitude and
+  # still refuses a body that exists to be large.
+  max_body_bytes: 65536
+
+security:
+  expose_beyond_loopback: false
+
+rate_limit:
+  enabled: true
+  # The unauthenticated surface: liveness, and the generated interface description. Nothing there
+  # is worth polling, so the tier is tight.
+  probe_per_second: 2
+  probe_burst: 5
+  # The versioned API, where one caller legitimately asks several questions in a row.
+  api_per_second: 10
+  api_burst: 20
+
+telemetry:
+  service_name: "sutura"
+  # Overridden by `RUST_LOG` when that is set, which is the convention every Rust operator already
+  # knows. This is the fallback, not the ceiling.
+  filter: "info"
+
+catalog:
+  dir: "catalog"
+  data_dir: "data"
+  # A placeholder, and it is meant to be replaced by a commit id or a build number: what identifies
+  # a snapshot of a directory is not something the directory knows.
+  version: "unversioned"

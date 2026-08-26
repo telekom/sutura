@@ -1,0 +1,37 @@
+[package]
+name = "sutura-config"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The service's resolved configuration. Layered sources, one typed tree, and a hard failure on an unsafe combination."
+
+[dependencies]
+# The domain, for `Secret` alone. A configured credential is held in the type whose `Debug`
+# redacts, so the startup log that prints the whole tree cannot print the token - and this
+# crate does not get to define a second, weaker redaction of its own.
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+# The layering. `default-features = false` and `yaml` only: the default set pulls JSON, JSON5,
+# RON, INI and TOML parsers plus `async-trait` and `convert_case`, which is five file formats
+# and an async abstraction for a service that reads one format synchronously at startup.
+config = { workspace = true }
+# The two halves of the token comparison, and neither is hand-rolled on purpose.
+#
+# `sha2` reduces both sides to a fixed 32 bytes, which is what removes the length oracle: a
+# byte-wise comparison of two strings of different lengths tells the caller the length before
+# it tells them anything else. `subtle` is the comparison itself - branch-free and
+# volatile-read, so it does not return early on the first differing byte.
+#
+# `sutura-domain`'s `Secret` deliberately implements no `PartialEq`, and that is the invariant
+# this satisfies rather than works around: the comparison arrives here, once, with a name that
+# says it is constant-time, instead of as a derive on the credential type.
+sha2 = { workspace = true }
+subtle = { workspace = true }
+
+[lints]
+workspace = true

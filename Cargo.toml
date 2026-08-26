@@ -20,6 +20,15 @@ members = [
   "crates/sutura-exec-duckdb",
   "crates/sutura-exec-datafusion",
   "crates/sutura-cli",
+  # The service runtime. Four crates rather than one, and the split is the dependency direction:
+  # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
+  # (the subscriber, the panic hook, the shutdown signal), `sutura-http` is transport only, and
+  # `sutura-serve` is the composition root that names the adapters. Nothing here is reachable from
+  # `sutura-domain` or `sutura-app`, which is what `cargo xtask check-boundaries` asserts.
+  "crates/sutura-config",
+  "crates/sutura-runtime",
+  "crates/sutura-http",
+  "crates/sutura-serve",
   "xtask",
   "dev",
 ]
@@ -48,6 +57,9 @@ sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
+sutura-config = { path = "crates/sutura-config" }
+sutura-runtime = { path = "crates/sutura-runtime" }
+sutura-http = { path = "crates/sutura-http" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -121,6 +133,15 @@ datafusion = { version = "55.0.0", default-features = false, features = ["parque
 # is not a way out of that: it panics at collect time with "no reactor running". One current-thread
 # runtime is built per adapter and kept beside the session context, so there is no `enable_all`, no
 # timer and no I/O driver - none of which a plan over a local file uses.
+#
+# AMENDMENT, since the service runtime landed. This entry is still the BASE feature set, and the
+# engine still asks for nothing beyond `rt`. The runtime crates inherit this entry and ADD what a
+# server needs - `net`, `signal`, `time`, `sync`, `macros`, `rt-multi-thread` - at their own
+# manifests. Feature inheritance is additive, so within one build graph cargo compiles one tokio
+# with the union of those sets. That does not change the shipped binary: `sutura-cli` depends on
+# none of them, and the release derivations resolve `--package sutura-cli` on its own graph. It does
+# mean that wiring the server into the CLI would put a multi-threaded runtime and an I/O driver into
+# all four cross-built artifacts, which is a decision rather than a side effect.
 tokio = { version = "1", features = ["rt"] }
 
 # Snapshot testing, for the golden suite. Test-only.
@@ -138,6 +159,74 @@ insta = { version = "1", features = ["yaml", "glob"] }
 # no patch release of it was reachable. 0.11 replaces that chain with `hybrid-array` and the
 # exact pin goes away. Only the `Digest` trait is used here, which needs no feature at all.
 sha2 = { version = "0.11", default-features = false }
+
+# Constant-time byte comparison, for the access-token check in `sutura-config`.
+#
+# Not hand-rolled, for the reason `sha2` is not hand-rolled: the whole value of the primitive is
+# that it compiles to something branch-free, and twenty lines of local bit-twiddling under an
+# `indexing_slicing` ban would be a reimplementation of something audited whose correctness cannot
+# be observed by a test. `sutura-domain`'s `Secret` implements no `PartialEq` on purpose, so this is
+# what the one comparison that has to exist anywhere is built from.
+#
+# `default-features = false` drops `std` and `i128`; only the `ConstantTimeEq` trait is used, and it
+# lives in `core`.
+subtle = { version = "2.6", default-features = false }
+
+# The configuration layering: embedded defaults, then files, then environment variables.
+#
+# `default-features = false` with `yaml` alone is not tuning. The default set compiles JSON, JSON5,
+# RON, INI and TOML parsers plus `async-trait` and `convert_case` - five file formats and an async
+# abstraction, for a service that reads one format, synchronously, once, at startup. Each of them
+# would also be a licence entry in `deny.toml` for a feature nobody asked for.
+config = { version = "0.15", default-features = false, features = ["yaml"] }
+
+# ------------------------------------------------- the service runtime ----
+# The web framework. `default-features = false` and then back only what is used: `http1` and `json`
+# for the surface itself, `tokio` for the listener, `matched-path` and `original-uri` so a
+# rate-limit bucket can be keyed by the route a request matched rather than by its raw path. No
+# multipart, no websockets, no forms - this surface accepts one JSON document and returns another.
+axum = { version = "0.8", default-features = false, features = ["http1", "json", "tokio", "matched-path", "original-uri"] }
+# The middleware abstraction every layer below is written against.
+tower = "0.5"
+# `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.
+# CORS is deliberately ABSENT: a browser is not a client of this surface, and an allow-list nobody
+# needs is an allow-list somebody widens.
+tower-http = { version = "0.6", default-features = false, features = ["trace", "timeout", "limit"] }
+# The rate limiter, and its axum adapter.
+#
+# `default-features = false` on `tower_governor` is a supply-chain decision, and it was measured
+# rather than reasoned about: the default set pulls `tonic`, which is a whole gRPC framework - and
+# with it `h2`, `hyper-timeout`, `tokio-stream` and their closure - into a service that speaks
+# HTTP/1 and nothing else. `cargo tree -p sutura-serve -i tonic` found it; turning the defaults off
+# removes it and takes the compiled closure from 303 packages to 297. Six packages is not the point;
+# a gRPC stack nobody calls is.
+governor = "0.10"
+tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+
+# Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
+# `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
+# environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.
+# `tracing-log` bridges the `log` crate, which several dependencies still emit through - without it
+# their diagnostics are dropped silently rather than appearing in the same stream.
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", default-features = false, features = ["registry", "env-filter", "fmt", "ansi", "std"] }
+tracing-bunyan-formatter = "0.3"
+tracing-log = "0.2"
+
+# The generated interface description, and the browser UI over it. Generated from the handlers by
+# `utoipa-axum` and never hand-written, so the document cannot describe a surface that does not
+# exist - a missing `#[utoipa::path]` fails to compile rather than producing a page with a gap.
+#
+# `preserve_order` on `utoipa` is a determinism decision rather than a cosmetic one; the hazard it
+# only half solves is recorded in full in `crates/sutura-http/src/openapi.rs`.
+#
+# `utoipa-swagger-ui` carries `vendored` and NOT the default `url` and `reqwest` features, and that
+# is load-bearing rather than tidy: without it the build script DOWNLOADS the Swagger UI
+# distribution, which cannot work in a build sandbox with no network and would put an unpinned asset
+# in the artifact. `vendored` takes the archive from a crate that embeds it instead.
+utoipa = { version = "5", features = ["preserve_order"] }
+utoipa-axum = "0.2"
+utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "vendored"] }
 
 # The global allocator, Linux only. `sutura-cli` inherits this under a
 # `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or

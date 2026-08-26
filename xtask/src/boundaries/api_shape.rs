@@ -208,7 +208,13 @@ fn pub_field_violations(rel: &str, text: &str) -> Vec<String> {
             Scan::InBody { name, depth } => {
                 // Only depth 1 is the struct's own field list; anything deeper belongs to a
                 // nested type in a field's position.
-                if depth == 1 && trimmed.starts_with("pub") {
+                //
+                // The visibility test matches `declares_pub` above rather than a bare
+                // `starts_with("pub")`, which also matched a field *named* `public` and failed the
+                // gate on correct code. A gate that fires on a name is one people learn to work
+                // around by renaming, which is how it stops meaning anything.
+                let is_pub = trimmed.starts_with("pub ") || trimmed.starts_with("pub(") || trimmed == "pub";
+                if depth == 1 && is_pub {
                     let field = trimmed.split(':').next().unwrap_or(trimmed).trim();
                     problems.push(format!("{rel}:{number}: `{name}` has a pub field `{field}`"));
                 }
@@ -451,6 +457,16 @@ mod tests {
         let found = pub_field_violations("x.rs", text);
         assert_eq!(found.len(), 1, "{found:?}");
         assert!(found.first().is_some_and(|p| p.contains("token")), "{found:?}");
+    }
+
+    #[test]
+    fn a_private_field_merely_named_public_is_not_a_violation() {
+        // This gate used to test `starts_with("pub")`, so a private field called `public` failed
+        // it - and the way that gets resolved under time pressure is by renaming the field, which
+        // teaches everyone that the gate is about spelling rather than about visibility.
+        let text = "pub struct Tiers {\n    public: Quota,\n    private: Quota,\n}\n";
+        let found = pub_field_violations("x.rs", text);
+        assert!(found.is_empty(), "{found:?}");
     }
 
     #[test]

@@ -1,5 +1,5 @@
 ---
-source: crates/sutura-app/tests/golden.rs
+source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.params()
 ---
 - Date:

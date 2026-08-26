@@ -15,7 +15,7 @@ use std::process::ExitCode;
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::{ModelName, SourceName, TableName};
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _, Validated};
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_exec_datafusion::DataFusionWarehouse;
@@ -223,11 +223,12 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let pinned = load(Path::new(&root))?;
         let engine = open_engine(&pinned, Path::new(&data))?;
 
-        // The order is the governance: anchors first, and `Validated::new` is the only way to get a
-        // bundle the service will answer from. A corrupted anchor stops here rather than answering.
-        let report = sutura_app::verify_anchors(&pinned, &engine);
-        let validated =
-            Validated::new(pinned, &report).map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
+        // The governance is not an order this function has to remember any more. One call runs the
+        // anchors against the engine it was handed and hands back a bundle only if every one
+        // reproduced its number; `sutura_app::answer` takes nothing else. A corrupted anchor stops
+        // here rather than answering, and there is no arrangement of these lines that skips it.
+        let validated = sutura_app::verify_and_validate(pinned, &engine)
+            .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
 
         let question = read_question(Path::new(&question_path))?;
         let outcome = sutura_app::answer(&validated, &question, &engine).map_err(|e| render(&e))?;
@@ -314,14 +315,11 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_domain::catalog::{Definitions, Metric, Model};
-    use sutura_domain::definitions::DefinitionDigest;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
     use super::{ENGINE_SOURCE, load, open_engine};
-
-    const DIGEST: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
     fn example() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
@@ -356,11 +354,12 @@ mod tests {
             String::new(),
         );
         let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
-        PinnedDefinitions::new(
+        PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            DefinitionDigest::parse(DIGEST).expect("a real digest is a digest"),
             definitions,
+            sutura_catalog_local::digest_of,
         )
+        .expect("the test definitions hash")
     }
 
     #[test]

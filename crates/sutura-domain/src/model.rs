@@ -408,6 +408,24 @@ mod tests {
     }
 
     #[test]
+    fn every_grain_spells_itself_the_way_a_catalog_writes_it() {
+        // Every variant, not a sample, because the CRAP gate found this function at 0% coverage
+        // from this crate's own tests: it is called only by the dialect renderers a crate away, so
+        // a per-crate coverage run cannot see them. That is a real gap rather than an artefact.
+        // These five strings are what a `grains:` list in a catalog document contains, and what a
+        // refusal names when a question asks for a grain a metric never declared - so a typo here
+        // is a document that stops loading and a refusal that names something nobody wrote.
+        assert_eq!(Grain::Day.as_str(), "day");
+        assert_eq!(Grain::Week.as_str(), "week");
+        assert_eq!(Grain::Month.as_str(), "month");
+        assert_eq!(Grain::Quarter.as_str(), "quarter");
+        assert_eq!(Grain::Year.as_str(), "year");
+        // `Display` delegates, and asserting it separately is what keeps the two from drifting
+        // if somebody writes a second spelling into the formatter.
+        assert_eq!(Grain::Quarter.to_string(), "quarter");
+    }
+
+    #[test]
     fn grains_are_ordered_coarsest_last() {
         // The resolver compares grains, so the derived `Ord` has to mean something. Day is finer
         // than year, and a reordering of the variants would silently invert every comparison.

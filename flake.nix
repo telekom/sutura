@@ -137,6 +137,13 @@
               exit 1
             fi
             export PATH="${(import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly}/bin:$PATH"
+            # The cranelift backend is INHERITED when this app is run from inside the dev shell,
+            # and it cannot build this tree: `utoipa-swagger-ui`'s build script unzips its vendored
+            # asset bundle, and the CRC32 in `zip` uses `llvm.x86.pclmulqdq.256`, which cranelift
+            # does not implement - so the build script aborts with SIGABRT and the whole run dies
+            # after writing six of nine pages. Nothing here needs a fast codegen backend: this app
+            # emits rustdoc JSON and runs a Python renderer over it.
+            unset CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
             # `--all-features` reaches the adapters, and one of them links libduckdb. This app runs
             # OUTSIDE the dev shell - that is the point of it - so the three variables have to be
             # here too, from the same nix/duckdb.nix the shell and the checks read.
@@ -190,6 +197,11 @@
         # explains why the crate is built without its `bundled` feature, and why the run-time path
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
+
+        # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
+        # CI cannot score with two different versions. See nix/crap.nix for which one comes from
+        # nixpkgs, which is a hash-pinned prebuilt, and why.
+        crap = import ./nix/crap.nix { inherit pkgs; };
 
         commonArgs = {
           inherit src;
@@ -699,6 +711,47 @@
               '';
             });
 
+          # The CRAP gate: cyclomatic complexity weighted by the tests that cover it.
+          #
+          # A CHECK and not an app, which is the opposite of `deny` below, and the difference is
+          # the network. cargo-deny fetches the RustSec database; this needs nothing but the
+          # vendored dependency set, a compiler and two tools already in the store. So it can be
+          # sandboxed, and being sandboxed is what makes it reproducible.
+          #
+          # THE SHARED `cargoArtifacts`, and the reasoning is the opposite of what it looks like.
+          # The coverage build cannot reuse them at all: `-C instrument-coverage` changes the
+          # rustc invocation, so every dependency it needs is compiled fresh whatever is passed.
+          # What the shared attribute buys is that no SECOND dependency derivation is created -
+          # `api-docs` needs one because it is on a different channel, and it costs a full extra
+          # workspace build. Here the artifacts are only what makes `cargo run -p xtask` cheap,
+          # and they are already built for clippy and nextest.
+          #
+          # The instrumented compile itself is the scope: `sutura-domain`, whose dependency set is
+          # serde and thiserror. 11 s cold, measured. `SCOPE` in xtask/src/crap.rs carries the
+          # cost of every wider option and docs/crap.md says why this one.
+          #
+          # `src = ./.` rather than the filtered source: the gate reads `.cargo-crap.toml` and
+          # `docs/crap.md`, and crane's filter keeps only Cargo inputs.
+          #
+          # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
+          # without it the run fails on a path it cannot create.
+          crap = craneLib.mkCargoDerivation (commonArgs // {
+            inherit cargoArtifacts;
+            src = ./.;
+            pnameSuffix = "-crap";
+            doCheck = false;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+              crap.cargoCrap
+              crap.llvmCov
+              pkgs.cargo-nextest
+            ];
+            buildPhaseCargoCommand = ''
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              cargo run --release -q -p xtask -- crap
+            '';
+          });
+
           # NOTE: cargo-deny is deliberately NOT a check here. It fetches the RustSec
           # advisory database, and a Nix build sandbox has no network - as a check it could
           # only ever fail, or pass while silently auditing nothing. CI runs it as
@@ -740,6 +793,24 @@
             # the run fails with "no such command" rather than a verdict.
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
             exec cargo run --release -q -p xtask -- test-causality "$@"
+          '');
+        };
+
+        # `nix run .#crap` - the CRAP gate, outside the sandbox.
+        #
+        # `checks.crap` above is what CI runs and is the authority. This app exists for the
+        # host that has nix and no dev shell: `nix/run-gate.sh` falls back to it, so a commit
+        # hook on such a machine reaches the SAME pin rather than skipping.
+        #
+        # It supplies the pinned cargo as well as the two tools, for the reason `apps.deny`
+        # gives at length: `nix run` puts only the named program on PATH, and a tool that
+        # shells out to cargo would otherwise use whatever cargo the host happens to ship -
+        # a second, unpinned toolchain, which is the drift this file exists to remove.
+        apps.crap = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-crap" ''
+            export PATH="${rustToolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+            exec cargo run --release -q -p xtask -- crap "$@"
           '');
         };
 

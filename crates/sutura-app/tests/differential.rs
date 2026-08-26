@@ -1,10 +1,10 @@
-//! One plan, computed locally and pushed down to a data source, compared.
+//! One plan, computed by the engine and by every registered data system, compared.
 //!
-//! The two sides are not two implementations of one thing, and reading them that way overstates what
-//! this proves. `DataFusion` is the ENGINE, executing a plan locally over Arrow. `DuckDB` is a DATA
-//! SOURCE, which the compiler renders a statement for and pushes down to. Comparing them is
-//! comparing "we computed it here" against "we asked a database to compute it", and for a simple
-//! aggregate they agree trivially.
+//! The sides are not several implementations of one thing, and reading them that way overstates what
+//! this proves. `DataFusion` is the ENGINE, executing a plan locally over Arrow. A data source is
+//! something the compiler renders a statement for and pushes down to. Comparing them is comparing "we
+//! computed it here" against "we asked a database to compute it", and for a simple aggregate they
+//! agree trivially.
 //!
 //! **So this is a cheap regression net, not a proof of correctness.** It is kept for one class of bug
 //! nothing else here catches: a rendered statement that is VALID SQL with different semantics. Every
@@ -14,7 +14,16 @@
 //! formed and says nothing about what it means. A row-by-row comparison against a real SQL engine is
 //! what covers the gap between those two.
 //!
-//! What it is NOT: a reason to keep two execution paths. When federation moves the engine above the
+//! **It is a cell of the data-system axis, expanded from `adapters::registered` like the rest.** It was
+//! a hand-written comparison of two named adapters, which meant a third data system was compared
+//! against nothing until somebody edited this file. Now registering one enrols it here too.
+//!
+//! The engine's own cell compares two independently opened engines rather than nothing: that is a
+//! determinism check, which is weaker than the comparison the other cells make and is what "compare
+//! this against the reference" degenerates to when the entry *is* the reference. It is named as such on
+//! the assertion rather than skipped, because a skipped cell reads as coverage.
+//!
+//! What this is NOT: a reason to keep two execution paths. When federation moves the engine above the
 //! `Warehouse` port, `DataFusion` stops being a peer of a data source and this test's shape changes
 //! with it.
 //!
@@ -22,73 +31,35 @@
 //! column labels and row ordering - which is about the yield to expect from it.
 
 #[cfg(test)]
-mod tests {
-    use std::path::{Path, PathBuf};
+mod adapters;
 
+#[cfg(test)]
+mod tests {
     use sutura_app::{answer, verify_anchors};
-    use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _, Validated};
-    use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::query::ToolOutcome;
     use sutura_domain::warehouse::{RowSet, Value};
 
-    fn fixtures() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-    }
+    use crate::adapters::{DataSystemUnderTest, ReferenceCatalog, load, open, questions, read_question, stem};
 
-    fn source() -> sutura_domain::model::SourceName {
-        sutura_domain::model::SourceName::parse("local").expect("a fixture source is a source")
-    }
-
-    fn load() -> PinnedDefinitions {
-        let version = sutura_domain::pinned::DefinitionVersion::parse("differential-1").expect("a test version is a version");
-        sutura_catalog_local::LocalCatalog::new(fixtures().join("catalog"), version)
-            .load()
-            .expect("the fixture catalog loads")
-    }
-
-    fn questions() -> Vec<PathBuf> {
-        let mut found: Vec<PathBuf> = std::fs::read_dir(fixtures().join("questions"))
-            .expect("the questions directory is there")
-            .map(|e| e.expect("a directory entry is readable").path())
-            .filter(|p| p.extension().is_some_and(|x| x == "yaml"))
-            .collect();
-        found.sort();
-        found
-    }
-
-    fn read(path: &Path) -> Query {
-        let text = std::fs::read_to_string(path).expect("a question file is readable");
-        serde_norway::from_str(&text).expect("a question file is a question")
-    }
-
-    /// The engine and the data source, each over the same CSVs.
-    fn both_sides() -> (
-        sutura_exec_duckdb::DuckDbWarehouse,
-        sutura_exec_datafusion::DataFusionWarehouse,
-    ) {
-        let data = fixtures().join("data");
-        let duck = sutura_exec_duckdb::DuckDbWarehouse::in_memory(source()).expect("an in-memory database opens");
-        let fusion = sutura_exec_datafusion::DataFusionWarehouse::new(source()).expect("an in-process engine starts");
-        for model in load().definitions().models().values() {
-            let csv = data.join(format!("{}.csv", model.table()));
-            duck.attach_csv(model.table(), &csv).expect("duckdb attaches the fixture csv");
-            fusion
-                .attach_csv(model.table(), &csv)
-                .expect("datafusion attaches the fixture csv");
-        }
-        (duck, fusion)
-    }
+    /// The side every registered data system is compared against.
+    ///
+    /// The ENGINE, and that is the reason rather than an alphabetical accident: a data source exists to
+    /// run a subplan of what the engine could otherwise compute itself, so the engine's answer is the
+    /// one a pushdown has to reproduce. It is named here rather than in the registry because it is what
+    /// THIS file is about; the registry says what the entries are, not which of them is the yardstick.
+    type Engine = sutura_exec_datafusion::DataFusionWarehouse;
 
     /// A result as comparable text.
     ///
-    /// Rendered rather than compared as `Value`, because the two sides legitimately return different
-    /// Rust types for the same number - one hands back a `DECIMAL` where the other hands back a wide
-    /// integer - and `Value::render` is the one canonical form both are already required to agree on.
+    /// Rendered rather than compared as `Value`, because two sides legitimately return different Rust
+    /// types for the same number: one hands back a `DECIMAL` where the other hands back a wide
+    /// integer, and `Value::render` is the one canonical form both are already required to agree on.
     /// Comparing the enum would fail on a difference that is not a difference.
     ///
     /// **Floats are cut to twelve significant digits, and that is not a loosening.** Summing the same
     /// rows in a different order changes the last place of an `f64`, so comparing the full binary
-    /// expansion asserts that both sides summed in the same order - which is not a property either
-    /// one promises, and not what this test is for. It has already fired once for real, on the example
+    /// expansion asserts that both sides summed in the same order - which is not a property either one
+    /// promises, and not what this test is for. It has already fired once for real, on the example
     /// corpus. Twelve digits is far beyond any figure a metric reports and far short of the noise;
     /// integers and dates are untouched, so an exact count stays exactly compared.
     fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
@@ -105,54 +76,136 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn the_engine_and_the_data_source_agree_on_every_question() {
-        // The whole point. A wrong number has to be produced twice, the same way, by the engine and
-        // by the data source - one building a logical plan over Arrow, one executing rendered SQL.
-        //
-        // Two things this caught when it was first written, both of which a snapshot would have
-        // happily pinned as correct: the column LABELS disagreed, because one engine took them from
-        // the driver's result schema and the other built them from the plan; and the two disagreed
-        // on row ORDER until both sorted by the grouped expressions.
-        let pinned = load();
-        let (duck, fusion) = both_sides();
-        let report = verify_anchors(&pinned, &duck);
-        let validated = Validated::new(pinned, &report).expect("the anchors hold");
+    /// An error and every cause beneath it, as one string.
+    ///
+    /// `Display` on a `thiserror` enum prints the outermost message and stops, and the outermost message
+    /// from the service is "the data system did not answer" - true of an outage, a rejected statement
+    /// and a cell that could not be carried alike. What tells those apart is one and two levels down.
+    fn chain(error: &dyn core::error::Error) -> String {
+        let mut out = error.to_string();
+        let mut cursor = error.source();
+        while let Some(cause) = cursor {
+            out.push_str("\n  caused by: ");
+            out.push_str(&cause.to_string());
+            cursor = cause.source();
+        }
+        out
+    }
+
+    /// Whether this entry is the reference itself, for a message that says which comparison was made.
+    ///
+    /// A `&str` comparison rather than a type-id one: the registry's whole currency is the name, and an
+    /// entry that renamed itself into the reference's name would be a bigger problem than this.
+    fn is_the_reference<W>() -> bool
+    where
+        W: DataSystemUnderTest,
+    {
+        W::NAME == <Engine as DataSystemUnderTest>::NAME
+    }
+
+    /// Every question, answered by the engine and by `W`, compared row for row.
+    ///
+    /// A wrong number has to be produced twice, the same way, by the engine and by the data source -
+    /// one building a logical plan over Arrow, one executing rendered SQL.
+    ///
+    /// Two things this caught when it was first written, both of which a snapshot would have happily
+    /// pinned as correct: the column LABELS disagreed, because one engine took them from the driver's
+    /// result schema and the other built them from the plan; and the two disagreed on row ORDER until
+    /// both sorted by the grouped expressions.
+    fn agrees_with_the_engine_on_every_question<W>()
+    where
+        W: DataSystemUnderTest,
+    {
+        let pinned = load::<ReferenceCatalog>();
+        let engine: Engine = open(&pinned);
+        let other: W = open(&pinned);
+        let against = if is_the_reference::<W>() {
+            "a second, independently opened engine"
+        } else {
+            "the engine"
+        };
+        let validated = sutura_app::verify_and_validate(pinned, &engine).expect("the anchors hold");
 
         let mut compared = 0_usize;
+        let mut refused = 0_usize;
         for path in questions() {
-            let question = read(&path);
-            let name = path
-                .file_stem()
-                .map_or_else(|| String::from("unnamed"), |s| s.to_string_lossy().into_owned());
+            let question = read_question(&path);
+            let name = stem(&path);
 
-            let from_duck = answer(&validated, &question, &duck).unwrap_or_else(|e| panic!("{name}: duckdb failed: {e}"));
-            let from_fusion = answer(&validated, &question, &fusion).unwrap_or_else(|e| panic!("{name}: datafusion failed: {e}"));
+            let from_engine = answer(&validated, &question, &engine);
+            let from_other = answer(&validated, &question, &other);
 
-            match (from_duck, from_fusion) {
+            // A third outcome, and it is the one that used to be missing. `revenue_per_refunded_order`
+            // declares `zero_denominator: fails`, and its July statement divides by zero: both sides
+            // cast the numerator to a floating type first, so both got `inf` back, so both ANSWERED and
+            // this test compared "inf" against "inf" and passed. The two sides now have to fail
+            // together, for the same column, which is a comparison rather than an unwrap.
+            let (from_engine, from_other) = match (from_engine, from_other) {
+                (Ok(engine_outcome), Ok(other_outcome)) => (engine_outcome, other_outcome),
+                (Err(ref engine_error), Err(ref other_error)) => {
+                    // The measure is projected under the metric's own name, so that is the column both
+                    // sides have to name. Compared through the chain because the outermost message is
+                    // "the data system did not answer", which is true of every failure.
+                    let expected = format!("column {}", question.metric());
+                    for (side, error) in [
+                        (<Engine as DataSystemUnderTest>::NAME, engine_error as &dyn core::error::Error),
+                        (W::NAME, other_error),
+                    ] {
+                        let rendered = chain(error);
+                        assert!(
+                            rendered.contains(&expected),
+                            "{name}: {side} did not name the column it could not carry:\n{rendered}"
+                        );
+                        assert!(
+                            rendered.contains("is not a finite number"),
+                            "{name}: {side} failed for some other reason:\n{rendered}"
+                        );
+                    }
+                    refused = refused.saturating_add(1);
+                    continue;
+                }
+                (engine_result, other_result) => {
+                    panic!(
+                        "{name}: {} answered and {against} did not, or the other way about\n  engine: \
+                         {engine_result:?}\n  {}: {other_result:?}",
+                        W::NAME,
+                        W::NAME
+                    );
+                }
+            };
+
+            match (from_engine, from_other) {
                 (ToolOutcome::Answer { rows: ref a, .. }, ToolOutcome::Answer { rows: ref b, .. }) => {
                     assert_eq!(
                         a.columns(),
                         b.columns(),
-                        "{name}: the two sides labelled the result differently"
+                        "{name}: {} and {against} labelled the result differently",
+                        W::NAME
                     );
-                    assert_eq!(rendered(a), rendered(b), "{name}: the two sides returned different rows");
+                    assert_eq!(
+                        rendered(a),
+                        rendered(b),
+                        "{name}: {} and {against} returned different rows",
+                        W::NAME
+                    );
                     compared = compared.saturating_add(1);
                 }
                 (ToolOutcome::Refusal { reason: ref a }, ToolOutcome::Refusal { reason: ref b }) => {
-                    // A refusal is decided by the compiler, above both adapters, so the two must
-                    // always agree. If they ever do not, something below the plan is deciding
-                    // governance, which is the thing that must never happen.
+                    // A refusal is decided by the compiler, above both adapters, so the two must always
+                    // agree. If they ever do not, something below the plan is deciding governance,
+                    // which is the thing that must never happen.
                     assert_eq!(
                         format!("{a:?}"),
                         format!("{b:?}"),
-                        "{name}: the two sides refused for different reasons"
+                        "{name}: {} and {against} refused for different reasons",
+                        W::NAME
                     );
                 }
-                (duck_outcome, fusion_outcome) => {
+                (engine_outcome, other_outcome) => {
                     panic!(
-                        "{name}: one side answered and the other refused\n  duckdb: \
-                         {duck_outcome:?}\n  datafusion: {fusion_outcome:?}"
+                        "{name}: one side answered and the other refused\n  engine: \
+                         {engine_outcome:?}\n  {}: {other_outcome:?}",
+                        W::NAME
                     );
                 }
             }
@@ -161,27 +214,63 @@ mod tests {
             compared > 0,
             "no question produced an answer from both sides, so this compared nothing"
         );
+        // And at least one that both sides refused, because the corpus is what decides whether the
+        // third arm above is reachable. Without a question that reaches `zero_denominator: fails`, that
+        // arm is dead and this test is back to comparing "inf" against "inf" the day one arrives.
+        assert!(
+            refused > 0,
+            "no question was refused by both sides, so the value check at the port proved nothing here"
+        );
     }
 
-    #[test]
-    fn both_sides_reproduce_every_declared_anchor() {
-        // An anchor is the number somebody certified. Checking it both ways is what makes "the
-        // definition still means what it claimed" independent of which side computed it, and it is
-        // what would catch an arithmetic difference between the two - exactly the class of thing a
-        // one-sided anchor check cannot see.
-        let pinned = load();
-        let (duck, fusion) = both_sides();
-        let from_duck = verify_anchors(&pinned, &duck);
-        let from_fusion = verify_anchors(&pinned, &fusion);
+    /// An anchor is the number somebody certified.
+    ///
+    /// Checking it both ways is what makes "the definition still means what it claimed" independent of
+    /// which side computed it, and it is what would catch an arithmetic difference between two adapters
+    /// - exactly the class of thing a one-sided anchor check cannot see.
+    fn reproduces_every_anchor_the_engine_does<W>()
+    where
+        W: DataSystemUnderTest,
+    {
+        let pinned = load::<ReferenceCatalog>();
+        let engine: Engine = open(&pinned);
+        let other: W = open(&pinned);
+        let from_engine = verify_anchors(&pinned, &engine);
+        let from_other = verify_anchors(&pinned, &other);
         assert_eq!(
-            from_duck.checks(),
-            from_fusion.checks(),
-            "the engine and the data source disagree about whether the anchors hold"
+            from_engine.checks(),
+            from_other.checks(),
+            "the engine and {} disagree about whether the anchors hold",
+            W::NAME
         );
         assert!(
-            !from_duck.checks().is_empty(),
+            !from_engine.checks().is_empty(),
             "the fixture catalog declares no anchor, so this proved nothing"
         );
-        drop(Validated::new(pinned, &from_fusion).expect("the in-process engine agrees they hold"));
+        // And once more through the operation that mints the proof. It re-runs the anchors rather than
+        // being handed the report above, which is the point: a report is evidence a caller could have
+        // written by hand, and a `Validated` bundle is not.
+        drop(
+            sutura_app::verify_and_validate(pinned, &other).expect("a data system that reproduced every anchor is fit to serve"),
+        );
     }
+
+    /// One cell of the comparison.
+    macro_rules! cell {
+        ($name:ident, $adapter:ty) => {
+            mod $name {
+                #[test]
+                fn it_agrees_with_the_engine_on_every_question() {
+                    super::agrees_with_the_engine_on_every_question::<$adapter>();
+                }
+
+                #[test]
+                fn it_reproduces_every_anchor_the_engine_does() {
+                    super::reproduces_every_anchor_the_engine_does::<$adapter>();
+                }
+            }
+        };
+    }
+
+    crate::adapters::registered!(data_systems: cell);
 }

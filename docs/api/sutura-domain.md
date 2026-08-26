@@ -173,17 +173,48 @@ not a number" and knowing which character stopped it.
 pub struct TimeRange
 ```
 
-A bounded, half-open interval of dates: `start` included, `end` excluded.
+A half-open interval of dates: `start` included, `end` excluded.
 
-**Bounded is the invariant, and it is why this type exists rather than a pair of `Option`s.** An
-unbounded range is a table scan with a plausible name, and it is the shape a manipulated agent
-asks for. There is no constructor that omits an endpoint.
+**Both endpoints are always present, and that is the whole of what this type promises.** There is
+no constructor that omits one, so an unbounded range is unrepresentable rather than refused.
+
+**What it does not promise is that the interval is small.** `[0001-01-01, 9999-12-31)` satisfies
+every check here, and a predicate built from it reads the whole table - which is the shape a
+manipulated agent asks for. An earlier version of this comment claimed the newtype prevented a
+table scan; it prevents an *absent* bound, and nothing more. The size of the interval a *caller*
+may ask for is capped where a caller's question is resolved, against
+`crate::query::MAX_RANGE_DAYS`, and refused as
+`crate::query::RefusalReason::TimeRangeTooLong`.
+
+**The cap is deliberately not on this constructor**, and the reason is who each caller is. This
+same type is also a metric's anchor range, authored in a catalog by the person who defines the
+metric - not requested by an agent, not on the hot path, and executed once at startup. A catalog
+author who wants a decade-long anchor is not the threat the cap exists for, and a hard maximum
+here would make a governance decision about requests by constraining authorship. Use
+`TimeRange::days` to measure a range; decide what is too long where you know whose range it is.
 
 Half-open rather than inclusive because a month is `[2026-06-01, 2026-07-01)` at every grain and
 in every dialect, while an inclusive end needs a different last day per month and per grain. One
 of those two conventions produces off-by-one bugs at month boundaries and the other does not.
 
 #### Methods
+
+```rust
+pub fn days(self) -> i32
+```
+
+How many days the interval covers.
+
+Always at least 1, because the constructor refuses `end <= start`. This is the number a cost
+bound has to be expressed in: rows read are a function of how much history the date predicate
+admits, and *not* of the grain, which decides how the admitted rows are grouped afterwards.
+A year of history is a year of scanning whether it comes back as 365 buckets or as 1.
+
+Derived from `Date::days_since_epoch` rather than from a second piece of calendar
+arithmetic, so a leap year cannot be counted one way here and another way there.
+`saturating_sub` because the subtraction is checked-by-construction - `end > start`, and both
+day numbers are within the range a four-digit year can reach - and a saturated value would
+still be refused by any cap rather than wrapping into a small one.
 
 ```rust
 pub const fn end(self) -> Date
@@ -859,7 +890,7 @@ one sentence and neither of them can collide with a scalar YAML resolves itself.
 #### Variants
 
 - `Null` - The measure is null for that row. The generator guards the denominator - a `NULLIF`, or the dialect's own safe-divide.
-- `Fail` - The division is emitted unguarded, so a zero denominator is whatever the data system does with one. Named for the intent rather than for the mechanism: a definition choosing this is saying an empty period is a fault and not a figure.
+- `Fail` - The division is emitted unguarded, and the fault is raised where the value crosses back into the domain. A definition choosing this is saying an empty period is a fault and not a figure.
 
 #### Methods
 
@@ -1326,6 +1357,15 @@ there is nothing for an implementation to branch on. A trait that accepted one c
 different definition to different callers, which would make the pinning meaningless and the
 provenance a lie.
 
+**Two things this module deliberately does NOT hold.** It cannot hash, so
+`PinnedDefinitions::pin` takes the digest function rather than the digest - the domain's
+dependency allowlist is `serde` plus `thiserror`, and neither a SHA implementation nor a
+canonical serializer fits inside it. And it cannot execute a statement, so it holds
+`AnchorReport` - the evidence - and `AnchorReport::verdict` - the rule - but not the proof.
+The proof is `sutura_app::Validated`, whose only constructor is `sutura_app::verify_and_validate`
+and therefore cannot be reached without a `Warehouse` having been called. A report is public data
+anybody can build, and nothing anybody builds here turns into a bundle the service will serve.
+
 ### `struct DefinitionVersion`
 
 ```rust
@@ -1425,15 +1465,62 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn new(version: DefinitionVersion, digest: DefinitionDigest, definitions: Definitions) -> Self
+pub fn pin<E>(version: DefinitionVersion, definitions: Definitions, digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>) -> Result<Self, E>
 ```
 
-Pins a set of definitions.
+Pins a set of definitions, deriving the digest FROM them.
 
-The digest is computed by the adapter rather than here, because `sutura-domain` cannot hash:
-`sha2` is not on its allowlisted dependency tree, and a domain that could hash would be a
-domain that could re-derive what it is supposed to accept as given. What this type
-guarantees is that the three travel together, not that the third describes the first.
+The digest is not a parameter beside the definitions any more, and that is the whole of this
+signature. The constructor this replaced took any syntactically valid digest next to any
+`Definitions` and conceded in its own comment that the one need not describe the other - so
+an answer could carry provenance for content that did not produce it, which is the opposite
+of what "a result cannot be separated from what defined it" claims. Now `digest` is APPLIED
+to the very value this constructor is about to store, and there is no way to hand in a
+digest for anything else.
+
+The hashing itself still arrives from outside, because `sutura-domain` cannot do it: neither
+`sha2` nor `serde_json` is on its allowlisted dependency tree, so the domain can compute
+neither the canonical bytes nor a hash of them. Reaching for them would put fifteen crates -
+`libc` among them - inside the hexagon to re-derive what a catalog adapter has already
+computed. So the honest shape is a function the caller supplies:
+`sutura_catalog_local::digest_of` is the one implementation, and it owns the canonical form.
+
+**What this does not close:** a `digest` that ignores its argument and returns a constant.
+That is one function, in one adapter, with its own tests - rather than every call site of a
+three-argument constructor.
+
+A digest for content this bundle does not hold is unrepresentable:
+
+```compile_fail
+use sutura_domain::catalog::Definitions;
+use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+
+// The digest of some OTHER catalog, beside definitions that did not produce it.
+fn _mismatched(
+    version: DefinitionVersion,
+    elsewhere: DefinitionDigest,
+    definitions: Definitions,
+) -> PinnedDefinitions {
+    PinnedDefinitions::new(version, elsewhere, definitions)
+}
+```
+
+The twin of that block, which pins the signature so a rename cannot make it pass vacuously:
+
+```
+use sutura_domain::catalog::Definitions;
+use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+
+fn _pin<E>(
+    version: DefinitionVersion,
+    definitions: Definitions,
+    digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
+) -> Result<PinnedDefinitions, E> {
+    PinnedDefinitions::pin(version, definitions, digest)
+}
+```
 
 ```rust
 pub fn provenance(&self) -> Provenance
@@ -1514,10 +1601,21 @@ pub struct AnchorReport
 
 The outcome of checking every anchor in a bundle.
 
-Built by whoever can execute a statement, which is not this crate. It is the evidence
-`Validated::new` demands, and its shape is what makes that demand mean something: a caller
-cannot claim a bundle is validated without having recorded an outcome for every anchored metric
-in it.
+Built by whoever can execute a statement, which is not this crate.
+
+**This is evidence, and evidence is forgeable - deliberately so.** `AnchorReport::new` and
+`AnchorReport::record` are public because an operator-facing surface has to be able to render
+and serialize a report, and because the rule below is worth testing here, where the bundle's
+shape lives. What used to be wrong is that this same public pair also reached the proof: a caller
+could enumerate `PinnedDefinitions::anchored_metrics`, record `AnchorCheck::Matched` for each
+without ever opening a data system, and hand the result to a constructor that returned a bundle
+the service would serve. So the wrapper attested to nothing but the caller's own assertion, and
+read like proof.
+
+The proof now lives one layer out, in `sutura_app::Validated`, whose only constructor is
+`sutura_app::verify_and_validate` - which takes a `Warehouse` and calls it. `Self::verdict` is
+the rule that constructor applies, and returns `Result<(), NotValidated>`: a verdict, not a
+bundle. Nothing in this crate can turn a report into something servable.
 
 #### Methods
 
@@ -1537,6 +1635,22 @@ Records what happened for one metric.
 
 Last write wins, because a re-check after a transient failure should replace it rather than
 accumulate. The coverage check below is on presence, so a replaced entry cannot hide one.
+
+```rust
+pub fn verdict(&self, pinned: &PinnedDefinitions) -> Result<(), NotValidated>
+```
+
+Whether this report shows every anchor `pinned` declares having matched.
+
+The rule, with no proof attached. It returns `Result<(), NotValidated>` rather than a
+validated bundle on purpose: this crate cannot tell whether the checks in the report ever
+reached a data system, so it is not the crate that gets to say a bundle is fit to serve.
+`sutura_app::verify_and_validate` runs the anchors and then applies this, and it is the only
+thing that mints the proof.
+
+The unknown-metric check is not tidiness: without it, a report built against a different
+bundle would satisfy the coverage check for whatever it happened to overlap, and a bundle
+would be "validated" by evidence about something else.
 
 #### Implements
 
@@ -1560,46 +1674,6 @@ Why a bundle is not validated.
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
-
-### `struct Validated`
-
-```rust
-pub struct Validated<T>
-```
-
-A `T` that has been shown to hold up.
-
-**The service accepts only this, so an unvalidated bundle is unrepresentable rather than merely
-refused.** The field is private and `Validated::new` is the only way in.
-
-Generic in the type it wraps, but constructible only for `PinnedDefinitions`, and that
-asymmetry is the point: validating means checking every anchor the bundle declares, so the
-constructor has to be able to enumerate them. A blanket `Validated::new` for any `T` would be a
-wrapper that proves nothing, which is worse than no wrapper because it reads like proof.
-
-#### Methods
-
-```rust
-pub const fn get(&self) -> &T
-```
-
-```rust
-pub fn into_inner(self) -> T
-```
-
-```rust
-pub fn new(pinned: PinnedDefinitions, report: &AnchorReport) -> Result<Self, NotValidated>
-```
-
-Accepts a bundle if, and only if, every anchor it declares was checked and matched.
-
-The unknown-metric check is not tidiness: without it, a report built against a different
-bundle would satisfy the coverage check for whatever it happened to overlap, and a bundle
-would be "validated" by evidence about something else.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ### `trait SemanticCatalog`
 
@@ -2117,6 +2191,12 @@ works.
 so such a refusal could never be provoked, and a variant with no test that can reach it looks
 like coverage while being dead code. The type does that job instead.
 
+[`TimeRangeTooLong`](RefusalReason::TimeRangeTooLong) is the variant that exists for the half the
+type does *not* do, and the pair is worth reading together: an absent bound is unrepresentable, a
+bound that is present and enormous is refused. The second has to be a refusal rather than a parse
+error because the same `TimeRange` is also a catalog author's anchor range, and a maximum on the
+type would govern authorship in order to govern requests.
+
 Note what these variants do *not* carry: a rejected filter value is never echoed back.
 `DimensionValueNotAllowed` names the dimension and stops there. Reflecting caller-supplied text
 into a message that reaches a log, a UI and an agent's context is how a rejected value becomes
@@ -2131,8 +2211,9 @@ somebody else's input.
 - `DimensionValueNotAllowed` - The dimension is filterable and the value is not one the bundle declares.
 - `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
+- `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
-- `SourceUnavailable` - The one data system the plan resolved to could not be reached as the calling subject.
+- `SourceUnavailable` - The plan named a data system this process did not open.
 
 #### Implements
 
@@ -2177,6 +2258,42 @@ The most dimensions one question may group by.
 A bound for the same reason the time range is bounded: a group-by over every column is a table
 scan with a plausible name, and the cost lands on a shared data system. Four covers the questions
 a person asks and refuses the ones a loop generates.
+
+### `constant MAX_RANGE_DAYS`
+
+The longest span of history one question may ask about, in days.
+
+**This is the bound the `TimeRange` newtype does not provide.** That type refuses an *absent*
+endpoint; it accepts `[0001-01-01, 9999-12-31)`, which is over three and a half million days and, on
+both execution paths, a full scan. `plan::MAX_ROWS` does not help: it caps the rows *returned*
+after the aggregate, so a question that scans everything and groups it into one bucket is inside
+it. The span is what rows-read is a function of, so the span is where the cap goes.
+
+**3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
+3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
+*any* ten-year window through rather than most of them. Ten years is chosen because it covers the
+reporting a person actually does - a decade of annual figures, five years of quarters, three years
+of months - and the longest range anywhere in this repository's fixtures, examples and anchors is
+181 days, so nothing authored today is anywhere near it.
+
+It also stays under `plan::MAX_ROWS`, and that is not a coincidence worth losing: at `day` grain
+the time axis of a permitted question is at most 3653 buckets, so the row cap can only ever be
+reached by dimension cardinality and never by the range alone. Raising this past the row cap would
+quietly make a truncated answer the normal outcome of a wide range.
+
+A *span*, not a bucket count, and the difference matters. A bucket count would let `year` grain
+through with a thousand years of scanning for a thousand rows, which is precisely the request this
+exists to refuse; the span bounds the scan at every grain and bounds the buckets as a consequence.
+
+**What it does not bound, said plainly rather than left for someone to discover.** It bounds ONE
+question: three permitted ten-year questions cover thirty years, and nothing here correlates two
+requests, because a per-caller budget needs a clock, a subject and somewhere to keep a counter and
+this crate has none of the three. And inside a permitted span the *groups* are still the span times
+the cardinality of up to `MAX_DIMENSIONS` dimensions - a dimension declared without a value list
+has whatever cardinality the column has - so `plan::MAX_ROWS` truncates that result rather than the
+work that produced it. A day count is also only a proxy for rows: ten years of a small table and
+ten years of a large one are the same number here. A real budget is expressed in rows or bytes
+scanned, which needs something from the data system that no port asks for yet.
 
 ## Module `warehouse`
 
@@ -2265,6 +2382,78 @@ pub fn sql(&self) -> &str
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `enum NotFinite`
+
+```rust
+pub enum NotFinite
+```
+
+Why a floating-point cell was refused.
+
+Two variants rather than one, because the two faults have different causes and a reader chasing
+one is not chasing the other: an infinity is a non-zero quantity divided by zero, and a `NaN` is
+zero divided by zero. The variant carries the value rather than a formatted sentence, for the
+reason every error in this crate does.
+
+#### Variants
+
+- `Infinite` - Infinite, in either direction.
+- `NotANumber` - Not a number at all. Its own variant rather than a value on the one above, because `NaN` compares unequal to itself: an `Infinite` carrying one would make two of these errors unequal for a reason that has nothing to do with what happened.
+
+#### Implements
+
+`Debug`, `Display`, `Error`, `PartialEq`
+
+### `struct Real`
+
+```rust
+pub struct Real
+```
+
+A real number a result may carry: finite, and nothing else.
+
+**Parsed rather than validated, and the class it closes is larger than the bug that found it.**
+A cell used to be a raw `f64`, so `inf`, `-inf` and `NaN` were all representable, and
+`Value::render` turned the first of them into the string `"inf"` - an answer under a metric's
+own certified name that reads as data and is not a number. The route in was a ratio measure
+declaring `zero_denominator: fails`: both adapters cast the numerator to a floating type before
+dividing, so the division is IEEE float division, and IEEE float division by zero does not fail.
+It answers `inf`, or `NaN` when both halves are zero.
+
+Making the domain type refuse a non-finite value closes all three at once, at the one boundary
+every adapter has to cross, rather than guarding the one variant that exposed it. An adapter that
+gets one back has an error naming the column, which is what `fails` was always claiming to mean.
+
+Construct it with `parse`. The field is private, so a non-finite value is unrepresentable
+rather than merely rejected. There is deliberately no `Deref` and no arithmetic: two finite
+numbers divide to a non-finite one, so a type that let the result back in without passing
+`parse` again would be the hole this closes. `Value` is `Serialize` only today - if it ever
+gains `Deserialize`, this needs `#[serde(try_from = ..)]` routing through `parse`, because a
+derived one writes straight into the private field.
+
+`parse`: Real::parse
+
+#### Methods
+
+```rust
+pub const fn get(self) -> f64
+```
+
+The number, for a caller that has to do arithmetic on it.
+
+Named rather than reached through `Deref`, so the point at which the invariant stops applying
+is a call somebody wrote.
+
+```rust
+pub const fn parse(value: f64) -> Result<Self, NotFinite>
+```
+
+Parses a real number, rejecting a non-finite one.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `LowerExp`, `PartialEq`, `Serialize`
+
 ### `enum Value`
 
 ```rust
@@ -2275,7 +2464,8 @@ One cell of a result.
 
 `Real` is deliberately last on the list of things to reach for. A measure over integer minor
 units stays exact, and an anchor comparison over a float would depend on how two languages print
-the same bits. It exists because `avg` has to land somewhere.
+the same bits. It exists because `avg` has to land somewhere - and it is a checked type rather
+than an `f64`, so the one thing a float can be that a number cannot does not fit in a cell.
 
 #### Variants
 

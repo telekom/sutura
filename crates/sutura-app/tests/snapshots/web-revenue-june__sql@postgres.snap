@@ -1,5 +1,5 @@
 ---
-source: crates/sutura-app/tests/golden.rs
+source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.sql()
 ---
 SELECT CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) AS "period", SUM("orders"."amount_cents") AS "web_revenue" FROM "orders" WHERE "orders"."order_date" >= $1 AND "orders"."order_date" < $2 AND "orders"."channel" = $3 GROUP BY CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) LIMIT 10000

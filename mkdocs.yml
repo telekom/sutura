@@ -144,10 +144,12 @@ nav:
     - Questions and answers: qa.md
   - Development:
     - Contributing: contributing.md
+    - The CRAP gate: crap.md
     - Building without direct egress: enterprise-mirrors.md
     - Publishing the docs: publishing.md
   - Reference:
     - Architecture: architecture.md
+    - Serving over HTTP: serving.md
     - Decisions:
       - First-party semantic models: adr/0001-first-party-semantic-models.md
       - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
@@ -160,6 +162,9 @@ nav:
       - sutura-exec-datafusion: api/sutura-exec-datafusion.md
       - sutura-exec-duckdb: api/sutura-exec-duckdb.md
       - sutura-app: api/sutura-app.md
+      - sutura-config: api/sutura-config.md
+      - sutura-runtime: api/sutura-runtime.md
+      - sutura-http: api/sutura-http.md
   - Changelog: changelog.md
 
 extra:

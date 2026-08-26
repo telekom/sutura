@@ -13,6 +13,15 @@
 //! there is nothing for an implementation to branch on. A trait that accepted one could return a
 //! different definition to different callers, which would make the pinning meaningless and the
 //! provenance a lie.
+//!
+//! **Two things this module deliberately does NOT hold.** It cannot hash, so
+//! [`PinnedDefinitions::pin`] takes the digest function rather than the digest - the domain's
+//! dependency allowlist is `serde` plus `thiserror`, and neither a SHA implementation nor a
+//! canonical serializer fits inside it. And it cannot execute a statement, so it holds
+//! [`AnchorReport`] - the evidence - and [`AnchorReport::verdict`] - the rule - but not the proof.
+//! The proof is `sutura_app::Validated`, whose only constructor is `sutura_app::verify_and_validate`
+//! and therefore cannot be reached without a `Warehouse` having been called. A report is public data
+//! anybody can build, and nothing anybody builds here turns into a bundle the service will serve.
 
 use std::collections::BTreeMap;
 
@@ -125,18 +134,70 @@ pub struct PinnedDefinitions {
 }
 
 impl PinnedDefinitions {
-    /// Pins a set of definitions.
+    /// Pins a set of definitions, deriving the digest FROM them.
     ///
-    /// The digest is computed by the adapter rather than here, because `sutura-domain` cannot hash:
-    /// `sha2` is not on its allowlisted dependency tree, and a domain that could hash would be a
-    /// domain that could re-derive what it is supposed to accept as given. What this type
-    /// guarantees is that the three travel together, not that the third describes the first.
-    pub const fn new(version: DefinitionVersion, digest: DefinitionDigest, definitions: Definitions) -> Self {
-        Self {
+    /// The digest is not a parameter beside the definitions any more, and that is the whole of this
+    /// signature. The constructor this replaced took any syntactically valid digest next to any
+    /// [`Definitions`] and conceded in its own comment that the one need not describe the other - so
+    /// an answer could carry provenance for content that did not produce it, which is the opposite
+    /// of what "a result cannot be separated from what defined it" claims. Now `digest` is APPLIED
+    /// to the very value this constructor is about to store, and there is no way to hand in a
+    /// digest for anything else.
+    ///
+    /// The hashing itself still arrives from outside, because `sutura-domain` cannot do it: neither
+    /// `sha2` nor `serde_json` is on its allowlisted dependency tree, so the domain can compute
+    /// neither the canonical bytes nor a hash of them. Reaching for them would put fifteen crates -
+    /// `libc` among them - inside the hexagon to re-derive what a catalog adapter has already
+    /// computed. So the honest shape is a function the caller supplies:
+    /// `sutura_catalog_local::digest_of` is the one implementation, and it owns the canonical form.
+    ///
+    /// **What this does not close:** a `digest` that ignores its argument and returns a constant.
+    /// That is one function, in one adapter, with its own tests - rather than every call site of a
+    /// three-argument constructor.
+    ///
+    /// A digest for content this bundle does not hold is unrepresentable:
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::catalog::Definitions;
+    /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    ///
+    /// // The digest of some OTHER catalog, beside definitions that did not produce it.
+    /// fn _mismatched(
+    ///     version: DefinitionVersion,
+    ///     elsewhere: DefinitionDigest,
+    ///     definitions: Definitions,
+    /// ) -> PinnedDefinitions {
+    ///     PinnedDefinitions::new(version, elsewhere, definitions)
+    /// }
+    /// ```
+    ///
+    /// The twin of that block, which pins the signature so a rename cannot make it pass vacuously:
+    ///
+    /// ```
+    /// use sutura_domain::catalog::Definitions;
+    /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    ///
+    /// fn _pin<E>(
+    ///     version: DefinitionVersion,
+    ///     definitions: Definitions,
+    ///     digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
+    /// ) -> Result<PinnedDefinitions, E> {
+    ///     PinnedDefinitions::pin(version, definitions, digest)
+    /// }
+    /// ```
+    pub fn pin<E>(
+        version: DefinitionVersion,
+        definitions: Definitions,
+        digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
+    ) -> Result<Self, E> {
+        let digest = digest(&definitions)?;
+        Ok(Self {
             version,
             digest,
             definitions,
-        }
+        })
     }
 
     #[inline]
@@ -257,10 +318,21 @@ pub enum AnchorCheck {
 
 /// The outcome of checking every anchor in a bundle.
 ///
-/// Built by whoever can execute a statement, which is not this crate. It is the evidence
-/// [`Validated::new`] demands, and its shape is what makes that demand mean something: a caller
-/// cannot claim a bundle is validated without having recorded an outcome for every anchored metric
-/// in it.
+/// Built by whoever can execute a statement, which is not this crate.
+///
+/// **This is evidence, and evidence is forgeable - deliberately so.** [`AnchorReport::new`] and
+/// [`AnchorReport::record`] are public because an operator-facing surface has to be able to render
+/// and serialize a report, and because the rule below is worth testing here, where the bundle's
+/// shape lives. What used to be wrong is that this same public pair also reached the proof: a caller
+/// could enumerate [`PinnedDefinitions::anchored_metrics`], record [`AnchorCheck::Matched`] for each
+/// without ever opening a data system, and hand the result to a constructor that returned a bundle
+/// the service would serve. So the wrapper attested to nothing but the caller's own assertion, and
+/// read like proof.
+///
+/// The proof now lives one layer out, in `sutura_app::Validated`, whose only constructor is
+/// `sutura_app::verify_and_validate` - which takes a `Warehouse` and calls it. [`Self::verdict`] is
+/// the rule that constructor applies, and returns `Result<(), NotValidated>`: a verdict, not a
+/// bundle. Nothing in this crate can turn a report into something servable.
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
 pub struct AnchorReport {
     checks: BTreeMap<MetricName, AnchorCheck>,
@@ -283,6 +355,47 @@ impl AnchorReport {
     #[inline]
     pub const fn checks(&self) -> &BTreeMap<MetricName, AnchorCheck> {
         &self.checks
+    }
+
+    /// Whether this report shows every anchor `pinned` declares having matched.
+    ///
+    /// The rule, with no proof attached. It returns `Result<(), NotValidated>` rather than a
+    /// validated bundle on purpose: this crate cannot tell whether the checks in the report ever
+    /// reached a data system, so it is not the crate that gets to say a bundle is fit to serve.
+    /// `sutura_app::verify_and_validate` runs the anchors and then applies this, and it is the only
+    /// thing that mints the proof.
+    ///
+    /// The unknown-metric check is not tidiness: without it, a report built against a different
+    /// bundle would satisfy the coverage check for whatever it happened to overlap, and a bundle
+    /// would be "validated" by evidence about something else.
+    pub fn verdict(&self, pinned: &PinnedDefinitions) -> Result<(), NotValidated> {
+        for metric in self.checks.keys() {
+            if pinned.definitions().metric(metric).is_none() {
+                return Err(NotValidated::UnknownMetricChecked { metric: metric.clone() });
+            }
+        }
+        for (metric, _) in pinned.anchored_metrics() {
+            match self.checks.get(metric) {
+                None => {
+                    return Err(NotValidated::AnchorUnchecked { metric: metric.clone() });
+                }
+                Some(AnchorCheck::Matched) => {}
+                Some(AnchorCheck::Mismatch { expected, actual }) => {
+                    return Err(NotValidated::AnchorMismatch {
+                        metric: metric.clone(),
+                        expected: expected.clone(),
+                        actual: actual.clone(),
+                    });
+                }
+                Some(AnchorCheck::NotExecuted { reason }) => {
+                    return Err(NotValidated::AnchorNotExecuted {
+                        metric: metric.clone(),
+                        reason: reason.clone(),
+                    });
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -310,67 +423,6 @@ pub enum NotValidated {
     UnknownMetricChecked { metric: MetricName },
 }
 
-/// A `T` that has been shown to hold up.
-///
-/// **The service accepts only this, so an unvalidated bundle is unrepresentable rather than merely
-/// refused.** The field is private and [`Validated::new`] is the only way in.
-///
-/// Generic in the type it wraps, but constructible only for [`PinnedDefinitions`], and that
-/// asymmetry is the point: validating means checking every anchor the bundle declares, so the
-/// constructor has to be able to enumerate them. A blanket `Validated::new` for any `T` would be a
-/// wrapper that proves nothing, which is worse than no wrapper because it reads like proof.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Validated<T>(T);
-
-impl<T> Validated<T> {
-    #[inline]
-    pub const fn get(&self) -> &T {
-        &self.0
-    }
-
-    #[inline]
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl Validated<PinnedDefinitions> {
-    /// Accepts a bundle if, and only if, every anchor it declares was checked and matched.
-    ///
-    /// The unknown-metric check is not tidiness: without it, a report built against a different
-    /// bundle would satisfy the coverage check for whatever it happened to overlap, and a bundle
-    /// would be "validated" by evidence about something else.
-    pub fn new(pinned: PinnedDefinitions, report: &AnchorReport) -> Result<Self, NotValidated> {
-        for metric in report.checks().keys() {
-            if pinned.definitions().metric(metric).is_none() {
-                return Err(NotValidated::UnknownMetricChecked { metric: metric.clone() });
-            }
-        }
-        for (metric, _) in pinned.anchored_metrics() {
-            match report.checks().get(metric) {
-                None => {
-                    return Err(NotValidated::AnchorUnchecked { metric: metric.clone() });
-                }
-                Some(AnchorCheck::Matched) => {}
-                Some(AnchorCheck::Mismatch { expected, actual }) => {
-                    return Err(NotValidated::AnchorMismatch {
-                        metric: metric.clone(),
-                        expected: expected.clone(),
-                        actual: actual.clone(),
-                    });
-                }
-                Some(AnchorCheck::NotExecuted { reason }) => {
-                    return Err(NotValidated::AnchorNotExecuted {
-                        metric: metric.clone(),
-                        reason: reason.clone(),
-                    });
-                }
-            }
-        }
-        Ok(Self(pinned))
-    }
-}
-
 /// Where definitions come from.
 ///
 /// One trait, implemented once per catalog. A directory of files in git and a metadata service over
@@ -394,7 +446,7 @@ mod tests {
 
     use super::{
         AnchorCheck, AnchorReport, DefinitionVersion, InvalidVersion, MAX_VERSION_LEN, NotExecutedReason, NotValidated,
-        PinnedDefinitions, Validated,
+        PinnedDefinitions,
     };
     use crate::calendar::{Date, TimeRange};
     use crate::catalog::{Anchor, Definitions, Metric, Model};
@@ -410,6 +462,11 @@ mod tests {
 
     /// A one-model, one-metric bundle, with an anchor when `anchor` is set.
     fn bundle(anchor: Option<Anchor>) -> PinnedDefinitions {
+        pin(definitions(anchor))
+    }
+
+    /// The definitions [`bundle`] pins, before they are pinned.
+    fn definitions(anchor: Option<Anchor>) -> Definitions {
         let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
         let model = Model::new(
             ModelName::parse("orders").expect("a test model is a model"),
@@ -429,12 +486,22 @@ mod tests {
             anchor,
             String::new(),
         );
-        let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
-        PinnedDefinitions::new(
+        Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")
+    }
+
+    /// Pins definitions under a stub hasher.
+    ///
+    /// A stub because it has to be: hashing lives in a catalog adapter and this crate cannot reach
+    /// one. What [`PinnedDefinitions::pin`] guarantees is that the digest a bundle carries was
+    /// computed FROM the definitions it holds; that the function computing it is a real hash is the
+    /// adapter's own test to make, and `sutura-catalog-local` makes it.
+    fn pin(definitions: Definitions) -> PinnedDefinitions {
+        PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            DefinitionDigest::parse(DIGEST).expect("a real digest is a digest"),
             definitions,
+            |_| Ok::<DefinitionDigest, core::convert::Infallible>(DefinitionDigest::parse(DIGEST).expect("a digest")),
         )
+        .expect("a stub hasher cannot fail")
     }
 
     fn june() -> TimeRange {
@@ -472,18 +539,22 @@ mod tests {
     fn a_bundle_with_no_anchors_validates_with_an_empty_report() {
         // Not a loophole: a bundle that certifies nothing has nothing to check. The loophole would
         // be an anchored bundle passing on an empty report, which the next test rules out.
-        let validated = Validated::new(bundle(None), &AnchorReport::new()).expect("nothing declared means nothing to check");
-        assert!(validated.get().definitions().metric(&metric_name("revenue")).is_some());
+        let plain = bundle(None);
+        AnchorReport::new()
+            .verdict(&plain)
+            .expect("nothing declared means nothing to check");
+        assert!(plain.definitions().metric(&metric_name("revenue")).is_some());
     }
 
     #[test]
     fn an_anchored_metric_with_no_recorded_check_does_not_validate() {
-        // This is the whole point of the type. Before it, "we checked the anchors" was something a
-        // caller asserted by having called a function; now a bundle that was never checked cannot
-        // be handed to anything that serves.
+        // The rule, and it is only half of what makes it mean anything: this says an unchecked
+        // anchor fails the verdict. What says the checks in a report actually ran is that the report
+        // cannot become a servable bundle here at all - `sutura_app::verify_and_validate` is the
+        // only thing that mints one, and it calls a `Warehouse`.
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
         assert_eq!(
-            Validated::new(anchored, &AnchorReport::new()).unwrap_err(),
+            AnchorReport::new().verdict(&anchored).unwrap_err(),
             NotValidated::AnchorUnchecked {
                 metric: metric_name("revenue")
             }
@@ -502,7 +573,7 @@ mod tests {
         );
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
         assert_eq!(
-            Validated::new(anchored, &report).unwrap_err(),
+            report.verdict(&anchored).unwrap_err(),
             NotValidated::AnchorMismatch {
                 metric: metric_name("revenue"),
                 expected: String::from("197122"),
@@ -524,7 +595,7 @@ mod tests {
         report.record(metric_name("revenue"), AnchorCheck::NotExecuted { reason: reason.clone() });
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
         assert_eq!(
-            Validated::new(anchored, &report).unwrap_err(),
+            report.verdict(&anchored).unwrap_err(),
             NotValidated::AnchorNotExecuted {
                 metric: metric_name("revenue"),
                 reason,
@@ -554,7 +625,7 @@ mod tests {
             },
         );
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
-        let error = Validated::new(anchored, &report).unwrap_err();
+        let error = report.verdict(&anchored).unwrap_err();
         let cause = core::error::Error::source(&error).expect("the reason is the source, not the message");
         let rendered = cause.to_string();
         assert!(rendered.contains("no such file: orders.parquet"), "{rendered}");
@@ -587,7 +658,7 @@ mod tests {
         let mut report = AnchorReport::new();
         report.record(metric_name("churn"), AnchorCheck::Matched);
         assert_eq!(
-            Validated::new(bundle(None), &report).unwrap_err(),
+            report.verdict(&bundle(None)).unwrap_err(),
             NotValidated::UnknownMetricChecked {
                 metric: metric_name("churn")
             }
@@ -595,14 +666,41 @@ mod tests {
     }
 
     #[test]
-    fn a_matched_anchor_validates_and_the_bundle_survives_intact() {
+    fn a_matched_anchor_passes_the_verdict_and_the_bundle_is_untouched() {
         let mut report = AnchorReport::new();
         report.record(metric_name("revenue"), AnchorCheck::Matched);
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
         let expected_provenance = anchored.provenance();
-        let validated = Validated::new(anchored, &report).expect("a matched anchor is what validation means");
-        assert_eq!(validated.get().provenance(), expected_provenance);
-        assert_eq!(validated.into_inner().version().as_str(), "test-1");
+        // A verdict, and nothing else. It does NOT hand back a bundle the service would take: that
+        // is `sutura_app::verify_and_validate`, and getting one from it means a `Warehouse` was
+        // called. The whole reason this returns `()` is that this crate cannot know whether it was.
+        report
+            .verdict(&anchored)
+            .expect("a matched anchor is what the verdict is about");
+        assert_eq!(anchored.provenance(), expected_provenance);
+        assert_eq!(anchored.version().as_str(), "test-1");
+    }
+
+    #[test]
+    fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
+        // The bug this closes: the constructor took a digest BESIDE a set of definitions, and its
+        // own comment conceded the two need not be related - so an answer could carry provenance
+        // for content that did not produce it. `pin` applies the function to the very definitions it
+        // is about to store, which is asserted here by having the function look at them.
+        let definitions = definitions(None);
+        let expected = definitions.metrics().len();
+        let mut seen = 0_usize;
+        let pinned = PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions,
+            |given| {
+                seen = given.metrics().len();
+                Ok::<DefinitionDigest, core::convert::Infallible>(DefinitionDigest::parse(DIGEST).expect("a digest"))
+            },
+        )
+        .expect("a stub hasher cannot fail");
+        assert_eq!(seen, expected, "the hasher was handed the definitions being pinned");
+        assert_eq!(pinned.definitions().metrics().len(), expected);
     }
 
     #[test]

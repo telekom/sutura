@@ -22,6 +22,12 @@ arrow points inward, at the domain.
 - [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB as a DATA SOURCE:
   it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped
 - [sutura-app](sutura-app.md) - the service, generic over the ports
+- [sutura-config](sutura-config.md) - the settings tree and the startup refusals. Holds no
+  framework: it decides what the service may do before anything is built
+- [sutura-runtime](sutura-runtime.md) - the process-global concerns a library must not install as a
+  side effect of being linked: the subscriber, the panic hook, the shutdown signal
+- [sutura-http](sutura-http.md) - transport only. The `Surface` port and its one adapter, so a
+  second transport implements a trait rather than reaching for the query path
 
 ## These pages are generated
 

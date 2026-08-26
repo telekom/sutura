@@ -314,11 +314,25 @@ impl core::fmt::Display for Date {
     }
 }
 
-/// A bounded, half-open interval of dates: `start` included, `end` excluded.
+/// A half-open interval of dates: `start` included, `end` excluded.
 ///
-/// **Bounded is the invariant, and it is why this type exists rather than a pair of `Option`s.** An
-/// unbounded range is a table scan with a plausible name, and it is the shape a manipulated agent
-/// asks for. There is no constructor that omits an endpoint.
+/// **Both endpoints are always present, and that is the whole of what this type promises.** There is
+/// no constructor that omits one, so an unbounded range is unrepresentable rather than refused.
+///
+/// **What it does not promise is that the interval is small.** `[0001-01-01, 9999-12-31)` satisfies
+/// every check here, and a predicate built from it reads the whole table - which is the shape a
+/// manipulated agent asks for. An earlier version of this comment claimed the newtype prevented a
+/// table scan; it prevents an *absent* bound, and nothing more. The size of the interval a *caller*
+/// may ask for is capped where a caller's question is resolved, against
+/// [`crate::query::MAX_RANGE_DAYS`], and refused as
+/// [`crate::query::RefusalReason::TimeRangeTooLong`].
+///
+/// **The cap is deliberately not on this constructor**, and the reason is who each caller is. This
+/// same type is also a metric's anchor range, authored in a catalog by the person who defines the
+/// metric - not requested by an agent, not on the hot path, and executed once at startup. A catalog
+/// author who wants a decade-long anchor is not the threat the cap exists for, and a hard maximum
+/// here would make a governance decision about requests by constraining authorship. Use
+/// [`TimeRange::days`] to measure a range; decide what is too long where you know whose range it is.
 ///
 /// Half-open rather than inclusive because a month is `[2026-06-01, 2026-07-01)` at every grain and
 /// in every dialect, while an inclusive end needs a different last day per month and per grain. One
@@ -370,6 +384,22 @@ impl TimeRange {
     #[inline]
     pub const fn end(self) -> Date {
         self.end
+    }
+
+    /// How many days the interval covers.
+    ///
+    /// Always at least 1, because the constructor refuses `end <= start`. This is the number a cost
+    /// bound has to be expressed in: rows read are a function of how much history the date predicate
+    /// admits, and *not* of the grain, which decides how the admitted rows are grouped afterwards.
+    /// A year of history is a year of scanning whether it comes back as 365 buckets or as 1.
+    ///
+    /// Derived from [`Date::days_since_epoch`] rather than from a second piece of calendar
+    /// arithmetic, so a leap year cannot be counted one way here and another way there.
+    /// `saturating_sub` because the subtraction is checked-by-construction - `end > start`, and both
+    /// day numbers are within the range a four-digit year can reach - and a saturated value would
+    /// still be refused by any cap rather than wrapping into a small one.
+    pub fn days(self) -> i32 {
+        self.end.days_since_epoch().saturating_sub(self.start.days_since_epoch())
     }
 }
 
@@ -644,6 +674,30 @@ mod tests {
         assert_eq!(r.to_string(), "[2026-06-01, 2026-07-01)");
         assert_eq!(r.start(), date("2026-06-01"));
         assert_eq!(r.end(), date("2026-07-01"));
+    }
+
+    #[test]
+    fn a_range_reports_the_span_a_cost_bound_is_expressed_in() {
+        // `days()` is what `query::MAX_RANGE_DAYS` is compared against, so an off-by-one or a
+        // mis-counted leap day here moves the governance boundary rather than a display value.
+        fn span(start: &str, end: &str) -> i32 {
+            TimeRange::new(date(start), date(end))
+                .expect("a test range is a range")
+                .days()
+        }
+        // One day is the smallest a range can be, because the constructor refuses an empty one.
+        assert_eq!(span("2026-06-01", "2026-06-02"), 1);
+        assert_eq!(span("2026-06-01", "2026-07-01"), 30);
+        // A common year and a leap year, so the leap rule is counted rather than approximated.
+        assert_eq!(span("2026-01-01", "2027-01-01"), 365);
+        assert_eq!(span("2024-01-01", "2025-01-01"), 366);
+        // The two ten-year windows that bracket the cap: three leap days is the longest ten calendar
+        // years there is, which is the number `MAX_RANGE_DAYS` is set to.
+        assert_eq!(span("2020-01-01", "2030-01-01"), 3653);
+        assert_eq!(span("2021-01-01", "2031-01-01"), 3652);
+        // And the whole domain, which is the range the "bounded" newtype accepts and a cap has to
+        // refuse: about ten thousand years of history from one question.
+        assert_eq!(span("0001-01-01", "9999-12-31"), 3_652_058);
     }
 
     /// Deserialize without a format crate: the boundary gate allowlists none, and this tests the

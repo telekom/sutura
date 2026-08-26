@@ -15,7 +15,7 @@ use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{Dimension, Metric, Model, Relationship};
 use sutura_domain::model::{DimensionName, Grain, MetricName, ModelName};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::query::{MAX_DIMENSIONS, Query, RefusalReason};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason};
 
 /// A dimension, and the join needed to reach it.
 pub(crate) struct ResolvedDimension<'a> {
@@ -105,6 +105,26 @@ pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Resul
         return Err(RefusalReason::GrainNotSupported {
             metric: metric.name().clone(),
             grain: query.grain(),
+        }
+        .into());
+    }
+
+    // The availability boundary. `TimeRange` guarantees two endpoints and says nothing about the
+    // distance between them, and both execution paths aggregate everything the date predicate admits
+    // before `ORDER BY`/`LIMIT` runs - so `MAX_ROWS` caps the answer and nothing caps the scan. This
+    // is the only place that cap can live: the type is shared with a metric's anchor range, which a
+    // catalog author writes and no agent can influence, so a maximum on the constructor would govern
+    // authorship in order to govern requests. Here the range belongs to a *question*, which is what
+    // the bound is about.
+    //
+    // Checked before the dimensions are looked up, so a question that is both too long and misspells
+    // a dimension is refused for the reason that is about cost. Not before the grain check, though:
+    // a grain the metric never declared is a question that could not have been answered at any span.
+    let span = query.range().days();
+    if span > MAX_RANGE_DAYS {
+        return Err(RefusalReason::TimeRangeTooLong {
+            days: span,
+            limit: MAX_RANGE_DAYS,
         }
         .into());
     }

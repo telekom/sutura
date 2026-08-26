@@ -15,11 +15,20 @@ root decides which; this crate never names an adapter.
 
 Two entry points, and the order between them is the point:
 
-`verify_anchors` re-executes every metric that declares a certified number and reports whether
-it still produces it. `answer` takes a `Validated` bundle, which is the only thing
-`sutura_domain::pinned::Validated::new` will produce from that report, so **a bundle whose
-anchors were never checked cannot reach the query path.** Not by discipline: there is no other
-constructor.
+`verify_and_validate` re-executes every metric that declares a certified number, against the
+`Warehouse` it is handed, and hands back the bundle as a `Validated` one only if every anchor
+reproduced its number. `answer` takes nothing else. So **a bundle whose anchors were never
+checked cannot reach the query path** - not by discipline, and not because a caller was asked to
+call the two in order: `Validated` has no other constructor, and the one it has takes a
+warehouse and calls it.
+
+That is the correction to what this crate used to claim. The proof used to be
+`sutura_domain::pinned::Validated::new(pinned, &report)`, and `AnchorReport::new`,
+`AnchorReport::record` and `AnchorCheck::Matched` are all public - so any caller could enumerate
+the bundle's anchors, record `Matched` for each without opening a data system, and get a bundle
+the service would serve. The golden suite did exactly that. The wrapper attested to the caller's
+own assertion and read like proof, which is worse than no wrapper. `verify_anchors` survives
+because a report is worth rendering to an operator; what it cannot do any more is mint the proof.
 
 ## `enum ServiceError`
 
@@ -49,7 +58,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 ## `fn answer`
 
 ```rust
-pub fn answer<W>(definitions: &sutura_domain::pinned::Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouse: &W) -> Answered<W>
+pub fn answer<W>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouse: &W) -> Answered<W>
 ```
 
 Answers one question, or says why it will not.
@@ -92,6 +101,10 @@ The grains a metric declares, coarsest first.
 
 A small helper the composition root uses to describe a metric, kept here so the ordering is the
 same one `verify_anchors` picks a grain by.
+
+## `use None`
+
+## `use None`
 
 ## `type_alias Answered`
 

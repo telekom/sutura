@@ -63,7 +63,7 @@ jobs:
   verify:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
     concurrency:
@@ -119,7 +119,7 @@ jobs:
   publish:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     # Deploy the site to gh-pages, and nothing else. Not `pages`, not `id-token` - those existed
     # only for actions/deploy-pages, which this no longer uses.
     permissions:

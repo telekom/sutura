@@ -5,15 +5,21 @@ description: OAuth 2.x and OIDC for this service - validating access tokens, aut
 
 # OAuth and OIDC here
 
-sutura is a **resource server** that also acts as a **client** on the way down: it validates
-an incoming token, then obtains a downstream credential *as the calling subject*. Both halves
-have to be right, and the second is where governance is won or lost.
+**None of this page describes code that exists.** sutura has no HTTP surface, no MCP surface, no
+token validation, no JWT dependency and no credential port. There is nothing here to review against
+these rules yet: this is the shape the two halves have to take when the first transport arrives, and
+it is written down first because retrofitting either half is where governance gets lost.
+
+sutura is *intended to be* a **resource server** that also acts as a **client** on the way down: it
+validates an incoming token, then obtains a downstream credential *as the calling subject*. Both
+halves have to be right, and the second is where governance is won or lost.
 
 Derived in part from Curity's OAuth developer skills (Apache-2.0) - see `VENDOR.md`.
 
 ## Validating an incoming access token
 
-Configuration, from the environment, never hardcoded:
+Design, not description: there is no token to validate today, because nothing accepts a request.
+Configuration, when it exists, comes from the environment and is never hardcoded:
 
 | Setting | Meaning |
 | --- | --- |
@@ -74,6 +80,9 @@ down here because the shape has to be decided before the first adapter, not afte
   A refusal nobody can see is indistinguishable from a request that never happened.
 
 ## Reviewing a change here
+
+The table applies to the change that *introduces* any of the above. Nothing in the workspace is
+subject to it today, so a "yes" to any row would be a claim about code that does not exist.
 
 | Question | If the answer is no |
 | --- | --- |

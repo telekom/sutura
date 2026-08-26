@@ -22,6 +22,25 @@ targets = [
 version = 2
 yanked = "deny"
 
+# ONE ignored advisory, scoped to one id, with the reason it is acceptable rather than the
+# observation that it is only a warning.
+#
+# RUSTSEC-2024-0436 is `paste` being UNMAINTAINED: archived by its author, no vulnerability
+# attached, and the advisory itself says "No safe upgrade is available". It reaches this workspace
+# as a transitive dependency of `utoipa-axum`, which is what makes the generated interface
+# description actually generated - `routes!` registers a handler in the router and in the
+# `OpenAPI` document from the same attribute, so a handler with no `#[utoipa::path]` fails to
+# compile. Dropping it means hand-listing every path in a derive, which is the second source of
+# truth that whole arrangement exists to remove.
+#
+# What is accepted: a macro helper that pastes identifiers together at compile time, is feature
+# complete for what it does, and is not present at runtime. What is NOT accepted: this is one
+# advisory id, not a category. The next unmaintained crate in the tree fails the audit, which is
+# the difference between this entry and setting `unmaintained` to something looser.
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "`paste`, transitively via `utoipa-axum`: unmaintained, no vulnerability, no upgrade path, compile-time only" },
+]
+
 [licenses]
 version = 2
 # Permissive only. Anything copyleft is a deliberate decision, not a transitive surprise.

@@ -40,13 +40,32 @@ Why a directory could not be read as a catalog.
 Every variant carries the path, because a catalog is many files and "invalid type: integer" with
 no file name is a message that sends the reader to read all of them.
 
+**The variant is the contract, so a variant that names the wrong failure is a false contract even
+with a truthful `#[source]` beneath it.** This enum had one that did: every failure of the
+kind-probe deserialization became `UnknownKind`, whose message was "declares no `kind`". A
+document saying `kind: dashboard`, one saying `kind: 3`, and one whose YAML did not parse at all
+were three different problems reported as the same missing key - and a caller matching on the
+variant, which is the only thing a caller can match on, was told something untrue in two cases out
+of three. Keeping the parse error reachable through the chain did not fix that; it only meant the
+truth was available to whoever thought to look past the variant.
+
+It is two variants now, and the line between them is a mechanism rather than a guess at an error
+message: `Self::MalformedFrontmatter` is raised when the block does not parse as YAML at all,
+and `Self::IdentifyKind` when it parses and still does not identify the document. They are two
+rather than four - missing, unrecognised, wrong type - because nothing in this workspace matches
+on any of them, so a split finer than the remedy is a branch nobody takes: "your frontmatter is
+not YAML" and "your frontmatter does not say what this is" send a reader to different places, and
+"the `kind` key is missing" versus "its value is not one of three" send them to the same one. A
+finer split is a cheap change if a caller ever needs the branch.
+
 ### Variants
 
 - `NotADirectory`
 - `Io`
 - `Malformed`
 - `Frontmatter`
-- `UnknownKind`
+- `MalformedFrontmatter`
+- `IdentifyKind`
 - `Metric`
 - `Inconsistent`
 - `Empty`

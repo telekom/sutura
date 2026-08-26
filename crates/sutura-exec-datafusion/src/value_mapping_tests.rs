@@ -23,7 +23,7 @@ use datafusion::arrow::array::{
 };
 use std::sync::Arc;
 use sutura_domain::calendar::Date;
-use sutura_domain::warehouse::Value;
+use sutura_domain::warehouse::{Real, Value};
 
 use super::{DataFusionError, cell};
 
@@ -34,6 +34,10 @@ type Case = (&'static str, ArrayRef, Value);
 
 fn day(iso: &str) -> Date {
     Date::parse(iso).expect("a test date is a date")
+}
+
+fn real(value: f64) -> Real {
+    Real::parse(value).expect("a test literal is finite")
 }
 
 /// A `DECIMAL(9, 2)` holding 123.45, which is the scaled payload 12345.
@@ -82,7 +86,14 @@ fn every_type_the_engine_maps_answers_what_the_data_source_answers() {
             Arc::new(UInt64Array::from(vec![u64::MAX])),
             Value::Text(String::from("18446744073709551615")),
         ),
-        ("Float64", Arc::new(Float64Array::from(vec![0.1_f64])), Value::Real(0.1)),
+        ("Float64", Arc::new(Float64Array::from(vec![0.1_f64])), Value::Real(real(0.1))),
+        // Zero is finite, and it is here because the check that refuses `inf` is a check about a
+        // division BY zero: a metric that legitimately answers zero must still answer.
+        (
+            "Float64 zero",
+            Arc::new(Float64Array::from(vec![0.0_f64])),
+            Value::Real(real(0.0)),
+        ),
         (
             "Decimal128 stays text so it stays exact",
             decimal(),
@@ -137,5 +148,49 @@ fn a_32_bit_float_is_refused_on_both_sides_of_the_port() {
     // And the width that does answer, so this is not a test that would pass with every float
     // refused.
     let wide = Float64Array::from(vec![0.1_f64]);
-    assert_eq!(cell("amount", &wide, 0).expect("a 64-bit float is mapped"), Value::Real(0.1));
+    assert_eq!(
+        cell("amount", &wide, 0).expect("a 64-bit float is mapped"),
+        Value::Real(real(0.1))
+    );
+}
+
+#[test]
+fn a_non_finite_double_is_refused_on_both_sides_of_the_port() {
+    // THE FINDING THIS ARM EXISTS FOR, and the twin of
+    // `a_non_finite_double_is_refused_here_because_it_is_refused_there` in
+    // `crates/sutura-exec-duckdb/src/lib.rs`. This arm was `Value::Real(..)` on a raw `f64`, and the
+    // value that reached it was real: a ratio measure declaring `zero_denominator: fails` is
+    // translated as an unguarded division with the numerator cast to `Float64`, and IEEE float
+    // division by zero answers `inf` rather than failing. So the metric answered the string "inf"
+    // under its own certified name, the data source answered the same string, and the differential
+    // test therefore agreed and passed.
+    //
+    // All three of the class, not just the one a zero denominator produces first: a guard on the
+    // division would have left `-inf` and `NaN` on the way in.
+    for (name, raw) in [
+        ("positive infinity", f64::INFINITY),
+        ("negative infinity", f64::NEG_INFINITY),
+        ("not a number", f64::NAN),
+    ] {
+        let array = Float64Array::from(vec![raw]);
+        let error = cell("revenue_per_refunded_order", &array, 0).expect_err(name);
+        assert!(matches!(error, DataFusionError::NotFinite { .. }), "{name}: {error:?}");
+        assert_eq!(
+            error.to_string(),
+            "column revenue_per_refunded_order came back as a value that is not a finite number",
+            "{name}"
+        );
+    }
+    // And the values that DO answer, so this is not a test that would pass with every double
+    // refused - zero included, because the check is about dividing BY zero and not about it.
+    let zero = Float64Array::from(vec![0.0_f64]);
+    assert_eq!(
+        cell("revenue", &zero, 0).expect("zero is a finite number"),
+        Value::Real(real(0.0))
+    );
+    let average = Float64Array::from(vec![63_335.777_777_777_78_f64]);
+    assert_eq!(
+        cell("average_order", &average, 0).expect("an average is a finite number"),
+        Value::Real(real(63_335.777_777_777_78))
+    );
 }

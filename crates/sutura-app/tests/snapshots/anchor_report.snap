@@ -1,7 +1,0 @@
----
-source: crates/sutura-app/tests/golden.rs
-expression: "&report"
----
-checks:
-  orders_placed: Matched
-  revenue: Matched

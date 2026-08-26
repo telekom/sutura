@@ -6,18 +6,131 @@
 //!
 //! Two entry points, and the order between them is the point:
 //!
-//! [`verify_anchors`] re-executes every metric that declares a certified number and reports whether
-//! it still produces it. [`answer`] takes a [`Validated`] bundle, which is the only thing
-//! [`sutura_domain::pinned::Validated::new`] will produce from that report, so **a bundle whose
-//! anchors were never checked cannot reach the query path.** Not by discipline: there is no other
-//! constructor.
+//! [`verify_and_validate`] re-executes every metric that declares a certified number, against the
+//! `Warehouse` it is handed, and hands back the bundle as a [`Validated`] one only if every anchor
+//! reproduced its number. [`answer`] takes nothing else. So **a bundle whose anchors were never
+//! checked cannot reach the query path** - not by discipline, and not because a caller was asked to
+//! call the two in order: [`Validated`] has no other constructor, and the one it has takes a
+//! warehouse and calls it.
+//!
+//! That is the correction to what this crate used to claim. The proof used to be
+//! `sutura_domain::pinned::Validated::new(pinned, &report)`, and `AnchorReport::new`,
+//! `AnchorReport::record` and `AnchorCheck::Matched` are all public - so any caller could enumerate
+//! the bundle's anchors, record `Matched` for each without opening a data system, and get a bundle
+//! the service would serve. The golden suite did exactly that. The wrapper attested to the caller's
+//! own assertion and read like proof, which is worse than no wrapper. [`verify_anchors`] survives
+//! because a report is worth rendering to an operator; what it cannot do any more is mint the proof.
 
 use sutura_domain::catalog::Anchor;
 use sutura_domain::model::{Grain, MetricName, SourceName};
-use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions, Validated};
+use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
+
+pub use crate::proof::{Validated, verify_and_validate};
+
+/// The proof, and the only operation that can mint it.
+///
+/// A module rather than two items in `lib.rs`, and a PRIVATE one, because that is the mechanism: the
+/// field of [`Validated`] and its tuple constructor are visible exactly here, so
+/// [`verify_and_validate`] is the only safe code anywhere that can produce one. Moving either item
+/// out of this module, or adding a second `pub fn` to it that does not call a `Warehouse`, is what a
+/// reviewer has to notice - and it is a one-item diff in one place rather than a property of every
+/// call site.
+mod proof {
+    use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+    use sutura_domain::warehouse::Warehouse;
+
+    /// A `T` that has been shown to hold up.
+    ///
+    /// **The service accepts only this, so an unvalidated bundle is unrepresentable rather than
+    /// merely refused.** The field is private to the module this type is declared in, and
+    /// [`verify_and_validate`] is the only thing in that module which builds one.
+    ///
+    /// Generic in the type it wraps, but obtainable only for [`PinnedDefinitions`], and that
+    /// asymmetry is the point: validating means re-running every anchor the bundle declares, so
+    /// whatever mints this has to be able to enumerate them and to execute them. A blanket
+    /// constructor for any `T` would be a wrapper that proves nothing, which is worse than no
+    /// wrapper because it reads like proof.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub struct Validated<T>(T);
+
+    impl<T> Validated<T> {
+        #[inline]
+        pub const fn get(&self) -> &T {
+            &self.0
+        }
+
+        #[inline]
+        pub fn into_inner(self) -> T {
+            self.0
+        }
+    }
+
+    /// Re-runs every anchor against `warehouse`, and returns the bundle only if all of them held.
+    ///
+    /// The one operation that produces a [`Validated`] bundle. It takes the `Warehouse` and calls
+    /// it, which is the whole of what the type is now allowed to claim: not "somebody asserted these
+    /// anchors match", but "these statements were executed against this data system and reproduced
+    /// the numbers their author certified".
+    ///
+    /// **What it still does not claim.** `W` is a port, so a caller may pass a fake - and a fake is
+    /// exactly what the golden suite passes, deliberately, because the alternative is a test suite
+    /// that needs a database to check a refusal. What the type proves is that a warehouse was
+    /// called; that the warehouse was the one holding the business's data is a composition-root
+    /// decision no signature can make. `answer` narrows it a little further by refusing a plan whose
+    /// source is not the adapter's own.
+    ///
+    /// The forgery this closes does not compile:
+    ///
+    /// ```compile_fail
+    /// use sutura_app::Validated;
+    /// use sutura_domain::model::MetricName;
+    /// use sutura_domain::pinned::{AnchorCheck, AnchorReport, PinnedDefinitions};
+    ///
+    /// // Enumerate the anchors, claim each one matched, hand the claim to the validator.
+    /// // No data system is opened and no statement is executed.
+    /// fn _forge(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
+    ///     let names: Vec<MetricName> = pinned.anchored_metrics().map(|(name, _)| name.clone()).collect();
+    ///     let mut report = AnchorReport::new();
+    ///     for name in names {
+    ///         report.record(name, AnchorCheck::Matched);
+    ///     }
+    ///     // Neither the constructor that was here nor the tuple constructor is reachable.
+    ///     Validated::new(pinned, &report).unwrap()
+    /// }
+    ///
+    /// fn _wrap(pinned: PinnedDefinitions) -> Validated<PinnedDefinitions> {
+    ///     Validated(pinned)
+    /// }
+    /// ```
+    ///
+    /// The twin of that block, which pins the names so a rename cannot make it pass vacuously:
+    ///
+    /// ```
+    /// use sutura_app::{Validated, verify_and_validate};
+    /// use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
+    /// use sutura_domain::warehouse::Warehouse;
+    ///
+    /// fn _served(_bundle: &Validated<PinnedDefinitions>) {}
+    ///
+    /// fn _mint<W: Warehouse>(
+    ///     pinned: PinnedDefinitions,
+    ///     warehouse: &W,
+    /// ) -> Result<Validated<PinnedDefinitions>, NotValidated> {
+    ///     verify_and_validate(pinned, warehouse)
+    /// }
+    /// ```
+    pub fn verify_and_validate<W>(pinned: PinnedDefinitions, warehouse: &W) -> Result<Validated<PinnedDefinitions>, NotValidated>
+    where
+        W: Warehouse,
+    {
+        let report = super::verify_anchors(&pinned, warehouse);
+        report.verdict(&pinned)?;
+        Ok(Validated(pinned))
+    }
+}
 
 /// Why the service could not produce an outcome.
 ///
@@ -241,15 +354,14 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, Definitions, Metric, Model};
-    use sutura_domain::definitions::DefinitionDigest;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::DefinitionVersion;
+    use sutura_domain::pinned::{DefinitionVersion, NotValidated};
     use sutura_domain::plan::QueryPlan;
 
-    use super::{AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouse, verify_anchors};
-
-    const DIGEST: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+    use super::{
+        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouse, verify_anchors, verify_and_validate,
+    };
 
     fn metric() -> MetricName {
         MetricName::parse("revenue").expect("a test metric name is a name")
@@ -286,11 +398,14 @@ mod tests {
             String::new(),
         );
         let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
-        PinnedDefinitions::new(
+        // The real hasher, from the catalog adapter that owns the canonical form. `pin` applies it to
+        // the definitions being pinned, so there is no digest here for the bundle not to describe.
+        PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            DefinitionDigest::parse(DIGEST).expect("a real digest is a digest"),
             definitions,
+            sutura_catalog_local::digest_of,
         )
+        .expect("the test definitions hash")
     }
 
     /// The driver's own complaint, one level below the adapter's.
@@ -369,5 +484,19 @@ mod tests {
         };
         assert_eq!(plan.as_str(), "local");
         assert_eq!(warehouse.as_str(), "somewhere_else");
+    }
+
+    #[test]
+    fn a_bundle_whose_anchor_could_not_run_does_not_come_back_validated() {
+        // The other half of the invariant, and the half a report could not carry: the ONLY way to a
+        // `Validated` bundle runs the anchors, so a data system that answers nothing yields no
+        // bundle at all. Before this operation existed, the same situation was a report a caller was
+        // free to ignore - and `Validated::new` was happy to be handed a different one.
+        let error = verify_and_validate(bundle(), &BrokenWarehouse { source: source() })
+            .expect_err("a data system that fails every statement cannot validate a bundle");
+        let NotValidated::AnchorNotExecuted { ref metric, .. } = error else {
+            panic!("a failed anchor check is a not-executed verdict, not {error:?}");
+        };
+        assert_eq!(metric, &self::metric());
     }
 }

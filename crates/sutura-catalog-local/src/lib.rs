@@ -41,6 +41,24 @@ const DOCUMENT_EXTENSION: &str = "md";
 ///
 /// Every variant carries the path, because a catalog is many files and "invalid type: integer" with
 /// no file name is a message that sends the reader to read all of them.
+///
+/// **The variant is the contract, so a variant that names the wrong failure is a false contract even
+/// with a truthful `#[source]` beneath it.** This enum had one that did: every failure of the
+/// kind-probe deserialization became `UnknownKind`, whose message was "declares no `kind`". A
+/// document saying `kind: dashboard`, one saying `kind: 3`, and one whose YAML did not parse at all
+/// were three different problems reported as the same missing key - and a caller matching on the
+/// variant, which is the only thing a caller can match on, was told something untrue in two cases out
+/// of three. Keeping the parse error reachable through the chain did not fix that; it only meant the
+/// truth was available to whoever thought to look past the variant.
+///
+/// It is two variants now, and the line between them is a mechanism rather than a guess at an error
+/// message: [`Self::MalformedFrontmatter`] is raised when the block does not parse as YAML at all,
+/// and [`Self::IdentifyKind`] when it parses and still does not identify the document. They are two
+/// rather than four - missing, unrecognised, wrong type - because nothing in this workspace matches
+/// on any of them, so a split finer than the remedy is a branch nobody takes: "your frontmatter is
+/// not YAML" and "your frontmatter does not say what this is" send a reader to different places, and
+/// "the `kind` key is missing" versus "its value is not one of three" send them to the same one. A
+/// finer split is a cheap change if a caller ever needs the branch.
 #[derive(Debug, thiserror::Error)]
 pub enum LocalCatalogError {
     #[error("the catalog root {path} is not a directory")]
@@ -64,8 +82,14 @@ pub enum LocalCatalogError {
         #[source]
         cause: serde_norway::Error,
     },
-    #[error("{path} declares no `kind`, so there is no way to tell what it defines")]
-    UnknownKind {
+    #[error("the frontmatter of {path} is not YAML")]
+    MalformedFrontmatter {
+        path: PathBuf,
+        #[source]
+        cause: serde_norway::Error,
+    },
+    #[error("the frontmatter of {path} does not say what kind of document it is")]
+    IdentifyKind {
         path: PathBuf,
         #[source]
         cause: serde_norway::Error,
@@ -246,8 +270,31 @@ impl LocalCatalog {
                 path: path.clone(),
                 cause,
             })?;
+            // Two passes, and the first one exists to tell two failures apart. Deserializing
+            // `KindProbe` straight from the text collapses "this is not YAML" and "this YAML does not
+            // identify itself" into one error, and the variant then has to claim one of them for
+            // both. Parsing to a `Value` first answers the YAML question on its own terms, so each
+            // failure gets the variant that is true of it.
+            //
+            // **The probe's own error cannot be trusted to make that distinction, and this was
+            // measured rather than assumed.** `kind: [metric` followed by another key is an
+            // unterminated flow sequence - not YAML at all - and the probe reports "invalid type:
+            // sequence" for it, a message about a data shape in a document that has no shape. It can
+            // do that because it stops caring once it has read one key, so it never reaches the point
+            // where the document falls apart. Parsing to a `Value` has to read the whole block, which
+            // is exactly why its verdict is the one worth having.
+            //
+            // The parsed value is not kept: `KindProbe` reads one key, and `from_value` takes a
+            // `Value` by move, so threading it through would cost a clone of the whole block to save
+            // a parse of it. What this pass produces is the verdict, not the data.
+            if let Err(cause) = serde_norway::from_str::<serde_norway::Value>(split.frontmatter()) {
+                return Err(LocalCatalogError::MalformedFrontmatter {
+                    path: path.clone(),
+                    cause,
+                });
+            }
             let probe: KindProbe =
-                serde_norway::from_str(split.frontmatter()).map_err(|cause| LocalCatalogError::UnknownKind {
+                serde_norway::from_str(split.frontmatter()).map_err(|cause| LocalCatalogError::IdentifyKind {
                     path: path.clone(),
                     cause,
                 })?;
@@ -291,13 +338,48 @@ impl SemanticCatalog for LocalCatalog {
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let definitions = self.read_all()?;
-        let digest = digest_of(&definitions)?;
-        Ok(PinnedDefinitions::new(self.version.clone(), digest, definitions))
+        // `pin` applies `digest_of` to the definitions it is about to store, rather than taking a
+        // digest beside them. There is no step here that could pair a bundle with provenance for
+        // other content, and no order to get wrong.
+        PinnedDefinitions::pin(self.version.clone(), definitions, digest_of)
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::LocalCatalog;
+    use std::path::PathBuf;
+    use sutura_domain::pinned::DefinitionVersion;
+
+    fn catalog(root: PathBuf) -> LocalCatalog {
+        LocalCatalog::new(root, DefinitionVersion::parse("test-1").expect("a test version is a version"))
+    }
+
+    /// An empty directory of this test's own, cleared on the way IN.
+    ///
+    /// `tempfile` is not a dependency of this workspace and one test is not the argument for adding
+    /// one; `xtask` builds its scratch directories the same way. Cleared before rather than after so
+    /// a failing run leaves its evidence on disk and the next run still starts clean.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sutura-catalog-local-{name}-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+        dir
+    }
+
+    /// What a document failed to be, given the whole document.
+    ///
+    /// A catalog of exactly one file, so the error is about that file and nothing else: an empty
+    /// directory is its own error here, and a second document would let `Definitions::assemble` fail
+    /// first for a reason these tests are not about.
+    fn error_for(name: &str, document: &str) -> crate::LocalCatalogError {
+        let root = scratch(name);
+        std::fs::write(root.join("doc.md"), document).expect("a document is writable");
+        let err = catalog(root.clone()).read_all().expect_err("this document cannot load");
+        drop(std::fs::remove_dir_all(&root));
+        err
+    }
+
     /// Unix only, and that is a portability statement rather than a gap in the suite.
     ///
     /// The walk is what these tests exercise, and provoking the case that broke it needs a symlink.
@@ -308,25 +390,7 @@ mod tests {
     /// platform.
     #[cfg(unix)]
     mod symlinks {
-        use crate::LocalCatalog;
-        use std::path::PathBuf;
-        use sutura_domain::pinned::DefinitionVersion;
-
-        fn catalog(root: PathBuf) -> LocalCatalog {
-            LocalCatalog::new(root, DefinitionVersion::parse("test-1").expect("a test version is a version"))
-        }
-
-        /// An empty directory of this test's own, cleared on the way IN.
-        ///
-        /// `tempfile` is not a dependency of this workspace and one test is not the argument for adding
-        /// one; `xtask` builds its scratch directories the same way. Cleared before rather than after so
-        /// a failing run leaves its evidence on disk and the next run still starts clean.
-        fn scratch(name: &str) -> PathBuf {
-            let dir = std::env::temp_dir().join(format!("sutura-catalog-local-{name}-{}", std::process::id()));
-            drop(std::fs::remove_dir_all(&dir));
-            std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
-            dir
-        }
+        use super::{catalog, scratch};
 
         #[test]
         fn a_symlink_pointing_at_an_ancestor_does_not_make_the_walk_descend_into_itself() {
@@ -366,6 +430,67 @@ mod tests {
             assert_eq!(found, vec![root.join("revenue.md")]);
             drop(std::fs::remove_dir_all(&root));
             drop(std::fs::remove_dir_all(&outside));
+        }
+    }
+
+    /// The variant a document's failure lands in, which is the part a caller matches on.
+    mod kinds {
+        use super::error_for;
+        use crate::LocalCatalogError;
+
+        #[test]
+        fn a_frontmatter_block_that_is_not_yaml_is_not_reported_as_a_missing_kind() {
+            // The finding. Every failure of the kind probe used to become one variant whose message
+            // read "declares no `kind`", so a syntax error at line 2 was reported as an absent key -
+            // a false statement about the file, in the one field a caller can branch on. The source
+            // chain carried the truth, which is not the same as the error stating it.
+            let broken = error_for("kind-broken-yaml", "---\nkind: [metric\nname: revenue\n---\nProse.\n");
+            assert!(
+                matches!(broken, LocalCatalogError::MalformedFrontmatter { .. }),
+                "a frontmatter block that is not YAML must say so: {broken:?}"
+            );
+            assert!(
+                core::error::Error::source(&broken).is_some(),
+                "the parse failure names the line, so it has to stay reachable: {broken:?}"
+            );
+        }
+
+        #[test]
+        fn a_document_that_parses_and_does_not_identify_itself_is_one_neutral_variant() {
+            // Three different ways of not saying what a document is, and one variant for all three,
+            // because nothing in this workspace branches on the difference and each one sends the
+            // author to the same line of the same file. The variant is neutral for that reason: it
+            // says the frontmatter does not identify the document rather than claiming which of the
+            // three it was.
+            for (name, document) in [
+                ("kind-unknown", "---\nkind: dashboard\nname: revenue\n---\nProse.\n"),
+                ("kind-wrong-type", "---\nkind: 3\nname: revenue\n---\nProse.\n"),
+                ("kind-missing", "---\nname: revenue\n---\nProse.\n"),
+            ] {
+                let err = error_for(name, document);
+                assert!(
+                    matches!(err, LocalCatalogError::IdentifyKind { .. }),
+                    "{name} must be an IdentifyKind failure: {err:?}"
+                );
+                assert!(
+                    core::error::Error::source(&err).is_some(),
+                    "{name} must keep the parse failure reachable as a source"
+                );
+            }
+        }
+
+        #[test]
+        fn malformed_yaml_and_an_unrecognised_kind_are_different_variants() {
+            // The assertion the finding actually asks for, made on the discriminant rather than on a
+            // message: two failures that a caller has to be able to tell apart must not be one
+            // variant, whatever their messages say.
+            let broken = error_for("split-broken-yaml", "---\nkind: [metric\n---\nProse.\n");
+            let unknown = error_for("split-unknown-kind", "---\nkind: dashboard\n---\nProse.\n");
+            assert_ne!(
+                core::mem::discriminant(&broken),
+                core::mem::discriminant(&unknown),
+                "these must not collapse into one variant: {broken:?} / {unknown:?}"
+            );
         }
     }
 }

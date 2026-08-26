@@ -22,7 +22,7 @@ use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::QueryPlan;
-use sutura_domain::warehouse::{GeneratedQuery, MalformedRowSet, ParamValue, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{GeneratedQuery, MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
 use sutura_semantic::generate::generate;
 use sutura_semantic::{Dialect, GenerateError};
 
@@ -50,15 +50,34 @@ pub enum DuckDbError {
     /// An error rather than a stringified fallback. A `LIST` or a `STRUCT` rendered with `Debug`
     /// would flow into an answer looking like data, and an anchor comparison against it would pass
     /// or fail for reasons nobody could read.
+    ///
+    /// The column is named by its LABEL rather than by its position, which is also what the engine
+    /// does. The two adapters answer one plan, so an error from either has to be readable against the
+    /// same projection, and "column 1" is a fact about a result set nobody has in front of them.
     #[error("column {column} came back as {duckdb_type}, which this adapter does not map")]
-    UnsupportedType { column: usize, duckdb_type: &'static str },
+    UnsupportedType { column: String, duckdb_type: &'static str },
+    /// A floating-point column came back as a value that is not a number.
+    ///
+    /// **What `zero_denominator: fails` actually produces.** The generator emits that ratio's
+    /// division unguarded and casts the numerator to `DOUBLE` first, so the division is IEEE float
+    /// division: `CAST(3 AS DOUBLE) / 0` is `inf` here rather than an error, and `0 / 0` is `NaN`.
+    /// [`Real`] refuses all three, so the word `fails` is true of the metric that chose it instead of
+    /// answering the string `inf` under a certified name.
+    ///
+    /// The cause names which of the three it was; this variant names the column.
+    #[error("column {column} came back as a value that is not a finite number")]
+    NotFinite {
+        column: String,
+        #[source]
+        cause: sutura_domain::warehouse::NotFinite,
+    },
     /// A day number came back that is not a date this build can represent.
     ///
     /// The cause is kept rather than discarded: "not a date" and "a date in the year 40 000" send a
     /// reader to different places.
     #[error("column {column} came back as a day number that is not a date")]
     NotADate {
-        column: usize,
+        column: String,
         #[source]
         cause: sutura_domain::calendar::InvalidDate,
     },
@@ -190,10 +209,12 @@ impl DuckDbWarehouse {
     /// table both are held to.
     ///
     /// Every integer width answers, because all of them fit an `i64` losslessly. A 64-bit unsigned
-    /// value that does not is rendered as text rather than wrapped. A 32-bit float is refused.
-    fn cell(index: usize, value: DuckValue) -> Result<Value, DuckDbError> {
+    /// value that does not is rendered as text rather than wrapped. A 32-bit float is refused, and so
+    /// is a 64-bit one that is not finite: `inf`, `-inf` and `NaN` are what an unguarded division
+    /// answers rather than failing, and [`Real`] is where that stops being an answer.
+    fn cell(label: &str, value: DuckValue) -> Result<Value, DuckDbError> {
         let unsupported = |duckdb_type: &'static str| DuckDbError::UnsupportedType {
-            column: index,
+            column: String::from(label),
             duckdb_type,
         };
         match value {
@@ -220,7 +241,14 @@ impl DuckDbWarehouse {
             DuckValue::Float(_) => Err(unsupported(
                 "REAL; a 32-bit float has no exact 64-bit rendering, so it is refused rather than widened",
             )),
-            DuckValue::Double(v) => Ok(Value::Real(v)),
+            // Checked, not taken. A `DOUBLE` column is where an unguarded division lands, and a
+            // division by zero in IEEE arithmetic answers `inf` rather than failing - so this is the
+            // arm that decides whether `zero_denominator: fails` means what its word says. The
+            // engine's `cell` has the same arm for the same reason.
+            DuckValue::Double(v) => Real::parse(v).map(Value::Real).map_err(|cause| DuckDbError::NotFinite {
+                column: String::from(label),
+                cause,
+            }),
             // Text, so an exact decimal stays exact. Turning it into an `f64` here is how a total
             // that was correct in the data system stops being correct in an answer.
             DuckValue::Decimal(v) => Ok(Value::Text(v.to_string())),
@@ -230,7 +258,10 @@ impl DuckDbWarehouse {
             // statement, which would bake one dialect's date format into every dialect's SQL.
             DuckValue::Date32(days) => sutura_domain::calendar::Date::from_days_since_epoch(days)
                 .map(|date| Value::Text(date.to_iso()))
-                .map_err(|cause| DuckDbError::NotADate { column: index, cause }),
+                .map_err(|cause| DuckDbError::NotADate {
+                    column: String::from(label),
+                    cause,
+                }),
             DuckValue::Timestamp(..) => Err(unsupported(
                 "a timestamp; a metric on a timestamp column is not supported yet",
             )),
@@ -262,9 +293,13 @@ impl DuckDbWarehouse {
         let mut out: Vec<Vec<Value>> = Vec::new();
         while let Some(row) = rows.next().map_err(|cause| DuckDbError::Execute { cause })? {
             let mut cells = Vec::with_capacity(width);
-            for index in 0..width {
+            // Enumerated over the labels rather than over `0..width`, so a cell that cannot be
+            // carried has its column's NAME to report and not its position. Under the
+            // `indexing_slicing` ban the alternative is a lookup with a fallback, and the fallback
+            // would be the string a reader actually gets on the day it matters.
+            for (index, label) in columns.iter().enumerate() {
                 let raw: DuckValue = row.get(index).map_err(|cause| DuckDbError::Execute { cause })?;
-                cells.push(Self::cell(index, raw)?);
+                cells.push(Self::cell(label, raw)?);
             }
             out.push(cells);
         }
@@ -318,10 +353,14 @@ impl Warehouse for DuckDbWarehouse {
 /// it reaches the widths a Parquet file has and a CSV never will.
 #[cfg(test)]
 mod tests {
-    use super::{DuckDbError, DuckDbWarehouse};
+    use super::{DuckDbError, DuckDbWarehouse, Real};
     use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
     use sutura_domain::calendar::Date;
     use sutura_domain::warehouse::Value;
+
+    fn real(value: f64) -> Real {
+        Real::parse(value).expect("a test literal is finite")
+    }
 
     /// One row of the shared table: what the value is called, what the driver hands over, and the
     /// domain value both adapters have to produce for it. Named because the tuple is over the
@@ -359,7 +398,10 @@ mod tests {
                 DuckValue::UBigInt(u64::MAX),
                 Value::Text(String::from("18446744073709551615")),
             ),
-            ("DOUBLE", DuckValue::Double(0.1), Value::Real(0.1)),
+            ("DOUBLE", DuckValue::Double(0.1), Value::Real(real(0.1))),
+            // Zero is finite, and it is here because the check that refuses `inf` is a check about a
+            // division BY zero: a metric that legitimately answers zero must still answer.
+            ("DOUBLE zero", DuckValue::Double(0.0), Value::Real(real(0.0))),
             (
                 "DECIMAL stays text so it stays exact",
                 DuckValue::Decimal(Decimal::new(9, 2, 12_345).expect("a test decimal is a decimal")),
@@ -377,7 +419,7 @@ mod tests {
             ),
         ];
         for (name, raw, expected) in cases {
-            assert_eq!(DuckDbWarehouse::cell(0, raw).expect(name), expected, "{name}");
+            assert_eq!(DuckDbWarehouse::cell(name, raw).expect(name), expected, "{name}");
         }
     }
 
@@ -389,15 +431,61 @@ mod tests {
         // the half of the disagreement that can be fixed without inventing a rendering: there is no
         // `f64` that is `0.1_f32`, and picking one silently is how a number nobody got wrong stops
         // matching itself.
-        let error = DuckDbWarehouse::cell(3, DuckValue::Float(0.1)).expect_err("a 32-bit float is not mapped");
-        assert!(matches!(error, DuckDbError::UnsupportedType { column: 3, .. }), "{error:?}");
+        let error = DuckDbWarehouse::cell("amount", DuckValue::Float(0.1)).expect_err("a 32-bit float is not mapped");
+        assert!(
+            matches!(error, DuckDbError::UnsupportedType { ref column, .. } if column == "amount"),
+            "{error:?}"
+        );
         let message = error.to_string();
         assert!(message.contains("REAL"), "{message}");
+        assert!(message.contains("column amount"), "{message}");
         // And the type that DOES answer, so this is not a test that would pass with every float
         // refused.
         assert_eq!(
-            DuckDbWarehouse::cell(3, DuckValue::Double(0.1)).expect("a 64-bit float is mapped"),
-            Value::Real(0.1)
+            DuckDbWarehouse::cell("amount", DuckValue::Double(0.1)).expect("a 64-bit float is mapped"),
+            Value::Real(real(0.1))
+        );
+    }
+
+    #[test]
+    fn a_non_finite_double_is_refused_here_because_it_is_refused_there() {
+        // THE FINDING THIS ARM EXISTS FOR, and the twin of
+        // `a_non_finite_double_is_refused_on_both_sides_of_the_port` in
+        // `crates/sutura-exec-datafusion/src/value_mapping_tests.rs`. This arm was `Value::Real(v)`
+        // on a raw `f64`, and the value that reached it was real: a ratio measure declaring
+        // `zero_denominator: fails` renders as an unguarded division with the numerator cast to
+        // `DOUBLE`, and `CAST(3 AS DOUBLE) / 0` in this data system is `inf`, not an error. So the
+        // metric answered the string "inf" under its own certified name, and the engine answered the
+        // same string, so the differential test agreed and passed.
+        //
+        // All three of the class, not just the one a zero denominator produces first: a guard on the
+        // division would have left `-inf` and `NaN` on the way in.
+        for (name, raw) in [
+            ("positive infinity", f64::INFINITY),
+            ("negative infinity", f64::NEG_INFINITY),
+            ("not a number", f64::NAN),
+        ] {
+            let error = DuckDbWarehouse::cell("revenue_per_refunded_order", DuckValue::Double(raw)).expect_err(name);
+            assert!(
+                matches!(error, DuckDbError::NotFinite { ref column, .. } if column == "revenue_per_refunded_order"),
+                "{name}: {error:?}"
+            );
+            assert_eq!(
+                error.to_string(),
+                "column revenue_per_refunded_order came back as a value that is not a finite number",
+                "{name}"
+            );
+        }
+        // And the values that DO answer, so this is not a test that would pass with every double
+        // refused - zero included, because the check is about dividing BY zero and not about it.
+        assert_eq!(
+            DuckDbWarehouse::cell("revenue", DuckValue::Double(0.0)).expect("zero is a finite number"),
+            Value::Real(real(0.0))
+        );
+        assert_eq!(
+            DuckDbWarehouse::cell("average_order", DuckValue::Double(63_335.777_777_777_78))
+                .expect("an average is a finite number"),
+            Value::Real(real(63_335.777_777_777_78))
         );
     }
 
@@ -410,8 +498,11 @@ mod tests {
             DuckValue::Timestamp(TimeUnit::Microsecond, 0),
             DuckValue::List(vec![DuckValue::Int(1)]),
         ] {
-            let error = DuckDbWarehouse::cell(1, raw).expect_err("an unmapped type is an error");
-            assert!(matches!(error, DuckDbError::UnsupportedType { column: 1, .. }), "{error:?}");
+            let error = DuckDbWarehouse::cell("payload", raw).expect_err("an unmapped type is an error");
+            assert!(
+                matches!(error, DuckDbError::UnsupportedType { ref column, .. } if column == "payload"),
+                "{error:?}"
+            );
         }
     }
 }

@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: reason
+---
+DimensionNotPermitted:
+  metric: average_order_value
+  dimension: channel

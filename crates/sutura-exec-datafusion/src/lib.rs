@@ -40,7 +40,7 @@ use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use sutura_domain::calendar::Date;
 use sutura_domain::model::{JoinType, SourceName, TableName};
 use sutura_domain::plan::QueryPlan;
-use sutura_domain::warehouse::{MalformedRowSet, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{MalformedRowSet, Real, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -98,6 +98,21 @@ pub enum DataFusionError {
     /// substituting a null for a value that exists.
     #[error("column {column} did not downcast to {arrow_type}, though its schema says that is its type")]
     Downcast { column: String, arrow_type: &'static str },
+    /// A floating-point column came back as a value that is not a number.
+    ///
+    /// **What `zero_denominator: fails` actually produces.** A ratio measure choosing that word is
+    /// translated as an unguarded division with the numerator cast to `Float64`, so the division is
+    /// IEEE float division: dividing by zero answers `inf` here rather than failing, and zero divided
+    /// by zero answers `NaN`. `Real` refuses all three, which is what makes the word `fails` true of
+    /// the metric that chose it instead of the string `inf` arriving under a certified name.
+    ///
+    /// The cause names which of the three it was; this variant names the column.
+    #[error("column {column} came back as a value that is not a finite number")]
+    NotFinite {
+        column: String,
+        #[source]
+        cause: sutura_domain::warehouse::NotFinite,
+    },
     /// A day number came back that is not a date this build can represent.
     #[error("column {column} came back as a day number that is not a date")]
     NotADate {
@@ -207,6 +222,10 @@ where
 /// and is exactly wrong: `0.1_f32` as an `f64` prints as `0.10000000149011612`, and the two adapters
 /// would then disagree about a number neither of them got wrong.
 ///
+/// A 64-bit float that is not finite is [`DataFusionError::NotFinite`], for the same reason a
+/// nested type is an error: `inf` is what an unguarded division answers, and rendering it puts the
+/// string `"inf"` in an answer under a metric's own certified name.
+///
 /// `Date64` is deliberately NOT here, and not for symmetry's sake either: the data source has no
 /// counterpart to be symmetric with - `DuckDB`'s `DATE` is a day count - and nothing on this path
 /// produces one, because `date_trunc` over a `Date32` stays a `Date32` and a Parquet `DATE` logical
@@ -234,7 +253,19 @@ fn cell(label: &str, array: &dyn Array, row: usize) -> Result<Value, DataFusionE
             let value = typed::<UInt64Array>(label, array)?.value(row);
             Ok(i64::try_from(value).map_or_else(|_| Value::Text(value.to_string()), Value::Integer))
         }
-        DataType::Float64 => Ok(Value::Real(typed::<Float64Array>(label, array)?.value(row))),
+        // Checked, not taken. A `Float64` column is where an unguarded division lands, and a division
+        // by zero in IEEE arithmetic answers `inf` rather than failing - so this is the arm that
+        // decides whether `zero_denominator: fails` means what its word says. The data source's
+        // `cell` has the same arm for the same reason.
+        DataType::Float64 => {
+            let value = typed::<Float64Array>(label, array)?.value(row);
+            Real::parse(value)
+                .map(Value::Real)
+                .map_err(|cause| DataFusionError::NotFinite {
+                    column: String::from(label),
+                    cause,
+                })
+        }
         DataType::Utf8 => Ok(Value::Text(String::from(typed::<StringArray>(label, array)?.value(row)))),
         // The Parquet default for a string column in this version, so the affordance that reads one
         // is not broken on arrival. CSV inference gives the owned form above.
@@ -514,10 +545,14 @@ mod tests {
         PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
     };
     // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
-    use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
+    use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
 
     fn day(iso: &str) -> Date {
         Date::parse(iso).expect("a test date is a date")
+    }
+
+    fn real(value: f64) -> Real {
+        Real::parse(value).expect("a test literal is finite")
     }
 
     fn orders() -> TableName {
@@ -792,7 +827,7 @@ mod tests {
             region_key(),
         );
         let result = adapter.execute(&query).expect("the plan runs");
-        assert_eq!(result.cell(0, 2), Some(&Value::Real(3.5)));
+        assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
         assert_eq!(result.cell(1, 2), Some(&Value::Null));
     }
 
@@ -857,8 +892,8 @@ mod tests {
         );
         adapter.dry_run(&query).expect("the plan resolves");
         let result = adapter.execute(&query).expect("the plan runs");
-        assert_eq!(result.cell(0, 2), Some(&Value::Real(0.5)));
-        assert_eq!(result.cell(1, 2), Some(&Value::Real(0.0)));
+        assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
+        assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));
     }
 
     #[test]

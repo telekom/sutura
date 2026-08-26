@@ -10,7 +10,19 @@ inventory of what compiles. [What exists today](#what-exists-today) is that inve
 short. `AGENTS.md` in the repository root holds the crate table and the invariant table; this
 page says why they look the way they do.
 
+!!! warning "Read every section here as a design, not as a control"
+
+    Most of this page describes a system that is not built. The one thing that exists is a governed
+    single-player semantic compiler and executor over local files: no request context, no credential
+    broker, no audit sink, no Arrow result envelope, no MCP surface and no HTTP surface. Sections
+    that describe something enforced today say so in the section itself, and
+    [What exists today](#what-exists-today) is the inventory. **Do not deep-link a section of this
+    page as evidence that a control is in place.**
+
 ## Serving is MCP
+
+**Design target, not built. There is no MCP surface and no HTTP surface in the workspace.** The
+binary is a CLI. This section is the shape both transports have to take when they arrive.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.
@@ -21,8 +33,13 @@ dimensions and a time range, and there is no field into which anything else fits
 question is unrepresentable rather than refused: a refusal can be retried until it succeeds, and an
 absent field cannot.
 
-The tool schemas are derived from the domain types rather than written by hand, so widening the
-surface changes a generated schema and shows up in the diff of the review that widened it.
+That last property is the part that **is** enforced today, transport or no transport: `Query` is the
+tool surface, it declares no such field, and `deny_unknown_fields` makes a question carrying one an
+error naming it. A transport can only narrow what the type already refuses.
+
+The tool schemas are meant to be derived from the domain types rather than written by hand, so
+widening the surface changes a generated schema and shows up in the diff of the review that widened
+it. That dump is not written yet, so today review is the only thing catching a widened surface.
 
 An HTTP surface sits beside the MCP one for callers that are not agents: a second transport over the
 same service, derived from the same types, so it cannot accept a question the MCP surface would
@@ -115,39 +132,113 @@ Parquet itself.
 
 A plan resolves to exactly one data system. Federation across two is not a smaller version of the
 same problem, it is a second identity to satisfy, and a plan that cannot run as one subject in both
-places is refused rather than run partly as somebody else.
+places is refused rather than run partly as somebody else. **The one-source rule is enforced
+today**, by the plan stage and a golden that builds a two-source catalogue to provoke the refusal;
+the identity reasoning behind it is a design target, because there is no per-leg credential to test
+against.
+
+### What can be plugged in today, and what the shipped binary actually uses
+
+Three adapters exist. **They are chosen at compile time, in the composition root - there is no
+configuration that names one.** If you are looking for a setting to point sutura at a different
+catalogue or a different data system, there is not one yet.
+
+| Port | Adapter | What it is | In the shipped binary? |
+| --- | --- | --- | --- |
+| `SemanticCatalog` | `sutura-catalog-local` | A directory of markdown documents with YAML frontmatter, read off disk | **Yes.** The only catalogue adapter there is |
+| `Warehouse` | `sutura-exec-datafusion` | THE ENGINE. Reads the CSV and Parquet files itself and executes the plan over Arrow. Generates no SQL | **Yes**, and it is what `sutura query` runs |
+| `Warehouse` | `sutura-exec-duckdb` | A DATA SOURCE. Renders the plan into `DuckDB` SQL and pushes the statement down | **No.** A development dependency of `sutura-app` |
+
+So the supported combination today is **local markdown with YAML frontmatter for the metadata, and
+the in-process engine over the CSV or Parquet files in the directory you name on the command
+line**. `sutura query <catalog-dir> <question.yaml> <data-dir>` is the whole of it, and
+`sutura doctor` says the same thing in one line: `data systems : none - this build reads files, and
+pushes down to nothing`.
+
+**Two things are easy to read as more than they are, and both are worth being exact about.**
+
+*`DuckDB` is a test dependency, not the runtime data source.* An earlier example did run through it,
+and the description outlived the code. The `DuckDB` adapter is still compiled and still executes on
+every run of the test suite - it is what proves the SQL we render actually runs somewhere, and the
+differential test runs one plan both ways and compares the rows - but the binary does not link it and
+an operator needs no `libduckdb` to run `sutura query`. That is also what keeps the musl artifacts
+building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
+
+*Three dialects are three rendering targets, not three data systems.* `sutura compile` will render a
+statement for `DuckDB`, Postgres or `ClickHouse`, and the goldens parse-check each one. Rendering
+`ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no `ClickHouse`
+adapter: the port takes a plan, and rendering is one adapter's private business.
+
+The engine refuses a catalogue that declares any data system other than the one it is: naming the
+engine after whatever the catalogue said was a real bug, because it satisfied the composition root's
+own `plan.source() != warehouse.source()` guard by construction, and a catalogue naming a production
+warehouse then got its certified metric answered out of the caller's files under that bundle's digest.
+Today a catalogue that names something else gets an error saying there is no adapter for it.
+
+**What it costs to add a fourth adapter.** A `Warehouse` or `SemanticCatalog` implementation, one line
+in the workspace manifest, one line in the composition root - and, in the test suite, one `impl` of
+`adapters::CatalogUnderTest` or `adapters::DataSystemUnderTest` plus one line in
+`adapters::registered`. No test body changes: the golden corpus, the refusal corpus, the anchor check
+and the engine comparison are all expanded once per registration, so a new adapter arrives with all of
+them already pointed at it. That is the property the two ports exist for, and it is the one worth
+checking has not quietly stopped being true.
 
 ## Security is the reason for the shape
 
 The three sections above are not features arranged around a core. They are what falls out of one
 requirement: an agent may be handed a database only if the database can still tell who is asking.
 
-**The caller's identity reaches the data system.** Not a service account holding the union of
-everyone's access. A credential is minted per request, and a request that cannot run as the subject
-is refused rather than downgraded to the service's own identity: that downgrade turns "you may not
-see these rows" into "here are the rows". A row-level security policy that holds only for human
-callers is decorative.
+Two of the four properties below are enforced today and two are not. Each says which, because a
+reader who lands on this section from a search result gets no other warning.
 
-**Authorization stays in the data system.** sutura keeps no copy of who may see what, because a copy
-can disagree with the original. Grants, row-level policies and masking already exist in ClickHouse
-and Postgres, administered and audited by the people who own the data; a second implementation here
-would produce a second answer and no way to tell which is right. One consequence: there is no result
-cache, because under row-level security a cache keyed on the query text is a cross-user leak.
+**The caller's identity reaches the data system. Design target, not built.** Not a service account
+holding the union of everyone's access. A credential is minted per request, and a request that
+cannot run as the subject is refused rather than downgraded to the service's own identity: that
+downgrade turns "you may not see these rows" into "here are the rows". A row-level security policy
+that holds only for human callers is decorative.
 
-**A narrow tool surface bounds a compromised agent.** The input is natural language from wherever
-the user found it, so a manipulated agent is the expected case and the defence is not detecting it.
-The most an attacker can make the agent emit is a different certified question, asked as the same
-caller, over the same pinned definitions, against the same authorization. The blast radius of a fully
-manipulated agent is the set of questions its caller could already ask.
+None of that mechanism exists. There is no request context type and no credential broker port, so no
+caller identity reaches the query path at all, and there is nothing that would refuse a downgrade
+because there is no second identity in the process to downgrade to. What *is* enforced is narrower
+and worth stating as such: nothing on the query path can **choose** an identity, because
+`SemanticCatalog::load` takes no request context and a plan resolves to exactly one named source.
+Against a local file the property is trivially satisfied and buys nothing, since a file has no login.
 
-**Returned content is untrusted input.** Rows, column descriptions and glossary text are authored by
-somebody else, and any of it can contain something shaped like an instruction. A delimiter cannot
-separate instruction from data, because the content can contain the delimiter, and neither can a
-preamble announcing that what follows is untrusted. So the boundary is a constraint on the wire
-format: results leave as Arrow with provenance in the schema metadata, a typed field a caller reads
-deliberately rather than a string concatenated into the channel that carries instructions.
-Descriptive text from the catalogue travels the same way, and both envelopes share one encoder, so
-neither transport can grow a text-blob shortcut on its own.
+**Authorization stays in the data system. Enforced by absence, today.** sutura keeps no copy of who
+may see what, because a copy can disagree with the original. Grants, row-level policies and masking
+already exist in ClickHouse and Postgres, administered and audited by the people who own the data; a
+second implementation here would produce a second answer and no way to tell which is right. One
+consequence: there is no result cache, because under row-level security a cache keyed on the query
+text is a cross-user leak. No mechanism can prove an absence, so adding either a policy store or a
+cache of rows is an architecture decision rather than a feature.
+
+**A narrow tool surface bounds a compromised agent. Enforced today.** The input is natural language
+from wherever the user found it, so a manipulated agent is the expected case and the defence is not
+detecting it. The most an attacker can make the agent emit is a different certified question over
+the same pinned definitions: `Query` has no field for SQL, a table, a predicate or a row id, every
+value it carries binds as a parameter, and a golden asserts over the whole corpus that no literal a
+question carries appears in the statement generated for it.
+
+The clause "asked as the same caller, against the same authorization" is the part that is **not**
+enforced, and it is the same gap as the first property. Today the bound is what an attacker can make
+sutura *ask*, and nothing constrains whose rows come back.
+
+**Returned content is untrusted input. Partly enforced today.** Rows, column descriptions and
+glossary text are authored by somebody else, and any of it can contain something shaped like an
+instruction. A delimiter cannot separate instruction from data, because the content can contain the
+delimiter, and neither can a preamble announcing that what follows is untrusted.
+
+*Design target:* the boundary is a constraint on the wire format - results leave as Arrow with
+provenance in the schema metadata, a typed field a caller reads deliberately rather than a string
+concatenated into the channel that carries instructions, with descriptive text travelling the same
+way and both envelopes sharing one encoder so neither transport can grow a text-blob shortcut on its
+own. There is no Arrow envelope, no encoder and no transport to carry one.
+
+*Enforced today:* the `Warehouse` port returns a `RowSet` of typed columns and typed `Value` cells
+rather than a text blob, and provenance rides beside the rows as its own typed field rather than as
+text mixed into them. The shape of the guarantee is right; the envelope is a row type rather than an
+Arrow schema. The engine executing over Arrow *in process* is a different claim from results leaving
+as Arrow, and only the first is true.
 
 ## The semantic compiler
 
@@ -279,6 +370,12 @@ flowchart TB
     SL -.->|bytes| ST
     ST -.-> DI
 ```
+
+Four of those nodes are design targets rather than descriptions of this repository. Federation is
+not built; execution *as the calling principal* is not built, because nothing carries a principal;
+the spliced statement is not built, because a metric has no statement field; and the Arrow envelope
+is not built, because the port returns a row type. What runs today is the question, the semantic
+layer, the plan, the dialect, and execution against a local file as whoever started the process.
 
 **The semantic layer decides what a question means.** [Wren](https://github.com/Canner/WrenAI) is
 the reference for that shape: a modelling language, an engine that plans against it, and MCP as the
@@ -414,7 +511,9 @@ budget here is a warehouse round trip.
 ## What exists today
 
 The query path is built: one shape of catalog, an engine that executes it, and one data system it
-knows how to push down to.
+knows how to push down to but does not ship.
+[What can be plugged in today](#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
+is the table, and it is the section to read before assuming which of the three is on the runtime path.
 
 `sutura-domain` holds the domain types, the query plan and two port traits, `SemanticCatalog` and
 `Warehouse`; `sutura-catalog-local` reads a directory of markdown documents with YAML frontmatter;
@@ -425,14 +524,15 @@ over both ports; `sutura-cli` composes them, and links the engine only. `xtask` 
 and `sutura-dev` the local development CLI.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
-a filter compiles to one statement, in `DuckDB`, Postgres or `ClickHouse` dialect, and executes
-against a `DuckDB` file. A measure may be one aggregate over a column, a conditional count or a ratio
-of two aggregates, and a metric may carry required filters that every question about it is answered
-under. Every metric that declares a certified number re-executes and reproduces it before the bundle
-can be served, and a bundle whose anchors were not checked cannot reach the query path because there
-is no constructor that produces one.
+a filter compiles to a plan; the plan renders as one statement in `DuckDB`, Postgres or `ClickHouse`
+dialect when somebody asks for SQL, and it **executes through the engine, over the CSV or Parquet
+files in the directory the caller named**. A measure may be one aggregate over a column, a conditional
+count or a ratio of two aggregates, and a metric may carry required filters that every question about
+it is answered under. Every metric that declares a certified number re-executes and reproduces it
+before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
+path because there is no constructor that produces one.
 
-**`CredentialBroker` is still absent, and it is the one that matters most.** DuckDB is a file with no
+**`CredentialBroker` is still absent, and it is the one that matters most.** A CSV is a file with no
 login, so "every query runs as the calling principal" is satisfied here by there being nobody else to
 be. That is a true statement about a laptop and not about a warehouse: per-request identity arrives
 with the first data system that has grants to run under, and until then this is a compiler with a
@@ -441,6 +541,13 @@ governed front door rather than the identity-aware runtime the rest of this page
 Also absent: the MCP and HTTP transports, Arrow results with provenance in the schema metadata,
 federation, a budget beyond a hard row cap, a second catalog adapter, and the audit sink. The
 spliced-statement path is designed, documented above, and unimplemented.
+
+And absent in a way worth naming separately, because the two ports are what the layout is *for*: **no
+runtime selection of an adapter.** Which catalogue and which data system are decided at compile time in
+`sutura-cli`, not read from anywhere. The ports are still doing their job - `sutura-app` names no
+adapter, the golden suite runs its whole corpus against a fake, and the test suite is a matrix over a
+registry so a second adapter is a registration rather than a test edit - but "configurable" is not yet
+a word this earns.
 
 The mechanisms came first on purpose, and that has not changed: every claim on this page is meant to
 be held up by a type, a lint, a hook or a gate rather than by intent, and a mechanism is cheaper to

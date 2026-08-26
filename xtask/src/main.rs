@@ -12,6 +12,7 @@ mod boundaries;
 mod causality;
 mod changes;
 mod commit_msg;
+mod crap;
 mod docs;
 mod fmt;
 mod guidance;
@@ -144,6 +145,26 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene,
         run: docs::run,
+    },
+    Task {
+        // CHEAP HALF of the CRAP gate: it reads `.cargo-crap.toml`, checks the allowlist
+        // discipline and the scope, and compiles nothing. The expensive half is `crap` below, and
+        // the split is the same one `check-api-docs` is kept out of hygiene for - this sweep runs
+        // on every commit and inside the Nix sandbox, so nothing in it may need a coverage build.
+        name: "check-crap",
+        description: "the CRAP policy is a gate, its allowlist annotated, its scope real",
+        kind: Kind::Hygiene,
+        run: crap::run_check,
+    },
+    Task {
+        // NOT `Kind::Hygiene`, for the same reason as `check-api-docs`: it COMPILES, with
+        // `-C instrument-coverage`, into a profile that shares nothing with the cached one, and
+        // it needs two tools the cheap sweep must not require. `check-crap` above is the part
+        // that runs everywhere.
+        name: "crap",
+        description: "CRAP score over the scoped crates (COMPILES; needs llvm-cov and crap)",
+        kind: Kind::Standalone,
+        run: crap::run,
     },
     Task {
         name: "commit-msg",
@@ -343,6 +364,20 @@ mod tests {
         // inside the Nix sandbox, neither of which has a nightly.
         let task = TASKS.iter().find(|t| t.name == "check-api-docs").expect("task is registered");
         assert_eq!(task.kind, super::Kind::Standalone);
+    }
+
+    #[test]
+    fn the_crap_gate_is_not_collected_into_hygiene() {
+        // Same reasoning as the api-docs gate above, and the argument test would not catch this
+        // one either: `crap` takes no arguments. It compiles the scoped crates under
+        // `-C instrument-coverage` and shells out to two tools the cheap sweep must not require -
+        // and the Nix sandbox and the commit hook both run that sweep.
+        let task = TASKS.iter().find(|t| t.name == "crap").expect("task is registered");
+        assert_eq!(task.kind, super::Kind::Standalone);
+        // Its configuration half IS cheap and must stay in the sweep: that is what stops the
+        // policy file from rotting on a tree nobody has run the expensive half against.
+        let cheap = TASKS.iter().find(|t| t.name == "check-crap").expect("task is registered");
+        assert_eq!(cheap.kind, super::Kind::Hygiene);
     }
 
     #[test]

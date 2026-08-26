@@ -1,0 +1,5 @@
+metric: revenue_per_refunded_order
+grain: month
+range:
+  start: 2026-06-01
+  end: 2026-07-01

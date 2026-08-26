@@ -1,5 +1,5 @@
 ---
-source: crates/sutura-app/tests/golden.rs
+source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.sql()
 ---
 SELECT CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) AS "period", AVG("orders"."amount_cents") AS "average_order" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) LIMIT 10000

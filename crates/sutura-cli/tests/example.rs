@@ -6,15 +6,18 @@
 //! fails the build rather than failing the next person who tried it, which is the only arrangement
 //! under which a README and a program cannot drift.
 //!
-//! It lives on `sutura-cli` because that crate is the composition root: it already names the local
-//! catalog adapter and the `DuckDB` one, which is exactly the pair the example needs. The test
-//! drives the LIBRARIES rather than spawning the binary. Spawning would test argument parsing and
-//! then assert on stdout, which is a slower way of asserting less.
+//! It lives on `sutura-cli` because that crate is the composition root, so the pair it names is the
+//! pair the example runs on: the local catalog adapter and the ENGINE. **Not the `DuckDB` one** - the
+//! binary does not link a data-system driver, and this file executing through
+//! `sutura_exec_datafusion` is what makes the quickstart's claim about the shipped artifact rather
+//! than about a test. The test drives the LIBRARIES rather than spawning the binary. Spawning would
+//! test argument parsing and then assert on stdout, which is a slower way of asserting less.
 //!
-//! Deliberately smaller than `sutura-app`'s golden suite and not a replacement for it. That one
-//! exists to pin what the compiler decides, across three dialects and two catalog implementations.
-//! This one exists to prove that one documented directory still answers, in the one dialect its
-//! README uses.
+//! Deliberately smaller than `sutura-app`'s golden suite and not a replacement for it. That one is a
+//! matrix over `adapters::registered` - every registered catalog, every dialect the compiler renders
+//! for, every registered data system - and exists to pin what the compiler decides. This one exists
+//! to prove that one documented directory still answers, on the one adapter the binary ships and in
+//! the one dialect its README shows.
 //!
 //! Every test here executes. There used to be a feature gate, because the only adapter that could
 //! run anything was `DuckDB` and there is no musl `libduckdb` for the cross builds to link against.
@@ -352,7 +355,10 @@ mod tests {
             checked > 0,
             "no metric in the example declares an anchor, so this test proved nothing"
         );
-        drop(sutura_domain::pinned::Validated::new(pinned, &report).expect("a bundle whose anchors all matched is fit to serve"));
+        // The same anchors again, through the one operation that mints a servable bundle. The report
+        // above is what an operator reads; this is what `sutura_app::answer` will accept, and it
+        // cannot be obtained from a report at all.
+        drop(sutura_app::verify_and_validate(pinned, &warehouse).expect("a bundle whose anchors all matched is fit to serve"));
     }
 
     #[test]
@@ -366,8 +372,7 @@ mod tests {
         // reason, and what matters at this end is that the question did not reach the data system.
         let pinned = load();
         let warehouse = engine(&pinned);
-        let report = sutura_app::verify_anchors(&pinned, &warehouse);
-        let validated = sutura_domain::pinned::Validated::new(pinned, &report).expect("the anchors hold");
+        let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);

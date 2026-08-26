@@ -22,6 +22,41 @@ use crate::warehouse::RowSet;
 /// a person asks and refuses the ones a loop generates.
 pub const MAX_DIMENSIONS: usize = 4;
 
+/// The longest span of history one question may ask about, in days.
+///
+/// **This is the bound the [`TimeRange`] newtype does not provide.** That type refuses an *absent*
+/// endpoint; it accepts `[0001-01-01, 9999-12-31)`, which is over three and a half million days and, on
+/// both execution paths, a full scan. `plan::MAX_ROWS` does not help: it caps the rows *returned*
+/// after the aggregate, so a question that scans everything and groups it into one bucket is inside
+/// it. The span is what rows-read is a function of, so the span is where the cap goes.
+///
+/// **3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
+/// 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
+/// *any* ten-year window through rather than most of them. Ten years is chosen because it covers the
+/// reporting a person actually does - a decade of annual figures, five years of quarters, three years
+/// of months - and the longest range anywhere in this repository's fixtures, examples and anchors is
+/// 181 days, so nothing authored today is anywhere near it.
+///
+/// It also stays under `plan::MAX_ROWS`, and that is not a coincidence worth losing: at `day` grain
+/// the time axis of a permitted question is at most 3653 buckets, so the row cap can only ever be
+/// reached by dimension cardinality and never by the range alone. Raising this past the row cap would
+/// quietly make a truncated answer the normal outcome of a wide range.
+///
+/// A *span*, not a bucket count, and the difference matters. A bucket count would let `year` grain
+/// through with a thousand years of scanning for a thousand rows, which is precisely the request this
+/// exists to refuse; the span bounds the scan at every grain and bounds the buckets as a consequence.
+///
+/// **What it does not bound, said plainly rather than left for someone to discover.** It bounds ONE
+/// question: three permitted ten-year questions cover thirty years, and nothing here correlates two
+/// requests, because a per-caller budget needs a clock, a subject and somewhere to keep a counter and
+/// this crate has none of the three. And inside a permitted span the *groups* are still the span times
+/// the cardinality of up to [`MAX_DIMENSIONS`] dimensions - a dimension declared without a value list
+/// has whatever cardinality the column has - so `plan::MAX_ROWS` truncates that result rather than the
+/// work that produced it. A day count is also only a proxy for rows: ten years of a small table and
+/// ten years of a large one are the same number here. A real budget is expressed in rows or bytes
+/// scanned, which needs something from the data system that no port asks for yet.
+pub const MAX_RANGE_DAYS: i32 = 3653;
+
 /// One equality filter: a dimension, and a value the pinned bundle declares.
 ///
 /// The value is a `String` here and a bind parameter by the time it reaches a statement. It is
@@ -132,6 +167,12 @@ impl Query {
 /// so such a refusal could never be provoked, and a variant with no test that can reach it looks
 /// like coverage while being dead code. The type does that job instead.
 ///
+/// [`TimeRangeTooLong`](RefusalReason::TimeRangeTooLong) is the variant that exists for the half the
+/// type does *not* do, and the pair is worth reading together: an absent bound is unrepresentable, a
+/// bound that is present and enormous is refused. The second has to be a refusal rather than a parse
+/// error because the same [`TimeRange`] is also a catalog author's anchor range, and a maximum on the
+/// type would govern authorship in order to govern requests.
+///
 /// Note what these variants do *not* carry: a rejected filter value is never echoed back.
 /// `DimensionValueNotAllowed` names the dimension and stops there. Reflecting caller-supplied text
 /// into a message that reaches a log, a UI and an agent's context is how a rejected value becomes
@@ -156,16 +197,36 @@ pub enum RefusalReason {
     DuplicateDimension { dimension: DimensionName },
     /// More group-by keys than [`MAX_DIMENSIONS`].
     TooManyDimensions { requested: usize, limit: usize },
+    /// A span of history longer than [`MAX_RANGE_DAYS`].
+    ///
+    /// The availability boundary, and a governance outcome rather than a malformed question: the
+    /// range parsed, both endpoints are real dates, and the answer is still no. Refused rather than
+    /// silently narrowed to the last permitted day, because an answer about a different period than
+    /// the one asked about is a wrong number nothing downstream can detect.
+    ///
+    /// Carries the two day counts and nothing from the caller's text, which is what makes it safe to
+    /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
+    /// reflect into a message that reaches a log, a UI and an agent's context.
+    TimeRangeTooLong { days: i32, limit: i32 },
     /// The plan would need to read from more than one data system.
     ///
     /// Refused rather than run in parts, because a second data system is a second identity to
     /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
     /// prevent.
     PlanSpansTwoSources { sources: usize },
-    /// The one data system the plan resolved to could not be reached as the calling subject.
+    /// The plan named a data system this process did not open.
     ///
-    /// A refusal rather than a fallback. Running as the service's own identity instead would turn
-    /// "you may not see these rows" into "here are the rows".
+    /// **What raises it today is a name comparison, not an identity check**, and the doc comment
+    /// used to claim otherwise. `sutura_app::answer` compares the plan's source against the
+    /// adapter's own and refuses when they differ, which catches a bundle pointed at one data
+    /// system being answered from another - a real hole, and the reason the check exists.
+    ///
+    /// It is deliberately the variant an identity failure will also use, because both are the same
+    /// answer to a caller: this question cannot be answered here, and it will not be answered
+    /// somewhere else instead. A refusal rather than a fallback - running as the service's own
+    /// identity would turn "you may not see these rows" into "here are the rows" - but nothing in
+    /// this workspace can yet run as any identity, so that half is a design target and not a
+    /// control. `AGENTS.md` records which is which.
     SourceUnavailable { source: SourceName },
 }
 

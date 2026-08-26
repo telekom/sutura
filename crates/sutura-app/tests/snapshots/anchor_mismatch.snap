@@ -1,5 +1,5 @@
 ---
-source: crates/sutura-app/tests/golden.rs
+source: crates/sutura-app/tests/golden/service.rs
 expression: err.to_string()
 ---
-metric orders_placed was expected to produce 570022, and produced 470022
+metric orders_placed was expected to produce 9, and produced 470022

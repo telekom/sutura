@@ -1,0 +1,35 @@
+[package]
+name = "sutura-serve"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "The service binary. Composes adapters and the transport; contains no business logic."
+
+[[bin]]
+name = "sutura-serve"
+path = "src/main.rs"
+
+[dependencies]
+# For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
+# catalog actually names rather than for a guess.
+sutura-app = { workspace = true }
+sutura-catalog-local = { workspace = true }
+sutura-config = { workspace = true }
+sutura-domain = { workspace = true }
+sutura-exec-datafusion = { workspace = true }
+sutura-http = { workspace = true }
+# For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
+# the type on its way to `serve`.
+axum = { workspace = true }
+sutura-runtime = { workspace = true }
+# `enable_all` needs `net` and `time` to exist as methods, `rt-multi-thread` is the server runtime,
+# `signal` is the shutdown listener and `sync` is what the shutdown flag is built on. No `macros`:
+# `#[tokio::main]` is deliberately not used - see the note on `run` in `src/main.rs`.
+tokio = { workspace = true, features = ["net", "rt-multi-thread", "signal", "sync", "time"] }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

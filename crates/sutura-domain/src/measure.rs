@@ -216,9 +216,21 @@ pub enum ZeroDenominator {
     /// dialect's own safe-divide.
     #[serde(rename = "yields_null")]
     Null,
-    /// The division is emitted unguarded, so a zero denominator is whatever the data system does
-    /// with one. Named for the intent rather than for the mechanism: a definition choosing this is
-    /// saying an empty period is a fault and not a figure.
+    /// The division is emitted unguarded, and the fault is raised where the value crosses back into
+    /// the domain. A definition choosing this is saying an empty period is a fault and not a figure.
+    ///
+    /// **The word used to be a wish, and this paragraph is the correction.** "Unguarded" is not the
+    /// same as "fails": both generators cast the numerator to a floating type first, because integer
+    /// division truncates and `SUM(cents) / COUNT(*)` returning a whole number is wrong for every
+    /// ratio anybody wants. So the division is IEEE float division, and IEEE float division by zero
+    /// does not raise - it answers `inf`, or `NaN` when both halves are zero. A metric declaring that
+    /// an empty period is a fault therefore answered the *string* `inf` under its own certified name,
+    /// in both adapters, which is why the differential test agreed with itself and passed.
+    ///
+    /// What makes the word true is [`crate::warehouse::Real`]: a cell carries a checked finite `f64`,
+    /// so an adapter handed a non-finite one has an error naming the column instead of a value. That
+    /// is a stronger place for the check than a guard on the division would have been - it closes
+    /// `-inf` and `NaN` too, and it holds for an adapter that renders no SQL at all.
     #[serde(rename = "fails")]
     Fail,
 }
