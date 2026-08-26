@@ -68,7 +68,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      # BEFORE nix installs, because /nix/store is what fills. `ubuntu-latest` ships ~25 GB of
+      # BEFORE nix installs, because /nix/store is what fills. `ubuntu-latest` ships ~20 GB of
       # SDKs this repository does not use against a 14 GB budget, and both `Doctests` and
       # `Test causality` have died on `No space left on device` compiling a dependency closure
       # that is legitimately one of the largest in the ecosystem.
@@ -78,7 +78,7 @@ jobs:
       # the Nix cache.
       - uses: ./.github/actions/reclaim-disk
         with:
-          minimum-gb: "40"
+          minimum-gb: "25"
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:

@@ -11,6 +11,11 @@ inputs:
       as a compiler error, which is the most expensive way to learn about a full disk.
     required: false
     default: "0"
+    # MEASURED, not guessed, on `ubuntu-24.04` 2026-08-26: 14G available before, 34G after,
+    # so the cleanup is worth +20G and takes ~60s. `ci` asks for 25 - comfortably under the
+    # 34 that is actually there, and far enough above the 14 baseline that the check still
+    # fires if the cleanup ever silently stops working. Setting it to 40 on a guess is how
+    # this input first failed a job that was otherwise fine.
 
 outputs:
   available-gb:
