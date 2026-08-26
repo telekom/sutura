@@ -110,15 +110,35 @@ test:
 check-changed +paths:
     cargo run -q -p xtask -- check-changed {{ paths }}
 
-# What CI runs, through nix, without entering the dev shell. The one command that needs no
-# devenv - useful for reproducing a red pipeline locally.
+# THE gate. Run this before saying a change is done; nothing else counts as verified.
+#
+# It is `ci` plus the two app-backed checks, and it is deliberately the nix path rather than the
+# dev shell. The difference is not speed: a nix check builds a FILTERED copy of the tree, so it
+# is the only thing that catches a file the build needs and the filter drops. `gates` reads the
+# real tree and cannot see that class of bug at all - `include_str!("defaults.yaml")` passed
+# every dev-shell check and failed CI.
+validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just ci
+    just secrets
+    nix run .#deny
+    printf '\nvalidate: ok - the nix checks, the secret sweep and the supply chain\n'
+
+# What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
+# the two checks that need network and therefore cannot be nix checks.
+#
+# `--offline` is retried on failure rather than passed always: a substituter that cannot be
+# reached must not silently become a local rebuild of everything, but it must not stop the gate
+# either. A skipped check is the failure mode this repo cares about most.
 ci:
-    nix build .#checks.x86_64-linux.hygiene -L
-    nix build .#checks.x86_64-linux.fmt -L
-    nix build .#checks.x86_64-linux.clippy -L
-    nix build .#checks.x86_64-linux.nextest -L
-    nix build .#checks.x86_64-linux.doctest -L
-    nix build .#checks.x86_64-linux.crap -L
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for check in hygiene fmt clippy nextest doctest crap; do
+        printf '\n=== %s ===\n' "$check"
+        nix build ".#checks.x86_64-linux.$check" -L \
+            || nix build ".#checks.x86_64-linux.$check" -L --offline
+    done
 
 # The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
 # has measured yet.

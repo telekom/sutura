@@ -84,10 +84,20 @@
           # `.snap` snapshots are all dropped. The suite then COMPILES and finds no fixtures,
           # which is a green check over nothing. `just test` in the dev shell reads the real
           # tree and would not notice, so `just ci` is the only thing that catches it.
+          #
+          # Keep non-Rust files under `crates/*/src/**` for the same reason, one layer in, and
+          # this one bit for real: `sutura-config` holds its defaults as `defaults.yaml` beside
+          # the code and reads them with `include_str!`. crane dropped the file, so CI failed
+          # with `couldn't read crates/sutura-config/src/defaults.yaml` while every local build
+          # passed - `include_str!` resolves against the real tree in the dev shell and against
+          # the FILTERED copy in a nix build. A data file next to the code that reads it is a
+          # normal thing to write, so the filter has to expect it rather than the author having
+          # to remember this. `.rs` still goes through crane's own filter below.
           filter = path: type:
             (builtins.match ".*rust-toolchain\.toml$" path != null)
             || (builtins.match ".*/vendor(/.*)?$" path != null)
             || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
+            || (builtins.match ".*/crates/[^/]+/src/.*" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
