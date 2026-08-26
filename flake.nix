@@ -85,6 +85,14 @@
           # which is a green check over nothing. `just test` in the dev shell reads the real
           # tree and would not notice, so `just ci` is the only thing that catches it.
           #
+          # THE RULE, because this filter has now bitten three times and each clause below is one
+          # of them: **any directory a build or a test READS has to be named here.** crane keeps
+          # Cargo inputs only, so everything else is absent from the sandbox while being present
+          # in the dev shell - which makes this the one bug class local gates cannot see. The
+          # three: the golden fixtures under `crates/*/tests`, `defaults.yaml` under
+          # `crates/*/src`, and `examples/` read by `sutura-cli`'s example test. Adding a data
+          # directory means adding a clause, and `just validate` is what proves it.
+          #
           # Keep non-Rust files under `crates/*/src/**` for the same reason, one layer in, and
           # this one bit for real: `sutura-config` holds its defaults as `defaults.yaml` beside
           # the code and reads them with `include_str!`. crane dropped the file, so CI failed
@@ -97,7 +105,8 @@
             (builtins.match ".*rust-toolchain\.toml$" path != null)
             || (builtins.match ".*/vendor(/.*)?$" path != null)
             || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
-            || (builtins.match ".*/crates/[^/]+/src/.*" path != null)
+            || (builtins.match ".*/crates/[^/]+/src(/.*)?$" path != null)
+            || (builtins.match ".*/examples(/.*)?$" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -249,6 +258,22 @@
         # recompiles the dependency tree for clippy, for the tests and for the build, and
         # on this dependency set that is most of the wall clock.
         cargoArtifacts = craneLib.buildDepsOnly releaseArgs;
+
+        # The same, scoped to `xtask` alone, for the gates that are not about the workspace's
+        # code. Measured, not guessed: `checks.hygiene` runs `cargo run -p xtask -- hygiene`,
+        # which checks nav entries, line endings, text hygiene and file lengths - and it was
+        # inheriting `cargoArtifacts`, so it pulled DataFusion, Arrow and DuckDB in order to
+        # lint markdown. On one push that cost the `docs` workflow **26.3 minutes** against
+        # 0.7 for the same derivation in `ci`, which had the closure cached already.
+        #
+        # `xtask`'s own tree is small, so this is a much smaller build and one that no
+        # dependency bump of the engine can invalidate. It does not replace `cargoArtifacts`
+        # anywhere that compiles workspace code - clippy, nextest and the release build all
+        # still want the full closure and share one copy of it.
+        xtaskArtifacts = craneLib.buildDepsOnly (releaseArgs // {
+          pname = "sutura-xtask-deps";
+          cargoExtraArgs = "--package xtask";
+        });
 
         # A native build for one profile. For `release` the deps derivation is identical to
         # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
@@ -546,10 +571,17 @@
           sutura-performance = nativeFor "release-performance";
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
-          # nothing but `nix` on the runner. It reuses `cargoArtifacts`, so exposing it
-          # costs no extra dependency build.
+          # nothing but `nix` on the runner.
+          #
+          # `xtaskArtifacts`, and this is the one that moved the needle. The comment here used
+          # to say reusing `cargoArtifacts` "costs no extra dependency build", which was true
+          # and beside the point: it costs the WAIT for a dependency build this binary does not
+          # need. `classify` is the FIRST step in the pipeline, so on a cold cache the whole
+          # closure - DataFusion, Arrow, DuckDB - was on the critical path before the pipeline
+          # could decide what to run. That step was 23.9 minutes on the push that added the
+          # engine, and it is the step everything else waits behind.
           xtask = craneLib.buildPackage (releaseArgs // {
-            inherit cargoArtifacts;
+            cargoArtifacts = xtaskArtifacts;
             pname = "xtask";
             cargoExtraArgs = "--package xtask";
             doCheck = false;
@@ -668,8 +700,14 @@
           #
           # `--release` reuses `cargoArtifacts` rather than compiling xtask's dependency
           # set a second time under the dev profile.
+          # `xtaskArtifacts`, not `cargoArtifacts`: this gate reads files, so it has no reason
+          # to wait for the engine's dependency tree. See the note beside `xtaskArtifacts`.
+          #
+          # `src = ./.` and not the filtered `src`, deliberately: the gates judge the WHOLE
+          # tree - nav entries against pages on disk, line endings, prose style, file lengths -
+          # so a filtered copy would make several of them pass by seeing less.
           hygiene = craneLib.mkCargoDerivation (commonArgs // {
-            inherit cargoArtifacts;
+            cargoArtifacts = xtaskArtifacts;
             src = ./.;
             pnameSuffix = "-hygiene";
             doCheck = false;
