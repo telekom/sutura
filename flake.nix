@@ -702,7 +702,7 @@
             cargoArtifacts = ciArtifacts;
             pnameSuffix = "-doctest";
             doCheck = false;
-            buildPhaseCargoCommand = "cargo test --doc --workspace --all-features";
+            buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
           });
 
           fmt = craneLib.cargoFmt {
@@ -720,16 +720,27 @@
           # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
           # to walking the tree instead of failing.
           #
-          # `--release` is gone from the command below: at `ci` the profile is already what
-          # every other check uses, so naming a second one here would compile xtask against a
-          # different dependency set for no gain.
+          # THE PROFILE IS NAMED IN THE COMMAND, and it has to be. `CARGO_PROFILE` in `ciArgs`
+          # is a crane convention: crane's own helpers (`cargoClippy`, `cargoNextest`,
+          # `buildPackage`) read it and append `--profile`. A hand-written
+          # `buildPhaseCargoCommand` is run verbatim, so there the variable is inert and cargo
+          # falls back to its default - a different profile, a different `target/` subdirectory,
+          # and `cargoArtifacts` that cannot be reused however correctly they were declared.
+          #
+          # That is not hypothetical. `doctest` had no `--profile` and compiled into
+          # `target/debug` while its artifacts sat in `target/ci`, so it rebuilt DataFusion from
+          # scratch inside its own derivation and died on `No space left on device` after
+          # exhausting the runner's 14 GB. `crap` said `--release` against `ci` artifacts and
+          # paid the same tax more quietly. The derivation graph showed one shared closure the
+          # whole time - `nix eval` agreed - because sharing an input is not the same as
+          # compiling into it.
           hygiene = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
             src = ./.;
             pnameSuffix = "-hygiene";
             doCheck = false;
             buildPhaseCargoCommand = ''
-              cargo run -q -p xtask -- hygiene
+              cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
             '';
           });
 
@@ -813,7 +824,7 @@
             buildPhaseCargoCommand = ''
               export HOME="$TMPDIR/home"
               mkdir -p "$HOME"
-              cargo run --release -q -p xtask -- crap
+              cargo run -q --profile "$CARGO_PROFILE" -p xtask -- crap
             '';
           });
 
