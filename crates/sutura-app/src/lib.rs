@@ -20,6 +20,12 @@
 //! the service would serve. The golden suite did exactly that. The wrapper attested to the caller's
 //! own assertion and read like proof, which is worse than no wrapper. [`verify_anchors`] survives
 //! because a report is worth rendering to an operator; what it cannot do any more is mint the proof.
+//!
+//! [`surface`] is those same two entry points with the ports' generic parameters erased, for a
+//! transport whose request handler is a concrete function. It is a *driving* port and it lives here
+//! rather than in a transport crate, which is a correction: it used to be `sutura-http`'s, and a
+//! second transport would have had to depend on the first to reach it. Nothing in that module names
+//! a framework type, so this crate still holds none.
 
 use sutura_domain::catalog::Anchor;
 use sutura_domain::model::{Grain, MetricName, SourceName};
@@ -27,6 +33,21 @@ use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, Pinned
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
+
+// The application-facing interface a transport consumes, with the ports' generics erased: a
+// DRIVING port and its one implementor. The argument for it being here rather than in `sutura-http`
+// is the module's own documentation - a plain comment here rather than a doc comment, because
+// rustdoc resolves the links in a merged module doc against the file the `mod` line is in, and
+// every name in that argument lives in the other file.
+pub mod surface;
+
+// The agent-facing system prompt, derived from the tool surface and the pinned bundle. Here for the
+// same reason `sources` and `grains_coarsest_first` below are: a shape the application can offer
+// for free, that every one of its callers needs, belongs with the application rather than with one
+// transport. It adds no dependency to this crate's manifest, which is what keeps `cargo tree -p
+// sutura-app -e normal` at `sutura-domain`, `sutura-semantic` and `thiserror` - the fact `AGENTS.md`
+// cites as holding up the rule that a driving port is not owned by one of its callers.
+pub mod prompt;
 
 pub use crate::proof::{Validated, verify_and_validate};
 
@@ -187,11 +208,25 @@ where
             },
         });
     }
-    // Prepared before it is run. It costs a round trip and it means a statement that would be
-    // rejected is rejected before any data is read, which is the difference between a failed query
-    // and a partial one.
+    // Prepared before it is run, WHERE THAT IS CHEAPER THAN RUNNING IT. For an adapter across a
+    // network it is: a statement that would be rejected is rejected before any data is read, which
+    // is the difference between a failed query and a partial one. For the in-process engine it is
+    // not - checking builds the logical plan and runs the analyzer and the optimizer, and then
+    // execution does all of it again, so the guarantee was bought at the price of two full planning
+    // passes per question. `Warehouse::dry_run` is defaulted for that reason: an adapter that cannot
+    // make checking cheaper answers this by doing nothing, and says so by not implementing it.
     warehouse.dry_run(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
     let rows = warehouse.execute(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
+    // The row cap, enforced rather than merely requested. The plan asked for one row more than
+    // `plan.max_rows()`, so more than that many coming back means the result was cut short - and a
+    // truncated result is a wrong total under a certified name, with provenance attached and nothing
+    // saying it is partial. Refused, because "this question is too wide to certify" is an answer the
+    // caller can act on and a silent partial one is not.
+    if rows.rows().len() > usize::try_from(plan.max_rows()).unwrap_or(usize::MAX) {
+        return Ok(ToolOutcome::Refusal {
+            reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
+        });
+    }
     Ok(ToolOutcome::Answer {
         provenance: pinned.provenance(),
         rows,
@@ -403,7 +438,6 @@ mod tests {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
-            sutura_catalog_local::digest_of,
         )
         .expect("the test definitions hash")
     }

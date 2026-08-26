@@ -9,6 +9,16 @@ repository.workspace = true
 publish = false
 description = "The service's resolved configuration. Layered sources, one typed tree, and a hard failure on an unsafe combination."
 
+[features]
+# Does the BINARY this configuration is read by have a TLS implementation linked in?
+#
+# No dependency of its own, and that is the whole design: this crate reads paths and never opens a
+# socket, so the feature exists only so `Settings::refusals` can tell "the operator asked this
+# process to terminate TLS" from "this process can". Without it, `tls_termination: in-process` is a
+# startup refusal naming the feature rather than a plaintext listener on a port somebody configured
+# to be encrypted. `sutura-http`'s own `tls` feature turns this one on, so the two cannot disagree.
+tls = []
+
 [dependencies]
 # The domain, for `Secret` alone. A configured credential is held in the type whose `Debug`
 # redacts, so the startup log that prints the whole tree cannot print the token - and this

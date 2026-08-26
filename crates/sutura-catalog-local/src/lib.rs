@@ -26,9 +26,8 @@ pub mod frontmatter;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use sha2::{Digest as _, Sha256};
 use sutura_domain::catalog::{Definitions, InconsistentDefinitions, Metric, Model, Relationship};
-use sutura_domain::definitions::{DefinitionDigest, InvalidDigest};
+use sutura_domain::definitions::NotDigestible;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 
 use crate::document::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
@@ -107,62 +106,25 @@ pub enum LocalCatalogError {
     },
     #[error("the catalog at {path} holds no documents")]
     Empty { path: PathBuf },
-    #[error("the definitions could not be put into canonical form to be hashed")]
-    Canonicalize {
-        #[source]
-        cause: serde_json::Error,
-    },
-    #[error("the computed digest is not a digest, which means the hashing changed shape")]
+    /// The domain could not hash the definitions.
+    ///
+    /// One variant rather than the two this used to have. Those two - the canonical form failing to
+    /// serialize, and the resulting hex failing to parse as a digest - are now both inside the
+    /// domain's own hashing, and neither is a fact about reading a directory. The chain still says
+    /// which one happened.
+    #[error("the definitions could not be hashed")]
     Digest {
         #[source]
-        cause: InvalidDigest,
+        cause: NotDigestible,
     },
 }
 
-/// The canonical byte form of a set of definitions: what the digest is taken over.
-///
-/// JSON rather than the YAML it was read from, and that is the whole point. Reformatting a document,
-/// reordering two files or rewording a comment must not move the digest; changing what a metric means
-/// must. Serializing the *parsed* definitions gives exactly that, because everything that survives
-/// parsing is meaning and everything that does not is layout.
-///
-/// Deterministic for two reasons that both have to hold: [`Definitions`] uses `BTreeMap` throughout,
-/// so collection order is content order rather than hash order, and `serde_json` writes struct
-/// fields in declaration order.
-///
-/// It lives in this adapter because `sutura-domain` cannot hash - `sha2` is not on its allowlisted
-/// dependency tree, deliberately. When a second real catalog adapter lands, this moves to something
-/// both can depend on rather than being reimplemented; a second implementation of a canonical form
-/// is two canonical forms.
-pub fn canonical_form(definitions: &Definitions) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(definitions)
-}
-
-/// One hex digit.
-///
-/// Written out rather than reached through `format!`, because the formatting machinery returns a
-/// `Result` that cannot fail here and the ways of discarding it all trip a lint: the alternatives
-/// are an `expect` on a path a catalog file can reach, or a `let _` on a `#[must_use]` value.
-fn nibble(value: u8) -> char {
-    if value < 10 {
-        char::from(b'0'.saturating_add(value))
-    } else {
-        char::from(b'a'.saturating_add(value.saturating_sub(10)))
-    }
-}
-
-/// The digest of a set of definitions.
-pub fn digest_of(definitions: &Definitions) -> Result<DefinitionDigest, LocalCatalogError> {
-    let canonical = canonical_form(definitions).map_err(|cause| LocalCatalogError::Canonicalize { cause })?;
-    let hash = Sha256::digest(&canonical);
-    let hex: String = hash
-        .iter()
-        .flat_map(|byte| [nibble(byte >> 4_u8), nibble(byte & 0x0f_u8)])
-        .collect();
-    // Lower-case hex of 32 bytes is what `DefinitionDigest` parses. If that ever stops being true
-    // the error says the hashing changed shape rather than blaming the catalog.
-    DefinitionDigest::parse(hex).map_err(|cause| LocalCatalogError::Digest { cause })
-}
+// The canonical form and its hash used to live here, and a review showed why they could not: while
+// `PinnedDefinitions::pin` took the hashing FUNCTION, safe public code could hand it one that
+// ignored its argument and pair any digest with any set of definitions. The hash is now the domain's
+// own, so this adapter reads documents and nothing else - and there is one canonical form rather
+// than one per adapter, which is what a second catalog adapter would otherwise have had to
+// reimplement or import from here.
 
 /// A catalog read from a directory of documents.
 #[derive(Debug, Clone)]
@@ -338,10 +300,11 @@ impl SemanticCatalog for LocalCatalog {
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let definitions = self.read_all()?;
-        // `pin` applies `digest_of` to the definitions it is about to store, rather than taking a
-        // digest beside them. There is no step here that could pair a bundle with provenance for
-        // other content, and no order to get wrong.
-        PinnedDefinitions::pin(self.version.clone(), definitions, digest_of)
+        // `pin` hashes the definitions it is about to store, using the domain's own canonical form.
+        // This adapter no longer supplies the hasher, and that is the point: while it did, safe
+        // public code could pass a function that ignored its argument and pair any digest with any
+        // definitions. There is nothing to pass now, so there is nothing to get wrong.
+        PinnedDefinitions::pin(self.version.clone(), definitions).map_err(|cause| LocalCatalogError::Digest { cause })
     }
 }
 

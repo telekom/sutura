@@ -17,9 +17,11 @@ is not, so this page is vocabulary rather than an API you can call.
     were false.
 
     **Every identity claim on this page is a design target.** What exists today is a governed
-    single-player semantic compiler and executor over local files. The identity-aware runtime this
-    vocabulary describes is ahead of it, and no sentence here should be read as a control you can
-    rely on unless it says *enforced today*.
+    semantic compiler and executor over local files, served over HTTP behind a bearer token that
+    authenticates the **deployment** rather than the caller. So the perimeter is real and the
+    per-caller identity is not: anyone holding that token can ask anything the catalogue certifies.
+    The identity-aware runtime this vocabulary describes is ahead of it, and no sentence here should
+    be read as a control you can rely on unless it says *enforced today*.
 
 ## A question, and what it is made of
 
@@ -50,6 +52,13 @@ tests in `sutura-catalog-local`, which has a real format parser to provoke them 
 is separate and sits one layer in, at resolution, where the range is demonstrably a caller's rather
 than an author's - the table under [What you cannot ask for](#what-you-cannot-ask-for)
 says what it does and does not bound.
+
+**Telling an agent all of this is a separate job from enforcing it.** An agent that has not been told
+what this surface is will look for a field to put SQL in, and then read a refusal as an outage and
+retry. The types stop the damage and cannot stop the loop, so the vocabulary above is also rendered
+as a system prompt from the pinned bundle and the exposed operations -
+[The agent prompt](agent-prompt.md) is what it says, what it deliberately leaves out, and what an
+operator can layer on top.
 
 ## A certified definition
 
@@ -108,10 +117,11 @@ never echoed back either: `DimensionValueNotAllowed` names the dimension and sto
 text cannot be reflected into a log, a UI or an agent's context.
 
 **Design target, not built.** Recording each refusal with the whole principal chain before it is
-returned. There is no audit sink in the workspace and no logging dependency in it at all, so a
-refusal today is a value handed to the caller and nothing more. Until a sink exists, a refused call
-is not attributable, and a refusal nobody can see is indistinguishable from a request that never
-happened.
+returned. There is no audit sink, and no principal chain to record: `sutura-runtime` installs a
+tracing subscriber, so a refusal can be *logged*, but a log line is not an audit record - nothing
+correlates it to a caller, because there is no caller identity to correlate it to. Until both exist,
+a refused call is not attributable, and a refusal nobody can attribute is indistinguishable from a
+request that never happened.
 
 ## Principal, subject, and running as the caller
 
@@ -209,8 +219,9 @@ catalogue of documents in git and a `DuckDB` file, with every certified number r
 the bundle may be served.
 
 Everything marked *design target* above is unbuilt, and the identity claims are all of them. There
-is no request context, no credential broker, no audit sink, no Arrow envelope, and neither an MCP
-nor an HTTP surface. [What exists today](architecture.md#what-exists-today) is the inventory, and
+is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.
+There IS an HTTP surface, and its bearer token authenticates the deployment rather than the caller -
+so none of the per-caller claims above are made true by it. [What exists today](architecture.md#what-exists-today) is the inventory, and
 `AGENTS.md` in the repository lists each invariant beside the type, lint or gate that holds it -
 including the rows that say outright that nothing holds them yet.
 

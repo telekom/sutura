@@ -4,7 +4,8 @@
 //! run twice. The instrument is a fake: the port is a Rust trait, so the honest stand-in is a type
 //! that implements it, and a test asserting on the text of an HTTP request would prove something
 //! about the test.
-use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason};
+use sutura_domain::plan::MAX_ROWS;
+use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ToolOutcome};
 use sutura_semantic::compile;
 
 use crate::shared::{PROVOKED, question, settings};
@@ -78,6 +79,55 @@ fn a_refused_question_never_reaches_the_data_system() {
         "refused questions reached the data system: {:?}",
         fake.asked_about()
     );
+}
+
+#[test]
+fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated() {
+    // THE BUG THIS EXISTS FOR, and it was a wrong number under a certified name. `plan::MAX_ROWS`
+    // was the `LIMIT` on the statement and on the engine's plan, and NOTHING compared the rows that
+    // came back against it. So a question at `day` grain over a year, grouped by up to
+    // `MAX_DIMENSIONS` keys, answered with the first ten thousand groups by group key - with a
+    // provenance digest attached and no indication whatsoever that it was partial. Summing those
+    // rows gives a total that is wrong by omission, which is the one failure a caller cannot detect
+    // and the one this design is arranged against.
+    //
+    // Not in `PROVOKED` and it cannot be: that table is refusals a QUESTION FILE provokes, decided
+    // before anything runs, and `a_refused_question_never_reaches_the_data_system` asserts exactly
+    // that about every entry. This refusal is decided after a data system has answered. The fixture
+    // CSVs hold twelve orders, so nothing authorable here reaches ten thousand groups either - the
+    // honest instrument is a fake that decides its own row count.
+    let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
+    let cap = usize::try_from(MAX_ROWS).expect("the row cap fits a usize on every target this builds for");
+
+    // One row past the cap. That row exists only because the plan asked for it: see below.
+    let too_wide = crate::support::WideResult::of(cap.saturating_add(1));
+    let outcome =
+        sutura_app::answer(&validated, &question("revenue-by-region.yaml"), &too_wide).expect("a refusal is not an error");
+    assert_eq!(
+        outcome.refusal(),
+        Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
+        "a result past the row cap must be refused, and refused for being too large"
+    );
+
+    // The other half of the mechanism, asserted rather than assumed: the adapter was asked for one
+    // row MORE than the cap. Without the extra row a result of exactly `MAX_ROWS` is
+    // indistinguishable from one the cap cut short, and the check above would have to refuse both -
+    // which would make a legitimate ten-thousand-row answer unobtainable.
+    assert_eq!(
+        too_wide.asked_for(),
+        vec![MAX_ROWS.saturating_add(1)],
+        "the plan must ask for one row past the cap, or reaching the cap cannot be told from being cut off by it"
+    );
+
+    // And exactly the cap still answers, so this is not a test that would pass with every wide
+    // question refused.
+    let at_the_cap = crate::support::WideResult::of(cap);
+    let outcome =
+        sutura_app::answer(&validated, &question("revenue-by-region.yaml"), &at_the_cap).expect("a refusal is not an error");
+    let ToolOutcome::Answer { ref rows, .. } = outcome else {
+        panic!("a result of exactly the cap is answerable, not {outcome:?}");
+    };
+    assert_eq!(rows.rows().len(), cap);
 }
 
 #[test]

@@ -57,10 +57,17 @@
 //! warning is read by whoever is looking at the log in the format the collector was configured
 //! for; a process that does not start is read by everybody.
 //!
-//! - A bind address other hosts can reach, without `security.expose_beyond_loopback: true`. In
-//!   *every* environment, including a laptop.
+//! - A bind address other hosts can reach with `security.tls_termination: none`. In *every*
+//!   environment, including a laptop. **The bind itself is not refused** - an ingress controller or
+//!   a sidecar terminating TLS in front of a plaintext pod-local listener is the normal
+//!   arrangement - what is refused is not saying which of those it is, because that is what decides
+//!   how far the bearer token travels in cleartext.
 //! - No `security.access_token`, in production or on a non-loopback bind.
 //! - `rate_limit.enabled: false` in production.
+//! - `rate_limit.client_address: forwarded` with an empty `rate_limit.trusted_proxies`, or a
+//!   non-empty list that nothing reads.
+//! - `security.tls_termination: in-process` without a certificate and key, or in a binary built
+//!   without the `tls` feature; or a certificate and key no declaration would ever read.
 //! - `server.port: 0` in production.
 //!
 //! The checks read the *loaded* values, not any one file, because the variable layer is applied
@@ -71,6 +78,9 @@ pub mod api;
 pub mod catalog;
 pub mod environment;
 pub mod limits;
+pub mod prompt;
+pub mod proxy;
+pub mod runtime;
 pub mod security;
 pub mod server;
 pub mod telemetry;
@@ -82,8 +92,13 @@ pub use crate::api::ApiSettings;
 pub use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
-pub use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings};
-pub use crate::server::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, RequestTimeout, ServerSettings};
+pub use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
+pub use crate::proxy::{Cidr, ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
+pub use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace};
+pub use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
+pub use crate::server::{
+    BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,
+};
 pub use crate::settings::{
     ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR,
     environment_from_process,

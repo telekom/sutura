@@ -66,15 +66,50 @@ Rate limiting is not authentication either - see `limits` for what it does and d
 warning is read by whoever is looking at the log in the format the collector was configured
 for; a process that does not start is read by everybody.
 
-- A bind address other hosts can reach, without `security.expose_beyond_loopback: true`. In
-  *every* environment, including a laptop.
+- A bind address other hosts can reach with `security.tls_termination: none`. In *every*
+  environment, including a laptop. **The bind itself is not refused** - an ingress controller or
+  a sidecar terminating TLS in front of a plaintext pod-local listener is the normal
+  arrangement - what is refused is not saying which of those it is, because that is what decides
+  how far the bearer token travels in cleartext.
 - No `security.access_token`, in production or on a non-loopback bind.
 - `rate_limit.enabled: false` in production.
+- `rate_limit.client_address: forwarded` with an empty `rate_limit.trusted_proxies`, or a
+  non-empty list that nothing reads.
+- `security.tls_termination: in-process` without a certificate and key, or in a binary built
+  without the `tls` feature; or a certificate and key no declaration would ever read.
 - `server.port: 0` in production.
 
 The checks read the *loaded* values, not any one file, because the variable layer is applied
 last: a check against `production.yaml` would be checking something the process is not running
 on.
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -355,6 +390,19 @@ What it does buy is real: it turns an unbounded loop against a data system into 
 one, and a question here is an aggregate over up to ten years of history, so the cost of one
 request is not small.
 
+**The switch follows the environment, and the refusal does not.** `rate_limit.enabled` has no
+fixed default: it is off in development and test and on in production, the same shape
+`telemetry.format` and `api.docs` already have here. That is a convenience in one direction only.
+An explicit `false` in production is still a refusal to start - see
+`crate::Settings::refusals` - because a default nobody had to write down and a control an
+operator switched off are different facts, and the second one has to be visible.
+
+**Which address the bucket is keyed on is a configuration decision, and it has to be.** The
+peer address is unforgeable and is the proxy's for every request behind an ingress controller,
+which is one bucket for the whole internet; a forwarded header is per-caller and is a value any
+caller can write. `crate::proxy` is where that trade lives, and the refusal that keeps the
+header from being believed without a named hop is in `crate::Settings::refusals`.
+
 Two tiers, because the two surfaces have different shapes. The *probe* tier covers what a
 caller may poll - liveness, and the generated `OpenAPI` document - and is tight, because nothing
 there changes between two requests. The *api* tier covers the versioned API, where a legitimate
@@ -425,33 +473,494 @@ Why a pair of numbers is not a quota.
 pub struct RateLimitSettings
 ```
 
-Both tiers, and the switch.
+Both tiers, the switch, and what a bucket is keyed on.
 
 The switch is separate from the numbers on purpose. A deployment that turns limiting off is
 making a decision, and it should be one word in a file rather than a quota set so high it
 never fires - which reads as a configured limit and is not one.
 
+**The switch itself has no fixed default; it follows `crate::Environment`.** Off on a laptop,
+because a limiter that fires while somebody is iterating is a bug report about sutura that is
+really a bug report about the tier; on in production, because that is the deployment an
+unbounded caller costs something. The same shape as `telemetry.format` and `api.docs`, including
+the recorded flag - see `Self::enabled_default_for`.
+
+**Not `Copy`, and that is the trusted-proxy list.** It is a `Vec`, so this group is cloned
+rather than copied and the accessors borrow. Every call site is inside the assembled router,
+once, at startup.
+
 #### Methods
 
 ```rust
-pub const fn api(self) -> Quota
+pub const fn api(&self) -> Quota
 ```
 
 The tier for the versioned API.
 
 ```rust
-pub const fn enabled(self) -> bool
+pub const fn client_address(&self) -> ClientAddressSource
+```
+
+Where the address a bucket is keyed on comes from.
+
+```rust
+pub const fn enabled(&self) -> bool
 ```
 
 ```rust
-pub const fn new(enabled: bool, probe: Quota, api: Quota) -> Self
+pub const fn enabled_default_for(environment: crate::Environment) -> bool
+```
+
+The default for an environment: on in production, off everywhere else.
+
+**A default and not a refusal in one direction, and a refusal in the other.** Nothing here
+stops a developer switching the limiter on, and nothing here decides production: an explicit
+`enabled: false` in production is refused by
+`crate::Settings::refusals` regardless of what this function
+would have returned. The two must not be conflated - default-off in development is a
+convenience, and silently-off in production is how a deployment loses a control nobody
+noticed it had.
+
+A total match rather than a comparison, so a fourth environment has to state its own answer
+instead of inheriting whichever branch it happens to fall into.
+
+`crate::Environment::Test` is grouped with development, and that is an argument rather than
+a convenience. A test that exercises the limiter cannot rely on this value anyway: asserting
+a refusal needs a quota small enough to exhaust in two requests, so such a test writes
+`rate_limit.enabled` and a tier down together - which is what
+`sutura-http`'s harness already does. So defaulting on here would buy no coverage, and would
+charge every unrelated test in the suite a limiter it never asked for, at a tier
+(`probe_burst: 5`) that a loop over fixtures can exhaust. A limiter nothing exercises is
+untested code; the answer to that is a test that names the switch, not a default that fires
+during somebody else's assertion.
+
+```rust
+pub const fn enabled_was_explicit(&self) -> bool
+```
+
+Did an operator write the switch down, or did the environment decide it?
+
+For the startup log, which says which arm was taken and whether anybody chose it.
+
+```rust
+pub const fn new(enabled: bool, enabled_was_explicit: bool, probe: Quota, api: Quota, client_address: ClientAddressSource, trusted_proxies: TrustedProxies) -> Self
 ```
 
 ```rust
-pub const fn probe(self) -> Quota
+pub const fn probe(&self) -> Quota
 ```
 
 The tier for what an unauthenticated caller can reach.
+
+```rust
+pub const fn trusted_proxies(&self) -> &TrustedProxies
+```
+
+The hops whose forwarded header is believed.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `proxy`
+
+Which address a request is counted against, and who is allowed to say what it is.
+
+# The problem this module exists for
+
+A rate limiter needs a key, and on a surface with no per-caller identity - see
+`crate::security` - the only key available is a network address. There are two ways to learn
+one and they fail in opposite directions.
+
+The **peer address** is the far end of the TCP connection. It cannot be forged by a caller,
+and behind a reverse proxy or an ingress controller it is the *proxy's* address for every
+request that has ever arrived - so every caller on the internet shares one bucket. Either one
+abusive caller limits everybody, or the quota is set high enough to be no limit at all.
+
+A **forwarded header** carries the address the proxy saw. It is the right answer behind a
+proxy and it is a value any caller can write, so on a service that is *not* behind one it
+makes every bucket the caller's to choose - which is worse than one shared bucket, because it
+is a limiter that reports a configured limit and bounds nothing.
+
+Neither is correct on its own. What is correct is a header read **only from a peer the
+operator named**, which is what `TrustedProxies` is: an explicit list, empty by default, and
+`ClientAddressSource::Forwarded` refuses to start without one rather than trusting a
+spoofable header because a key was left at its default.
+
+# Which entry of the header is the caller
+
+`X-Forwarded-For` is appended to, hop by hop, so it reads left to right as oldest to newest.
+Everything to the left of what our own trusted proxy wrote is a value the caller supplied, and
+a caller who writes `X-Forwarded-For: 10.0.0.1` gets that value read as their address by
+anything that takes the leftmost entry.
+
+So the walk is from the **right**: skip the entries that are addresses of trusted proxies, and
+the first entry that is not one is the client. If every entry is a trusted proxy, or the list
+runs out, or an entry is not an address at all, the peer address is used - it is the one value
+in the request nobody but the network can choose.
+
+### `struct Cidr`
+
+```rust
+pub struct Cidr
+```
+
+An address or a block of them, as an operator writes it.
+
+`10.0.0.0/8` or a bare `10.0.0.7`, in either address family. A bare address is a block whose
+prefix covers every bit, so there is one shape to match against rather than two.
+
+#### Methods
+
+```rust
+pub fn contains(&self, address: IpAddr) -> bool
+```
+
+Is `address` inside this block?
+
+Mixed families never match: a v4 block does not contain a v6 address, and the canonical
+form applied on both sides is what keeps a v4 peer arriving over a dual-stack socket from
+being one.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidTrustedProxy>
+```
+
+Reads one entry.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `enum InvalidTrustedProxy`
+
+```rust
+pub enum InvalidTrustedProxy
+```
+
+Why a string is not an address block.
+
+#### Variants
+
+- `NotAnAddress` - The part before the slash was not an `IPv4` or `IPv6` literal.
+- `PrefixNotANumber` - The part after the slash was not a number.
+- `PrefixTooLong` - The prefix is longer than the address family has bits.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct TrustedProxies`
+
+```rust
+pub struct TrustedProxies
+```
+
+The peers whose forwarded header this service will believe.
+
+**Empty by default, and the emptiness is the safe posture rather than an unset value.** With
+nothing in the list the peer address is the key, which is correct for a service with no proxy
+in front. It becomes non-empty only when an operator names the hop.
+
+#### Methods
+
+```rust
+pub const fn is_empty(&self) -> bool
+```
+
+Did the operator name any hop at all?
+
+```rust
+pub const fn len(&self) -> usize
+```
+
+How many blocks are trusted, for the startup log.
+
+```rust
+pub fn parse<S>(entries: &[S]) -> Result<Self, InvalidTrustedProxy>
+```
+
+Reads the configured list.
+
+```rust
+pub fn trusts(&self, address: IpAddr) -> bool
+```
+
+Is `address` one of the hops the operator named?
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+### `enum ClientAddressSource`
+
+```rust
+pub enum ClientAddressSource
+```
+
+Where the address a request is counted against comes from.
+
+#### Variants
+
+- `Peer` - The far end of the connection. Unforgeable, and one bucket for everything behind a proxy.
+- `Forwarded` - `X-Forwarded-For`, read only from a peer in `TrustedProxies`, falling back to the peer address for anything else.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownClientAddressSource>
+```
+
+Reads the configured value.
+
+```rust
+pub const fn reads_a_header(self) -> bool
+```
+
+Does this source read a caller-supplied header?
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Display`, `Eq`, `PartialEq`
+
+### `struct UnknownClientAddressSource`
+
+```rust
+pub struct UnknownClientAddressSource
+```
+
+The configured value did not name a source.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `runtime`
+
+How much work may be in flight at once, how wide the engine runs, and how long stopping may
+take.
+
+# Why this is its own group and not four more `server` keys
+
+Because it bounds a different thing from anything in `crate::server`. Those keys are about one
+request: where it arrives, how big it may be, how long the caller waits for a reply. These are
+about the *process*: how many questions execute at once, how wide the engine that executes them
+is, and what the budget for winding down is.
+
+The distinction matters most for the timeout. `server.request_timeout_seconds` is a deadline on
+the **reply**, not a bound on the **work**. When it expires the caller is answered `408` and the
+handler future is dropped - and a started `tokio::task::spawn_blocking` task cannot be aborted,
+so the question keeps running. Without something else in the picture, a caller asking questions
+that cost more than the timeout gets a fast turnaround while the deployment keeps the whole
+cost, and in-flight work accumulates at the rate limit with nothing shedding it. The blocking
+pool defaults to 512 threads with an unbounded queue, so that backlog is bounded by memory.
+
+`QueryConcurrency` is the bound on the work. It is the number of questions that may be
+*executing*, and the permit is held by the blocking task rather than by the handler future - so
+a timed-out request does not hand its slot back until the work it started actually finishes.
+That is what makes the backlog a number somebody chose.
+
+`AdmissionTimeout` stops the queue in front of that bound from being a second unbounded thing.
+A question that cannot get a slot inside it is refused rather than left waiting, and a refused
+waiter costs a dropped future rather than a thread.
+
+`EngineWorkers` is not a bound at all - it is a width. The in-process engine drives its own
+runtime and blocks on it, so a single-threaded one is a contention point every concurrent
+question shares. See `sutura_exec_datafusion::DataFusionWarehouse`.
+
+`ShutdownGrace` is the budget for stopping, and it covers the whole of stopping rather than
+the connection drain alone.
+
+Every type here has the shape of `crate::server::RequestTimeout`, which is the pattern this
+crate already had: a private field, one `parse` that is the only constructor, a ceiling the type
+declares, and a zero refused rather than read as `no limit`. They share
+`InvalidBound` rather than growing a second error, so a bad value here lands in the same
+`SettingsError` variant a bad server bound does.
+
+### `struct QueryConcurrency`
+
+```rust
+pub struct QueryConcurrency
+```
+
+How many questions may be executing at once.
+
+Not how many may be *in flight*: a request waiting for a slot, parsing a body or writing a
+response is not counted. This is the number of questions holding a blocking-pool thread and a
+data system, which is the resource that runs out.
+
+#### Methods
+
+```rust
+pub const fn count(self) -> usize
+```
+
+```rust
+pub const fn parse(count: usize) -> Result<Self, InvalidBound>
+```
+
+Reads a concurrency bound.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct AdmissionTimeout`
+
+```rust
+pub struct AdmissionTimeout
+```
+
+How long a question may wait for one of those slots.
+
+Bounded because the alternative is a queue nothing empties. Shorter than the request timeout by
+default, on purpose: a caller who has waited five seconds for a slot is better served by a
+`503` they can retry than by a `408` twenty-five seconds later that says the same thing less
+clearly.
+
+#### Methods
+
+```rust
+pub const fn duration(self) -> Duration
+```
+
+```rust
+pub const fn parse(seconds: u64) -> Result<Self, InvalidBound>
+```
+
+Reads a wait in whole seconds.
+
+```rust
+pub const fn seconds(self) -> u64
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct EngineWorkers`
+
+```rust
+pub struct EngineWorkers
+```
+
+How many threads the in-process engine's own runtime gets.
+
+Resolved to a number at load time rather than kept as "whatever the machine has", so the value
+in the startup log is the value in effect. An absent key follows
+`std::thread::available_parallelism`; a present one wins, which is what a container with a CPU
+quota needs - `available_parallelism` reports what the kernel exposes, and on most container
+runtimes that is the host's core count rather than the cgroup's share.
+
+#### Methods
+
+```rust
+pub const fn count(self) -> usize
+```
+
+```rust
+pub fn parse(configured: Option<usize>) -> Result<Self, InvalidBound>
+```
+
+Reads a worker count, or resolves the absent one.
+
+Not a `const fn`, unlike its neighbours, because the absent case asks the operating system
+how many threads this machine can run at once. A machine that will not answer is treated as
+one, which is the behaviour this adapter had before the key existed rather than a failure to
+start.
+
+```rust
+pub const fn was_chosen(self) -> bool
+```
+
+Did an operator write this number, or did the machine?
+
+For the startup log, and for the same reason `api.docs` records it: an operator reading
+`engine_worker_threads = 8` needs to know whether that was their decision.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct ShutdownGrace`
+
+```rust
+pub struct ShutdownGrace
+```
+
+How long stopping may take, once stopping has been asked for.
+
+Chosen against the deadline on the other side rather than as a round number. An orchestrator
+sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+process still running when that expires is killed mid-answer, so whatever it would have done on
+the way out does not happen. Fifteen seconds leaves room for the exit itself.
+
+It bounds the *whole* of stopping and not the connection drain alone. The drain gets the budget
+first; what is left of it is what the runtime will wait for a blocking task it cannot cancel.
+See `sutura_runtime::Shutdown::remaining_grace`.
+
+#### Methods
+
+```rust
+pub const fn duration(self) -> Duration
+```
+
+```rust
+pub const fn parse(seconds: u64) -> Result<Self, InvalidBound>
+```
+
+Reads a grace period in whole seconds.
+
+```rust
+pub const fn seconds(self) -> u64
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct RuntimeSettings`
+
+```rust
+pub struct RuntimeSettings
+```
+
+Everything about how much runs at once and how the process stops.
+
+#### Methods
+
+```rust
+pub const fn admission_timeout(self) -> AdmissionTimeout
+```
+
+```rust
+pub const fn engine_workers(self) -> EngineWorkers
+```
+
+```rust
+pub const fn max_concurrent_queries(self) -> QueryConcurrency
+```
+
+```rust
+pub const fn new(max_concurrent_queries: QueryConcurrency, admission_timeout: AdmissionTimeout, engine_workers: EngineWorkers, shutdown_grace: ShutdownGrace) -> Self
+```
+
+Assembles the group from parts that have each already been parsed.
+
+Infallible, like `crate::server::ServerSettings::new` and for the same reason: there is no
+cross-field rule inside this group. The one relationship worth knowing - that an admission
+timeout above the request timeout is never reached - spans two groups and is documented on
+`AdmissionTimeout::MAX_SECONDS` rather than refused.
+
+```rust
+pub const fn shutdown_grace(self) -> ShutdownGrace
+```
 
 #### Implements
 
@@ -522,6 +1031,10 @@ pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidAccessToken>
 
 Reads a configured token.
 
+**Parses the wire grammar, not merely a length.** The type is named for a value that
+arrives in an `Authorization` header, so what it accepts is what such a header can carry:
+see `Self::wire_grammar` and `InvalidAccessToken::NotRepresentableOnTheWire`.
+
 #### Implements
 
 `Clone`, `Debug`
@@ -538,6 +1051,96 @@ Why a string is not usable as an access token.
 
 - `TooShort` - Shorter than `AccessToken::MIN_LENGTH`.
 - `Untrimmed` - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.
+- `NotRepresentableOnTheWire` - A character no `Authorization` header could carry to us.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum TlsTermination`
+
+```rust
+pub enum TlsTermination
+```
+
+Where TLS is terminated for this deployment.
+
+**A declaration, not a control.** Nothing here encrypts anything except
+`Self::InProcess`; the other three name a terminator that lives somewhere else, and the point
+of writing it down is that the *cleartext hop* it implies is then a stated fact rather than an
+assumption. The bearer token crosses that hop in the clear, and how far the hop reaches is the
+whole difference between the three:
+
+| Declared | What terminates TLS | What the token crosses in cleartext |
+| --- | --- | --- |
+| `none` | nothing | the whole path from the caller. Only sane on loopback |
+| `sidecar` | a proxy in this pod | a loopback hop inside the pod |
+| `ingress` | an ingress controller or gateway | the pod network, from that hop to this process |
+| `in-process` | this process | nothing - the connection ends here |
+
+So `ingress` is not a weaker `sidecar`: it is the same posture with a longer cleartext segment,
+and whether that segment is acceptable is a question about the cluster network - a mesh with
+mutual TLS between pods answers it differently from a flat one. This type does not pretend to
+know, and a startup log that said "TLS enabled" would be pretending.
+
+#### Variants
+
+- `None` - Nothing terminates TLS. Plaintext from the caller to here.
+- `Sidecar` - A terminator inside this pod or on this host, reached over loopback.
+- `Ingress` - An ingress controller or gateway. The hop from it to this process crosses the pod network.
+- `InProcess` - This process. Requires the `tls` feature and a certificate and key.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub const fn cleartext_hop(self) -> &'static str
+```
+
+The cleartext hop this declaration implies, as a sentence for the startup log.
+
+A function rather than a comment for the same reason
+`SecuritySettings::describes_identity` is one: the log, the documentation and this type
+read the same value, so none of them can drift into claiming end-to-end encryption.
+
+```rust
+pub const fn is_declared(self) -> bool
+```
+
+Was anything said at all?
+
+`Self::None` is the default, so "not declared" and "declared as nothing" are the same
+value - which is why the refusal for a non-loopback bind is keyed on this rather than on an
+`Option`. An operator who means plaintext on loopback writes nothing and gets it.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownTlsTermination>
+```
+
+Reads the configured value.
+
+```rust
+pub const fn terminates_here(self) -> bool
+```
+
+Does this process hold the TLS connection itself?
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Default`, `Display`, `Eq`, `PartialEq`
+
+### `struct UnknownTlsTermination`
+
+```rust
+pub struct UnknownTlsTermination
+```
+
+The configured value did not name a place TLS is terminated.
 
 #### Implements
 
@@ -549,12 +1152,18 @@ Why a string is not usable as an access token.
 pub struct SecuritySettings
 ```
 
-The access posture, and the acknowledgement that goes with a non-loopback bind.
+The access posture, and the declaration that goes with a non-loopback bind.
 
 Two fields rather than one, because they answer different questions and collapsing them was
-the tempting mistake: a token says *who may reach this*, and the acknowledgement says *the
-operator meant to publish it*. A deployment that sets a token but binds the wildcard by
-accident has answered only the first.
+the tempting mistake: a token says *who may reach this*, and the declaration says *what, if
+anything, encrypts the path it travels*. A deployment that sets a token but binds the wildcard
+with nothing in front has answered only the first.
+
+**The declaration replaced a boolean, and that is the point of it.** The boolean it replaced -
+`expose_beyond_loopback` - recorded that somebody meant to publish the service and said nothing
+about what protects the token in flight, so a wildcard bind with no terminator anywhere read
+exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
+agreeing that off-host is intended.
 
 #### Methods
 
@@ -576,14 +1185,14 @@ this stops being a constant and the log line changes with it; until then a deplo
 told, on every boot, that the token authenticates the deployment and not the caller.
 
 ```rust
-pub const fn expose_beyond_loopback(&self) -> bool
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination) -> Self
 ```
-
-Did the operator explicitly say they meant to listen off-host?
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, expose_beyond_loopback: bool) -> Self
+pub const fn tls_termination(&self) -> TlsTermination
 ```
+
+Where the operator said TLS is terminated.
 
 ```rust
 pub const fn token_state(&self) -> &'static str
@@ -735,6 +1344,30 @@ Reads a body limit in bytes.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `struct ShutdownGrace`
+
+```rust
+pub struct ShutdownGrace
+```
+
+How long stopping may take, once stopping has been asked for.
+
+Chosen against the deadline on the other side rather than as a round number. An orchestrator
+sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+process still running when that expires is killed mid-answer, so whatever it would have done on
+the way out does not happen. Fifteen seconds leaves room for the exit itself.
+
+It bounds the *whole* of stopping and not the connection drain alone: the drain gets the budget
+first, and what is left of it is what the runtime will wait for a blocking task it cannot
+cancel. See `sutura_runtime::Shutdown::remaining_grace`.
+
+Zero is refused for the reason every bound in this module is. A zero grace period means "drop
+every in-flight answer immediately", which is a decision somebody would write differently.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `enum InvalidBound`
 
 ```rust
@@ -752,13 +1385,74 @@ Why a bound is not a bound.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `struct TlsMaterial`
+
+```rust
+pub struct TlsMaterial
+```
+
+A certificate chain and the private key that goes with it, as paths.
+
+**Paths and nothing more, and the split is deliberate.** This crate holds no framework and
+reads no files: it parses the *pair* - both halves or neither - and stops there. Whether the
+files are readable, whether they are PEM at all, and whether the key matches the certificate
+are questions only the TLS implementation can answer, so they are answered once, in
+`sutura_http::tls`, before the socket is bound. Two checks in two crates would be two messages
+for one mistake, and the weaker one would be the reassuring one.
+
+#### Methods
+
+```rust
+pub fn certificate(&self) -> &Path
+```
+
+The certificate chain, in PEM.
+
+```rust
+pub fn key(&self) -> &Path
+```
+
+The private key, in PEM.
+
+```rust
+pub fn parse(certificate: Option<&str>, key: Option<&str>) -> Result<Option<Self>, InvalidTlsMaterial>
+```
+
+Reads the pair, or nothing.
+
+`None` for both is "no in-process TLS", which is the default and is not an error.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InvalidTlsMaterial`
+
+```rust
+pub enum InvalidTlsMaterial
+```
+
+Why a pair of paths is not usable TLS material.
+
+#### Variants
+
+- `OnlyOneHalf` - One half was given and the other was not.
+- `EmptyPath` - A path was given as an empty string, which is not a path.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct ServerSettings`
 
 ```rust
 pub struct ServerSettings
 ```
 
-Everything about the socket and the two per-request bounds.
+Everything about the socket, the two per-request bounds, and the TLS material if there is any.
+
+**Not `Copy`, and that is the TLS paths.** Every accessor borrows or returns a `Copy` value, and
+the group itself is read once, at assembly time.
 
 #### Methods
 
@@ -771,23 +1465,29 @@ pub const fn max_body(&self) -> BodyLimit
 ```
 
 ```rust
-pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit) -> Self
+pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
 
 Infallible, and that is the shape the newtypes buy: there is no cross-field rule inside
 this group, so once every part exists the group exists. The cross-field rules - the ones
-that pair a bind address with an environment and a token - live in
+that pair a bind address with an environment, a token and a TLS declaration - live in
 `crate::Settings::parse`, because they need the other groups to decide.
 
 ```rust
 pub const fn request_timeout(&self) -> RequestTimeout
 ```
 
+```rust
+pub const fn tls(&self) -> Option<&TlsMaterial>
+```
+
+The certificate and key this process would terminate TLS with, if any were configured.
+
 #### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ## Module `telemetry`
 

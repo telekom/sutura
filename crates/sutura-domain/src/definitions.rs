@@ -1,22 +1,44 @@
-//! The identifiers of a pinned definition set.
+//! The identifiers of a pinned definition set, and the one operation that computes one.
 //!
 //! Definitions are authored upstream and arrive as an immutable, hashed snapshot. The digest
 //! is what makes "the same question returns the same number" checkable rather than asserted,
 //! and what stops a catalogue edit from changing what executes - so a value that is not a
 //! digest must not be able to occupy the slot where one is expected.
+//!
+//! **The canonical form and its hash live HERE, and that is a correction rather than a
+//! preference.** They used to live in a catalog adapter, and
+//! [`crate::pinned::PinnedDefinitions::pin`] took the hashing function from its caller. A review
+//! found what that leaves open: any safe public code could pass `|_| Ok(some_other_digest)` and pair
+//! an unrelated digest with a set of definitions, so an answer could carry provenance for content
+//! that did not produce it. Handing the definitions to a function is not proof that the function read
+//! them. The digest has to be computed by code the domain trusts, which means code the domain holds,
+//! which is what `DefinitionDigest::of` is.
+//!
+//! The cost is two entries on the domain's dependency allowlist - `sha2` and `serde_json`, twelve
+//! crates transitively - and `xtask/src/boundaries.rs` records what was measured and why it was
+//! accepted. Neither is a framework, both were already linked into the shipped binary through the
+//! catalog adapter, and no lockfile entry is new.
 
-/// Hex characters in a digest. Upstream hashes a definition set with SHA-256.
-///
-/// This crate cannot recompute the hash - `sha2` is not in its allowlisted dependency tree,
-/// and a domain that could hash would be a domain that could re-derive what it is supposed
-/// to accept as given. So the shape is what it checks, and the shape is exact.
+use sha2::{Digest as _, Sha256};
+
+use crate::catalog::Definitions;
+
+/// Hex characters in a digest: SHA-256, as lower-case hex.
 const HEX_LEN: usize = 64;
 
 /// Content hash of a pinned definition set.
 ///
-/// Construct it with [`DefinitionDigest::parse`]. There is no other way in: the field is
-/// private and `Deserialize` is routed through the same constructor, so a `DefinitionDigest`
-/// that is not `HEX_LEN` hex characters does not exist to be passed anywhere.
+/// Two ways in and they answer different questions. `DefinitionDigest::of` computes one FROM a set
+/// of definitions and is what [`crate::pinned::PinnedDefinitions::pin`] uses; [`DefinitionDigest::parse`]
+/// reads one that arrived as text - a provenance record, a serialized bundle - and checks its shape.
+/// The field is private and `Deserialize` is routed through `parse`, so a `DefinitionDigest` that is
+/// not `HEX_LEN` hex characters does not exist to be passed anywhere.
+///
+/// **A parsed digest is not a forgery route, and the difference is worth being precise about.**
+/// Anybody may parse any hex string into one of these; what nothing can do is get it into a
+/// [`crate::pinned::PinnedDefinitions`], because that type's constructor takes no digest and computes
+/// its own. So this type says "this is digest-shaped" and the bundle says "this digest is of that
+/// content", and only the second claim is one an answer rests on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 // Without this, the derived `Deserialize` writes straight into the private field and every
 // validation below is bypassed by the one path that actually carries untrusted input: a
@@ -54,10 +76,84 @@ impl DefinitionDigest {
         Ok(Self(trimmed.to_ascii_lowercase()))
     }
 
+    /// The digest of a set of definitions.
+    ///
+    /// **The trusted operation, and the only way content becomes a digest.** It is `pub(crate)`
+    /// rather than `pub` on purpose: the public surface for "hash these definitions" is
+    /// [`crate::pinned::PinnedDefinitions::pin`], which stores the definitions it hashed in the same
+    /// step. Exposing this on its own would put a digest-of-content value in a caller's hands with
+    /// nothing holding it to the content, which is one refactor away from the hole this replaced.
+    pub(crate) fn of(definitions: &Definitions) -> Result<Self, NotDigestible> {
+        let canonical = canonical_form(definitions).map_err(|cause| NotDigestible::Canonicalize { cause })?;
+        let hash = Sha256::digest(&canonical);
+        let hex: String = hash
+            .iter()
+            .flat_map(|byte| [nibble(byte >> 4_u8), nibble(byte & 0x0f_u8)])
+            .collect();
+        // Lower-case hex of 32 bytes is what `parse` accepts, so this cannot fail today. Routed
+        // through `parse` anyway rather than writing the private field directly, because "the
+        // constructor is the only way in" is the rule this type is here to demonstrate - and if the
+        // hashing ever changes shape the error says so rather than blaming the catalog.
+        Self::parse(hex).map_err(|cause| NotDigestible::NotADigest { cause })
+    }
+
     #[inline]
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// The canonical byte form of a set of definitions: what the digest is taken over.
+///
+/// JSON rather than the YAML or the wire format a definition was read from, and that is the whole
+/// point. Reformatting a document, reordering two files or rewording a comment must not move the
+/// digest; changing what a metric means must. Serializing the *parsed* definitions gives exactly
+/// that, because everything that survives parsing is meaning and everything that does not is layout.
+///
+/// Deterministic for two reasons that both have to hold: [`Definitions`] uses `BTreeMap` throughout,
+/// so collection order is content order rather than hash order, and `serde_json` writes struct fields
+/// in declaration order.
+///
+/// Private, and not merely unexported: the bytes are an implementation detail of the digest, and a
+/// second caller of this function would be a second place with an opinion about what canonical means.
+fn canonical_form(definitions: &Definitions) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(definitions)
+}
+
+/// One hex digit.
+///
+/// Written out rather than reached through `format!`, because the formatting machinery returns a
+/// `Result` that cannot fail here and the ways of discarding it all trip a lint: the alternatives are
+/// an `expect` on a path a catalog file can reach, or a `let _` on a `#[must_use]` value.
+fn nibble(value: u8) -> char {
+    if value < 10 {
+        char::from(b'0'.saturating_add(value))
+    } else {
+        char::from(b'a'.saturating_add(value.saturating_sub(10)))
+    }
+}
+
+/// Why a set of definitions could not be reduced to a digest.
+///
+/// Two variants, and neither is reachable from any catalog this repository can load - which is why
+/// they are variants rather than a panic. `Definitions` holds no floats and every map key is a
+/// newtype over a string, so the serializer has nothing to refuse; and lower-case hex of 32 bytes is
+/// what a digest is. Each variant names which half changed, so a future field of a type that does not
+/// serialize says so instead of surfacing as "the catalog is broken".
+#[derive(Debug, thiserror::Error)]
+pub enum NotDigestible {
+    /// The definitions could not be written into their canonical form.
+    #[error("the definitions could not be put into canonical form to be hashed")]
+    Canonicalize {
+        #[source]
+        cause: serde_json::Error,
+    },
+    /// The computed hash is not digest-shaped, which means the hashing changed and not the catalog.
+    #[error("the computed digest is not a digest, which means the hashing changed shape")]
+    NotADigest {
+        #[source]
+        cause: InvalidDigest,
+    },
 }
 
 /// Delegates to [`DefinitionDigest::parse`] rather than repeating it: one constructor is the

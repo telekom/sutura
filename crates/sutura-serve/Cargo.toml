@@ -12,6 +12,15 @@ description = "The service binary. Composes adapters and the transport; contains
 name = "sutura-serve"
 path = "src/main.rs"
 
+[features]
+# In-process TLS termination. Default-off; see `sutura-http`'s feature of the same name.
+#
+# Named on BOTH crates rather than only on the library, because this is the crate that produces the
+# binary: `--features tls` on the binary is what an operator types, and it has to reach
+# `sutura-config` as well so the startup refusal for "asked for in-process TLS, built without it"
+# agrees with what is actually linked.
+tls = ["sutura-config/tls", "sutura-http/tls"]
+
 [dependencies]
 # For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
 # catalog actually names rather than for a guess.

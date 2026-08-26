@@ -24,7 +24,7 @@ use tower::ServiceExt as _;
 
 use crate::state::ServiceState;
 use crate::surface::LocalService;
-use crate::testing::{bundle, catalog_of, fake_warehouse};
+use crate::testing::{bundle, catalog_of, fake_warehouse, warehouse_that_can_be_held};
 
 /// A token that satisfies the configured floor.
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
@@ -186,12 +186,134 @@ async fn a_body_carrying_sql_is_a_bad_request_and_the_field_is_named() {
 
 #[tokio::test]
 async fn a_body_larger_than_the_configured_bound_is_refused_before_it_is_parsed() {
-    let app = app(settings(Environment::Development, "server:\n  max_body_bytes: 8\n"));
-    let (status, _) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
-    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    let bounded = app(settings(Environment::Development, "server:\n  max_body_bytes: 8\n"));
+    let (status, body) = call(&bounded, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    // `413` and not `400`, and the distinction is the whole reason `routes::v1::query::rejected`
+    // branches on the rejection's status. The body-limit layer makes the JSON extractor reject with
+    // a length-limit error, which is a `JsonRejection` exactly like a malformed body is - so mapping
+    // every rejection to `400` made "you sent too much" indistinguishable from "you sent a typo",
+    // and a caller could not tell which thing to fix.
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE, "{body}");
+    assert!(body.contains(r#""code":"too_large""#), "{body}");
+    // And through a router assembled the same way, a body that is merely wrong is still a `400` - so
+    // the assertion above is about the size and not about the route.
+    let unbounded = app(settings(Environment::Development, ""));
+    let (status, body) = call(&unbounded, request("POST", "/v1/query", None, Body::from("{"))).await;
+    assert_eq!(status, StatusCode::BAD_REQUEST, "{body}");
+    assert!(body.contains(r#""code":"not_a_question""#), "{body}");
+}
+
+#[tokio::test]
+async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() {
+    // Pinned `tower-http` 0.6.11 implements `TimeoutLayer::with_status_code` as
+    // `Response::new(B::default())` - the status and an EMPTY body - while the generated document
+    // and `problem.rs` both promise every `408` carries a `ProblemBody`. So the status was right and
+    // the body was nothing, which a client parsing one failure shape cannot handle.
+    // `middleware::enforce_timeout` exists for this; the assertion is that it is what the assembled
+    // router actually uses.
+    //
+    // One second is the smallest bound `RequestTimeout::parse` accepts. The port call is HELD rather
+    // than made slow, and armed only after `start`, because `start` re-executes every anchor.
+    let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 1\n");
+    let (engine, held) = warehouse_that_can_be_held();
+    let service = LocalService::start(&catalog_of(bundle()), engine).expect("the test bundle validates");
+    let app = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
+    held.arm();
+
+    let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(QUESTION))).await;
+    // Released before the assertions, so a failing one does not also leave the blocking pool holding
+    // the runtime open for the cap.
+    held.release();
+    assert_eq!(status, StatusCode::REQUEST_TIMEOUT, "{body}");
+    assert!(
+        body.contains(r#""code":"timeout""#),
+        "the 408 carried no problem body: {body}"
+    );
+    assert!(body.contains(r#""status":408"#), "{body}");
 }
 
 // ------------------------------------------------------------- the limiter ----
+
+#[tokio::test]
+async fn a_wrong_token_attempt_costs_a_rate_limit_cell() {
+    // **The ordering bug, asserted.** `Router::layer` wraps what is already there, so the LAST layer
+    // added is the outermost. With the token gate outside the limiter it answered `401` without ever
+    // calling `next.run`, so a wrong-token attempt never reached the limiter and cost nothing - an
+    // unlimited guessing loop against a 32-character shared secret, which is the one thing a rate
+    // limiter in front of a bearer token exists to bound.
+    //
+    // The burst is one, so the SECOND wrong-token attempt has to come back `429` rather than `401`:
+    // a `401` there would mean the attempt was free.
+    let app = app(settings(
+        Environment::Development,
+        &format!("security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n  api_per_second: 1\n  api_burst: 1\n"),
+    ));
+    let wrong = Some("this-is-not-the-token-but-is-long-enough");
+    let (first, _) = call(&app, request("GET", "/v1/catalog", wrong, Body::empty())).await;
+    assert_eq!(first, StatusCode::UNAUTHORIZED);
+    let (second, body) = call(&app, request("GET", "/v1/catalog", wrong, Body::empty())).await;
+    assert_eq!(
+        second,
+        StatusCode::TOO_MANY_REQUESTS,
+        "a wrong-token attempt did not consume quota, so guessing is free: {body}"
+    );
+}
+
+#[tokio::test]
+async fn the_documentation_subtree_charges_a_wrong_token_the_same_way() {
+    // The same inversion was in the documentation router, and a description of the surface behind a
+    // secret is a secret worth guessing at too. Same assertion, other subtree.
+    let app = app(settings(
+        Environment::Development,
+        &format!(
+            "security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n  probe_per_second: 1\n  probe_burst: 1\n"
+        ),
+    ));
+    let wrong = Some("this-is-not-the-token-but-is-long-enough");
+    assert_eq!(
+        call(&app, request("GET", "/openapi.json", wrong, Body::empty())).await.0,
+        StatusCode::UNAUTHORIZED
+    );
+    assert_eq!(
+        call(&app, request("GET", "/openapi.json", wrong, Body::empty())).await.0,
+        StatusCode::TOO_MANY_REQUESTS
+    );
+}
+
+#[tokio::test]
+async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
+    // The other half of the ordering fix, and they are one change: with the limiter outermost every
+    // path an unauthenticated caller can reach creates a bucket, and `governor`'s keyed store sheds
+    // nothing until `retain_recent` is called. Fixing the order alone turns a narrow leak into a
+    // surface-wide one.
+    //
+    // `middleware`'s own tests assert that a sweep gives the memory back and that the sweeper thread
+    // runs. What can only be asserted here is that the ROUTER produces handles at all - the leak
+    // existed because `GovernorLayer::new(Arc::new(config))` was the last anyone saw of the
+    // configuration, so there was nothing left to sweep.
+    let assembled = crate::assemble(&ServiceState::new(
+        Arc::new(LocalService::start(&catalog_of(bundle()), fake_warehouse()).expect("the test bundle validates")),
+        Arc::new(settings(
+            Environment::Development,
+            &format!("security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n"),
+        )),
+    ))
+    .expect("the test router assembles");
+    let tiers: Vec<&str> = assembled
+        .limiters()
+        .iter()
+        .map(crate::middleware::LimiterHandle::tier)
+        .collect();
+    assert!(
+        tiers.contains(&"general") && tiers.contains(&"public"),
+        "a tier was installed with no handle kept, so nothing can sweep it: {tiers:?}"
+    );
+    for handle in assembled.limiters() {
+        // Reachable at all is the property: a handle that cannot be swept is the leak.
+        handle.reap();
+        assert_eq!(handle.tracked(), 0);
+    }
+}
 
 #[tokio::test]
 async fn the_limiter_refuses_a_caller_past_its_burst() {
@@ -254,9 +376,13 @@ async fn the_interface_description_is_served_in_development_and_not_in_productio
 
     // Production, fully configured, and the description is off by default: a map of the surface is
     // something a deployment turns on rather than something it has to remember to turn off.
+    // `tls_termination: ingress` and not an "expose me anyway" switch: an off-host bind is refused
+    // until the operator says where TLS is terminated, and `ingress` is the ordinary answer - a
+    // controller in front, plaintext on the pod network. That is the deployment this surface is
+    // built for, so it must load rather than be refused.
     let production = app(settings(
         Environment::Production,
-        &format!("server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  expose_beyond_loopback: true\n"),
+        &format!("server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"ingress\"\n"),
     ));
     let (status, _) = call(&production, request("GET", "/openapi.json", Some(TOKEN), Body::empty())).await;
     assert_eq!(status, StatusCode::NOT_FOUND);

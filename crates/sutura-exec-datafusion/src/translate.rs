@@ -57,7 +57,6 @@ pub(crate) fn table_reference(table: &TableName) -> TableReference {
 pub(crate) fn literal(param: &ParamValue) -> Expr {
     match *param {
         ParamValue::Text(ref v) => lit(v.as_str()),
-        ParamValue::Integer(v) => lit(v),
         // Days since the epoch, which is what a `Date32` column actually holds, so the comparison is
         // exact rather than a cast of text the engine parsed.
         ParamValue::Date(d) => lit(ScalarValue::Date32(Some(d.days_since_epoch()))),

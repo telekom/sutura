@@ -31,3 +31,14 @@ keys look like `C0001` because a generator wrote them, and no row corresponds to
 person, contract or account. It is shaped like telco data because a semantic layer is
 easier to read over a domain with recognisable metrics, and none of the numbers mean
 anything outside this repository.
+
+## Serving a catalog
+
+The single-player catalog is also an input to `sutura-serve`, the second binary, and that
+surface has a threat model the command line does not: a token is required beyond loopback and
+it authenticates the deployment rather than the caller, a refusal comes back `200` with an
+outcome instead of a `4xx`, and the service refuses to start in a posture nobody chose.
+`single-player/README.md` has a captured session showing all of that - the startup output
+including the line saying there is no per-caller identity, a question and its `provenance`, a
+refusal over the wire, the token gate, the liveness probe, the generated interface description,
+and a refusal to start. `docs/serving.md` is the configuration reference behind it.

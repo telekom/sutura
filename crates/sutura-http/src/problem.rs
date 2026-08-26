@@ -47,6 +47,21 @@ pub enum Failure {
     /// The data system did not answer. Distinguished from [`Self::Internal`] because it is the one
     /// failure that is worth retrying, and a caller cannot tell from a 500.
     Unavailable,
+    /// Every execution slot was taken for the whole admission window, so the question was shed.
+    ///
+    /// **`503` and not `429`, and the two say different things.** A `429` is "you personally asked
+    /// too often", which is a claim about the caller - and the rate limiter already makes it, keyed
+    /// on an address. This is "the service has no capacity right now", which is a claim about the
+    /// deployment and is true whoever asked. A caller inside their own rate limit can reach this,
+    /// and telling them to slow down would be advice they cannot act on.
+    ///
+    /// Shares the status with [`Self::Unavailable`] and not the code, because the two are retried
+    /// the same way and diagnosed differently: one is a data system that is unwell, the other is
+    /// this service being full. `code` is what a client branches on, and the pair of them is why
+    /// the code exists at all.
+    ///
+    /// Carries how long to wait. See [`Failure::retry_after`].
+    AtCapacity { retry_after_seconds: u64 },
 }
 
 impl Failure {
@@ -59,7 +74,31 @@ impl Failure {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
+        }
+    }
+
+    /// How many seconds to wait before asking again, where there is an honest answer.
+    ///
+    /// Only [`Self::AtCapacity`], and only because there the number is already known: it is the
+    /// admission window, which the caller just spent waiting out. So the header tells them nothing
+    /// about this deployment that they did not measure themselves, which is the test every value
+    /// leaving this module has to pass.
+    ///
+    /// Deliberately absent from [`Self::Unavailable`] and from [`Self::RateLimited`]. Nothing here
+    /// knows when a data system will come back, and a number invented for the header would be a
+    /// promise; the limiter emits its own quota headers, which are computed from its state rather
+    /// than guessed.
+    const fn retry_after(&self) -> Option<u64> {
+        match *self {
+            Self::AtCapacity { retry_after_seconds } => Some(retry_after_seconds),
+            Self::Unauthorized
+            | Self::NotAQuestion { .. }
+            | Self::TooLarge
+            | Self::RateLimited
+            | Self::Timeout
+            | Self::Internal
+            | Self::Unavailable => None,
         }
     }
 
@@ -73,6 +112,7 @@ impl Failure {
             Self::Timeout => "timeout",
             Self::Internal => "internal",
             Self::Unavailable => "unavailable",
+            Self::AtCapacity { .. } => "at_capacity",
         }
     }
 
@@ -87,6 +127,10 @@ impl Failure {
             // Fixed text. See the module documentation: the real detail is in the log.
             Self::Internal => String::from("this request could not be completed"),
             Self::Unavailable => String::from("the data system did not answer"),
+            // No numbers. How many questions this deployment runs at once is its sizing, and a
+            // caller who is being shed has no use for it - what they need is whether to retry,
+            // which the status and `Retry-After` say.
+            Self::AtCapacity { .. } => String::from("this service is at capacity; no question could be started in time. Retry"),
         }
     }
 
@@ -125,8 +169,18 @@ impl ProblemBody {
 }
 
 impl IntoResponse for Failure {
+    /// One body shape for every failure, plus a `Retry-After` where there is an honest number.
+    ///
+    /// Two arms rather than an always-present header with a sentinel value: `Retry-After: 0` is a
+    /// promise that the next request will be answered, and a header that is sometimes a guess is
+    /// worse than one that is sometimes absent.
     fn into_response(self) -> Response {
-        (self.status(), axum::Json(self.body())).into_response()
+        let status = self.status();
+        let body = axum::Json(self.body());
+        match self.retry_after() {
+            Some(seconds) => (status, [(axum::http::header::RETRY_AFTER, seconds.to_string())], body).into_response(),
+            None => (status, body).into_response(),
+        }
     }
 }
 
@@ -167,6 +221,7 @@ mod tests {
             Failure::Timeout,
             Failure::Internal,
             Failure::Unavailable,
+            Failure::AtCapacity { retry_after_seconds: 5 },
         ];
         let mut codes: Vec<&str> = failures.iter().map(Failure::code).collect();
         let count = codes.len();
@@ -178,6 +233,39 @@ mod tests {
             // client library there is.
             assert!(failure.status().is_client_error() || failure.status().is_server_error());
             assert_eq!(failure.body().status, failure.status().as_u16());
+        }
+    }
+
+    #[test]
+    fn being_full_and_a_data_system_being_down_share_a_status_and_not_a_code() {
+        // Both are `503` and both are worth retrying, which is why the status is the same. They are
+        // diagnosed in completely different places, which is why the code is not: one is this
+        // service having no capacity, the other is a data system that did not answer, and a client
+        // - or an operator reading a dashboard - branches on the code.
+        let full = Failure::AtCapacity { retry_after_seconds: 5 };
+        assert_eq!(full.status(), Failure::Unavailable.status());
+        assert_ne!(full.code(), Failure::Unavailable.code());
+        assert_eq!(full.code(), "at_capacity");
+        // And the sentence carries no number: how many questions this deployment runs at once is
+        // its sizing.
+        let detail = full.detail();
+        assert!(!detail.contains(|c: char| c.is_ascii_digit()), "{detail}");
+    }
+
+    #[test]
+    fn only_a_shed_request_carries_a_retry_after_and_it_is_the_window_the_caller_already_waited() {
+        // The rule for this header: a number that is already known, or no header. Anything else is
+        // a promise about when a data system will come back, which nothing here knows.
+        assert_eq!(Failure::AtCapacity { retry_after_seconds: 5 }.retry_after(), Some(5));
+        for quiet in [
+            Failure::Unauthorized,
+            Failure::TooLarge,
+            Failure::RateLimited,
+            Failure::Timeout,
+            Failure::Internal,
+            Failure::Unavailable,
+        ] {
+            assert_eq!(quiet.retry_after(), None, "{quiet:?} invented a retry hint");
         }
     }
 

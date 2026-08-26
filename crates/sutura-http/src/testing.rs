@@ -9,6 +9,9 @@
 //! make the readiness gate look like it worked when nothing had been executed.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model};
@@ -44,6 +47,25 @@ fn june() -> TimeRange {
 
 /// One model, one anchored metric, one filterable dimension.
 pub(crate) fn bundle() -> PinnedDefinitions {
+    pinned(Some(Anchor::new(june(), String::from(ANCHORED_VALUE))))
+}
+
+/// The same bundle with no anchor, so it validates against a data system that answers nothing.
+///
+/// **Only for tests about what happens AFTER startup.** A bundle with no anchor validates against
+/// any warehouse at all - see the module documentation - which is exactly why it is not the default
+/// fixture: it makes the readiness gate look like it worked when nothing had been executed. Here it
+/// is what lets a service start over a warehouse that then fails every question.
+pub(crate) fn unanchored_bundle() -> PinnedDefinitions {
+    pinned(None)
+}
+
+/// A question the bundle above can answer, for a test that needs to reach the warehouse.
+pub(crate) fn a_question() -> sutura_domain::query::Query {
+    sutura_domain::query::Query::new(metric_name(), Grain::Month, june(), Vec::new(), Vec::new())
+}
+
+fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
         source(),
@@ -69,14 +91,13 @@ pub(crate) fn bundle() -> PinnedDefinitions {
             DimensionName::parse("region").expect("a test dimension is a dimension"),
             region,
         )]),
-        Some(Anchor::new(june(), String::from(ANCHORED_VALUE))),
+        anchor,
         String::from("Revenue, in minor units."),
     );
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
-        sutura_catalog_local::digest_of,
     )
     .expect("the test definitions hash")
 }
@@ -178,6 +199,7 @@ impl Warehouse for FailingWarehouse {
 pub(crate) struct FakeWarehouse {
     source: SourceName,
     result: RowSet,
+    held: Arc<AtomicBool>,
 }
 
 impl Warehouse for FakeWarehouse {
@@ -192,16 +214,63 @@ impl Warehouse for FakeWarehouse {
     }
 
     fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        // Held rather than slept, and that is about the test suite rather than about realism. A
+        // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
+        // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the
+        // request bound would be added to the wall time of the whole suite. A flag the test clears
+        // costs nothing once the assertion is made.
+        //
+        // The cap is a bug guard, not a timeout: it is what a forgotten `release` costs instead of
+        // hanging the suite.
+        let deadline = Instant::now() + HELD_AT_MOST;
+        while self.held.load(Ordering::Relaxed) && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(5));
+        }
         Ok(self.result.clone())
+    }
+}
+
+/// The longest a held statement is held, whatever the test does.
+const HELD_AT_MOST: Duration = Duration::from_secs(20);
+
+/// Whether the fake is currently refusing to return.
+///
+/// A separate handle because the warehouse itself is moved into the service at `start`, and what a
+/// test needs to hold is the switch rather than the adapter. It is armed only AFTER `start`, because
+/// `start` re-executes every anchor and a held statement there would hold startup.
+pub(crate) struct Held(Arc<AtomicBool>);
+
+impl Held {
+    /// From here on, a statement does not come back.
+    pub(crate) fn arm(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Let whatever is waiting finish, so the blocking pool drains with the test.
+    pub(crate) fn release(&self) {
+        self.0.store(false, Ordering::Relaxed);
     }
 }
 
 /// A warehouse whose one answer reproduces the anchor, so the bundle validates.
 pub(crate) fn fake_warehouse() -> FakeWarehouse {
+    warehouse_that_can_be_held().0
+}
+
+/// The same warehouse, with the switch that makes a statement outrun the request bound.
+///
+/// For the `408` assertion: the surface bounds the RESPONSE and not the work, so the way to observe
+/// a timeout is a port call that has not returned yet.
+pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
-    FakeWarehouse {
-        source: source(),
-        result,
-    }
+    let held = Arc::new(AtomicBool::new(false));
+    (
+        FakeWarehouse {
+            source: source(),
+            result,
+            held: Arc::clone(&held),
+        },
+        Held(held),
+    )
 }

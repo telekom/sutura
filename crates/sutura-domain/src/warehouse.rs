@@ -18,10 +18,26 @@ use crate::model::SourceName;
 /// A closed set rather than a string, because the whole point is that these never become text on
 /// our side. An adapter binds them with whatever its driver offers, and the driver is what decides
 /// how a date is written on the wire.
+///
+/// **There is no `Integer`, and its absence is the decision rather than an omission.** The variant
+/// was here and nothing in the workspace constructed one: every caller value and every required
+/// filter binds as [`Text`](ParamValue::Text), because that is the type both of them are. Both
+/// adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
+/// no question could reach it - and the dead arm was the lesser half of the cost. The real half is
+/// that a *numeric* definitional filter cannot be expressed safely here: `equals: { column:
+/// amount_cents, value: "500" }` compares an integer column against a text parameter, `DuckDB`
+/// casts it and answers, a driver that sends an explicitly-typed text parameter does not, and
+/// nothing refuses the definition because a [`crate::catalog::Model`] declares only column NAMES -
+/// there is no column type to check the value against. Adding the variant back without one would
+/// mean guessing the type from the value's own text, which makes a text column whose allowed value
+/// is `"500"` compare as a number: the same wrong comparison, arrived at from the other side.
+///
+/// So it goes when a typed column model does, and not before. The reasoning is the one
+/// `sutura_exec_datafusion`'s `cell` gives for leaving `Date64` unmapped: an unreachable arm holding
+/// a semantic choice nobody reviewed is worse than not having the arm.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum ParamValue {
     Text(String),
-    Integer(i64),
     Date(Date),
 }
 
@@ -35,7 +51,6 @@ impl ParamValue {
     pub fn render(&self) -> String {
         match *self {
             Self::Text(ref v) => format!("{v:?}"),
-            Self::Integer(v) => v.to_string(),
             Self::Date(d) => d.to_iso(),
         }
     }
@@ -299,8 +314,10 @@ impl RowSet {
 /// So the plan is the contract and rendering is one adapter's private business.
 ///
 /// `dry_run` exists separately from `execute` because "would this be accepted" is worth being able
-/// to ask before committing to the cost of an answer. An adapter with no such facility answers it by
-/// checking what it can.
+/// to ask before committing to the cost of an answer - **where asking is cheaper than answering.**
+/// It is defaulted rather than required for exactly that reason: an adapter for which it is not
+/// cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
+/// do is nothing.
 pub trait Warehouse {
     /// Why this data system could not answer. Typed per adapter: a connection failure, a rejected
     /// statement and a permission denial are not the same thing to whoever responds to them.
@@ -310,7 +327,22 @@ pub trait Warehouse {
     fn source(&self) -> &SourceName;
 
     /// Checks the plan is executable here, without producing rows.
-    fn dry_run(&self, plan: &crate::plan::QueryPlan) -> Result<(), Self::Error>;
+    ///
+    /// **Defaulted to doing nothing, and the default is a statement rather than a stub.** A data
+    /// system across a network can prepare a statement for a fraction of what running it costs, so
+    /// there the pre-flight is worth a round trip: a plan naming a column that is not there is
+    /// rejected before any data is read. An in-process engine cannot make that trade - checking means
+    /// building the logical plan and running the analyzer and the optimizer, which is most of
+    /// executing it - so a required `dry_run` bought that guarantee at the price of planning every
+    /// question twice. Not implementing this is how such an adapter says "checking is not cheaper
+    /// than running here"; `execute` is then the only pass, and it still fails before returning rows
+    /// for the same reasons the check would have.
+    ///
+    /// An adapter that overrides it must not read data: the contract is a plan that resolves, not a
+    /// result.
+    fn dry_run(&self, _plan: &crate::plan::QueryPlan) -> Result<(), Self::Error> {
+        Ok(())
+    }
 
     /// Runs the plan and returns its rows.
     fn execute(&self, plan: &crate::plan::QueryPlan) -> Result<RowSet, Self::Error>;
@@ -353,7 +385,6 @@ mod tests {
         // The rendering exists so `sutura compile` can show a plan. It must not look like something
         // to paste into a statement: text keeps its quotes so an empty or padded value is visible,
         // and nothing here escapes anything, because escaping is what a bind parameter replaces.
-        assert_eq!(ParamValue::Integer(42).render(), "42");
         assert_eq!(
             ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date")).render(),
             "2026-06-01"

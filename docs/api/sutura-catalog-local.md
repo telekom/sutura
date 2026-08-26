@@ -69,8 +69,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `Metric`
 - `Inconsistent`
 - `Empty`
-- `Canonicalize`
-- `Digest`
+- `Digest` - The domain could not hash the definitions.
 
 ### Implements
 
@@ -104,36 +103,6 @@ pub fn root(&self) -> &Path
 ### Implements
 
 `Clone`, `Debug`, `SemanticCatalog`
-
-## `fn canonical_form`
-
-```rust
-pub fn canonical_form(definitions: &sutura_domain::catalog::Definitions) -> Result<Vec<u8>, serde_json::Error>
-```
-
-The canonical byte form of a set of definitions: what the digest is taken over.
-
-JSON rather than the YAML it was read from, and that is the whole point. Reformatting a document,
-reordering two files or rewording a comment must not move the digest; changing what a metric means
-must. Serializing the *parsed* definitions gives exactly that, because everything that survives
-parsing is meaning and everything that does not is layout.
-
-Deterministic for two reasons that both have to hold: `Definitions` uses `BTreeMap` throughout,
-so collection order is content order rather than hash order, and `serde_json` writes struct
-fields in declaration order.
-
-It lives in this adapter because `sutura-domain` cannot hash - `sha2` is not on its allowlisted
-dependency tree, deliberately. When a second real catalog adapter lands, this moves to something
-both can depend on rather than being reimplemented; a second implementation of a canonical form
-is two canonical forms.
-
-## `fn digest_of`
-
-```rust
-pub fn digest_of(definitions: &sutura_domain::catalog::Definitions) -> Result<sutura_domain::definitions::DefinitionDigest, LocalCatalogError>
-```
-
-The digest of a set of definitions.
 
 ## Module `document`
 

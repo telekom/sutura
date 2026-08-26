@@ -111,7 +111,9 @@ pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Resul
 
     // The availability boundary. `TimeRange` guarantees two endpoints and says nothing about the
     // distance between them, and both execution paths aggregate everything the date predicate admits
-    // before `ORDER BY`/`LIMIT` runs - so `MAX_ROWS` caps the answer and nothing caps the scan. This
+    // before `ORDER BY`/`LIMIT` runs - so `MAX_ROWS` refuses the answer and nothing caps the scan. It
+    // does not truncate it either, which is the correction that came with the refusal: an answer over
+    // the first `MAX_ROWS` groups is a wrong total, not a smaller one. This
     // is the only place that cap can live: the type is shared with a metric's anchor range, which a
     // catalog author writes and no agent can influence, so a maximum on the constructor would govern
     // authorship in order to govern requests. Here the range belongs to a *question*, which is what

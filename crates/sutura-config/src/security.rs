@@ -47,6 +47,23 @@ pub enum InvalidAccessToken {
     /// otherwise make every request fail for a reason nobody can see in a log.
     #[error("an access token may not begin or end with whitespace")]
     Untrimmed,
+    /// A character no `Authorization` header could carry to us.
+    ///
+    /// **This is the variant that closes a service which starts and can never authenticate.** The
+    /// gate reads the header with `HeaderValue::to_str`, which accepts visible ASCII and nothing
+    /// else, so a token holding anything outside that set is one no request can present: the
+    /// process boots, every call is a `401`, and nothing anywhere says why. Refusing it at startup
+    /// turns a silent outage into a message.
+    ///
+    /// Carries the position and never the character, for the same reason [`Self::TooShort`]
+    /// carries the length and never the value.
+    #[error(
+        "an access token is an RFC 6750 `b64token` - letters, digits, `-`, `.`, `_`, `~`, `+`, \
+         `/`, and `=` only as trailing padding - and the character at position {position} \
+         (counting from zero) is not one. The `Authorization` header carries visible ASCII only, \
+         so a token outside that set is one no request could ever present"
+    )]
+    NotRepresentableOnTheWire { position: usize },
 }
 
 impl AccessToken {
@@ -59,6 +76,10 @@ impl AccessToken {
     pub const MIN_LENGTH: usize = 32;
 
     /// Reads a configured token.
+    ///
+    /// **Parses the wire grammar, not merely a length.** The type is named for a value that
+    /// arrives in an `Authorization` header, so what it accepts is what such a header can carry:
+    /// see [`Self::wire_grammar`] and [`InvalidAccessToken::NotRepresentableOnTheWire`].
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidAccessToken> {
         let raw = raw.as_ref();
         if raw.trim() != raw {
@@ -71,7 +92,37 @@ impl AccessToken {
                 minimum: Self::MIN_LENGTH,
             });
         }
+        Self::wire_grammar(raw)?;
         Ok(Self(Secret::new(raw)))
+    }
+
+    /// Is every character one an `Authorization: Bearer` value may hold?
+    ///
+    /// RFC 6750 `b64token`: `1*( ALPHA / DIGIT / "-" / "." / "_" / "~" / "+" / "/" ) *"="`. That
+    /// is a subset of the visible ASCII `HeaderValue::to_str` will hand back, and it is the
+    /// grammar the scheme actually defines - so a token that passes here is one the gate can
+    /// receive AND one no intermediary has to guess at the quoting of.
+    ///
+    /// Deliberately stricter than "visible ASCII". A token holding a space, a comma or a quote is
+    /// representable in a header and is a value that some proxy, shell or manifest will mangle;
+    /// a startup refusal naming the position is cheaper than finding that out from a `401`.
+    fn wire_grammar(raw: &str) -> Result<(), InvalidAccessToken> {
+        let mut padding = false;
+        for (position, character) in raw.chars().enumerate() {
+            let permitted = match character {
+                // `=` is padding, and padding is only ever a suffix.
+                '=' => {
+                    padding = true;
+                    true
+                }
+                'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '.' | '_' | '~' | '+' | '/' => !padding,
+                _ => false,
+            };
+            if !permitted {
+                return Err(InvalidAccessToken::NotRepresentableOnTheWire { position });
+            }
+        }
+        Ok(())
     }
 
     /// Does `presented` equal the configured token?
@@ -96,24 +147,137 @@ impl AccessToken {
     }
 }
 
-/// The access posture, and the acknowledgement that goes with a non-loopback bind.
+/// Where TLS is terminated for this deployment.
+///
+/// **A declaration, not a control.** Nothing here encrypts anything except
+/// [`Self::InProcess`]; the other three name a terminator that lives somewhere else, and the point
+/// of writing it down is that the *cleartext hop* it implies is then a stated fact rather than an
+/// assumption. The bearer token crosses that hop in the clear, and how far the hop reaches is the
+/// whole difference between the three:
+///
+/// | Declared | What terminates TLS | What the token crosses in cleartext |
+/// | --- | --- | --- |
+/// | `none` | nothing | the whole path from the caller. Only sane on loopback |
+/// | `sidecar` | a proxy in this pod | a loopback hop inside the pod |
+/// | `ingress` | an ingress controller or gateway | the pod network, from that hop to this process |
+/// | `in-process` | this process | nothing - the connection ends here |
+///
+/// So `ingress` is not a weaker `sidecar`: it is the same posture with a longer cleartext segment,
+/// and whether that segment is acceptable is a question about the cluster network - a mesh with
+/// mutual TLS between pods answers it differently from a flat one. This type does not pretend to
+/// know, and a startup log that said "TLS enabled" would be pretending.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TlsTermination {
+    /// Nothing terminates TLS. Plaintext from the caller to here.
+    #[default]
+    None,
+    /// A terminator inside this pod or on this host, reached over loopback.
+    Sidecar,
+    /// An ingress controller or gateway. The hop from it to this process crosses the pod network.
+    Ingress,
+    /// This process. Requires the `tls` feature and a certificate and key.
+    InProcess,
+}
+
+/// The configured value did not name a place TLS is terminated.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{found}` does not say where TLS is terminated - one of: {}", TlsTermination::NAMES.join(", "))]
+pub struct UnknownTlsTermination {
+    found: String,
+}
+
+impl TlsTermination {
+    /// Every accepted spelling, so a message and the parser cannot disagree.
+    pub const NAMES: &'static [&'static str] = &["none", "sidecar", "ingress", "in-process"];
+
+    /// Reads the configured value.
+    pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownTlsTermination> {
+        match raw.as_ref().trim() {
+            "none" => Ok(Self::None),
+            "sidecar" => Ok(Self::Sidecar),
+            "ingress" => Ok(Self::Ingress),
+            "in-process" => Ok(Self::InProcess),
+            other => Err(UnknownTlsTermination {
+                found: String::from(other),
+            }),
+        }
+    }
+
+    /// The spelling, for the startup log.
+    #[inline]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Sidecar => "sidecar",
+            Self::Ingress => "ingress",
+            Self::InProcess => "in-process",
+        }
+    }
+
+    /// Does this process hold the TLS connection itself?
+    #[inline]
+    pub const fn terminates_here(self) -> bool {
+        matches!(self, Self::InProcess)
+    }
+
+    /// Was anything said at all?
+    ///
+    /// [`Self::None`] is the default, so "not declared" and "declared as nothing" are the same
+    /// value - which is why the refusal for a non-loopback bind is keyed on this rather than on an
+    /// `Option`. An operator who means plaintext on loopback writes nothing and gets it.
+    #[inline]
+    pub const fn is_declared(self) -> bool {
+        !matches!(self, Self::None)
+    }
+
+    /// The cleartext hop this declaration implies, as a sentence for the startup log.
+    ///
+    /// A function rather than a comment for the same reason
+    /// [`SecuritySettings::describes_identity`] is one: the log, the documentation and this type
+    /// read the same value, so none of them can drift into claiming end-to-end encryption.
+    #[inline]
+    pub const fn cleartext_hop(self) -> &'static str {
+        match self {
+            Self::None => "the whole path from the caller is cleartext, this bearer token included",
+            Self::Sidecar => "the hop from the terminator to this process is cleartext over loopback",
+            Self::Ingress => {
+                "the hop from the ingress to this process is cleartext across the pod network, this bearer token included"
+            }
+            Self::InProcess => "the connection is terminated here, so there is no cleartext hop in front of this process",
+        }
+    }
+}
+
+impl core::fmt::Display for TlsTermination {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// The access posture, and the declaration that goes with a non-loopback bind.
 ///
 /// Two fields rather than one, because they answer different questions and collapsing them was
-/// the tempting mistake: a token says *who may reach this*, and the acknowledgement says *the
-/// operator meant to publish it*. A deployment that sets a token but binds the wildcard by
-/// accident has answered only the first.
+/// the tempting mistake: a token says *who may reach this*, and the declaration says *what, if
+/// anything, encrypts the path it travels*. A deployment that sets a token but binds the wildcard
+/// with nothing in front has answered only the first.
+///
+/// **The declaration replaced a boolean, and that is the point of it.** The boolean it replaced -
+/// `expose_beyond_loopback` - recorded that somebody meant to publish the service and said nothing
+/// about what protects the token in flight, so a wildcard bind with no terminator anywhere read
+/// exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
+/// agreeing that off-host is intended.
 #[derive(Debug, Clone, Default)]
 pub struct SecuritySettings {
     access_token: Option<AccessToken>,
-    expose_beyond_loopback: bool,
+    tls_termination: TlsTermination,
 }
 
 impl SecuritySettings {
     #[inline]
-    pub const fn new(access_token: Option<AccessToken>, expose_beyond_loopback: bool) -> Self {
+    pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination) -> Self {
         Self {
             access_token,
-            expose_beyond_loopback,
+            tls_termination,
         }
     }
 
@@ -123,10 +287,10 @@ impl SecuritySettings {
         self.access_token.as_ref()
     }
 
-    /// Did the operator explicitly say they meant to listen off-host?
+    /// Where the operator said TLS is terminated.
     #[inline]
-    pub const fn expose_beyond_loopback(&self) -> bool {
-        self.expose_beyond_loopback
+    pub const fn tls_termination(&self) -> TlsTermination {
+        self.tls_termination
     }
 
     /// Whether a token is configured, as a word for the startup log.
@@ -152,7 +316,7 @@ impl SecuritySettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessToken, InvalidAccessToken, SecuritySettings};
+    use super::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination};
 
     /// Thirty-two characters, which is the floor.
     const GOOD: &str = "0123456789abcdef0123456789abcdef";
@@ -211,7 +375,7 @@ mod tests {
     fn a_token_is_not_printed_by_debug_at_any_depth() {
         // The reason the field is a `Secret`. The startup log prints the whole settings tree
         // with `Debug`, so this is the assertion that keeps that safe.
-        let settings = SecuritySettings::new(Some(AccessToken::parse(GOOD).expect("a valid token")), false);
+        let settings = SecuritySettings::new(Some(AccessToken::parse(GOOD).expect("a valid token")), TlsTermination::None);
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
         assert!(rendered.contains("REDACTED"), "{rendered}");
@@ -234,10 +398,94 @@ mod tests {
     fn nothing_here_claims_to_know_who_the_caller_is() {
         // Load-bearing rather than tautological: this is the value the startup log prints, and a
         // future change that makes a shared token look like identity has to change this test.
-        let with = SecuritySettings::new(Some(AccessToken::parse(GOOD).expect("a valid token")), true);
+        let with = SecuritySettings::new(
+            Some(AccessToken::parse(GOOD).expect("a valid token")),
+            TlsTermination::Ingress,
+        );
         let without = SecuritySettings::default();
         assert!(!SecuritySettings::describes_identity());
         assert_eq!(with.token_state(), "configured");
         assert_eq!(without.token_state(), "absent");
+    }
+
+    #[test]
+    fn a_token_the_authorization_header_could_not_carry_is_refused_at_startup() {
+        // THE bug this variant exists for. Thirty-two characters, so the length floor is satisfied,
+        // and not one of them is representable in a header value - `HeaderValue::to_str` accepts
+        // visible ASCII only. Without this the process starts, every request is a 401, and nothing
+        // in the log connects the two.
+        //
+        // Written with an escape rather than the character itself because `clippy::non_ascii_literal`
+        // is on: an invisible byte in a source literal is exactly what that lint is for.
+        let unrepresentable = "\u{e9}".repeat(AccessToken::MIN_LENGTH);
+        assert_eq!(unrepresentable.chars().count(), AccessToken::MIN_LENGTH);
+        assert_eq!(
+            AccessToken::parse(&unrepresentable).expect_err("a token no header can carry is not a token"),
+            InvalidAccessToken::NotRepresentableOnTheWire { position: 0 }
+        );
+    }
+
+    #[test]
+    fn a_control_character_inside_a_token_is_refused_and_the_position_is_named() {
+        // The interior case, which the length and trim checks both pass: a newline in the middle of
+        // a pasted token is a copy-paste artefact that no request could present either.
+        let interior = String::from("0123456789abcdef\u{1}23456789abcdef0");
+        assert_eq!(interior.chars().count(), AccessToken::MIN_LENGTH);
+        assert_eq!(
+            AccessToken::parse(&interior).expect_err("an interior control character is not a token"),
+            InvalidAccessToken::NotRepresentableOnTheWire { position: 16 }
+        );
+        // And the value is not in the message, which is the rule every variant here obeys.
+        let rendered = AccessToken::parse(&interior)
+            .expect_err("an interior control character is not a token")
+            .to_string();
+        assert!(!rendered.contains(&interior), "{rendered}");
+    }
+
+    #[test]
+    fn the_b64token_alphabet_is_accepted_and_padding_is_only_a_suffix() {
+        // The positive side, without which every assertion above is satisfied by refusing
+        // everything. Base64 with either alphabet, and a hex token, are what an operator generates.
+        for good in [
+            "0123456789abcdef0123456789abcdef",
+            "abcdefghijklmnopqrstuvwxyz-._~+/",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        ] {
+            assert!(AccessToken::parse(good).is_ok(), "{good} should be a token");
+        }
+        // Padding in the middle is not `b64token`, and a token with a `=` in it is one some
+        // manifest or shell will split.
+        let interior_padding = "AAAAAAAAAAAAAAAA=BBBBBBBBBBBBBBB";
+        assert_eq!(
+            AccessToken::parse(interior_padding).expect_err("interior padding is not a token"),
+            InvalidAccessToken::NotRepresentableOnTheWire { position: 17 }
+        );
+        // A space is representable in a header and is refused anyway - see `wire_grammar`.
+        let spaced = "0123456789abcdef 123456789abcdef";
+        assert!(matches!(
+            AccessToken::parse(spaced),
+            Err(InvalidAccessToken::NotRepresentableOnTheWire { position: 16 })
+        ));
+    }
+
+    #[test]
+    fn a_termination_declaration_round_trips_and_says_what_crosses_in_cleartext() {
+        for name in TlsTermination::NAMES {
+            let parsed = TlsTermination::parse(name).expect("a listed name parses");
+            assert_eq!(parsed.as_str(), *name);
+            // Every declaration says something about the hop, and only one of them says there is
+            // none. That sentence is what the startup log prints, so it is asserted here rather
+            // than trusted.
+            assert!(!parsed.cleartext_hop().is_empty());
+        }
+        assert_eq!(TlsTermination::default(), TlsTermination::None);
+        assert!(!TlsTermination::None.is_declared());
+        assert!(TlsTermination::Ingress.is_declared());
+        assert!(!TlsTermination::Ingress.terminates_here());
+        assert!(TlsTermination::InProcess.terminates_here());
+        assert!(TlsTermination::InProcess.cleartext_hop().contains("no cleartext hop"));
+        assert!(TlsTermination::Ingress.cleartext_hop().contains("pod network"));
+        TlsTermination::parse("tls").unwrap_err();
     }
 }

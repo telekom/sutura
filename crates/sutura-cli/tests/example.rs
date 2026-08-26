@@ -35,7 +35,8 @@ mod tests {
     use sutura_catalog_local::LocalCatalog;
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
     use sutura_domain::query::Query;
-    use sutura_semantic::{Compiled, Dialect, compile};
+    use sutura_semantic::{Compiled, compile};
+    use sutura_sql::Dialect;
 
     /// The one dialect this example is documented for.
     ///
@@ -288,7 +289,7 @@ mod tests {
                 Compiled::Planned { ref plan } => {
                     assert!(!expected_refusal, "{name} is named as a refusal and was answered");
                     statements += 1;
-                    let query = sutura_semantic::generate::generate(plan, DIALECT).expect("a planned question renders");
+                    let query = sutura_sql::generate(plan, DIALECT).expect("a planned question renders");
                     insta::assert_snapshot!(format!("{name}__statement"), rendered(&query));
                 }
             });
@@ -390,6 +391,84 @@ mod tests {
                     insta::assert_yaml_snapshot!(format!("{name}__rows"), stable(rows));
                 }
             });
+        }
+    }
+
+    // ------------------------------------------------------------------- the agent prompt ---
+
+    /// The prompt for the example, at one prose setting.
+    ///
+    /// Every operation, because the HTTP surface mounts every operation. `sutura-app`'s own tests
+    /// are where a hidden operation is exercised; here the point is the document an operator would
+    /// actually hand out.
+    fn prompt(pinned: &PinnedDefinitions, prose: sutura_app::prompt::CatalogProse) -> String {
+        sutura_app::prompt::render(
+            pinned,
+            &sutura_app::prompt::PromptInputs::new(sutura_app::prompt::Tool::ALL, prose, None),
+        )
+    }
+
+    #[test]
+    fn the_prompt_for_the_example_catalog_is_pinned() {
+        // Generated text, so it is pinned as a snapshot rather than asserted against by substring -
+        // the same rule the statements above follow, and for the same reason: a hand-written
+        // expectation asserts what somebody wished the renderer produced.
+        //
+        // This is the whole document an operator would pipe into an agent's configuration for the
+        // documented example, so a change to any part of it - a refusal remedy, a bound, a metric's
+        // own prose - arrives as a reviewable diff. Both prose settings are pinned, because the
+        // difference between them is a governance decision rather than a formatting one.
+        let pinned = load();
+        settings().bind(|| {
+            insta::assert_snapshot!("example_prompt", prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted));
+            insta::assert_snapshot!(
+                "example_prompt_without_prose",
+                prompt(&pinned, sutura_app::prompt::CatalogProse::Omitted)
+            );
+        });
+    }
+
+    #[test]
+    fn every_metric_and_every_permitted_value_in_the_example_reaches_the_prompt() {
+        // The property the snapshot cannot state: the prompt is DERIVED from the bundle rather than
+        // written beside it. A metric added to the example catalog with no line in the prompt would
+        // be a metric an agent never asks about, and a snapshot diff alone would not say that is
+        // what happened.
+        //
+        // Asserted over the permitted values as well as the names, because a value list that stopped
+        // being rendered is the failure that turns every filter an agent writes into a refusal.
+        let pinned = load();
+        let text = prompt(&pinned, sutura_app::prompt::CatalogProse::Quoted);
+        let mut values = 0_usize;
+        for (name, metric) in pinned.definitions().metrics() {
+            assert!(text.contains(&format!("### {name}")), "{name} is missing from the prompt");
+            for (dimension, declared) in metric.dimensions() {
+                assert!(
+                    text.contains(&format!("`{dimension}`")),
+                    "dimension {dimension} of {name} is missing from the prompt"
+                );
+                for value in declared.allowed_values().into_iter().flatten() {
+                    assert!(
+                        text.contains(value.as_str()),
+                        "value {value} of {dimension} on {name} is missing from the prompt"
+                    );
+                    values += 1;
+                }
+            }
+        }
+        assert!(values > 0, "the example declares no permitted value, so this proved nothing");
+        // And the other direction: no table name from the catalog reaches the document. The prompt
+        // renders what `GET /v1/catalog` renders and not one field more, because a table name in an
+        // agent's context is a name it will eventually try to use and the surface has no field for
+        // one. `sutura-app`'s own tests cover column and model names against a fixture whose prose
+        // does not mention them; the example's prose does mention columns, so the table is what is
+        // checkable over this corpus.
+        for model in pinned.definitions().models().values() {
+            assert!(
+                !text.contains(model.table().as_str()),
+                "table {} reached the prompt",
+                model.table()
+            );
         }
     }
 }

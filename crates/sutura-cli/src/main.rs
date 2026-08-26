@@ -103,6 +103,11 @@ const COMMANDS: &[Cmd] = &[
         run: commands::describe,
     },
     Cmd {
+        name: "prompt",
+        description: "<catalog-dir> [config-dir] - the system prompt to give an agent",
+        run: commands::prompt,
+    },
+    Cmd {
         name: "compile",
         description: "<catalog-dir> <question.yaml> [dialect] - the statement, no data system",
         run: commands::compile,

@@ -232,7 +232,7 @@ where
 /// beside the tests resolves there. `macro_rules!` hygiene covers local variables and labels, which is
 /// why a cell expands to an item or an expression and never writes to a local this module cannot see -
 /// unless the cell is itself defined in the scope holding that local, which is how the exhaustiveness
-/// check over `sutura_semantic::dialect::ALL` collects.
+/// check over `sutura_sql::dialect::ALL` collects.
 ///
 /// # `catalogs: $cell` - `$cell!(name, Adapter)`
 ///
@@ -255,8 +255,8 @@ where
 /// proving nothing. Pairing them here is what keeps that from being two lists.
 ///
 /// A dialect is not a data system: rendering `ClickHouse` SQL says nothing about a `ClickHouse`
-/// existing anywhere. `sutura_semantic::dialect::ALL` is the compiler's own list, and
-/// `every_dialect_the_compiler_renders_for_is_registered` compares this arm against it - so a variant
+/// existing anywhere. `sutura_sql::dialect::ALL` is the renderer's own list, and
+/// `every_dialect_the_renderer_supports_is_registered` compares this arm against it - so a variant
 /// added there without a line here fails rather than rendering with no golden.
 macro_rules! registered {
     (catalogs: $cell:ident) => {
@@ -274,19 +274,15 @@ macro_rules! registered {
     };
 
     (dialects: $cell:ident) => {
-        $cell!(
-            duckdb,
-            sutura_semantic::Dialect::DuckDb,
-            polyglot_sql::DialectType::DuckDB
-        );
+        $cell!(duckdb, sutura_sql::Dialect::DuckDb, polyglot_sql::DialectType::DuckDB);
         $cell!(
             postgres,
-            sutura_semantic::Dialect::Postgres,
+            sutura_sql::Dialect::Postgres,
             polyglot_sql::DialectType::PostgreSQL
         );
         $cell!(
             clickhouse,
-            sutura_semantic::Dialect::ClickHouse,
+            sutura_sql::Dialect::ClickHouse,
             polyglot_sql::DialectType::ClickHouse
         );
     };

@@ -261,6 +261,13 @@ fn refusal_body(reason: &RefusalReason) -> RefusalBody {
             "time_range_too_long",
             format!("the period spans {days} days and the maximum is {limit}"),
         ),
+        // No row count in the sentence, because there is none to give: the plan asks for one row
+        // past the cap and stops, so what is known is "more than this". Narrowing is the caller's
+        // move, and the sentence says which two things they can narrow.
+        RefusalReason::ResultTooLarge { limit } => (
+            "result_too_large",
+            format!("this question answers with more than {limit} rows; narrow the period or group by fewer dimensions"),
+        ),
         RefusalReason::PlanSpansTwoSources { sources } => (
             "plan_spans_two_sources",
             format!("answering this would read from {sources} data systems, and a plan runs against one"),

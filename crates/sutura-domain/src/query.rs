@@ -26,9 +26,10 @@ pub const MAX_DIMENSIONS: usize = 4;
 ///
 /// **This is the bound the [`TimeRange`] newtype does not provide.** That type refuses an *absent*
 /// endpoint; it accepts `[0001-01-01, 9999-12-31)`, which is over three and a half million days and, on
-/// both execution paths, a full scan. `plan::MAX_ROWS` does not help: it caps the rows *returned*
-/// after the aggregate, so a question that scans everything and groups it into one bucket is inside
-/// it. The span is what rows-read is a function of, so the span is where the cap goes.
+/// both execution paths, a full scan. `plan::MAX_ROWS` does not help: it bounds the rows *returned*
+/// after the aggregate - refusing a result that exceeds them - so a question that scans everything and
+/// groups it into one bucket is inside it. The span is what rows-read is a function of, so the span is
+/// where the cap goes.
 ///
 /// **3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
 /// 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
@@ -40,7 +41,8 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// It also stays under `plan::MAX_ROWS`, and that is not a coincidence worth losing: at `day` grain
 /// the time axis of a permitted question is at most 3653 buckets, so the row cap can only ever be
 /// reached by dimension cardinality and never by the range alone. Raising this past the row cap would
-/// quietly make a truncated answer the normal outcome of a wide range.
+/// make [`RefusalReason::ResultTooLarge`] the normal outcome of a wide range - a refusal nobody could
+/// act on, because narrowing the range would not be what got them there.
 ///
 /// A *span*, not a bucket count, and the difference matters. A bucket count would let `year` grain
 /// through with a thousand years of scanning for a thousand rows, which is precisely the request this
@@ -51,8 +53,9 @@ pub const MAX_DIMENSIONS: usize = 4;
 /// requests, because a per-caller budget needs a clock, a subject and somewhere to keep a counter and
 /// this crate has none of the three. And inside a permitted span the *groups* are still the span times
 /// the cardinality of up to [`MAX_DIMENSIONS`] dimensions - a dimension declared without a value list
-/// has whatever cardinality the column has - so `plan::MAX_ROWS` truncates that result rather than the
-/// work that produced it. A day count is also only a proxy for rows: ten years of a small table and
+/// has whatever cardinality the column has - so `plan::MAX_ROWS` refuses that result rather than
+/// bounding the work that produced it: the groups are built, and then the answer is declined. A
+/// refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 /// ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 /// scanned, which needs something from the data system that no port asks for yet.
 pub const MAX_RANGE_DAYS: i32 = 3653;
@@ -197,6 +200,25 @@ pub enum RefusalReason {
     DuplicateDimension { dimension: DimensionName },
     /// More group-by keys than [`MAX_DIMENSIONS`].
     TooManyDimensions { requested: usize, limit: usize },
+    /// The result would carry more rows than `plan::MAX_ROWS`.
+    ///
+    /// **The refusal that replaced a silent truncation, and it was a wrong-number bug.** The cap
+    /// used to be the `LIMIT` on the statement and nothing compared the rows that came back against
+    /// it, so a question wide enough to exceed it was answered with the first `MAX_ROWS` groups by
+    /// group key - with provenance attached and no indication it was partial. Summing them gives a
+    /// wrong number under a certified name, and nothing downstream can tell.
+    ///
+    /// A governance outcome rather than an error, for the same reason
+    /// [`TimeRangeTooLong`](RefusalReason::TimeRangeTooLong) is: the question is well formed, the
+    /// metric permits it, and the answer is still no. Refused rather than narrowed, because a total
+    /// over part of the groups is not a smaller answer to the question asked - it is a different
+    /// number wearing the same name.
+    ///
+    /// Carries the limit and **not** how many rows there would have been, because nobody knows: the
+    /// plan asks for one row more than the cap and stops there, so what is known is "more than
+    /// this". That is the difference from [`TooManyDimensions`](RefusalReason::TooManyDimensions),
+    /// which can name what was requested because the caller sent it.
+    ResultTooLarge { limit: u32 },
     /// A span of history longer than [`MAX_RANGE_DAYS`].
     ///
     /// The availability boundary, and a governance outcome rather than a malformed question: the

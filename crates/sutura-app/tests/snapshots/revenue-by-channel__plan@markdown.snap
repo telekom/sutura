@@ -59,4 +59,4 @@ range:
     year: 2026
     month: 7
     day: 1
-row_limit: 10000
+max_rows: 10000

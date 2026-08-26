@@ -36,6 +36,12 @@ adding a cache here would be the place the habit started.
 What it does offer is two narrow, typed attach affordances, `DataFusionWarehouse::attach_csv`
 and `DataFusionWarehouse::attach_parquet`, which is what a golden fixture needs.
 
+# Three files, along two seams
+
+`translate.rs` turns a plan into expressions and never reads a result; `collect.rs` turns a result
+into domain rows and never reads a plan except for its labels. What is left here is what neither
+of them is about: the session, the runtime, attaching a file, and executing.
+
 ## `enum DataFusionError`
 
 ```rust
@@ -108,6 +114,40 @@ Builds an adapter with nothing registered.
 
 There is no file to open, which is the difference from the `DuckDB` adapter: the engine is
 this process, and a table exists once it has been attached.
+
+```rust
+pub fn with_worker_threads(source: SourceName, workers: core::num::NonZeroUsize) -> Result<Self, DataFusionError>
+```
+
+The same adapter, `workers` threads wide.
+
+**What `Self::new` costs when several threads call it at once, measured rather than
+assumed.** Twenty questions per caller over a million rows, in the `dev` profile - where
+every dependency is already at `opt-level = 3`, so the aggregation kernels are the shipped
+ones - on a sixteen-way host. Throughput, normalised to one caller on the current-thread
+runtime:
+
+| callers | `new` | `with_worker_threads(callers)` | one `new` per caller |
+| --- | --- | --- | --- |
+| 1 | 1.00x | 1.07x | 0.98x |
+| 2 | 1.02x | 2.08x | 1.82x |
+| 4 | 1.03x | 3.94x | 3.14x |
+| 8 | 1.01x | 6.06x | 4.87x |
+
+The first column is the finding: it is *flat*. A shared current-thread runtime does not scale
+with callers at all on this workload, because every `block_on` drives the same single-threaded
+core and the work is inside it. The third column is the other candidate - a runtime per
+calling thread - and it is consistently worse than one wide runtime while also needing
+per-thread state, so it was not taken.
+
+**The partition count follows the width**, which a bare `worker_threads` call would not do.
+`DataFusion` defaults `target_partitions` to `available_parallelism` - the number this key
+exists to override, since a CPU quota does not change it - so a two-worker runtime would
+otherwise build sixteen-way plans and execute them two at a time. Pinning it is why the small
+widths above are *ahead* of the baseline rather than level with it.
+
+`Self::new` is deliberately left alone: the command-line tool answers one question and
+exits, and it is also the caller with no settings to read a width from.
 
 ### Implements
 

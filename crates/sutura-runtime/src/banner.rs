@@ -57,8 +57,56 @@ pub fn announce(settings: &Settings) {
     );
     announce_perimeter(settings);
     announce_limits(settings);
+    announce_capacity(settings);
     announce_surface(settings);
     announce_identity_gap();
+}
+
+/// How much runs at once, how wide the engine is, and how long stopping may take.
+///
+/// Separate from [`announce_limits`] because it bounds a different thing: those keys are about one
+/// request, these are about the process. An operator sizing a deployment reads this line, so it
+/// carries the numbers in effect rather than the numbers in a file - `engine_worker_threads` in
+/// particular is resolved from the machine when it is absent, and `chosen` is what says whether the
+/// number being printed was anybody's decision.
+///
+/// The sentence about what the concurrency bound does *not* do is here rather than in a document,
+/// because the failure mode is an operator reading `max_concurrent_queries` as a bound on how long
+/// stopping can take. It is not: a question already executing runs to completion.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "every branch here is a tracing macro expanding into one; the control flow is a single decision"
+)]
+fn announce_capacity(settings: &Settings) {
+    let runtime = settings.runtime();
+    tracing::info!(
+        max_concurrent_queries = runtime.max_concurrent_queries().count(),
+        admission_timeout_seconds = runtime.admission_timeout().seconds(),
+        "questions executing at once is bounded; one that cannot get a slot inside the window is \
+         answered 503 rather than queued. A question already executing is NOT cancelled by any \
+         timeout here"
+    );
+    let workers = runtime.engine_workers();
+    if workers.was_chosen() {
+        tracing::info!(
+            engine_worker_threads = workers.count(),
+            "in-process engine width, as configured"
+        );
+    } else {
+        // Worth its own branch: `available_parallelism` reports what the kernel exposes, and under a
+        // CPU quota that is the host's core count rather than this container's share. An operator
+        // seeing a number they did not choose needs to know it came from the machine.
+        tracing::info!(
+            engine_worker_threads = workers.count(),
+            "in-process engine width, resolved from the machine - a container with a CPU quota \
+             should set runtime.engine_worker_threads instead"
+        );
+    }
+    tracing::info!(
+        shutdown_grace_seconds = runtime.shutdown_grace().seconds(),
+        "the budget for the WHOLE of stopping: the connection drain first, then what is left of it \
+         for questions already executing"
+    );
 }
 
 /// Where it listens, and whether anything guards that.
@@ -77,8 +125,10 @@ fn announce_perimeter(settings: &Settings) {
         );
     } else {
         // `warn` and not `info`: this is the state where an unauthenticated request from another
-        // host would be answered if the token were ever removed, and it was reached by an explicit
-        // `security.expose_beyond_loopback`. Saying so once per boot is the cost of that switch.
+        // host would be answered if the token were ever removed. Reaching it takes an explicit
+        // `security.tls_termination`, because an off-host bind is refused until the operator has
+        // said where TLS ends - so the state was chosen rather than defaulted into, and saying so
+        // once per boot is the cost of that choice.
         tracing::warn!(
             bind = %bind,
             access_token = security.token_state(),

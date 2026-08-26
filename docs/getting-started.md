@@ -87,17 +87,24 @@ cargo run -p sutura-cli -- \
 SELECT "customers"."region_code" AS "region",
        CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) AS "period",
        SUM("orders"."amount_cents") AS "revenue"
-FROM "orders" JOIN "customers" ON "orders"."customer_id" = "customers"."id"
+FROM "orders" LEFT JOIN "customers" ON "orders"."customer_id" = "customers"."id"
 WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ?
 GROUP BY "customers"."region_code", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE)
 ORDER BY "customers"."region_code", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE)
-LIMIT 10000
+LIMIT 10001
 ```
 
 (printed on one line; wrapped here to read). Both dates are bind parameters, and the plan behind the
 statement is printed after it. Pass a dialect as a third argument - `duckdb`, `postgres` or
 `clickhouse` - to see the same plan rendered for another data system: `ClickHouse` gets `dateTrunc`
 and `sum`, Postgres gets `$1` and `$2` instead of `?`.
+
+Two details in there are deliberate and easy to misread. The join is a **`LEFT JOIN`**, because an
+inner one drops fact rows that have no matching dimension row and so silently changes the measure it
+was only asked to break down. And the limit is **`10001`, not `10000`**: the cap is ten thousand rows,
+and asking for one more is how a result that *reached* the cap is told apart from one the cap *cut
+off*. If that extra row comes back, the question is refused as too wide to certify rather than
+answered with a total that is quietly missing its tail.
 
 `query` answers it. It checks every declared anchor first, and will not serve a bundle whose anchors
 did not all match:

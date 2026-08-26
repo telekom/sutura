@@ -619,12 +619,26 @@ the data system listed first.
 
 ## Module `definitions`
 
-The identifiers of a pinned definition set.
+The identifiers of a pinned definition set, and the one operation that computes one.
 
 Definitions are authored upstream and arrive as an immutable, hashed snapshot. The digest
 is what makes "the same question returns the same number" checkable rather than asserted,
 and what stops a catalogue edit from changing what executes - so a value that is not a
 digest must not be able to occupy the slot where one is expected.
+
+**The canonical form and its hash live HERE, and that is a correction rather than a
+preference.** They used to live in a catalog adapter, and
+`crate::pinned::PinnedDefinitions::pin` took the hashing function from its caller. A review
+found what that leaves open: any safe public code could pass `|_| Ok(some_other_digest)` and pair
+an unrelated digest with a set of definitions, so an answer could carry provenance for content
+that did not produce it. Handing the definitions to a function is not proof that the function read
+them. The digest has to be computed by code the domain trusts, which means code the domain holds,
+which is what `DefinitionDigest::of` is.
+
+The cost is two entries on the domain's dependency allowlist - `sha2` and `serde_json`, twelve
+crates transitively - and `xtask/src/boundaries.rs` records what was measured and why it was
+accepted. Neither is a framework, both were already linked into the shipped binary through the
+catalog adapter, and no lockfile entry is new.
 
 ### `struct DefinitionDigest`
 
@@ -634,9 +648,17 @@ pub struct DefinitionDigest
 
 Content hash of a pinned definition set.
 
-Construct it with `DefinitionDigest::parse`. There is no other way in: the field is
-private and `Deserialize` is routed through the same constructor, so a `DefinitionDigest`
-that is not `HEX_LEN` hex characters does not exist to be passed anywhere.
+Two ways in and they answer different questions. `DefinitionDigest::of` computes one FROM a set
+of definitions and is what `crate::pinned::PinnedDefinitions::pin` uses; `DefinitionDigest::parse`
+reads one that arrived as text - a provenance record, a serialized bundle - and checks its shape.
+The field is private and `Deserialize` is routed through `parse`, so a `DefinitionDigest` that is
+not `HEX_LEN` hex characters does not exist to be passed anywhere.
+
+**A parsed digest is not a forgery route, and the difference is worth being precise about.**
+Anybody may parse any hex string into one of these; what nothing can do is get it into a
+`crate::pinned::PinnedDefinitions`, because that type's constructor takes no digest and computes
+its own. So this type says "this is digest-shaped" and the bundle says "this digest is of that
+content", and only the second claim is one an answer rests on.
 
 #### Methods
 
@@ -658,6 +680,29 @@ at comparison sites, so one digest has one spelling and the derived `PartialEq`,
 #### Implements
 
 `Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `enum NotDigestible`
+
+```rust
+pub enum NotDigestible
+```
+
+Why a set of definitions could not be reduced to a digest.
+
+Two variants, and neither is reachable from any catalog this repository can load - which is why
+they are variants rather than a panic. `Definitions` holds no floats and every map key is a
+newtype over a string, so the serializer has nothing to refuse; and lower-case hex of 32 bytes is
+what a digest is. Each variant names which half changed, so a future field of a type that does not
+serialize says so instead of surfacing as "the catalog is broken".
+
+#### Variants
+
+- `Canonicalize` - The definitions could not be written into their canonical form.
+- `NotADigest` - The computed hash is not digest-shaped, which means the hashing changed and not the catalog.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
 
 ### `enum InvalidDigest`
 
@@ -1357,14 +1402,19 @@ there is nothing for an implementation to branch on. A trait that accepted one c
 different definition to different callers, which would make the pinning meaningless and the
 provenance a lie.
 
-**Two things this module deliberately does NOT hold.** It cannot hash, so
-`PinnedDefinitions::pin` takes the digest function rather than the digest - the domain's
-dependency allowlist is `serde` plus `thiserror`, and neither a SHA implementation nor a
-canonical serializer fits inside it. And it cannot execute a statement, so it holds
-`AnchorReport` - the evidence - and `AnchorReport::verdict` - the rule - but not the proof.
-The proof is `sutura_app::Validated`, whose only constructor is `sutura_app::verify_and_validate`
-and therefore cannot be reached without a `Warehouse` having been called. A report is public data
-anybody can build, and nothing anybody builds here turns into a bundle the service will serve.
+**One thing this module deliberately does NOT hold, and one it now does.** It cannot execute a
+statement, so it holds `AnchorReport` - the evidence - and `AnchorReport::verdict` - the rule -
+but not the proof. The proof is `sutura_app::Validated`, whose only constructor is
+`sutura_app::verify_and_validate` and therefore cannot be reached without a `Warehouse` having
+been called. A report is public data anybody can build, and nothing anybody builds here turns
+into a bundle the service will serve.
+
+What it does hold is the hashing. `PinnedDefinitions::pin` takes a version and a set of
+definitions and nothing else: the digest is computed here, from the value being stored, by
+`DefinitionDigest::of`. The previous shape took the hash *function* from its
+caller, on the argument that the domain could not hash - and that left the hole intact, because a
+function handed the definitions is not a function that read them. `crate::definitions` says what
+the twelve allowlisted crates bought.
 
 ### `struct DefinitionVersion`
 
@@ -1429,10 +1479,6 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub const fn new(version: DefinitionVersion, digest: DefinitionDigest) -> Self
-```
-
-```rust
 pub const fn version(&self) -> &DefinitionVersion
 ```
 
@@ -1465,60 +1511,78 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub fn pin<E>(version: DefinitionVersion, definitions: Definitions, digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>) -> Result<Self, E>
+pub fn pin(version: DefinitionVersion, definitions: Definitions) -> Result<Self, NotDigestible>
 ```
 
-Pins a set of definitions, deriving the digest FROM them.
+Pins a set of definitions, computing the digest here, from them.
 
-The digest is not a parameter beside the definitions any more, and that is the whole of this
-signature. The constructor this replaced took any syntactically valid digest next to any
-`Definitions` and conceded in its own comment that the one need not describe the other - so
-an answer could carry provenance for content that did not produce it, which is the opposite
-of what "a result cannot be separated from what defined it" claims. Now `digest` is APPLIED
-to the very value this constructor is about to store, and there is no way to hand in a
-digest for anything else.
+**Two arguments, and the absence of a third is the mechanism.** This constructor has been
+wrong twice, and the second time is the more interesting one:
 
-The hashing itself still arrives from outside, because `sutura-domain` cannot do it: neither
-`sha2` nor `serde_json` is on its allowlisted dependency tree, so the domain can compute
-neither the canonical bytes nor a hash of them. Reaching for them would put fifteen crates -
-`libc` among them - inside the hexagon to re-derive what a catalog adapter has already
-computed. So the honest shape is a function the caller supplies:
-`sutura_catalog_local::digest_of` is the one implementation, and it owns the canonical form.
+* `new(version, digest, definitions)` took any syntactically valid digest next to any
+  `Definitions` and conceded in its own comment that the one need not describe the other.
+* `pin(version, definitions, digest_fn)` then took the hash *function* from its caller, on
+  the argument that the domain could not hash. A review re-tested it and it was still
+  forgeable: safe public code could pass `|_| Ok(elsewhere)`, and a unit test that inspected
+  `given.metrics().len()` inside the closure proved only that the closure had been handed the
+  definitions - not that the digest it returned described them. **Passing content to
+  untrusted code is not the same as that code having used it.**
 
-**What this does not close:** a `digest` that ignores its argument and returns a constant.
-That is one function, in one adapter, with its own tests - rather than every call site of a
-three-argument constructor.
+So the canonical digest operation is the constructor boundary now. `pin` calls
+`DefinitionDigest::of` on the value it is about to store, and there is no parameter, closure
+or trait through which a caller can influence what the digest is taken over.
+`crate::definitions` holds the canonical form, the hash, and the measured cost of the two
+dependencies that made it possible.
 
-A digest for content this bundle does not hold is unrepresentable:
+The forgery a caller could write before does not compile - there is no third parameter to
+pass it as:
+
+```compile_fail
+use core::convert::Infallible;
+use sutura_domain::catalog::Definitions;
+use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+
+// The digest of some OTHER catalog, returned by a closure that ignores its argument.
+fn _forged(
+    version: DefinitionVersion,
+    definitions: Definitions,
+    elsewhere: DefinitionDigest,
+) -> Result<PinnedDefinitions, Infallible> {
+    PinnedDefinitions::pin(version, definitions, |_| Ok(elsewhere))
+}
+```
+
+Nor is there a way past the constructor. The fields are private, so the struct literal that
+would pair them by hand is not a struct literal a caller can write:
 
 ```compile_fail
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::DefinitionDigest;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-// The digest of some OTHER catalog, beside definitions that did not produce it.
-fn _mismatched(
+fn _by_hand(
     version: DefinitionVersion,
-    elsewhere: DefinitionDigest,
+    digest: DefinitionDigest,
     definitions: Definitions,
 ) -> PinnedDefinitions {
-    PinnedDefinitions::new(version, elsewhere, definitions)
+    PinnedDefinitions { version, digest, definitions }
 }
 ```
 
-The twin of that block, which pins the signature so a rename cannot make it pass vacuously:
+And the twin of both blocks, which pins the signature so that a rename cannot make either of
+them pass vacuously:
 
 ```
 use sutura_domain::catalog::Definitions;
-use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::definitions::NotDigestible;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-fn _pin<E>(
+fn _pin(
     version: DefinitionVersion,
     definitions: Definitions,
-    digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
-) -> Result<PinnedDefinitions, E> {
-    PinnedDefinitions::pin(version, definitions, digest)
+) -> Result<PinnedDefinitions, NotDigestible> {
+    PinnedDefinitions::pin(version, definitions)
 }
 ```
 
@@ -1999,6 +2063,16 @@ pub fn keys(&self) -> &[PlanKey]
 ```
 
 ```rust
+pub const fn max_rows(&self) -> u32
+```
+
+The most rows this plan's result may carry before it is refused.
+
+The cap itself, which is what a row count is compared against. Read it with
+[`row_limit`](QueryPlan::row_limit): the two differ by one, deliberately, and neither is
+useful without the other.
+
+```rust
 pub const fn measure(&self) -> &PlanMeasure
 ```
 
@@ -2035,6 +2109,17 @@ each other at all.
 ```rust
 pub const fn row_limit(&self) -> u32
 ```
+
+How many rows an adapter asks for: one more than [`max_rows`](QueryPlan::max_rows).
+
+**The extra row is the whole mechanism.** Fetching exactly the cap makes a result AT the cap
+indistinguishable from a result the cap cut short, and the second of those is a partial total
+under a certified name. Asking for one more makes "there is more" observable at no cost - the
+extra row is never returned to a caller, because a result carrying it is refused as
+[`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge).
+
+Saturating, so a cap of `u32::MAX` stays a number rather than wrapping to zero and asking
+a data system for nothing.
 
 ```rust
 pub const fn source(&self) -> &SourceName
@@ -2079,6 +2164,21 @@ The most rows any plan may return.
 A hard cap rather than a budget, for now. A bounded range and a bounded set of group-by keys
 still permit a large result, and the cost of that lands on a shared data system. When there is a
 real budget this becomes its floor.
+
+**It is a refusal and not a truncation, and that is the correction a review forced.** This used
+to be the `LIMIT` on the statement and nothing else: nothing compared the rows that came back
+against it. So a question at `day` grain over a year, grouped by up to
+[`MAX_DIMENSIONS`](crate::query::MAX_DIMENSIONS) keys, answered with the first ten thousand
+groups by group key, carried a provenance digest, and said nowhere that it was partial. Summing
+those rows gives a wrong number under a certified name, arrived at by omission - which is the
+failure mode this repository exists to prevent, and the one a caller has no way to detect.
+
+What holds it up is two things that have to be read together. `QueryPlan::row_limit` is one
+MORE than this, so a result that reached the cap is distinguishable from a result the cap cut
+short; and a row count above this is
+[`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge). A refusal is the
+honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
+the caller's move is to narrow the range or drop a dimension.
 
 ## Module `query`
 
@@ -2211,6 +2311,7 @@ somebody else's input.
 - `DimensionValueNotAllowed` - The dimension is filterable and the value is not one the bundle declares.
 - `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
+- `ResultTooLarge` - The result would carry more rows than `plan::MAX_ROWS`.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
 - `SourceUnavailable` - The plan named a data system this process did not open.
@@ -2265,9 +2366,10 @@ The longest span of history one question may ask about, in days.
 
 **This is the bound the `TimeRange` newtype does not provide.** That type refuses an *absent*
 endpoint; it accepts `[0001-01-01, 9999-12-31)`, which is over three and a half million days and, on
-both execution paths, a full scan. `plan::MAX_ROWS` does not help: it caps the rows *returned*
-after the aggregate, so a question that scans everything and groups it into one bucket is inside
-it. The span is what rows-read is a function of, so the span is where the cap goes.
+both execution paths, a full scan. `plan::MAX_ROWS` does not help: it bounds the rows *returned*
+after the aggregate - refusing a result that exceeds them - so a question that scans everything and
+groups it into one bucket is inside it. The span is what rows-read is a function of, so the span is
+where the cap goes.
 
 **3653 days is ten calendar years, counted at its longest.** Ten consecutive Gregorian years hold
 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
@@ -2279,7 +2381,8 @@ of months - and the longest range anywhere in this repository's fixtures, exampl
 It also stays under `plan::MAX_ROWS`, and that is not a coincidence worth losing: at `day` grain
 the time axis of a permitted question is at most 3653 buckets, so the row cap can only ever be
 reached by dimension cardinality and never by the range alone. Raising this past the row cap would
-quietly make a truncated answer the normal outcome of a wide range.
+make `RefusalReason::ResultTooLarge` the normal outcome of a wide range - a refusal nobody could
+act on, because narrowing the range would not be what got them there.
 
 A *span*, not a bucket count, and the difference matters. A bucket count would let `year` grain
 through with a thousand years of scanning for a thousand rows, which is precisely the request this
@@ -2290,8 +2393,9 @@ question: three permitted ten-year questions cover thirty years, and nothing her
 requests, because a per-caller budget needs a clock, a subject and somewhere to keep a counter and
 this crate has none of the three. And inside a permitted span the *groups* are still the span times
 the cardinality of up to `MAX_DIMENSIONS` dimensions - a dimension declared without a value list
-has whatever cardinality the column has - so `plan::MAX_ROWS` truncates that result rather than the
-work that produced it. A day count is also only a proxy for rows: ten years of a small table and
+has whatever cardinality the column has - so `plan::MAX_ROWS` refuses that result rather than
+bounding the work that produced it: the groups are built, and then the answer is declined. A
+refusal is not a budget. A day count is also only a proxy for rows: ten years of a small table and
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
 
@@ -2321,10 +2425,26 @@ A closed set rather than a string, because the whole point is that these never b
 our side. An adapter binds them with whatever its driver offers, and the driver is what decides
 how a date is written on the wire.
 
+**There is no `Integer`, and its absence is the decision rather than an omission.** The variant
+was here and nothing in the workspace constructed one: every caller value and every required
+filter binds as [`Text`](ParamValue::Text), because that is the type both of them are. Both
+adapters carried an arm for it and the goldens carried a rendering, so it read as covered while
+no question could reach it - and the dead arm was the lesser half of the cost. The real half is
+that a *numeric* definitional filter cannot be expressed safely here: `equals: { column:
+amount_cents, value: "500" }` compares an integer column against a text parameter, `DuckDB`
+casts it and answers, a driver that sends an explicitly-typed text parameter does not, and
+nothing refuses the definition because a `crate::catalog::Model` declares only column NAMES -
+there is no column type to check the value against. Adding the variant back without one would
+mean guessing the type from the value's own text, which makes a text column whose allowed value
+is `"500"` compare as a number: the same wrong comparison, arrived at from the other side.
+
+So it goes when a typed column model does, and not before. The reasoning is the one
+`sutura_exec_datafusion`'s `cell` gives for leaving `Date64` unmapped: an unreachable arm holding
+a semantic choice nobody reviewed is worse than not having the arm.
+
 #### Variants
 
 - `Text`
-- `Integer`
 - `Date`
 
 #### Methods
@@ -2584,5 +2704,7 @@ An in-process engine does not: it executes a logical plan over Arrow and generat
 So the plan is the contract and rendering is one adapter's private business.
 
 `dry_run` exists separately from `execute` because "would this be accepted" is worth being able
-to ask before committing to the cost of an answer. An adapter with no such facility answers it by
-checking what it can.
+to ask before committing to the cost of an answer - **where asking is cheaper than answering.**
+It is defaulted rather than required for exactly that reason: an adapter for which it is not
+cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
+do is nothing.

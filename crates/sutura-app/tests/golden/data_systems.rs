@@ -77,11 +77,23 @@ where
     }
 }
 
-/// `dry_run` prepares without executing, which resolves every table and column name.
+/// Asking "would this be accepted" never answers no for a plan that runs.
 ///
-/// It is what turns "this would have failed" into "this failed before reading anything". The
-/// port takes a plan, so what an adapter does to answer it is its own business: the
-/// SQL-rendering one prepares a statement and the engine resolves the logical plan.
+/// The port takes a plan, so what an adapter does to answer that is its own business, and the two
+/// registered here answer it differently on purpose. The SQL-rendering one prepares the statement:
+/// a round trip buys "this failed before reading anything" instead of "this would have failed", and
+/// preparing is far cheaper than running. The engine takes the port's **defaulted** `dry_run` and
+/// does nothing, because for an in-process engine checking is not a cheaper question than
+/// answering - it is building the logical plan and running the analyzer and the optimizer, which is
+/// most of executing it, so a required pre-flight meant planning every question twice.
+///
+/// **So this cell is real for one entry and vacuous for the other, and that is worth saying rather
+/// than leaving to be discovered.** For an adapter that takes the default it cannot fail; what it
+/// still holds up is the contract for any adapter that overrides it - a pre-flight that rejects a
+/// plan the adapter would then have run is a bug, and this is where it shows. The guarantee the
+/// engine gives instead is asserted where it lives, in
+/// `a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_answer`:
+/// resolution still happens, on the one pass it makes.
 fn accepts_every_plan_before_running_it<W>()
 where
     W: DataSystemUnderTest,

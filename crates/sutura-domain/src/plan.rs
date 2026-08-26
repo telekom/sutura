@@ -24,6 +24,21 @@ use crate::warehouse::ParamValue;
 /// A hard cap rather than a budget, for now. A bounded range and a bounded set of group-by keys
 /// still permit a large result, and the cost of that lands on a shared data system. When there is a
 /// real budget this becomes its floor.
+///
+/// **It is a refusal and not a truncation, and that is the correction a review forced.** This used
+/// to be the `LIMIT` on the statement and nothing else: nothing compared the rows that came back
+/// against it. So a question at `day` grain over a year, grouped by up to
+/// [`MAX_DIMENSIONS`](crate::query::MAX_DIMENSIONS) keys, answered with the first ten thousand
+/// groups by group key, carried a provenance digest, and said nowhere that it was partial. Summing
+/// those rows gives a wrong number under a certified name, arrived at by omission - which is the
+/// failure mode this repository exists to prevent, and the one a caller has no way to detect.
+///
+/// What holds it up is two things that have to be read together. [`QueryPlan::row_limit`] is one
+/// MORE than this, so a result that reached the cap is distinguishable from a result the cap cut
+/// short; and a row count above this is
+/// [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge). A refusal is the
+/// honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
+/// the caller's move is to narrow the range or drop a dimension.
 pub const MAX_ROWS: u32 = 10_000;
 
 /// A column, qualified by the table it is read from.
@@ -313,7 +328,7 @@ pub struct QueryPlan {
     filters: Vec<PlanFilter>,
     params: Vec<ParamValue>,
     range: TimeRange,
-    row_limit: u32,
+    max_rows: u32,
 }
 
 impl QueryPlan {
@@ -347,7 +362,7 @@ impl QueryPlan {
             filters,
             params,
             range,
-            row_limit: MAX_ROWS,
+            max_rows: MAX_ROWS,
         }
     }
 
@@ -406,9 +421,29 @@ impl QueryPlan {
         self.range
     }
 
+    /// The most rows this plan's result may carry before it is refused.
+    ///
+    /// The cap itself, which is what a row count is compared against. Read it with
+    /// [`row_limit`](QueryPlan::row_limit): the two differ by one, deliberately, and neither is
+    /// useful without the other.
+    #[inline]
+    pub const fn max_rows(&self) -> u32 {
+        self.max_rows
+    }
+
+    /// How many rows an adapter asks for: one more than [`max_rows`](QueryPlan::max_rows).
+    ///
+    /// **The extra row is the whole mechanism.** Fetching exactly the cap makes a result AT the cap
+    /// indistinguishable from a result the cap cut short, and the second of those is a partial total
+    /// under a certified name. Asking for one more makes "there is more" observable at no cost - the
+    /// extra row is never returned to a caller, because a result carrying it is refused as
+    /// [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge).
+    ///
+    /// Saturating, so a cap of [`u32::MAX`] stays a number rather than wrapping to zero and asking
+    /// a data system for nothing.
     #[inline]
     pub const fn row_limit(&self) -> u32 {
-        self.row_limit
+        self.max_rows.saturating_add(1)
     }
 
     /// The labels this plan's result will carry, in order.

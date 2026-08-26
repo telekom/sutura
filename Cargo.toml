@@ -16,6 +16,12 @@ members = [
   "crates/sutura-domain",
   "crates/sutura-catalog-local",
   "crates/sutura-semantic",
+  # Rendering, and a SEPARATE crate from the compiler on purpose. `sutura-semantic` stops at a
+  # plan because the `Warehouse` port carries one, so the generator is reachable from SQL adapters
+  # and from nothing else - and putting it here is what keeps `polyglot-sql` out of the core's
+  # transitive closure. `cargo xtask check-boundaries` fails if `sutura-semantic` acquires either
+  # edge back.
+  "crates/sutura-sql",
   "crates/sutura-app",
   "crates/sutura-exec-duckdb",
   "crates/sutura-exec-datafusion",
@@ -54,6 +60,7 @@ repository = "https://github.com/telekom/sutura"
 sutura-domain = { path = "crates/sutura-domain" }
 sutura-catalog-local = { path = "crates/sutura-catalog-local" }
 sutura-semantic = { path = "crates/sutura-semantic" }
+sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
@@ -81,7 +88,7 @@ serde_norway = "0.9"
 #   * `builder` is REQUIRED, and not incidentally: the fluent builder is how every statement here
 #     is assembled. `Expression::Select` has upwards of thirty fields and no `Default`, so a struct
 #     literal for it is a list nobody can review - which is the first thing
-#     `crates/sutura-semantic/src/generate.rs` says, and every call in that file goes through
+#     `crates/sutura-sql/src/generate.rs` says, and every call in that file goes through
 #     `polyglot_sql::builder`. Dropping this feature does not build. Do not read the absence of a
 #     `builder::` call in the manifest's neighbourhood as evidence it is unused.
 #   * `stacker` is default-on upstream for stack-growth protection, and turning defaults off
@@ -144,6 +151,21 @@ datafusion = { version = "55.0.0", default-features = false, features = ["parque
 # all four cross-built artifacts, which is a decision rather than a side effect.
 tokio = { version = "1", features = ["rt"] }
 
+# A certificate authority in twenty lines, for the TLS tests. TEST-ONLY, and a dev-dependency of
+# `sutura-http` alone.
+#
+# The alternative was a committed key pair, and it is worse in the way that matters: a fixed pair
+# proves a handshake completes and proves nothing about the two failure modes the reload path has to
+# get right - a certificate whose key does not match it, and a rotation that actually changes what a
+# client is presented. Both need a SECOND pair generated on the spot. A committed private key in a
+# public repository is also a thing a reader has to stop and check.
+#
+# `default-features = false` with `pem` and `ring`: the default set is `aws_lc_rs`, which needs cmake
+# in the build sandbox, and `ring` is already in the graph because `tokio-rustls` asks for it. Three
+# new crates in the DEV graph - `rcgen`, `pem`, `yasna` - and no new licence: all three are
+# `MIT OR Apache-2.0`, which `deny.toml` already allows.
+rcgen = { version = "0.14", default-features = false, features = ["pem", "ring"] }
+
 # Snapshot testing, for the golden suite. Test-only.
 #
 # The goldens it holds are the generated SQL, the plan and the pinned bundle - artifacts that
@@ -202,6 +224,35 @@ tower-http = { version = "0.6", default-features = false, features = ["trace", "
 # a gRPC stack nobody calls is.
 governor = "0.10"
 tower_governor = { version = "0.8", default-features = false, features = ["axum"] }
+
+# In-process TLS termination, behind the default-off `tls` feature on `sutura-http` and
+# `sutura-serve`. OPTIONAL there, so with the feature off none of this is in the build.
+#
+# rustls and NOT OpenSSL, and the reason is the shipped artifacts rather than a preference. Two of
+# the four are musl and nixpkgs has no musl OpenSSL, so an `openssl-sys` edge would either fail the
+# cross build or need a vendored C OpenSSL compiled per target. rustls needs no system library.
+#
+# `tokio-rustls` is the ONLY new crate in the graph. `rustls`, `rustls-pki-types`, `rustls-webpki`,
+# `ring` and `untrusted` are already resolved - they arrive under `libduckdb-sys`'s `ureq`, which
+# is why `deny.toml` already allows ISC and BSD-3-Clause "via the TLS stack described above". So the
+# licence allowlist needs no new entry, which was checked rather than assumed.
+#
+# `default-features = false` and then back only what is used, as everywhere else here:
+#
+#   * `ring` is the crypto provider, and it is chosen OVER the default `aws-lc-rs`. Both compile C,
+#     but `aws-lc-rs` needs cmake and a generated-bindings path in the build sandbox, while `ring`
+#     ships the assembly it needs and cross-compiles with the musl cc the Nix build already exports
+#     as `CC_<triple>`. One provider feature is also what lets `ServerConfig::builder()` exist.
+#   * `tls12` stays on. TLS 1.3 alone would be the stronger posture and this listener is reached by
+#     whatever a deployment puts in front of it, which is not this repo's decision to make.
+#   * `logging` routes rustls's own diagnostics through `log`, which `tracing-log` already bridges
+#     into the same stream as everything else. A handshake that fails silently is the failure mode
+#     this whole feature is supposed to make loud.
+#
+# No `webpki-roots` and no `rustls-native-certs`: this is a SERVER config. It presents a chain and
+# verifies no peer, so a trust store would be a root set nothing consults. Client TLS, when a
+# networked adapter lands and needs it, is where that changes - see `docs/serving.md`.
+tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the

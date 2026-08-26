@@ -5,8 +5,9 @@ description: OAuth 2.x and OIDC for this service - validating access tokens, aut
 
 # OAuth and OIDC here
 
-**None of this page describes code that exists.** sutura has no HTTP surface, no MCP surface, no
-token validation, no JWT dependency and no credential port. There is nothing here to review against
+**None of this page describes code that exists.** sutura now has an HTTP surface, but not the one
+this page is about: it is gated by a single shared bearer token that authenticates the DEPLOYMENT,
+with no token validation, no JWT dependency, no OIDC and no credential port. There is no MCP surface. There is nothing here to review against
 these rules yet: this is the shape the two halves have to take when the first transport arrives, and
 it is written down first because retrofitting either half is where governance gets lost.
 

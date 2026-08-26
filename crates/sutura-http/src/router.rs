@@ -19,6 +19,25 @@
 //! produces a `401` with no span, and a body limit applied inside the JSON extractor is a limit that
 //! never fires.
 //!
+//! # The limiter is OUTSIDE the token gate, and that was a bug fix
+//!
+//! It used to be inside it. `route_layer` for the gate was added last, so the gate was the
+//! outermost layer of the versioned subtree and answered `401` **without calling `next.run`** - so a
+//! wrong-token attempt never reached the limiter and never cost a cell. An unlimited burst of
+//! authentication attempts against a 32-character shared secret is the one thing a rate limiter in
+//! front of a bearer token is for.
+//!
+//! The order below is therefore: limiter, then gate, then the handler. Both subtrees that have a
+//! gate - the versioned API and the documentation - are assembled the same way, because the
+//! documentation router had the same inversion.
+//!
+//! **This is why the sweeper is started here and in the same change.** With the gate outermost, an
+//! unauthenticated request was refused before it could create a bucket, so the only unauthenticated
+//! path into a limiter was liveness. With the limiter outermost, every path an unauthenticated
+//! caller can reach creates one - so fixing the order alone converts a narrow leak in
+//! `governor`'s never-reaped keyed store into a surface-wide one. See
+//! [`middleware::spawn_reaper`].
+//!
 //! `route_layer` rather than `layer` for the token gate, and that is load-bearing: `route_layer`
 //! runs only for a request that matched a route in that subtree, so it applies to every real path
 //! under the version prefix without also applying to the liveness probe merged in beside it. A
@@ -33,19 +52,28 @@
 //! # Why this returns a `Result`
 //!
 //! Because a limiter that will not build must stop the process rather than quietly become no
-//! limiter. It cannot happen from a loaded configuration - `Quota` refuses the values that would
-//! cause it - and the alternative to an error is either a panic for something the types already
-//! ruled out or a fail-open fallback. See `middleware::LimiterNotBuilt`.
+//! limiter, and so must a sweeper that will not start: a keyed store nothing sweeps grows for the
+//! life of the process. Neither can happen from a loaded configuration - `Quota` refuses the values
+//! that would cause the first - and the alternative to an error is either a panic for something the
+//! types already ruled out or a fail-open fallback. See `middleware::LimiterNotBuilt`.
 
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use sutura_config::{Environment, Settings};
 use utoipa_axum::router::OpenApiRouter;
 
+use crate::client_address::ClientAddress;
 use crate::constants::{API_V1_PREFIX, OPENAPI_JSON_PATH, SWAGGER_UI_PATH};
-use crate::middleware::{self, LimiterNotBuilt};
+use crate::middleware::{self, LimiterHandle, LimiterNotBuilt};
 use crate::routes;
 use crate::state::ServiceState;
+
+/// The documentation subtree, and the limiter tier it installed if it installed one.
+///
+/// A named alias because the tuple is over the complexity threshold in `clippy.toml`, and naming it
+/// says why the second half is optional: the subtree is empty when the description is not served,
+/// and an empty subtree installs no tier.
+type DocumentationRouter = Result<(Router, Option<LimiterHandle>), RouterNotBuilt>;
 
 /// Why the router could not be assembled.
 #[derive(Debug, thiserror::Error)]
@@ -55,17 +83,79 @@ pub enum RouterNotBuilt {
         #[source]
         cause: LimiterNotBuilt,
     },
+    /// The housekeeping thread for the limiter's keyed state would not start.
+    ///
+    /// A refusal and not a warning, for the reason every refusal in this codebase is one: the
+    /// alternative is a process that runs with a keyed store nothing ever sweeps, which is a slow
+    /// leak that no request will ever reveal.
+    #[error("the rate limit sweeper thread could not be started")]
+    Reaper {
+        #[source]
+        cause: std::io::Error,
+    },
 }
 
-/// Builds the whole router for this state.
+/// The router, and the limiter state something has to keep sweeping.
+///
+/// **Two values because they have two owners.** The router goes to whatever serves it; the handles
+/// go to the sweeper. [`router`] wires the second half up itself, which is what makes the
+/// production path correct by default; [`assemble`] hands both back for a test that wants to
+/// observe the keyed store directly.
+pub struct Assembled {
+    router: Router,
+    limiters: Vec<LimiterHandle>,
+}
+
+impl Assembled {
+    /// The router, for whatever will serve it.
+    pub fn into_router(self) -> Router {
+        self.router
+    }
+
+    /// The tiers that were built, for a sweeper or for an assertion.
+    #[must_use]
+    pub fn limiters(&self) -> &[LimiterHandle] {
+        &self.limiters
+    }
+}
+
+impl core::fmt::Debug for Assembled {
+    /// Hand-written because `axum::Router` is not `Debug` in a useful way and the tiers are what a
+    /// reader wants named.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("Assembled")
+            .field(
+                "limiters",
+                &self.limiters.iter().map(LimiterHandle::tier).collect::<Vec<&str>>(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+/// Builds the whole router for this state, and starts the sweeper for its keyed state.
 ///
 /// Everything the posture decides is decided here, once, from settings that were already
 /// refused-or-accepted at startup. A handler cannot re-decide any of it, which is the point: a
 /// request never arrives at a branch that could turn a control off.
 pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
+    let assembled = assemble(state)?;
+    middleware::spawn_reaper(assembled.limiters(), middleware::REAP_INTERVAL)
+        .map_err(|cause| RouterNotBuilt::Reaper { cause })?;
+    Ok(assembled.into_router())
+}
+
+/// The same assembly, with the limiter handles handed back instead of swept.
+///
+/// For a caller that wants to sweep on its own schedule, and for a test that wants to assert on the
+/// keyed store. It starts no thread, so a test suite that assembles one router per test does not
+/// accumulate one sweeper per test.
+pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     let settings = state.settings().clone();
     let limits = settings.rate_limit();
+    let key = ClientAddress::from_settings(limits);
     announce_rate_limiting(settings.environment(), limits.enabled());
+    announce_keying(limits);
+    let mut limiters = Vec::new();
 
     // The versioned API. Nested before the layers are applied, so the token gate and the limiter
     // see the full path.
@@ -77,12 +167,16 @@ pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
     // Innermost of this subtree: the body bound. Inside the JSON extractor, which is what makes it
     // a limit on what is read rather than on what parses.
     .layer(DefaultBodyLimit::max(settings.server().max_body().bytes()));
+    // Then the token gate, and only THEN the limiter - so the limiter is outside the gate and a
+    // wrong-token attempt costs a cell. See the module documentation.
+    let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
     let versioned = if limits.enabled() {
-        versioned.layer(middleware::api_rate_limit_layer(limits.api()).map_err(limiter)?)
+        let (layer, handle) = middleware::api_rate_limit_layer(limits.api(), key.clone()).map_err(limiter)?;
+        limiters.push(handle);
+        versioned.layer(layer)
     } else {
         versioned.layer(middleware::disabled_rate_limit_layer())
     };
-    let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
 
     // Liveness. No token, and the tighter tier: nothing here is worth polling faster than that.
     let liveness: Router = Router::from(
@@ -91,25 +185,32 @@ pub fn router(state: &ServiceState) -> Result<Router, RouterNotBuilt> {
             .with_state(state.clone()),
     );
     let liveness = if limits.enabled() {
-        liveness.layer(middleware::probe_rate_limit_layer(limits.probe()).map_err(limiter)?)
+        let (layer, handle) = middleware::probe_rate_limit_layer(limits.probe(), key.clone()).map_err(limiter)?;
+        limiters.push(handle);
+        liveness.layer(layer)
     } else {
         liveness.layer(middleware::disabled_rate_limit_layer())
     };
 
-    let documentation = documentation(state, &settings)?;
+    let (documentation, documentation_limiter) = documentation(state, &settings, &key)?;
+    limiters.extend(documentation_limiter);
 
-    Ok(Router::new()
+    let router = Router::new()
         .merge(liveness)
         .merge(documentation)
         .merge(versioned)
-        .layer(tower_http::timeout::TimeoutLayer::with_status_code(
-            axum::http::StatusCode::REQUEST_TIMEOUT,
+        // The request bound, as a middleware of ours rather than `tower_http`'s: that one answers
+        // the status with an EMPTY body, and every `408` this surface documents carries a
+        // `ProblemBody`. See `middleware::enforce_timeout`.
+        .layer(axum::middleware::from_fn_with_state(
             settings.server().request_timeout().duration(),
+            middleware::enforce_timeout,
         ))
         // Outermost, so a request refused by any layer below still produces a span and a timing.
         // `TraceLayer` on the outside is the difference between a `401` you can find in a log and a
         // `401` that happened to somebody.
-        .layer(tower_http::trace::TraceLayer::new_for_http()))
+        .layer(tower_http::trace::TraceLayer::new_for_http());
+    Ok(Assembled { router, limiters })
 }
 
 const fn limiter(cause: LimiterNotBuilt) -> RouterNotBuilt {
@@ -122,12 +223,11 @@ const fn limiter(cause: LimiterNotBuilt) -> RouterNotBuilt {
 /// `Option<Router>` and a branch at the merge site; this way there is one shape, the decision is
 /// made here, and the assembly above does not know it happened.
 ///
-/// Behind the token gate when a token is configured. An interface description is a map of the
-/// surface, and handing one to an unauthenticated caller is the same disclosure as handing them the
-/// catalog.
-fn documentation(state: &ServiceState, settings: &Settings) -> Result<Router, RouterNotBuilt> {
+/// Behind the token gate when a token is configured, and behind the limiter *outside* that gate for
+/// the same reason the versioned API is: a document behind a secret is a secret worth guessing at.
+fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress) -> DocumentationRouter {
     if !settings.api().docs_enabled() {
-        return Ok(Router::new());
+        return Ok((Router::new(), None));
     }
     // Serialized once, at startup, and served from a clone. Serializing per request would put a few
     // hundred kilobytes of work behind a path a caller can poll.
@@ -138,7 +238,7 @@ fn documentation(state: &ServiceState, settings: &Settings) -> Result<Router, Ro
             // document that will not serialize is a bug in a description of it. Loud, then carry on
             // without it rather than refusing to serve anything.
             tracing::error!(error = %cause, "the interface description would not serialize; not serving it");
-            return Ok(Router::new());
+            return Ok((Router::new(), None));
         }
     };
     let served = Router::new()
@@ -164,12 +264,13 @@ fn documentation(state: &ServiceState, settings: &Settings) -> Result<Router, Ro
                 ),
         );
     let limits = settings.rate_limit();
-    let served = if limits.enabled() {
-        served.layer(middleware::probe_rate_limit_layer(limits.probe()).map_err(limiter)?)
+    let served = served.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
+    if limits.enabled() {
+        let (layer, handle) = middleware::probe_rate_limit_layer(limits.probe(), key.clone()).map_err(limiter)?;
+        Ok((served.layer(layer), Some(handle)))
     } else {
-        served.layer(middleware::disabled_rate_limit_layer())
-    };
-    Ok(served.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token)))
+        Ok((served.layer(middleware::disabled_rate_limit_layer()), None))
+    }
 }
 
 /// Says what the limiter is doing, in words that differ by environment.
@@ -199,5 +300,29 @@ fn announce_rate_limiting(environment: Environment, enabled: bool) {
                  refused at startup; the configuration gate did not fire"
             );
         }
+    }
+}
+
+/// Says what a bucket is counted against, because the two answers fail differently.
+///
+/// Worth a line of its own: peer keying behind an ingress controller is one bucket for every caller
+/// there has ever been, which reads in a graph exactly like a limit that is working.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "both arms are a tracing macro expanding into branches; the control flow is one branch"
+)]
+fn announce_keying(limits: &sutura_config::RateLimitSettings) {
+    if limits.client_address().reads_a_header() {
+        tracing::info!(
+            client_address = %limits.client_address(),
+            trusted_proxies = limits.trusted_proxies().len(),
+            "rate limit buckets are keyed on the forwarded header, read only from a named hop"
+        );
+    } else {
+        tracing::info!(
+            client_address = %limits.client_address(),
+            "rate limit buckets are keyed on the peer address - behind a proxy that is ONE bucket \
+             for every caller, and rate_limit.client_address is what changes it"
+        );
     }
 }

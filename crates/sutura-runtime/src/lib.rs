@@ -1,5 +1,5 @@
-//! Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal
-//! and the banner.
+//! Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
+//! the banner, and the bound on how much executes at once.
 //!
 //! # Why this is its own crate
 //!
@@ -16,7 +16,7 @@
 //!
 //! ```no_run
 //! use sutura_config::{Settings, Sources, environment_from_process};
-//! use sutura_runtime::{banner, shutdown::Shutdown, telemetry};
+//! use sutura_runtime::{Admission, banner, shutdown::Shutdown, telemetry};
 //!
 //! # fn main() -> Result<(), Box<dyn core::error::Error>> {
 //! // 1. The environment, first: it decides the log format and which file is layered.
@@ -31,9 +31,14 @@
 //! sutura_runtime::install_panic_hook();
 //! // 5. What was resolved, including the line about what this service does not do.
 //! banner::announce(&settings);
-//! // 6. The shutdown, shared with the server and with the signal listener.
-//! let shutdown = Shutdown::new();
+//! // 6. The shutdown, shared with the server and with the signal listener. Built with the
+//! //    configured grace period, so the number an operator wrote is the number that bounds
+//! //    stopping.
+//! let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
 //! tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
+//! // 7. The bound on how many questions execute at once, shared with every transport. One per
+//! //    process: two independently sized ones would each report a limit the other can exceed.
+//! let admission = Admission::from_settings(settings.runtime());
 //! # Ok(())
 //! # }
 //! ```
@@ -46,6 +51,7 @@
 //! dependency now to satisfy the word "observability" would be the shape of the thing without the
 //! thing.
 
+pub mod admission;
 pub mod banner;
 pub mod panics;
 pub mod shutdown;
@@ -54,6 +60,7 @@ pub mod telemetry;
 #[cfg(test)]
 mod testing;
 
+pub use crate::admission::{Admission, AtCapacity, Slot};
 pub use crate::panics::install_panic_hook;
 pub use crate::shutdown::{Shutdown, ShutdownReason};
 pub use crate::telemetry::TelemetryNotInstalled;

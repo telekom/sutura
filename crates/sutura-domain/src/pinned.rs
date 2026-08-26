@@ -14,19 +14,24 @@
 //! different definition to different callers, which would make the pinning meaningless and the
 //! provenance a lie.
 //!
-//! **Two things this module deliberately does NOT hold.** It cannot hash, so
-//! [`PinnedDefinitions::pin`] takes the digest function rather than the digest - the domain's
-//! dependency allowlist is `serde` plus `thiserror`, and neither a SHA implementation nor a
-//! canonical serializer fits inside it. And it cannot execute a statement, so it holds
-//! [`AnchorReport`] - the evidence - and [`AnchorReport::verdict`] - the rule - but not the proof.
-//! The proof is `sutura_app::Validated`, whose only constructor is `sutura_app::verify_and_validate`
-//! and therefore cannot be reached without a `Warehouse` having been called. A report is public data
-//! anybody can build, and nothing anybody builds here turns into a bundle the service will serve.
+//! **One thing this module deliberately does NOT hold, and one it now does.** It cannot execute a
+//! statement, so it holds [`AnchorReport`] - the evidence - and [`AnchorReport::verdict`] - the rule -
+//! but not the proof. The proof is `sutura_app::Validated`, whose only constructor is
+//! `sutura_app::verify_and_validate` and therefore cannot be reached without a `Warehouse` having
+//! been called. A report is public data anybody can build, and nothing anybody builds here turns
+//! into a bundle the service will serve.
+//!
+//! What it does hold is the hashing. [`PinnedDefinitions::pin`] takes a version and a set of
+//! definitions and nothing else: the digest is computed here, from the value being stored, by
+//! `DefinitionDigest::of`. The previous shape took the hash *function* from its
+//! caller, on the argument that the domain could not hash - and that left the hole intact, because a
+//! function handed the definitions is not a function that read them. `crate::definitions` says what
+//! the twelve allowlisted crates bought.
 
 use std::collections::BTreeMap;
 
 use crate::catalog::{Anchor, Definitions};
-use crate::definitions::DefinitionDigest;
+use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
 
@@ -110,7 +115,15 @@ pub struct Provenance {
 }
 
 impl Provenance {
-    pub const fn new(version: DefinitionVersion, digest: DefinitionDigest) -> Self {
+    /// Private, and that is the second half of the fix in this file.
+    ///
+    /// [`PinnedDefinitions::provenance`] is the only way to obtain one, so a `Provenance` is always a
+    /// bundle's own and never a pair of values somebody chose. With a public constructor here, the
+    /// digest computed inside `pin` could be bypassed one level further out: `ToolOutcome::Answer`
+    /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
+    /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
+    /// it - so this costs no caller.
+    const fn new(version: DefinitionVersion, digest: DefinitionDigest) -> Self {
         Self { version, digest }
     }
 
@@ -134,65 +147,79 @@ pub struct PinnedDefinitions {
 }
 
 impl PinnedDefinitions {
-    /// Pins a set of definitions, deriving the digest FROM them.
+    /// Pins a set of definitions, computing the digest here, from them.
     ///
-    /// The digest is not a parameter beside the definitions any more, and that is the whole of this
-    /// signature. The constructor this replaced took any syntactically valid digest next to any
-    /// [`Definitions`] and conceded in its own comment that the one need not describe the other - so
-    /// an answer could carry provenance for content that did not produce it, which is the opposite
-    /// of what "a result cannot be separated from what defined it" claims. Now `digest` is APPLIED
-    /// to the very value this constructor is about to store, and there is no way to hand in a
-    /// digest for anything else.
+    /// **Two arguments, and the absence of a third is the mechanism.** This constructor has been
+    /// wrong twice, and the second time is the more interesting one:
     ///
-    /// The hashing itself still arrives from outside, because `sutura-domain` cannot do it: neither
-    /// `sha2` nor `serde_json` is on its allowlisted dependency tree, so the domain can compute
-    /// neither the canonical bytes nor a hash of them. Reaching for them would put fifteen crates -
-    /// `libc` among them - inside the hexagon to re-derive what a catalog adapter has already
-    /// computed. So the honest shape is a function the caller supplies:
-    /// `sutura_catalog_local::digest_of` is the one implementation, and it owns the canonical form.
+    /// * `new(version, digest, definitions)` took any syntactically valid digest next to any
+    ///   [`Definitions`] and conceded in its own comment that the one need not describe the other.
+    /// * `pin(version, definitions, digest_fn)` then took the hash *function* from its caller, on
+    ///   the argument that the domain could not hash. A review re-tested it and it was still
+    ///   forgeable: safe public code could pass `|_| Ok(elsewhere)`, and a unit test that inspected
+    ///   `given.metrics().len()` inside the closure proved only that the closure had been handed the
+    ///   definitions - not that the digest it returned described them. **Passing content to
+    ///   untrusted code is not the same as that code having used it.**
     ///
-    /// **What this does not close:** a `digest` that ignores its argument and returns a constant.
-    /// That is one function, in one adapter, with its own tests - rather than every call site of a
-    /// three-argument constructor.
+    /// So the canonical digest operation is the constructor boundary now. `pin` calls
+    /// `DefinitionDigest::of` on the value it is about to store, and there is no parameter, closure
+    /// or trait through which a caller can influence what the digest is taken over.
+    /// `crate::definitions` holds the canonical form, the hash, and the measured cost of the two
+    /// dependencies that made it possible.
     ///
-    /// A digest for content this bundle does not hold is unrepresentable:
+    /// The forgery a caller could write before does not compile - there is no third parameter to
+    /// pass it as:
+    ///
+    /// ```compile_fail
+    /// use core::convert::Infallible;
+    /// use sutura_domain::catalog::Definitions;
+    /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+    ///
+    /// // The digest of some OTHER catalog, returned by a closure that ignores its argument.
+    /// fn _forged(
+    ///     version: DefinitionVersion,
+    ///     definitions: Definitions,
+    ///     elsewhere: DefinitionDigest,
+    /// ) -> Result<PinnedDefinitions, Infallible> {
+    ///     PinnedDefinitions::pin(version, definitions, |_| Ok(elsewhere))
+    /// }
+    /// ```
+    ///
+    /// Nor is there a way past the constructor. The fields are private, so the struct literal that
+    /// would pair them by hand is not a struct literal a caller can write:
     ///
     /// ```compile_fail
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::DefinitionDigest;
     /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
     ///
-    /// // The digest of some OTHER catalog, beside definitions that did not produce it.
-    /// fn _mismatched(
+    /// fn _by_hand(
     ///     version: DefinitionVersion,
-    ///     elsewhere: DefinitionDigest,
+    ///     digest: DefinitionDigest,
     ///     definitions: Definitions,
     /// ) -> PinnedDefinitions {
-    ///     PinnedDefinitions::new(version, elsewhere, definitions)
+    ///     PinnedDefinitions { version, digest, definitions }
     /// }
     /// ```
     ///
-    /// The twin of that block, which pins the signature so a rename cannot make it pass vacuously:
+    /// And the twin of both blocks, which pins the signature so that a rename cannot make either of
+    /// them pass vacuously:
     ///
     /// ```
     /// use sutura_domain::catalog::Definitions;
-    /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::definitions::NotDigestible;
     /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
     ///
-    /// fn _pin<E>(
+    /// fn _pin(
     ///     version: DefinitionVersion,
     ///     definitions: Definitions,
-    ///     digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
-    /// ) -> Result<PinnedDefinitions, E> {
-    ///     PinnedDefinitions::pin(version, definitions, digest)
+    /// ) -> Result<PinnedDefinitions, NotDigestible> {
+    ///     PinnedDefinitions::pin(version, definitions)
     /// }
     /// ```
-    pub fn pin<E>(
-        version: DefinitionVersion,
-        definitions: Definitions,
-        digest: impl FnOnce(&Definitions) -> Result<DefinitionDigest, E>,
-    ) -> Result<Self, E> {
-        let digest = digest(&definitions)?;
+    pub fn pin(version: DefinitionVersion, definitions: Definitions) -> Result<Self, NotDigestible> {
+        let digest = DefinitionDigest::of(&definitions)?;
         Ok(Self {
             version,
             digest,
@@ -454,8 +481,6 @@ mod tests {
     use crate::measure::{AggregatedColumn, Measure, Term};
     use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
 
-    const DIGEST: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
-
     fn metric_name(raw: &str) -> MetricName {
         MetricName::parse(raw).expect("a test metric name is a name")
     }
@@ -489,19 +514,17 @@ mod tests {
         Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")
     }
 
-    /// Pins definitions under a stub hasher.
+    /// Pins definitions, hashing them for real.
     ///
-    /// A stub because it has to be: hashing lives in a catalog adapter and this crate cannot reach
-    /// one. What [`PinnedDefinitions::pin`] guarantees is that the digest a bundle carries was
-    /// computed FROM the definitions it holds; that the function computing it is a real hash is the
-    /// adapter's own test to make, and `sutura-catalog-local` makes it.
+    /// No stub hasher any more, and that is the point of the change these tests came with: the
+    /// hashing is this crate's own, so a test does not have to hand one in and therefore cannot hand
+    /// in one that lies.
     fn pin(definitions: Definitions) -> PinnedDefinitions {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
-            |_| Ok::<DefinitionDigest, core::convert::Infallible>(DefinitionDigest::parse(DIGEST).expect("a digest")),
         )
-        .expect("a stub hasher cannot fail")
+        .expect("the test definitions hash")
     }
 
     fn june() -> TimeRange {
@@ -683,24 +706,38 @@ mod tests {
 
     #[test]
     fn the_digest_a_bundle_carries_is_computed_from_the_definitions_it_holds() {
-        // The bug this closes: the constructor took a digest BESIDE a set of definitions, and its
-        // own comment conceded the two need not be related - so an answer could carry provenance
-        // for content that did not produce it. `pin` applies the function to the very definitions it
-        // is about to store, which is asserted here by having the function look at them.
-        let definitions = definitions(None);
-        let expected = definitions.metrics().len();
-        let mut seen = 0_usize;
-        let pinned = PinnedDefinitions::pin(
-            DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            definitions,
-            |given| {
-                seen = given.metrics().len();
-                Ok::<DefinitionDigest, core::convert::Infallible>(DefinitionDigest::parse(DIGEST).expect("a digest"))
-            },
-        )
-        .expect("a stub hasher cannot fail");
-        assert_eq!(seen, expected, "the hasher was handed the definitions being pinned");
-        assert_eq!(pinned.definitions().metrics().len(), expected);
+        // The bug this closes, in two steps, because the first fix did not close it.
+        //
+        // Originally the constructor took a digest BESIDE a set of definitions, and its own comment
+        // conceded the two need not be related - so an answer could carry provenance for content
+        // that did not produce it. That was replaced by a constructor taking the hash FUNCTION, and
+        // a review showed the hole was still open: `|_| Ok(elsewhere)` is safe public code, and the
+        // test that shipped with that change asserted only that the closure was HANDED the
+        // definitions - which is not evidence it read them.
+        //
+        // There is no parameter to lie with now. The assertion is therefore about the values: the
+        // same definitions hash the same way twice, and different definitions do not collide. That
+        // is a property of the stored bundle rather than of what a caller passed in.
+        let pinned = pin(definitions(None));
+        let again = pin(definitions(None));
+        assert_eq!(
+            pinned.digest(),
+            again.digest(),
+            "the same definitions must pin to the same digest, or provenance is not reproducible"
+        );
+
+        let anchored = pin(definitions(Some(Anchor::new(june(), String::from("197122")))));
+        assert_ne!(
+            pinned.digest(),
+            anchored.digest(),
+            "declaring an anchor changes what the bundle means, so it must change the digest"
+        );
+
+        // And the digest is the one the hashing function computes for exactly these definitions -
+        // asserted against an independent call rather than against a constant, so the test cannot
+        // pass by pinning whatever the implementation currently happens to emit.
+        let independent = DefinitionDigest::of(pinned.definitions()).expect("the definitions hash");
+        assert_eq!(*pinned.digest(), independent);
     }
 
     #[test]

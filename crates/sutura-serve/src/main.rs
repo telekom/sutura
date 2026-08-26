@@ -35,7 +35,7 @@ use std::process::ExitCode;
 use std::sync::Arc;
 
 use sutura_catalog_local::LocalCatalog;
-use sutura_config::{Environment, Settings, Sources};
+use sutura_config::{Environment, Settings, Sources, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
 use sutura_exec_datafusion::DataFusionWarehouse;
@@ -109,7 +109,7 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
     let pinned = catalog.load().map_err(flatten)?;
-    let engine = open_engine(&pinned, settings.catalog().data_dir())?;
+    let engine = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime().engine_workers())?;
     // `LocalService::start` loads through the catalog port a SECOND time rather than being handed
     // the bundle above, and that is deliberate: the bundle it validates has to be the bundle it
     // serves, and the only way to guarantee that is for the same call to do both. The load above
@@ -124,6 +124,11 @@ fn run() -> Result<(), String> {
 
     // 7. The router, then the runtime, then serving. In that order: see the note on this function.
     let address = settings.server().bind().socket();
+    // Read out before the settings are moved into the state. The first two are about the LISTENER
+    // rather than about a request, and the third is about stopping, so this is the last place any of
+    // them is looked at.
+    let material = settings.server().tls().cloned();
+    let grace = settings.runtime().shutdown_grace().duration();
     let state = ServiceState::new(Arc::new(service), Arc::new(settings));
     let router = sutura_http::router(&state).map_err(flatten)?;
 
@@ -131,16 +136,103 @@ fn run() -> Result<(), String> {
         .enable_all()
         .build()
         .map_err(|cause| format!("the async runtime could not be built: {cause}"))?;
-    runtime.block_on(serve_until_stopped(router, address))
+    // Built out here rather than inside the served future, because what happens AFTER serving
+    // returns needs to know how much of the grace period the drain spent. `tokio::sync` needs no
+    // runtime entered, so this is safe on this side of `block_on`.
+    let stopping = Shutdown::with_grace(grace);
+    let served = runtime.block_on(serve_until_stopped(router, address, material, stopping.clone()));
+    stop(runtime, &stopping);
+    served
+}
+
+/// Gives the blocking pool what is left of the grace period, and then stops waiting.
+///
+/// **Dropping a `tokio` runtime waits for every blocking task, without a bound.** That is the hole
+/// this closes, and it is the same hole the query handler's slot is about from the other side: a
+/// started `spawn_blocking` task cannot be aborted, so a question still running when the process is
+/// asked to stop keeps the runtime's `Drop` waiting for it - however long it takes, and whatever the
+/// connection drain already spent. So a process with a fifteen second grace period could be killed
+/// by its orchestrator mid-answer while looking, in its own log, like it had drained cleanly.
+///
+/// `shutdown_timeout` is the bound. What it guarantees is the *wait*: a blocking task still running
+/// when it expires is left running and the runtime stops waiting, which means the process gets to
+/// exit on its own terms - it does not mean the query was cancelled, because nothing can cancel it.
+///
+/// The budget is what the drain did not spend, not another full grace period. See
+/// `Shutdown::remaining_grace`: the number an operator wrote was chosen against their
+/// orchestrator's kill timer, and spending it twice is being killed anyway.
+fn stop(runtime: tokio::runtime::Runtime, stopping: &Shutdown) {
+    let left = stopping.remaining_grace();
+    tracing::info!(
+        // Milliseconds, and not seconds like every other bound in this process: this one is a
+        // REMAINDER, so whole seconds truncate a four second budget that a fast drain barely
+        // touched to "3" and read like a second went missing.
+        blocking_wait_ms = left.as_millis(),
+        grace_seconds = stopping.grace_period().as_secs(),
+        "waiting out what is left of the grace period for questions already executing"
+    );
+    runtime.shutdown_timeout(left);
+    tracing::info!("stopped");
 }
 
 /// Spawns the signal listener and serves until it fires.
-async fn serve_until_stopped(router: axum::Router, address: std::net::SocketAddr) -> Result<(), String> {
-    let stopping = Shutdown::new();
+async fn serve_until_stopped(
+    router: axum::Router,
+    address: std::net::SocketAddr,
+    material: Option<TlsMaterial>,
+    stopping: Shutdown,
+) -> Result<(), String> {
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.
     drop(tokio::spawn(shutdown::listen(stopping.clone())));
+    serve_as_configured(router, address, stopping, material).await
+}
+
+/// Serves plaintext, or terminates TLS here, according to what was configured.
+///
+/// **Two bodies, chosen by the `tls` feature, and they are not equivalent.** The configuration
+/// cannot ask for something a build cannot do - `sutura-serve`'s `tls` feature turns on
+/// `sutura-config`'s, so a binary without it refuses `security.tls_termination: in-process` at
+/// startup with `NotFitToServe::InProcessTlsNotCompiledIn`, naming the feature. That refusal is the
+/// gate; this is not a second copy of it.
+///
+/// The check in the second body is narrower and is about the one failure that must never be quiet:
+/// it keys on the MATERIAL rather than on the declaration, so serving plaintext on a port that was
+/// given a certificate is impossible in this file rather than impossible two crates away. A `cfg`
+/// that silently fell through to `serve` would be exactly the silent fallback this is not allowed to
+/// have.
+#[cfg(feature = "tls")]
+async fn serve_as_configured(
+    router: axum::Router,
+    address: std::net::SocketAddr,
+    stopping: Shutdown,
+    material: Option<TlsMaterial>,
+) -> Result<(), String> {
+    match material.as_ref() {
+        Some(material) => sutura_http::serve_tls(router, address, stopping, material)
+            .await
+            .map_err(flatten),
+        None => sutura_http::serve(router, address, stopping).await.map_err(flatten),
+    }
+}
+
+/// The same decision in a build with no TLS listener in it.
+#[cfg(not(feature = "tls"))]
+async fn serve_as_configured(
+    router: axum::Router,
+    address: std::net::SocketAddr,
+    stopping: Shutdown,
+    material: Option<TlsMaterial>,
+) -> Result<(), String> {
+    if material.is_some() {
+        return Err(String::from(
+            "server.tls_certificate and server.tls_key are set and this binary was built without \
+             the `tls` feature, so it has no TLS listener at all. Rebuild with `--features tls`, or \
+             terminate TLS in front of this process and remove the paths. Refusing to serve \
+             plaintext on a port that was configured to be encrypted",
+        ));
+    }
     sutura_http::serve(router, address, stopping).await.map_err(flatten)
 }
 
@@ -208,7 +300,17 @@ fn config_dir() -> Option<PathBuf> {
 /// The engine reads the files itself, so there is no database to create and nothing to keep in step
 /// with them. Parquet is preferred over CSV where both are present, because it carries its own types
 /// and a CSV has to be sniffed.
-fn open_engine(pinned: &PinnedDefinitions, data: &std::path::Path) -> Result<DataFusionWarehouse, String> {
+///
+/// **`with_worker_threads` and not `new`, and that is the whole of what `runtime.engine_worker_threads`
+/// does.** The engine drives its own runtime and every request `block_on`s it from a blocking-pool
+/// thread, so a single-threaded one is a ceiling every concurrent question shares - measured flat at
+/// one caller's throughput however many are asking. The command-line tool keeps `new`: it answers one
+/// question and exits. See `DataFusionWarehouse::with_worker_threads` for the numbers.
+fn open_engine(
+    pinned: &PinnedDefinitions,
+    data: &std::path::Path,
+    workers: sutura_config::EngineWorkers,
+) -> Result<DataFusionWarehouse, String> {
     let declared = match sutura_app::sources(pinned).as_slice() {
         [only] => (*only).clone(),
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
@@ -229,7 +331,12 @@ fn open_engine(pinned: &PinnedDefinitions, data: &std::path::Path) -> Result<Dat
             data.display()
         ));
     }
-    let engine = DataFusionWarehouse::new(engine_source).map_err(flatten)?;
+    // `NonZeroUsize::MIN` is unreachable: `EngineWorkers::parse` refuses a zero and resolves an
+    // absent key from the machine, which reports at least one. Written as a fallback rather than an
+    // unwrap because the workspace denies both, and because one worker is the safe direction to fail
+    // in - a narrow engine is slow, and a zero-width runtime does not build.
+    let width = core::num::NonZeroUsize::new(workers.count()).unwrap_or(core::num::NonZeroUsize::MIN);
+    let engine = DataFusionWarehouse::with_worker_threads(engine_source, width).map_err(flatten)?;
     for model in pinned.definitions().models().values() {
         attach(&engine, model.table(), data)?;
     }

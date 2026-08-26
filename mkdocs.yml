@@ -142,6 +142,7 @@ nav:
     - Concepts: concepts.md
     - Getting started: getting-started.md
     - Questions and answers: qa.md
+    - The agent prompt: agent-prompt.md
   - Development:
     - Contributing: contributing.md
     - The CRAP gate: crap.md
@@ -159,6 +160,7 @@ nav:
       - sutura-domain: api/sutura-domain.md
       - sutura-catalog-local: api/sutura-catalog-local.md
       - sutura-semantic: api/sutura-semantic.md
+      - sutura-sql: api/sutura-sql.md
       - sutura-exec-datafusion: api/sutura-exec-datafusion.md
       - sutura-exec-duckdb: api/sutura-exec-duckdb.md
       - sutura-app: api/sutura-app.md

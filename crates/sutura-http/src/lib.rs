@@ -58,6 +58,7 @@
 //! # }
 //! ```
 
+pub mod client_address;
 pub mod constants;
 pub mod middleware;
 pub mod openapi;
@@ -67,6 +68,8 @@ pub(crate) mod routes;
 pub mod server;
 pub mod state;
 pub mod surface;
+#[cfg(feature = "tls")]
+pub mod tls;
 pub mod wire;
 
 #[cfg(test)]
@@ -75,8 +78,13 @@ mod testing;
 #[cfg(test)]
 mod harness;
 
+pub use crate::client_address::ClientAddress;
 pub use crate::problem::{Failure, ProblemBody};
-pub use crate::router::{RouterNotBuilt, router};
+pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
+#[cfg(feature = "tls")]
+pub use crate::server::serve_tls;
 pub use crate::server::{ServeFailed, serve};
 pub use crate::state::ServiceState;
-pub use crate::surface::{LocalService, ServiceNotStarted, Surface, SurfaceFailure};
+pub use crate::surface::{ErasedCause, LocalService, ServiceNotStarted, Surface, SurfaceFailure, cause_chain};
+#[cfg(feature = "tls")]
+pub use crate::tls::{Renewal, Renewed, Termination, TlsListener, TlsNotUsable};

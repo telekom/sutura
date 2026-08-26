@@ -27,7 +27,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
 
-use sutura_catalog_local::digest_of;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -258,7 +257,7 @@ impl SemanticCatalog for HandWrittenCatalog {
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let (models, joins) = tables();
         let definitions = Definitions::assemble(models, joins, metrics()).expect("the hand-written catalog holds together");
-        Ok(PinnedDefinitions::pin(version(), definitions, digest_of).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(version(), definitions).expect("the definitions hash"))
     }
 }
 
@@ -378,9 +377,7 @@ impl Warehouse for RecordingWarehouse {
         &self.source
     }
 
-    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    // No `dry_run`: the port defaults it, and a fake that executes nothing has nothing to check.
 
     #[expect(
         clippy::unwrap_in_result,
@@ -447,9 +444,8 @@ impl Warehouse for CertifiedNumbers {
         &self.source
     }
 
-    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
-        Ok(())
-    }
+    // No `dry_run`: the port defaults it, and there is nothing to prepare for a number this type
+    // already holds.
 
     #[expect(
         clippy::unwrap_in_result,
@@ -462,6 +458,67 @@ impl Warehouse for CertifiedNumbers {
         let label = String::from(plan.metric().as_str());
         let value = self.numbers.get(&label).cloned().unwrap_or_default();
         Ok(RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"))
+    }
+}
+
+// ------------------------------------------------------------------- the wide-result fake ---
+
+/// A data system that answers with a chosen number of rows, and remembers how many it was asked
+/// for.
+///
+/// **The instrument for the row cap, and it has to be a fake for a reason worth writing down.**
+/// `plan::MAX_ROWS` is ten thousand and the fixture CSVs hold twelve orders, so no catalog and no
+/// question that would fit in this repository can reach it. Nor could a question file provoke it even
+/// in principle: the refusal happens AFTER a data system has answered, and
+/// `a_refused_question_never_reaches_the_data_system` asserts that every fixture in `PROVOKED` is
+/// refused before anything runs. So the one thing this type decides is the row count, and the row
+/// count is the whole of what the cap is about.
+///
+/// It records `QueryPlan::row_limit`, which is the other half of the mechanism: the cap can only be
+/// enforced if the adapter was asked for one row MORE than it, because a result of exactly the cap is
+/// otherwise indistinguishable from one the cap cut short.
+pub(crate) struct WideResult {
+    source: SourceName,
+    rows: usize,
+    asked_for: RefCell<Vec<u32>>,
+}
+
+impl WideResult {
+    /// A data system whose every answer carries `rows` rows.
+    pub(crate) fn of(rows: usize) -> Self {
+        Self {
+            source: source(),
+            rows,
+            asked_for: RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The row limits this data system was asked for, in order.
+    pub(crate) fn asked_for(&self) -> Vec<u32> {
+        self.asked_for.borrow().clone()
+    }
+}
+
+impl Warehouse for WideResult {
+    type Error = Never;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    // No `dry_run`: the port defaults it, and this fake reads nothing to prepare.
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "the one-column shape is a literal here, so a failure to build it is a broken test \n                  rather than an input to handle"
+    )]
+    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        self.asked_for.borrow_mut().push(plan.row_limit());
+        // One column, so the shape is trivially rectangular and the only thing the test reads is how
+        // many rows there are. The values are all the same on purpose: a fake that returned
+        // plausible numbers would invite an assertion about them.
+        let rows = vec![vec![Value::Integer(1)]; self.rows];
+        Ok(RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"))
     }
 }
 
@@ -541,6 +598,6 @@ impl SemanticCatalog for TwoSourceCatalog {
         );
         let definitions = Definitions::assemble(vec![orders, customers], joins, vec![revenue])
             .expect("a two-source catalog is still internally consistent");
-        Ok(PinnedDefinitions::pin(version(), definitions, digest_of).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(version(), definitions).expect("the definitions hash"))
     }
 }

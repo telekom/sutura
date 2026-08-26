@@ -16,8 +16,18 @@ path = "src/main.rs"
 [dependencies]
 sutura-app = { workspace = true }
 sutura-catalog-local = { workspace = true }
+# The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
+# agent's configuration is rendered from the SAME layered configuration the service would read -
+# `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per
+# key - rather than from a second set of flags that could disagree with it.
+sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-semantic = { workspace = true }
+# Rendering, and this binary IS a SQL consumer: `sutura compile` exists to print the statement for a
+# dialect somebody named on the command line, without opening a data system at all. So the
+# generator is in this binary's tree deliberately and by a declared edge, which is the difference
+# from before - it used to arrive through `sutura-semantic`, unasked, in every consumer of the core.
+sutura-sql = { workspace = true }
 # THE engine, and not feature-gated, because a binary that cannot answer anything is not a binary
 # anybody wants. It is pure Rust, so it cross-compiles to musl - which is what forced the DuckDB
 # adapter to be default-off, and is exactly the constraint this does not have.

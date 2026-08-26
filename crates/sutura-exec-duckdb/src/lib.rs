@@ -23,8 +23,8 @@ use duckdb::types::Value as DuckValue;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::QueryPlan;
 use sutura_domain::warehouse::{GeneratedQuery, MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
-use sutura_semantic::generate::generate;
-use sutura_semantic::{Dialect, GenerateError};
+use sutura_sql::generate::generate;
+use sutura_sql::{Dialect, GenerateError};
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -168,10 +168,15 @@ impl DuckDbWarehouse {
 
     /// The plan, rendered as a `DuckDB` statement.
     ///
-    /// This adapter asks the compiler to render rather than rendering itself, which is why it depends
-    /// on `sutura-semantic`: turning a plan into a dialect is the compiler's last stage, and a second
-    /// implementation here would be a second set of quoting and placeholder decisions to keep in
-    /// step. The dialect is not a parameter - a `DuckDB` adapter renders `DuckDB`.
+    /// This adapter asks `sutura-sql` to render rather than rendering itself, which is why it depends
+    /// on that crate: a second implementation here would be a second set of quoting and placeholder
+    /// decisions to keep in step with every other SQL adapter. The dialect is not a parameter - a
+    /// `DuckDB` adapter renders `DuckDB`.
+    ///
+    /// It does **not** depend on `sutura-semantic`, and that is the correction: turning a plan into a
+    /// statement is not the compiler's last stage. The port carries a `QueryPlan`, this adapter
+    /// compiles nothing, and while rendering lived in the core every consumer of the core linked a
+    /// SQL generator - including one that renders nothing at all.
     ///
     /// Free-standing rather than a method: it reads nothing from `self`, and taking `&self` would
     /// imply the rendering depends on which connection is open, which it must not.
@@ -190,7 +195,6 @@ impl DuckDbWarehouse {
             .map(|param| -> Box<dyn duckdb::ToSql> {
                 match *param {
                     ParamValue::Text(ref v) => Box::new(v.clone()),
-                    ParamValue::Integer(v) => Box::new(v),
                     ParamValue::Date(d) => Box::new(d.to_iso()),
                 }
             })

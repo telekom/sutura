@@ -8,6 +8,7 @@
 //! test somebody has to remember to write.
 
 use std::net::{IpAddr, SocketAddr};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 /// The socket the service listens on.
@@ -85,6 +86,22 @@ pub struct RequestTimeout(Duration);
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct BodyLimit(usize);
 
+/// How long stopping may take, once stopping has been asked for.
+///
+/// Chosen against the deadline on the other side rather than as a round number. An orchestrator
+/// sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+/// process still running when that expires is killed mid-answer, so whatever it would have done on
+/// the way out does not happen. Fifteen seconds leaves room for the exit itself.
+///
+/// It bounds the *whole* of stopping and not the connection drain alone: the drain gets the budget
+/// first, and what is left of it is what the runtime will wait for a blocking task it cannot
+/// cancel. See `sutura_runtime::Shutdown::remaining_grace`.
+///
+/// Zero is refused for the reason every bound in this module is. A zero grace period means "drop
+/// every in-flight answer immediately", which is a decision somebody would write differently.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ShutdownGrace(Duration);
+
 /// Why a bound is not a bound.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum InvalidBound {
@@ -161,12 +178,111 @@ impl BodyLimit {
     }
 }
 
-/// Everything about the socket and the two per-request bounds.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// A certificate chain and the private key that goes with it, as paths.
+///
+/// **Paths and nothing more, and the split is deliberate.** This crate holds no framework and
+/// reads no files: it parses the *pair* - both halves or neither - and stops there. Whether the
+/// files are readable, whether they are PEM at all, and whether the key matches the certificate
+/// are questions only the TLS implementation can answer, so they are answered once, in
+/// `sutura_http::tls`, before the socket is bound. Two checks in two crates would be two messages
+/// for one mistake, and the weaker one would be the reassuring one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TlsMaterial {
+    certificate: PathBuf,
+    key: PathBuf,
+}
+
+/// Why a pair of paths is not usable TLS material.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidTlsMaterial {
+    /// One half was given and the other was not.
+    ///
+    /// Refused rather than half-configured: a certificate with no key cannot start a listener, and
+    /// the silent alternative is a service that either falls back to plaintext or fails at the
+    /// first handshake.
+    #[error("{given} is set and {missing} is not - TLS needs both a certificate chain and its private key")]
+    OnlyOneHalf { given: &'static str, missing: &'static str },
+    /// A path was given as an empty string, which is not a path.
+    #[error("{name} is empty - remove the key to disable TLS rather than setting it to nothing")]
+    EmptyPath { name: &'static str },
+}
+
+impl TlsMaterial {
+    /// Reads the pair, or nothing.
+    ///
+    /// `None` for both is "no in-process TLS", which is the default and is not an error.
+    pub fn parse(certificate: Option<&str>, key: Option<&str>) -> Result<Option<Self>, InvalidTlsMaterial> {
+        match (trimmed(certificate), trimmed(key)) {
+            (None, None) => Ok(None),
+            (Some(certificate), None) => {
+                if certificate.is_empty() {
+                    return Err(InvalidTlsMaterial::EmptyPath {
+                        name: "server.tls_certificate",
+                    });
+                }
+                Err(InvalidTlsMaterial::OnlyOneHalf {
+                    given: "server.tls_certificate",
+                    missing: "server.tls_key",
+                })
+            }
+            (None, Some(key)) => {
+                if key.is_empty() {
+                    return Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" });
+                }
+                Err(InvalidTlsMaterial::OnlyOneHalf {
+                    given: "server.tls_key",
+                    missing: "server.tls_certificate",
+                })
+            }
+            (Some(certificate), Some(key)) => {
+                if certificate.is_empty() {
+                    return Err(InvalidTlsMaterial::EmptyPath {
+                        name: "server.tls_certificate",
+                    });
+                }
+                if key.is_empty() {
+                    return Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" });
+                }
+                Ok(Some(Self {
+                    certificate: PathBuf::from(certificate),
+                    key: PathBuf::from(key),
+                }))
+            }
+        }
+    }
+
+    /// The certificate chain, in PEM.
+    #[inline]
+    pub fn certificate(&self) -> &Path {
+        &self.certificate
+    }
+
+    /// The private key, in PEM.
+    #[inline]
+    pub fn key(&self) -> &Path {
+        &self.key
+    }
+}
+
+/// The trimmed value, treating an absent key and an unset variable the same way.
+///
+/// An empty string is the shape an unset variable takes in a shell, and it reaches here as
+/// `Some("")` - kept distinct from `None` on purpose, so setting a path to nothing is an error
+/// naming the key rather than TLS silently switching itself off.
+fn trimmed(raw: Option<&str>) -> Option<&str> {
+    raw.map(str::trim)
+}
+
+/// Everything about the socket, the two per-request bounds, and the TLS material if there is any.
+///
+/// **Not `Copy`, and that is the TLS paths.** Every accessor borrows or returns a `Copy` value, and
+/// the group itself is read once, at assembly time.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerSettings {
     bind: BindAddress,
     request_timeout: RequestTimeout,
     max_body: BodyLimit,
+    tls: Option<TlsMaterial>,
 }
 
 impl ServerSettings {
@@ -174,14 +290,15 @@ impl ServerSettings {
     ///
     /// Infallible, and that is the shape the newtypes buy: there is no cross-field rule inside
     /// this group, so once every part exists the group exists. The cross-field rules - the ones
-    /// that pair a bind address with an environment and a token - live in
+    /// that pair a bind address with an environment, a token and a TLS declaration - live in
     /// [`crate::Settings::parse`], because they need the other groups to decide.
     #[inline]
-    pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit) -> Self {
+    pub const fn new(bind: BindAddress, request_timeout: RequestTimeout, max_body: BodyLimit, tls: Option<TlsMaterial>) -> Self {
         Self {
             bind,
             request_timeout,
             max_body,
+            tls,
         }
     }
 
@@ -199,11 +316,17 @@ impl ServerSettings {
     pub const fn max_body(&self) -> BodyLimit {
         self.max_body
     }
+
+    /// The certificate and key this process would terminate TLS with, if any were configured.
+    #[inline]
+    pub const fn tls(&self) -> Option<&TlsMaterial> {
+        self.tls.as_ref()
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, RequestTimeout};
+    use super::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, TlsMaterial};
 
     #[test]
     fn loopback_is_recognised_in_both_address_families() {
@@ -308,5 +431,51 @@ mod tests {
             BodyLimit::MAX_BYTES
         );
         assert_eq!(BodyLimit::parse(1).expect("one byte is a body limit").bytes(), 1);
+    }
+
+    #[test]
+    fn tls_material_is_both_halves_or_neither() {
+        assert_eq!(TlsMaterial::parse(None, None), Ok(None));
+        let pair = TlsMaterial::parse(Some("/tls/chain.pem"), Some("/tls/key.pem"))
+            .expect("a pair parses")
+            .expect("a pair is material");
+        assert_eq!(pair.certificate(), std::path::Path::new("/tls/chain.pem"));
+        assert_eq!(pair.key(), std::path::Path::new("/tls/key.pem"));
+    }
+
+    #[test]
+    fn half_configured_tls_is_refused_rather_than_ignored() {
+        // The failure this refuses is the quiet one: a certificate with no key either falls back to
+        // plaintext on a port somebody believes is encrypted, or dies at the first handshake.
+        assert_eq!(
+            TlsMaterial::parse(Some("/tls/chain.pem"), None),
+            Err(InvalidTlsMaterial::OnlyOneHalf {
+                given: "server.tls_certificate",
+                missing: "server.tls_key"
+            })
+        );
+        assert_eq!(
+            TlsMaterial::parse(None, Some("/tls/key.pem")),
+            Err(InvalidTlsMaterial::OnlyOneHalf {
+                given: "server.tls_key",
+                missing: "server.tls_certificate"
+            })
+        );
+    }
+
+    #[test]
+    fn a_path_set_to_nothing_is_an_error_and_not_a_switch() {
+        // An empty string is what an unset variable looks like in a shell, and reading it as "TLS
+        // off" is how a deployment that meant to serve TLS serves plaintext instead.
+        assert_eq!(
+            TlsMaterial::parse(Some(""), Some("/tls/key.pem")),
+            Err(InvalidTlsMaterial::EmptyPath {
+                name: "server.tls_certificate"
+            })
+        );
+        assert_eq!(
+            TlsMaterial::parse(Some("/tls/chain.pem"), Some("  ")),
+            Err(InvalidTlsMaterial::EmptyPath { name: "server.tls_key" })
+        );
     }
 }

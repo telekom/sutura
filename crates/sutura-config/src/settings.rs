@@ -23,9 +23,14 @@ use crate::api::ApiSettings;
 use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 use crate::environment::{Environment, UnknownEnvironment};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
+use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
+use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
 use crate::raw::RawSettings;
-use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings};
-use crate::server::{BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, RequestTimeout, ServerSettings};
+use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace};
+use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
+use crate::server::{
+    BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
+};
 use crate::telemetry::{
     InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
 };
@@ -165,10 +170,30 @@ pub enum SettingsError {
         #[source]
         cause: InvalidAccessToken,
     },
+    #[error("`security.tls_termination` does not name where TLS is terminated")]
+    TlsTermination {
+        #[source]
+        cause: UnknownTlsTermination,
+    },
+    #[error("`server.tls_certificate` and `server.tls_key` are not a usable pair")]
+    TlsMaterial {
+        #[source]
+        cause: InvalidTlsMaterial,
+    },
     #[error("a rate limit tier is not a quota")]
     Quota {
         #[source]
         cause: InvalidQuota,
+    },
+    #[error("`rate_limit.client_address` does not name a source")]
+    ClientAddress {
+        #[source]
+        cause: UnknownClientAddressSource,
+    },
+    #[error("an entry in `rate_limit.trusted_proxies` is not an address or an address block")]
+    TrustedProxy {
+        #[source]
+        cause: InvalidTrustedProxy,
     },
     #[error("`telemetry.format` is not a log format")]
     Format {
@@ -195,6 +220,16 @@ pub enum SettingsError {
         #[source]
         cause: InvalidCatalogSettings,
     },
+    #[error("`prompt.catalog_prose` does not say how catalog prose reaches an agent")]
+    CatalogProse {
+        #[source]
+        cause: UnknownCatalogProse,
+    },
+    #[error("the prompt configuration is not usable")]
+    Prompt {
+        #[source]
+        cause: InvalidPromptSettings,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -220,17 +255,24 @@ pub enum SettingsError {
 /// support request.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum NotFitToServe {
-    /// The bind address is reachable from other hosts and nobody said that was intended.
+    /// The bind address is reachable from other hosts and nobody said what protects the path to
+    /// it.
     ///
-    /// The one refusal that applies in *every* environment, including a laptop. Binding the
-    /// wildcard is the single change that turns a local tool into a network service, and on a
-    /// surface with no per-caller identity that is the whole of the exposure.
+    /// **This is not a refusal of the bind, and the previous version of this row was.** A
+    /// plaintext listener on a pod network with an ingress controller or a sidecar terminating TLS
+    /// in front of it is the normal arrangement, and refusing it would refuse the deployment this
+    /// service is built for. What is refused is *silence*: the bearer token crosses whatever sits
+    /// between the terminator and this process in cleartext, and how far that reaches - a loopback
+    /// hop inside a pod, or the pod network - is a fact about the deployment that only the operator
+    /// knows. Naming it makes it a stated fact that the startup log can print, and a declaration
+    /// cannot be satisfied by agreeing that off-host was intended.
     #[error(
-        "server.host is {bind}, which is reachable from other hosts. This service has no \
-         per-caller identity, so its bind address is its perimeter: set \
-         security.expose_beyond_loopback: true to say you meant it, or bind 127.0.0.1"
+        "server.host is {bind}, which is reachable from other hosts, and security.tls_termination \
+         is `none`. Say where TLS is terminated - one of: sidecar, ingress, in-process - or bind \
+         127.0.0.1. The declaration does not encrypt anything: it records which cleartext hop \
+         this bearer token crosses, which is a fact only this deployment knows"
     )]
-    BindsBeyondLoopback { bind: String },
+    TlsTerminationUndeclared { bind: String },
     /// Something is reachable off-host, or this is production, and there is no token.
     ///
     /// Not authentication - see [`crate::security`] - but the difference between a bearer secret
@@ -254,6 +296,56 @@ pub enum NotFitToServe {
          then be configured to reach this service; port 0 is for a test that reads the port back"
     )]
     EphemeralPortInProduction,
+    /// A forwarded header would be believed with nobody named as the hop it may come from.
+    ///
+    /// **The one refusal in this list that exists because the permissive branch is worse than the
+    /// restrictive one in both directions.** With no trusted hop, `X-Forwarded-For` is a value any
+    /// caller writes, so every bucket becomes the caller's to choose - a limiter that reports a
+    /// configured limit and bounds nothing at all, which is strictly worse than the one shared
+    /// bucket that peer keying gives behind a proxy.
+    #[error(
+        "rate_limit.client_address is `forwarded` and rate_limit.trusted_proxies is empty. A \
+         forwarded header is a value any caller can write, so with no hop named it would let every \
+         caller pick their own rate-limit bucket. List the proxy addresses or blocks, or set \
+         client_address: peer"
+    )]
+    ForwardedWithoutTrustedProxies,
+    /// Trusted proxies were listed and nothing reads them.
+    ///
+    /// Refused rather than ignored, for the reason every unknown key here is an error: a list that
+    /// does nothing reads as a control that is in place.
+    #[error(
+        "rate_limit.trusted_proxies names {count} hop(s) and rate_limit.client_address is `peer`, \
+         which reads no header - so the list has no effect. Set client_address: forwarded, or \
+         remove the list"
+    )]
+    TrustedProxiesWithoutForwarding { count: usize },
+    /// TLS termination was declared as in-process and no certificate and key were given.
+    #[error(
+        "security.tls_termination is `in-process` and no server.tls_certificate and server.tls_key \
+         are set. This process cannot terminate TLS without them, and it will not fall back to \
+         plaintext on a port that was configured to be encrypted"
+    )]
+    InProcessTlsWithoutMaterial,
+    /// A certificate and key were given and nothing will use them.
+    #[error(
+        "server.tls_certificate and server.tls_key are set and security.tls_termination is \
+         `{declared}`, so this process serves plaintext and the material is never read. Set \
+         tls_termination: in-process, or remove the paths"
+    )]
+    TlsMaterialWithoutInProcessTermination { declared: &'static str },
+    /// TLS termination was declared as in-process and this binary cannot do it.
+    ///
+    /// **The loud failure the requirement asks for.** A binary built without the `tls` feature has
+    /// no TLS implementation linked in at all, so the alternative to refusing is serving plaintext
+    /// on a port an operator configured to be encrypted - which is the one failure mode that must
+    /// never be quiet.
+    #[error(
+        "security.tls_termination is `in-process` and this binary was built without the `tls` \
+         feature, so it has no TLS implementation linked in. Rebuild with `--features tls`, or \
+         terminate TLS in front of this process and declare `sidecar` or `ingress`"
+    )]
+    InProcessTlsNotCompiledIn,
 }
 
 /// The whole resolved configuration.
@@ -271,6 +363,8 @@ pub struct Settings {
     telemetry: TelemetrySettings,
     api: ApiSettings,
     catalog: CatalogSettings,
+    runtime: RuntimeSettings,
+    prompt: PromptSettings,
 }
 
 impl Settings {
@@ -301,13 +395,15 @@ impl Settings {
             environment,
             server: parse_server(raw)?,
             security: parse_security(raw)?,
-            rate_limit: parse_rate_limit(raw)?,
+            rate_limit: parse_rate_limit(raw, environment)?,
             telemetry: parse_telemetry(raw, environment)?,
             api: ApiSettings::new(
                 raw.api.docs.unwrap_or_else(|| ApiSettings::docs_default_for(environment)),
                 raw.api.docs.is_some(),
             ),
             catalog: parse_catalog(raw)?,
+            runtime: parse_runtime(raw)?,
+            prompt: parse_prompt(raw)?,
         })
     }
 
@@ -322,9 +418,11 @@ impl Settings {
         let bind = self.server.bind();
         let off_host = !bind.is_loopback();
 
-        if off_host && !self.security.expose_beyond_loopback() {
-            refusals.push(NotFitToServe::BindsBeyondLoopback { bind: bind.to_string() });
+        if off_host && !self.security.tls_termination().is_declared() {
+            refusals.push(NotFitToServe::TlsTerminationUndeclared { bind: bind.to_string() });
         }
+        refusals.extend(self.tls_refusals());
+        refusals.extend(self.keying_refusals());
         if self.security.access_token().is_none() {
             // Two different reasons, and the message says which: an operator whose production
             // deployment refuses should not have to work out whether it was the bind or the
@@ -350,6 +448,46 @@ impl Settings {
         refusals
     }
 
+    /// Everything wrong with the TLS declaration and the material that goes with it.
+    ///
+    /// Split out of [`Self::refusals`] so each half stays under the complexity threshold, and
+    /// because these three are one question asked three ways: does the declaration, the material
+    /// and the binary agree about who terminates the connection?
+    fn tls_refusals(&self) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        let declared = self.security.tls_termination();
+        let material = self.server.tls();
+        if declared.terminates_here() {
+            if material.is_none() {
+                refusals.push(NotFitToServe::InProcessTlsWithoutMaterial);
+            }
+            // `cfg!` rather than `#[cfg]`, so both arms are compiled and neither can rot: the
+            // refusal is a value either way and only the boolean changes.
+            if !cfg!(feature = "tls") {
+                refusals.push(NotFitToServe::InProcessTlsNotCompiledIn);
+            }
+        } else if material.is_some() {
+            refusals.push(NotFitToServe::TlsMaterialWithoutInProcessTermination {
+                declared: declared.as_str(),
+            });
+        }
+        refusals
+    }
+
+    /// Everything wrong with what a rate-limit bucket would be keyed on.
+    fn keying_refusals(&self) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        let proxies = self.rate_limit.trusted_proxies();
+        if self.rate_limit.client_address().reads_a_header() {
+            if proxies.is_empty() {
+                refusals.push(NotFitToServe::ForwardedWithoutTrustedProxies);
+            }
+        } else if !proxies.is_empty() {
+            refusals.push(NotFitToServe::TrustedProxiesWithoutForwarding { count: proxies.len() });
+        }
+        refusals
+    }
+
     #[inline]
     pub const fn environment(&self) -> Environment {
         self.environment
@@ -366,8 +504,8 @@ impl Settings {
     }
 
     #[inline]
-    pub const fn rate_limit(&self) -> RateLimitSettings {
-        self.rate_limit
+    pub const fn rate_limit(&self) -> &RateLimitSettings {
+        &self.rate_limit
     }
 
     #[inline]
@@ -383,6 +521,26 @@ impl Settings {
     #[inline]
     pub const fn catalog(&self) -> &CatalogSettings {
         &self.catalog
+    }
+
+    /// How much runs at once, how wide the engine is, and how long stopping may take.
+    ///
+    /// `Copy`, unlike the sections above it: every field is a bound rather than a string, so
+    /// returning it by value costs nothing and a caller cannot hold a borrow of the settings for
+    /// the life of a query.
+    #[inline]
+    pub const fn runtime(&self) -> RuntimeSettings {
+        self.runtime
+    }
+
+    /// What goes into the agent-facing system prompt beyond the pinned bundle and the tool list.
+    ///
+    /// Read by the `prompt` command in `sutura-cli`, which renders what this deployment would hand
+    /// an agent. A borrow rather than a copy, unlike [`Self::runtime`]: the operator's path is an
+    /// owned value, and nothing in this group is a bound.
+    #[inline]
+    pub const fn prompt(&self) -> &PromptSettings {
+        &self.prompt
     }
 }
 
@@ -430,7 +588,9 @@ fn parse_server(raw: &RawSettings) -> Result<ServerSettings, SettingsError> {
     let bind = BindAddress::parse(&raw.server.host, raw.server.port).map_err(|cause| SettingsError::Bind { cause })?;
     let timeout = RequestTimeout::parse(raw.server.request_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
     let body = BodyLimit::parse(raw.server.max_body_bytes).map_err(|cause| SettingsError::Bound { cause })?;
-    Ok(ServerSettings::new(bind, timeout, body))
+    let tls = crate::server::TlsMaterial::parse(raw.server.tls_certificate.as_deref(), raw.server.tls_key.as_deref())
+        .map_err(|cause| SettingsError::TlsMaterial { cause })?;
+    Ok(ServerSettings::new(bind, timeout, body, tls))
 }
 
 fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> {
@@ -440,10 +600,14 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None | Some("") => None,
         Some(value) => Some(AccessToken::parse(value).map_err(|cause| SettingsError::AccessToken { cause })?),
     };
-    Ok(SecuritySettings::new(token, raw.security.expose_beyond_loopback))
+    let termination = match raw.security.tls_termination.as_deref() {
+        None | Some("") => TlsTermination::default(),
+        Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
+    };
+    Ok(SecuritySettings::new(token, termination))
 }
 
-fn parse_rate_limit(raw: &RawSettings) -> Result<RateLimitSettings, SettingsError> {
+fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {
     let probe = Quota::parse(
         "rate_limit.probe",
         raw.rate_limit.probe_per_second,
@@ -452,7 +616,24 @@ fn parse_rate_limit(raw: &RawSettings) -> Result<RateLimitSettings, SettingsErro
     .map_err(|cause| SettingsError::Quota { cause })?;
     let api = Quota::parse("rate_limit.api", raw.rate_limit.api_per_second, raw.rate_limit.api_burst)
         .map_err(|cause| SettingsError::Quota { cause })?;
-    Ok(RateLimitSettings::new(raw.rate_limit.enabled, probe, api))
+    let client_address = match raw.rate_limit.client_address.as_deref() {
+        None | Some("") => ClientAddressSource::default(),
+        Some(value) => ClientAddressSource::parse(value).map_err(|cause| SettingsError::ClientAddress { cause })?,
+    };
+    let proxies =
+        TrustedProxies::parse(&raw.rate_limit.trusted_proxies).map_err(|cause| SettingsError::TrustedProxy { cause })?;
+    Ok(RateLimitSettings::new(
+        // The same shape as `api.docs` above: the value, then whether anybody wrote it down. The
+        // second is not derivable from the first once it is stored, and the startup log needs both.
+        raw.rate_limit
+            .enabled
+            .unwrap_or_else(|| RateLimitSettings::enabled_default_for(environment)),
+        raw.rate_limit.enabled.is_some(),
+        probe,
+        api,
+        client_address,
+        proxies,
+    ))
 }
 
 fn parse_telemetry(raw: &RawSettings, environment: Environment) -> Result<TelemetrySettings, SettingsError> {
@@ -469,6 +650,46 @@ fn parse_catalog(raw: &RawSettings) -> Result<CatalogSettings, SettingsError> {
     let version = DefinitionVersion::parse(&raw.catalog.version).map_err(|cause| SettingsError::Version { cause })?;
     CatalogSettings::parse(PathBuf::from(&raw.catalog.dir), PathBuf::from(&raw.catalog.data_dir), version)
         .map_err(|cause| SettingsError::Catalog { cause })
+}
+
+/// The concurrency bounds and the two deadlines that are not per-request.
+///
+/// Every one of these is a `parse` on a newtype rather than a raw number reaching the runtime,
+/// which is what makes an unusable value a refusal at startup instead of a surprise under load.
+/// `engine_worker_threads` is the one that may be absent: `EngineWorkers::parse` resolves `None`
+/// to what the machine can run and records that nobody chose it, so the startup log can say which.
+fn parse_runtime(raw: &RawSettings) -> Result<RuntimeSettings, SettingsError> {
+    let concurrency =
+        QueryConcurrency::parse(raw.runtime.max_concurrent_queries).map_err(|cause| SettingsError::Bound { cause })?;
+    let admission =
+        AdmissionTimeout::parse(raw.runtime.admission_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
+    let workers = EngineWorkers::parse(raw.runtime.engine_worker_threads).map_err(|cause| SettingsError::Bound { cause })?;
+    let grace = ShutdownGrace::parse(raw.runtime.shutdown_grace_seconds).map_err(|cause| SettingsError::Bound { cause })?;
+    Ok(RuntimeSettings::new(concurrency, admission, workers, grace))
+}
+
+/// The two keys that shape the agent-facing prompt.
+///
+/// **An empty `instructions_file` is an error here, and that is the opposite of what
+/// [`parse_security`] does with an empty token.** The two empties mean different things. An empty
+/// access token treated as configured would answer every request `401` for a reason nothing
+/// explains, so absent is the safe reading. An empty *path* resolves to the process working
+/// directory - a different directory on every host and never the one the operator meant - and
+/// absence is already expressible by removing the key, so here the safe reading is a refusal naming
+/// the key. It is the argument `catalog.dir` already makes.
+///
+/// `catalog_prose` is branched on rather than required, so a deployment that removed the key from
+/// its own copy of the defaults gets the default rather than a deserialization failure.
+fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
+    let instructions = match raw.prompt.instructions_file.as_deref() {
+        None => None,
+        Some(value) => Some(InstructionsFile::parse(value).map_err(|cause| SettingsError::Prompt { cause })?),
+    };
+    let prose = match raw.prompt.catalog_prose.as_deref() {
+        None => CatalogProse::default(),
+        Some(value) => CatalogProse::parse(value).map_err(|cause| SettingsError::CatalogProse { cause })?,
+    };
+    Ok(PromptSettings::new(instructions, prose))
 }
 
 #[cfg(test)]

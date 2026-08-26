@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.sql()
 ---
-SELECT CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", CAST(sum("orders"."amount_cents") AS Nullable(Float64)) / sum(CASE WHEN "orders"."refunded" THEN 1 ELSE 0 END) AS "revenue_per_refunded_order" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10000
+SELECT CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", CAST(sum("orders"."amount_cents") AS Nullable(Float64)) / sum(CASE WHEN "orders"."refunded" THEN 1 ELSE 0 END) AS "revenue_per_refunded_order" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10001

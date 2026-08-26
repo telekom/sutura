@@ -25,7 +25,8 @@ use std::sync::Arc;
 use sutura_domain::calendar::Date;
 use sutura_domain::warehouse::{Real, Value};
 
-use super::{DataFusionError, cell};
+use super::DataFusionError;
+use super::collect::cell;
 
 /// One row of the shared table: what the value is called, the array the engine would hand over, and
 /// the domain value both adapters have to produce for it. Named because the tuple is over the

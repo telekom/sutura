@@ -14,15 +14,18 @@ page says why they look the way they do.
 
     Most of this page describes a system that is not built. The one thing that exists is a governed
     single-player semantic compiler and executor over local files: no request context, no credential
-    broker, no audit sink, no Arrow result envelope, no MCP surface and no HTTP surface. Sections
+    broker, no audit sink, no Arrow result envelope and no MCP surface - served over HTTP behind a token
+    that authenticates the DEPLOYMENT and not the caller. Sections
     that describe something enforced today say so in the section itself, and
     [What exists today](#what-exists-today) is the inventory. **Do not deep-link a section of this
     page as evidence that a control is in place.**
 
 ## Serving is MCP
 
-**Design target, not built. There is no MCP surface and no HTTP surface in the workspace.** The
-binary is a CLI. This section is the shape both transports have to take when they arrive.
+**Partly built, and the built half is not the one this section describes.** `sutura-http` exists: a
+versioned `v1` tree, a liveness probe, a generated interface description, rate limiting and a bearer
+gate. **There is no MCP surface**, and MCP is what this section is about - so read it as the shape
+the second transport has to take, with the first one already standing beside it.
 
 The primary interface is an MCP server, so an agent is a first-class client rather than an
 afterthought wrapped around an API built for a dashboard.
@@ -242,8 +245,9 @@ as Arrow, and only the first is true.
 
 ## The semantic compiler
 
-`sutura-semantic` turns a modelled question into one statement for one data system. It exists, in
-three modules named after the three stages below.
+A modelled question becomes one statement for one data system in three stages, and they live in
+**two** crates rather than one. `sutura-semantic` is the first two, named after them; `sutura-sql` is
+the third. The split is the dependency and not tidiness - see **Generate** below.
 
 A question names a metric, some dimensions, a grain and a bounded time range. Dimension values are
 arguments, checked against an allowlist in the pinned bundle. What comes out is a statement and
@@ -268,6 +272,16 @@ form is what a golden snapshot pins.
 **Generate.** The plan becomes one statement in one dialect, which decides identifier quoting,
 placeholder syntax, date arithmetic and how an aggregate is spelled. This is the only stage that emits
 SQL, and an adapter that executes a plan directly never reaches it.
+
+**And it is its own crate, `sutura-sql`, for exactly that last reason.** Rendering was already off the
+compile path - `compile` returns a plan, because that is what the execution port carries - but it was
+still a public module of the compiler, so the SQL generator sat in the dependency closure of every
+consumer of `sutura-semantic`. That included the HTTP binary, which executes plans on the engine,
+renders nothing, and can reach none of that code. Sharing the quoting and placeholder decisions
+between SQL adapters is a good reason for the code to be shared and not a reason for it to sit in the
+core; a separate crate gives the same sharing with the generator out of the core's closure. The
+direction is a gate rather than a comment: `cargo xtask check-boundaries` fails if `sutura-semantic`
+can reach `sutura-sql` or the dialect layer, over the whole transitive tree.
 
 ### Two ways a definition arrives
 
@@ -469,9 +483,19 @@ names what it needs by trait, and the binary decides which implementation is pas
 
 `cargo xtask check-boundaries` enforces the direction, so the diagram cannot quietly stop being true.
 It fails if `sutura-domain` acquires a framework dependency anywhere in its transitive tree, which
-catches a framework reached through an innocuous crate as well as one declared outright. It fails
-again if a library crate's surface stops being a typed contract: a `pub` field on a `pub struct`, a
-`Result` whose error type is `String`, or a declared dynamic-error crate such as `anyhow`.
+catches a framework reached through an innocuous crate as well as one declared outright. It fails if
+a named crate can reach a named crate it may not: today that is `sutura-semantic` reaching the SQL
+generator, directly or through `sutura-sql`, and each entry prints the reason and the fix rather than
+only saying no. It fails again if a library crate's surface stops being a typed contract: a `pub`
+field on a `pub struct`, a `Result` whose error type is `String`, or a declared dynamic-error crate
+such as `anyhow`.
+
+One thing the check cannot read is which crate a trait is *declared* in, and that gap has cost
+something once: the `Surface` driving port was declared inside `sutura-http`, which would have made a
+second transport depend on the first. It is `sutura-app`'s now. What the check does still hold up is
+the half that matters most about the move - `sutura-app`'s dependency tree is `sutura-domain`,
+`sutura-semantic` and `thiserror`, so hosting a transport's interface could not have brought a
+framework with it.
 
 Two consequences follow from the direction rather than from taste. The domain names no framework, so
 its test suite compiles nothing heavy and runs in well under a second, which is what makes it the
@@ -517,11 +541,13 @@ is the table, and it is the section to read before assuming which of the three i
 
 `sutura-domain` holds the domain types, the query plan and two port traits, `SemanticCatalog` and
 `Warehouse`; `sutura-catalog-local` reads a directory of markdown documents with YAML frontmatter;
-`sutura-semantic` resolves and plans, and renders SQL when asked; `sutura-exec-datafusion` is the
-engine, executing a plan over Arrow and rendering no SQL at all; `sutura-exec-duckdb` is a data
-source, rendering the plan into DuckDB SQL and pushing it down; `sutura-app` is the service, generic
-over both ports; `sutura-cli` composes them, and links the engine only. `xtask` holds the repo gates
-and `sutura-dev` the local development CLI.
+`sutura-semantic` resolves and plans, and renders nothing; `sutura-sql` renders a plan into one
+dialect's SQL for whoever asks, and is the only crate that names the dialect layer;
+`sutura-exec-datafusion` is the engine, executing a plan over Arrow and rendering no SQL at all;
+`sutura-exec-duckdb` is a data source, rendering the plan into DuckDB SQL through `sutura-sql` and
+pushing it down; `sutura-app` is the service, generic over both ports, and holds the `Surface`
+driving port a transport consumes; `sutura-cli` composes them, and links the engine only. `xtask`
+holds the repo gates and `sutura-dev` the local development CLI.
 
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to a plan; the plan renders as one statement in `DuckDB`, Postgres or `ClickHouse`
@@ -538,9 +564,14 @@ be. That is a true statement about a laptop and not about a warehouse: per-reque
 with the first data system that has grants to run under, and until then this is a compiler with a
 governed front door rather than the identity-aware runtime the rest of this page describes.
 
-Also absent: the MCP and HTTP transports, Arrow results with provenance in the schema metadata,
-federation, a budget beyond a hard row cap, a second catalog adapter, and the audit sink. The
-spliced-statement path is designed, documented above, and unimplemented.
+**The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
+versioned `v1` tree, a liveness probe, a generated interface description, rate limiting, a bearer
+gate and optional in-process TLS. What it does **not** carry is a per-caller identity - the token
+authenticates the deployment - so none of the identity claims above are made true by its arrival.
+
+Still absent: the MCP transport, Arrow results with provenance in the schema metadata, federation, a
+per-caller budget beyond the row cap and the ten-year span, a second catalog adapter, and the audit
+sink. The spliced-statement path is designed, documented above, and unimplemented.
 
 And absent in a way worth naming separately, because the two ports are what the layout is *for*: **no
 runtime selection of an adapter.** Which catalogue and which data system are decided at compile time in

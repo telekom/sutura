@@ -35,6 +35,24 @@ pub(crate) struct RawSettings {
     #[serde(default)]
     pub(crate) api: RawApi,
     pub(crate) catalog: RawCatalog,
+    pub(crate) runtime: RawRuntime,
+    #[serde(default)]
+    pub(crate) prompt: RawPrompt,
+}
+
+/// How much runs at once, how wide the engine is, and how long stopping may take.
+///
+/// `engine_worker_threads` is the one optional field: absent means "as many threads as this machine
+/// can run", resolved to a number at load time so the startup log prints what is in effect. The
+/// other three are required, because a bound nobody wrote down is a bound nobody chose.
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawRuntime {
+    pub(crate) max_concurrent_queries: usize,
+    pub(crate) admission_timeout_seconds: u64,
+    #[serde(default)]
+    pub(crate) engine_worker_threads: Option<usize>,
+    pub(crate) shutdown_grace_seconds: u64,
 }
 
 #[derive(serde::Deserialize)]
@@ -44,28 +62,47 @@ pub(crate) struct RawServer {
     pub(crate) port: u16,
     pub(crate) request_timeout_seconds: u64,
     pub(crate) max_body_bytes: usize,
+    /// Absent means "this process does not terminate TLS", which is the default.
+    #[serde(default)]
+    pub(crate) tls_certificate: Option<String>,
+    #[serde(default)]
+    pub(crate) tls_key: Option<String>,
 }
 
 /// Both fields default, because the safe posture is the one that needs no configuration: no token
-/// and no acknowledgement is a loopback-only development service, which is what the refusals in
+/// and no TLS declaration is a loopback-only development service, which is what the refusals in
 /// [`crate::Settings::parse`] then hold it to.
 #[derive(Default, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawSecurity {
     #[serde(default)]
     pub(crate) access_token: Option<String>,
+    /// Where TLS is terminated, as a word. Absent means `none`.
     #[serde(default)]
-    pub(crate) expose_beyond_loopback: bool,
+    pub(crate) tls_termination: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawRateLimit {
-    pub(crate) enabled: bool,
+    /// Absent means "whatever this environment gets": off in development and test, on in
+    /// production. An `Option` and not a `bool` with a default in `defaults.yaml`, for the reason
+    /// `telemetry.format` and `api.docs` are: once the value is stored, a default nobody wrote down
+    /// is indistinguishable from a decision somebody made, and the startup log has to tell them
+    /// apart. `false` in production is refused whichever layer produced it.
+    #[serde(default)]
+    pub(crate) enabled: Option<bool>,
     pub(crate) probe_per_second: u32,
     pub(crate) probe_burst: u32,
     pub(crate) api_per_second: u32,
     pub(crate) api_burst: u32,
+    /// Where the address a bucket is keyed on comes from. Absent means `peer`.
+    #[serde(default)]
+    pub(crate) client_address: Option<String>,
+    /// The hops whose forwarded header is believed. Empty by default, which is what makes the
+    /// default posture unspoofable.
+    #[serde(default)]
+    pub(crate) trusted_proxies: Vec<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -92,4 +129,20 @@ pub(crate) struct RawCatalog {
     pub(crate) dir: String,
     pub(crate) data_dir: String,
     pub(crate) version: String,
+}
+
+/// What goes into the agent-facing prompt beyond the bundle and the tool list.
+///
+/// Both fields default, and they default to different KINDS of absent. `instructions_file` absent
+/// means there is no operator section at all, which is the shape a deployment that wrote nothing
+/// has. `catalog_prose` absent means `quoted`, which is also what `defaults.yaml` says - written
+/// there rather than only here so the value in effect is readable in one file, the way
+/// `rate_limit.client_address` is.
+#[derive(Default, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawPrompt {
+    #[serde(default)]
+    pub(crate) instructions_file: Option<String>,
+    #[serde(default)]
+    pub(crate) catalog_prose: Option<String>,
 }

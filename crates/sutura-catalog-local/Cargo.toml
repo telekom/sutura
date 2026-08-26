@@ -13,13 +13,6 @@ description = "A SemanticCatalog adapter over a directory of markdown documents 
 sutura-domain = { workspace = true }
 serde = { workspace = true }
 serde_norway = { workspace = true }
-# The digest is taken over the canonical JSON form of the parsed definitions rather than over
-# the bytes on disk. Reformatting a document must not move it, and reordering two files must
-# not either; changing what a metric means must. JSON is the canonical form because `serde_json`
-# writes struct fields in declaration order and the domain uses `BTreeMap` throughout, so the
-# same definitions serialize to the same bytes on any machine.
-serde_json = { workspace = true }
-sha2 = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

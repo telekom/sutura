@@ -7,17 +7,20 @@ license.workspace = true
 repository.workspace = true
 # Not published to a registry: sutura ships as an OCI image, not as crates.
 publish = false
-description = "The semantic compiler: a modelled question becomes one statement for one data system."
+description = "The semantic compiler: a modelled question becomes one plan for one data system."
 
+# Two names that used to be here and are gone, and the absence is the crate's shape.
+#
+# `polyglot-sql` was the dialect layer, reached through the `generate` module that used to live in
+# this crate. It is now `sutura-sql`'s, and this crate does not depend on `sutura-sql` either: a
+# build that executes plans on the engine and renders nothing was linking a SQL generator through
+# the core, because rendering was a `pub` module here rather than the SQL adapters' own business.
+# `cargo xtask check-boundaries` fails if either edge comes back, so this is a gate and not a note.
+#
+# `serde` went with it: the only thing in this crate that derived it was `Dialect`.
 [dependencies]
 sutura-domain = { workspace = true }
-serde = { workspace = true }
 thiserror = { workspace = true }
-# The dialect layer. Renders a statement AST into one target dialect: it is what knows that
-# `ClickHouse` spells `DATE_TRUNC` as `dateTrunc` and `SUM` as `sum`, which is not a difference
-# worth maintaining by hand. Confined to `generate.rs` so a pre-1.0 API change touches one file.
-polyglot-sql = { workspace = true }
-
 
 [lints]
 workspace = true

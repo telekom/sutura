@@ -18,6 +18,20 @@
 //! peer address, and without the connect info there is no address to key on - the limiter would
 //! answer every request with "cannot extract key" and limit nothing. That is the failure mode where
 //! a limiter appears configured and is not.
+//!
+//! # Plaintext and TLS are one serve path
+//!
+//! [`serve`] and [`serve_tls`] differ in the listener they build and in nothing else. Both hand it
+//! to `run`, which is where `axum::serve`, the graceful-shutdown future and the bounded drain above
+//! live - so the drain semantics are defined once and cannot drift between the two. That was the
+//! deciding argument for wrapping the listener rather than taking `axum-server`, which brings its
+//! own separately-implemented shutdown; `crate::tls` records the comparison in full.
+//!
+//! `serve_tls` exists only under the `tls` feature. With the feature off there is no TLS listener in
+//! the build **and** `sutura_config::Settings::refusals` will not let a process start that was asked
+//! to terminate TLS in-process - the two are wired to the same feature name so they cannot disagree.
+//! Nothing here falls back to plaintext: material that will not load is an error returned before a
+//! socket is bound.
 
 use std::net::SocketAddr;
 
@@ -38,6 +52,17 @@ pub enum ServeFailed {
         #[source]
         cause: std::io::Error,
     },
+    /// The configured certificate and key are not usable.
+    ///
+    /// Returned before the socket is bound, which is the property that matters: TLS was asked for
+    /// and could not be established, so there is no listener at all rather than a plaintext one on
+    /// a port somebody configured to be encrypted.
+    #[cfg(feature = "tls")]
+    #[error("in-process TLS was configured and the material is not usable")]
+    Tls {
+        #[source]
+        cause: crate::tls::TlsNotUsable,
+    },
 }
 
 /// Binds `address`, serves `router`, and returns when the shutdown has drained or the deadline
@@ -46,18 +71,74 @@ pub enum ServeFailed {
 /// The bound address is read back from the socket rather than assumed, so a port of zero - a test
 /// asking the kernel to choose - is reported as the port it actually got.
 pub async fn serve(router: Router, address: SocketAddr, shutdown: Shutdown) -> Result<(), ServeFailed> {
-    let listener = tokio::net::TcpListener::bind(address)
+    let listener = bind(address).await?;
+    tracing::info!(bound = %local(&listener, address)?, tls = false, "listening");
+    run(listener, router, shutdown).await
+}
+
+/// The same, with the connection terminated here.
+///
+/// The material is loaded and validated FIRST, before anything is bound. So a certificate that will
+/// not parse, or a key that does not belong to it, is a process that does not start - not a port
+/// that accepts connections and fails every handshake, and not a plaintext port. See `crate::tls`
+/// for the rotation this also starts, which is what keeps a renewed certificate from needing a
+/// restart.
+#[cfg(feature = "tls")]
+pub async fn serve_tls(
+    router: Router,
+    address: SocketAddr,
+    shutdown: Shutdown,
+    material: &sutura_config::TlsMaterial,
+) -> Result<(), ServeFailed> {
+    let termination = crate::tls::Termination::prepare(material).map_err(|cause| ServeFailed::Tls { cause })?;
+    let (config, renewal) = termination.into_parts();
+    let listener = bind(address).await?;
+    let bound = local(&listener, address)?;
+    let listener = crate::tls::TlsListener::wrap(listener, config).map_err(|cause| ServeFailed::Bind {
+        address: address.to_string(),
+        cause,
+    })?;
+    renewal.watch_until_shutdown(crate::tls::RENEWAL_INTERVAL, shutdown.clone());
+    tracing::info!(%bound, tls = true, "listening");
+    // `tap_io` with a closure that does nothing, and it is NOT decoration. `axum` gives `SocketAddr`
+    // a `Connected` implementation for `TcpListener` and a blanket one for a tapped listener, and
+    // has none for an arbitrary one - which this crate cannot add, because both types are foreign.
+    // Without this wrapper there is no `ConnectInfo` on the TLS path and the limiter keys on
+    // nothing. `crate::tls` states it at length; there is a test on it.
+    run(axum::serve::ListenerExt::tap_io(listener, |_io| ()), router, shutdown).await
+}
+
+/// Binds the socket, naming the address in the failure.
+async fn bind(address: SocketAddr) -> Result<tokio::net::TcpListener, ServeFailed> {
+    tokio::net::TcpListener::bind(address)
         .await
         .map_err(|cause| ServeFailed::Bind {
             address: address.to_string(),
             cause,
-        })?;
-    let bound = listener.local_addr().map_err(|cause| ServeFailed::Bind {
-        address: address.to_string(),
-        cause,
-    })?;
-    tracing::info!(%bound, "listening");
+        })
+}
 
+/// The address actually bound.
+///
+/// Read back from the socket rather than assumed, so a port of zero - a test asking the kernel to
+/// choose - is reported as the port it got.
+fn local(listener: &tokio::net::TcpListener, requested: SocketAddr) -> Result<SocketAddr, ServeFailed> {
+    listener.local_addr().map_err(|cause| ServeFailed::Bind {
+        address: requested.to_string(),
+        cause,
+    })
+}
+
+/// Serves until the drain finishes or its deadline expires.
+///
+/// Generic over the listener so plaintext and TLS share this, which is the point - see the module
+/// documentation. The `Connected` bound is what guarantees the peer address reaches a handler: a
+/// listener that cannot produce one does not compile, rather than producing a limiter with no key.
+async fn run<L>(listener: L, router: Router, shutdown: Shutdown) -> Result<(), ServeFailed>
+where
+    L: axum::serve::Listener<Addr = SocketAddr>,
+    SocketAddr: for<'a> axum::extract::connect_info::Connected<axum::serve::IncomingStream<'a, L>>,
+{
     let graceful = shutdown.clone();
     let serving = axum::serve(
         listener,

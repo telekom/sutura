@@ -1,11 +1,13 @@
-//! What a dialect decides, expanded over every one the compiler renders for.
+//! What a dialect decides, expanded over every one `sutura-sql` renders for.
 //!
 //! The catalog is `adapters::ReferenceCatalog` throughout, named once there rather than here: which
 //! one it is does not matter to a renderer, and the catalog axis is what makes that true.
 
 use std::collections::BTreeSet;
 
-use sutura_semantic::{Compiled, Dialect, compile, dialect};
+use sutura_domain::catalog::TIME_BUCKET_LABEL;
+use sutura_semantic::{Compiled, compile};
+use sutura_sql::{Dialect, dialect};
 
 use crate::adapters::{ReferenceCatalog, load, questions, read_question, stem};
 
@@ -33,7 +35,6 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
 fn bound_value(param: &sutura_domain::warehouse::ParamValue) -> String {
     match *param {
         sutura_domain::warehouse::ParamValue::Text(ref v) => v.clone(),
-        sutura_domain::warehouse::ParamValue::Integer(v) => v.to_string(),
         sutura_domain::warehouse::ParamValue::Date(d) => d.to_iso(),
     }
 }
@@ -141,13 +142,68 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
     );
 }
 
-/// The other half of not being an injection.
+/// Whether `needle` appears in `haystack` as a bare word rather than inside a longer one.
 ///
-/// An identifier that reached the statement bare would bind to whatever the data system
-/// decided, and a column called `order` would be a syntax error. Asserted over the corpus
-/// rather than in one example.
+/// Word-bounded rather than a plain substring, and the boundary is what makes the assertion below
+/// precise instead of merely alarming. With the quoted spans removed the statement still holds
+/// `DATE_TRUNC`, `CAST`, `DOUBLE` and `DISTINCT`, so a model column called `date` or a metric
+/// called `cast` would match a substring search that no bare identifier caused. An identifier
+/// emitted unquoted is surrounded by whitespace, a comma or a parenthesis, which is exactly what
+/// this admits.
+fn appears_bare(haystack: &str, needle: &str) -> bool {
+    let word = |ch: char| ch == '_' || ch.is_ascii_alphanumeric();
+    haystack.match_indices(needle).any(|(at, _)| {
+        let before = haystack.get(..at).and_then(|head| head.chars().next_back());
+        let after = haystack
+            .get(at.saturating_add(needle.len())..)
+            .and_then(|tail| tail.chars().next());
+        !before.is_some_and(word) && !after.is_some_and(word)
+    })
+}
+
+/// The other half of not being an injection, asserted as the property rather than as one example.
+///
+/// An identifier that reached the statement bare would bind to whatever the data system decided,
+/// and a column called `order` would be a syntax error at that data system instead of an error
+/// here.
+///
+/// **What this used to assert, and why it proved almost nothing.** The body was one
+/// `contains("\"orders\"")` - the table name appears quoted somewhere - which every question in
+/// every dialect satisfies for as long as the generator quotes anything at all. It was blind to the
+/// bug `generate`'s own module doc singles out: `always_quote_identifiers` covers identifiers and
+/// does **not** cover aliases, so `generate::aliased` sets the alias's own `quoted` flag by hand.
+/// Deleting that line left this test green.
+///
+/// So the claim is made over [`without_identifiers`], the mechanism
+/// `no_value_reaches_the_statement_as_text` already trusts: dropping the double-quoted spans leaves
+/// exactly the part of the statement an identifier could have leaked into. Every model column,
+/// every dimension label, every metric name and the time bucket's label has to be absent from what
+/// is left - the aliases included, which is the half the old body could not see.
+///
+/// The positive half is what stops it passing on a generator that emits no identifiers at all: the
+/// names this plan actually uses have to be present, quoted, in the raw statement.
 fn quotes_every_identifier(dialect: Dialect) {
     let pinned = load::<ReferenceCatalog>();
+    let definitions = pinned.definitions();
+
+    // Every name the generator could have to quote, whether or not this question reaches it. Read
+    // off the catalog rather than off the plan, so a name the renderer emits for a reason the plan
+    // does not record is covered too.
+    let mut names: BTreeSet<String> = BTreeSet::from([String::from(TIME_BUCKET_LABEL)]);
+    for model in definitions.models().values() {
+        names.insert(String::from(model.table().as_str()));
+        names.extend(model.columns().iter().map(|column| String::from(column.as_str())));
+    }
+    for metric in definitions.metrics().values() {
+        names.insert(String::from(metric.name().as_str()));
+        names.extend(metric.dimensions().keys().map(|label| String::from(label.as_str())));
+    }
+    assert!(
+        names.len() > 4,
+        "the fixture catalog names almost nothing, so this test would prove nothing: {names:?}"
+    );
+
+    let mut quoted_names_checked = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
         let compiled = compile(&asked, &pinned).expect("the corpus compiles");
@@ -155,13 +211,36 @@ fn quotes_every_identifier(dialect: Dialect) {
             continue;
         };
         let query = sql_for(plan, dialect);
-        assert!(
-            query.sql().contains("\"orders\""),
-            "{} for {dialect} does not quote its table:\n{}",
-            stem(&path),
-            query.sql()
-        );
+        let stripped = without_identifiers(query.sql());
+
+        for name in &names {
+            assert!(
+                !appears_bare(&stripped, name.as_str()),
+                "{} for {dialect} carries the identifier {name:?} unquoted:\n{}\nwith the quoted \
+                 spans removed:\n{stripped}",
+                stem(&path),
+                query.sql()
+            );
+        }
+
+        // And the names this plan does use are there, quoted. Without this half a generator that
+        // emitted no projection at all would satisfy everything above.
+        let mut quoted = vec![String::from(plan.table().as_str())];
+        quoted.extend(plan.joins().iter().map(|join| String::from(join.table().as_str())));
+        quoted.push(String::from(plan.bucket().label()));
+        quoted.push(String::from(plan.measure_label()));
+        quoted.extend(plan.keys().iter().map(|key| String::from(key.label())));
+        for name in &quoted {
+            assert!(
+                query.sql().contains(&format!("\"{name}\"")),
+                "{} for {dialect} does not carry {name:?} quoted:\n{}",
+                stem(&path),
+                query.sql()
+            );
+            quoted_names_checked = quoted_names_checked.saturating_add(1);
+        }
     }
+    assert!(quoted_names_checked > 0, "the corpus produced no statements to check");
 }
 
 /// The check that replaces having one of each data system in CI.
@@ -221,11 +300,15 @@ macro_rules! cell {
 crate::adapters::registered!(dialects: cell);
 
 #[test]
-fn every_dialect_the_compiler_renders_for_is_registered() {
-    // `dialect::ALL` is the compiler's own list and the registry is this suite's. A variant added
-    // to the compiler with no line in the registry would be a target that renders with no golden,
-    // which reads as covered and is not. Compared as sets rather than by counting, so a variant
-    // swapped for another is caught too.
+fn every_dialect_the_renderer_supports_is_registered() {
+    // `dialect::ALL` is `sutura-sql`'s own list and the registry is this suite's. A variant added
+    // there with no line in the registry would be a target that renders with no golden, which reads
+    // as covered and is not. Compared as sets rather than by counting, so a variant swapped for
+    // another is caught too.
+    //
+    // Named for the RENDERER and not for the compiler, which is what it used to say: `compile`
+    // stops at a plan and names no dialect at all, and since rendering moved into its own crate the
+    // list this compares against is not the compiler's to grow.
     //
     // The cell collects into a local, which is why it is defined inside this function: a
     // `macro_rules!` body resolves a local at its own definition site, and here that site is this
@@ -243,7 +326,7 @@ fn every_dialect_the_compiler_renders_for_is_registered() {
     all.sort_unstable();
     assert_eq!(
         registered, all,
-        "the compiler renders for a dialect the golden suite does not cover; add a line to \
+        "`sutura-sql` renders for a dialect the golden suite does not cover; add a line to \
          `adapters::registered` and re-run with INSTA_UPDATE=always"
     );
 }

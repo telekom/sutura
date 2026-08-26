@@ -11,9 +11,11 @@ description = "A Warehouse adapter over DuckDB, for local development and single
 
 [dependencies]
 sutura-domain = { workspace = true }
-# The compiler, for its last stage: this adapter speaks SQL, so it asks the compiler to render the
-# plan for its dialect rather than growing a second set of quoting and placeholder decisions.
-sutura-semantic = { workspace = true }
+# Rendering, shared with every other SQL adapter: this adapter speaks SQL, so it asks `sutura-sql`
+# to render the plan for its dialect rather than growing a second set of quoting and placeholder
+# decisions. NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this
+# adapter never compiles anything - it renders what it was handed.
+sutura-sql = { workspace = true }
 # Linked against the system `libduckdb` rather than built from source: the `bundled` feature
 # compiles DuckDB's C++ inside every build, which in the Nix sandbox is minutes and gigabytes per
 # derivation. `flake.nix` and `devenv.nix` provide the library and the two variables that find it.

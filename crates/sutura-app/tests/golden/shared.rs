@@ -5,7 +5,7 @@
 
 use sutura_domain::query::Query;
 use sutura_domain::warehouse::{RowSet, Value};
-use sutura_semantic::Dialect;
+use sutura_sql::Dialect;
 
 use crate::adapters::{questions, read_question};
 
@@ -32,9 +32,11 @@ pub(crate) fn settings(suffix: &str) -> insta::Settings {
 /// Renders a plan, because compiling no longer does.
 ///
 /// The dialect is named at the call site now rather than passed into `compile`, which is the point
-/// of the split: a golden that pins SQL is asking for a rendering, and says so.
-pub(crate) fn sql_for(plan: &sutura_semantic::QueryPlan, dialect: Dialect) -> sutura_domain::warehouse::GeneratedQuery {
-    sutura_semantic::generate::generate(plan, dialect).expect("a planned question renders")
+/// of the split: a golden that pins SQL is asking for a rendering, and says so. It is also a
+/// different CRATE now - `sutura-sql`, a dev-dependency here - so a test that wants SQL declares
+/// that it wants SQL and nothing in `src/` pulls a generator in on its behalf.
+pub(crate) fn sql_for(plan: &sutura_domain::plan::QueryPlan, dialect: Dialect) -> sutura_domain::warehouse::GeneratedQuery {
+    sutura_sql::generate(plan, dialect).expect("a planned question renders")
 }
 
 /// An error and every cause beneath it, outermost first, as one block.
@@ -100,8 +102,14 @@ pub(crate) fn question(file: &str) -> Query {
 /// Every refusal variant a question file can provoke, and the fixture that provokes it.
 ///
 /// A table rather than a test each, so the exhaustiveness assertion can be written against it.
-/// `PlanSpansTwoSources` and `SourceUnavailable` are absent on purpose: neither is reachable from a
-/// question file, and each is provoked by its own test at the end of this file.
+///
+/// Three variants are absent on purpose, because no question file can reach one, and each has its
+/// own test in `golden/service.rs` instead. `PlanSpansTwoSources` needs a catalog naming two data
+/// systems and `SourceUnavailable` a plan for a data system nobody opened - both decided above the
+/// port, by the service rather than by the compiler. `ResultTooLarge` is the third and is absent for
+/// a different reason worth keeping straight: it is decided AFTER a data system has answered, and
+/// `a_refused_question_never_reaches_the_data_system` asserts of every entry in this table that
+/// nothing ran. A fixture that provoked it here would make that assertion false.
 pub(crate) const PROVOKED: &[(&str, &str)] = &[
     ("refused-metric-unknown", "MetricUnknown"),
     ("refused-grain-not-supported", "GrainNotSupported"),

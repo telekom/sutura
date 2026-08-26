@@ -7,7 +7,10 @@
 //! * **In-flight work drains.** `axum` waits for every open connection, which is what makes a
 //!   rolling deployment not drop answers - and which is also how one wedged connection pins the
 //!   process open past the kill deadline. So the drain is *bounded*: see
-//!   [`Shutdown::grace_period`].
+//!   [`Shutdown::grace_period`], and [`Shutdown::remaining_grace`] for what is left of that budget
+//!   once the drain has had its turn. The two together are what make the number a bound on
+//!   *stopping* rather than on the connection drain alone: dropping an `axum` serve future ends the
+//!   drain, and the runtime then still waits for every blocking task it cannot cancel.
 //! * **The reason is recorded.** A process that vanished and a process that was asked to stop look
 //!   identical in a log that says nothing, and only one of them is a bug.
 //!
@@ -15,8 +18,8 @@
 //! and that is what makes this testable: a test triggers the same value a signal would, with no
 //! process-wide side effect and nothing to install.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 
@@ -59,6 +62,14 @@ impl core::fmt::Display for ShutdownReason {
 pub struct Shutdown {
     sender: Arc<watch::Sender<Option<ShutdownReason>>>,
     grace: Duration,
+    /// When stopping was first asked for, for [`Shutdown::remaining_grace`].
+    ///
+    /// A `OnceLock` rather than another field in the watched value, and the reason is the same rule
+    /// the reason itself follows: the first trigger wins, and a cell that can be written once
+    /// cannot have its clock restarted by a second signal. Beside the sender rather than inside it
+    /// because nothing waits on it - a waiter already learns that stopping was asked for from the
+    /// channel.
+    started: Arc<OnceLock<Instant>>,
 }
 
 impl Shutdown {
@@ -84,13 +95,41 @@ impl Shutdown {
         Self {
             sender: Arc::new(sender),
             grace,
+            started: Arc::new(OnceLock::new()),
         }
     }
 
-    /// How long the drain may take once this has been triggered.
+    /// The whole budget for stopping, from the moment stopping is asked for.
     #[inline]
     pub const fn grace_period(&self) -> Duration {
         self.grace
+    }
+
+    /// What is left of that budget.
+    ///
+    /// **The connection drain is not the whole of stopping, and this is the difference.** Dropping
+    /// an `axum` serve future ends the drain and returns; the runtime then still waits for every
+    /// blocking task, because `tokio` documents that a started `spawn_blocking` task cannot be
+    /// aborted and that runtime shutdown waits for one. A process that spent its whole grace period
+    /// draining connections and then waited a full grace period again for the blocking pool would
+    /// take twice the number an operator configured - and that number was chosen against their
+    /// orchestrator's kill timer, so twice it is being killed mid-answer.
+    ///
+    /// The full grace period before stopping has been asked for, because there is nothing to count
+    /// from yet: this is a bound on the *rest* of stopping, and stopping has not started.
+    ///
+    /// Saturating, so an overrun is zero rather than a wrapped duration. Zero is a legitimate
+    /// answer and means the budget is spent: whatever waits on it should not wait at all.
+    ///
+    /// Measured on `std::time::Instant` and not on `tokio`'s clock, deliberately. What this number
+    /// is racing is an orchestrator's kill timer, which is wall time, and what consumes it is
+    /// `tokio::runtime::Runtime::shutdown_timeout`, which is also wall time. A test-controllable
+    /// clock here would make the two disagree in exactly the deployment where it matters.
+    #[must_use]
+    pub fn remaining_grace(&self) -> Duration {
+        self.started
+            .get()
+            .map_or(self.grace, |began| self.grace.saturating_sub(began.elapsed()))
     }
 
     /// Asks for shutdown, and logs why.
@@ -105,6 +144,11 @@ impl Shutdown {
             let first = current.is_none();
             if first {
                 *current = Some(reason);
+                // In the same critical section as the reason, so the instant the grace period is
+                // measured from belongs to the trigger that was recorded rather than to a later
+                // signal that lost the race. `set` returning `Err` is that same race and is
+                // therefore not a failure: the winner already wrote the instant.
+                let _lost_the_race = self.started.set(Instant::now());
             }
             first
         });
@@ -292,6 +336,56 @@ mod tests {
         assert_eq!(
             Shutdown::with_grace(Duration::from_millis(5)).grace_period(),
             Duration::from_millis(5)
+        );
+    }
+
+    #[tokio::test]
+    async fn the_budget_left_for_stopping_starts_full_and_then_only_goes_down() {
+        // The bug this exists for: giving the connection drain the whole grace period and then
+        // giving the blocking pool the whole grace period AGAIN, which is twice the number the
+        // operator chose against their orchestrator's kill timer. The full budget before stopping
+        // has been asked for, because there is nothing to count from yet.
+        //
+        // Real time and a generous budget, with one-sided assertions: `remaining_grace` measures
+        // wall time on purpose - see the note on it - so a loaded machine may take longer over the
+        // sleep than asked, and an assertion on how MUCH was spent would be measuring the machine.
+        let shutdown = Shutdown::with_grace(Duration::from_secs(600));
+        assert_eq!(shutdown.remaining_grace(), Duration::from_secs(600));
+        shutdown.trigger(ShutdownReason::Terminate);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let left = shutdown.remaining_grace();
+        assert!(left < Duration::from_secs(600), "the clock never started: {left:?}");
+        assert!(
+            left > Duration::from_secs(300),
+            "thirty milliseconds spent half the budget: {left:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_budget_that_is_spent_is_zero_rather_than_a_wrapped_duration() {
+        // Zero is a legitimate answer and means "do not wait at all". The alternative - an
+        // underflow - would be the largest duration there is, which is the opposite of a bound.
+        let shutdown = Shutdown::with_grace(Duration::from_millis(10));
+        shutdown.trigger(ShutdownReason::Interrupt);
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        assert_eq!(shutdown.remaining_grace(), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn a_second_signal_does_not_restart_the_clock() {
+        // The same rule the reason follows, and for the same deployment reason: a `SIGINT` arriving
+        // during a `SIGTERM` drain must not buy the process another full grace period, because the
+        // kill timer on the other side did not restart either. Asserted as monotonicity, which is
+        // the property, and which no amount of scheduling noise can make pass by accident.
+        let shutdown = Shutdown::with_grace(Duration::from_secs(600));
+        shutdown.trigger(ShutdownReason::Terminate);
+        tokio::time::sleep(Duration::from_millis(30)).await;
+        let before = shutdown.remaining_grace();
+        shutdown.trigger(ShutdownReason::Interrupt);
+        let after = shutdown.remaining_grace();
+        assert!(
+            after <= before,
+            "the second signal restarted the grace period: {before:?} then {after:?}"
         );
     }
 

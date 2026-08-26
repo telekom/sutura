@@ -7,6 +7,8 @@
 use std::collections::BTreeMap;
 
 use super::{Environment, NotFitToServe, Settings, SettingsError, Sources};
+use crate::proxy::ClientAddressSource;
+use crate::security::TlsTermination;
 use crate::server::{BodyLimit, RequestTimeout};
 use crate::telemetry::LogFormat;
 
@@ -24,7 +26,7 @@ fn variables(pairs: &[(&str, &str)]) -> BTreeMap<String, String> {
 fn production_overlay() -> String {
     format!(
         "server:\n  host: \"0.0.0.0\"\n  port: 8080\nsecurity:\n  access_token: \"{TOKEN}\"\n  \
-         expose_beyond_loopback: true\n"
+         tls_termination: \"ingress\"\n"
     )
 }
 
@@ -38,8 +40,17 @@ fn the_embedded_defaults_are_a_loopback_development_service() {
     assert!(settings.server().bind().is_loopback());
     assert_eq!(settings.server().bind().port(), 8080);
     assert!(settings.security().access_token().is_none());
-    assert!(!settings.security().expose_beyond_loopback());
-    assert!(settings.rate_limit().enabled());
+    assert_eq!(settings.security().tls_termination(), TlsTermination::None);
+    // The limiter is OFF here, and that is the environment and not the file: `defaults.yaml` no
+    // longer names `rate_limit.enabled` at all. Production defaults the other way -
+    // `the_limiter_follows_the_environment_when_nobody_writes_it_down` asserts both arms.
+    assert!(!settings.rate_limit().enabled());
+    assert!(!settings.rate_limit().enabled_was_explicit());
+    // The keying default, and the reason it is the safe one: no header is believed, because no hop
+    // is named.
+    assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Peer);
+    assert!(settings.rate_limit().trusted_proxies().is_empty());
+    assert!(settings.server().tls().is_none());
     assert!(settings.refusals().is_empty());
 }
 
@@ -85,12 +96,14 @@ fn a_numeric_value_arriving_as_a_variable_string_is_still_a_number() {
     let sources = Sources::defaults(Environment::Development).with_variables(variables(&[
         ("SUTURA__SERVER__REQUEST_TIMEOUT_SECONDS", "45"),
         ("SUTURA__SERVER__MAX_BODY_BYTES", "2048"),
-        ("SUTURA__RATE_LIMIT__ENABLED", "false"),
+        // `true` and not `false`: in development `false` is now the environment default, so
+        // asserting it would pass whether the variable was read or dropped on the floor.
+        ("SUTURA__RATE_LIMIT__ENABLED", "true"),
     ]));
     let settings = Settings::load(&sources).expect("string-valued numbers coerce");
     assert_eq!(settings.server().request_timeout().seconds(), 45);
     assert_eq!(settings.server().max_body().bytes(), 2048);
-    assert!(!settings.rate_limit().enabled());
+    assert!(settings.rate_limit().enabled());
 }
 
 #[test]
@@ -192,33 +205,36 @@ fn a_bound_at_its_ceiling_loads_and_one_past_it_does_not() {
 // --------------------------------------------------------- posture refusals ----
 
 #[test]
-fn a_non_loopback_bind_needs_an_explicit_acknowledgement_in_every_environment() {
+fn a_non_loopback_bind_needs_a_tls_termination_declaration_in_every_environment() {
     // Not a production-only rule, and that is deliberate: binding the wildcard is the single
     // change that turns a local tool into a network service, and a laptop on a shared network is
     // where that is least expected.
+    //
+    // What is refused is the SILENCE, not the bind. The test below binds the same wildcard with a
+    // declaration and starts, because that is the normal deployment.
     for environment in [Environment::Development, Environment::Test, Environment::Production] {
         let sources = Sources::defaults(environment).with_overlay(format!(
             "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n"
         ));
-        let error = Settings::load(&sources).expect_err("an unacknowledged wildcard bind is refused");
+        let error = Settings::load(&sources).expect_err("an undeclared wildcard bind is refused");
         let SettingsError::NotFitToServe { ref refusals } = error else {
             panic!("expected a posture refusal for {environment}, got {error:?}");
         };
         assert!(
             refusals
                 .iter()
-                .any(|r| matches!(*r, NotFitToServe::BindsBeyondLoopback { .. })),
+                .any(|r| matches!(*r, NotFitToServe::TlsTerminationUndeclared { .. })),
             "{environment}: {refusals:?}"
         );
     }
 }
 
 #[test]
-fn an_acknowledged_non_loopback_bind_still_needs_a_token() {
-    // The two controls are separate questions - "did you mean to publish this" and "who may reach
-    // it" - so answering only the first is still a refusal.
+fn a_declared_non_loopback_bind_still_needs_a_token() {
+    // The two controls are separate questions - "what protects the path to this" and "who may
+    // reach it" - so answering only the first is still a refusal.
     let sources = Sources::defaults(Environment::Development)
-        .with_overlay("server:\n  host: \"0.0.0.0\"\nsecurity:\n  expose_beyond_loopback: true\n");
+        .with_overlay("server:\n  host: \"0.0.0.0\"\nsecurity:\n  tls_termination: \"ingress\"\n");
     let error = Settings::load(&sources).expect_err("an off-host bind with no token is refused");
     let SettingsError::NotFitToServe { ref refusals } = error else {
         panic!("expected a posture refusal, got {error:?}");
@@ -234,13 +250,112 @@ fn an_acknowledged_non_loopback_bind_still_needs_a_token() {
 #[test]
 fn both_controls_together_start_an_off_host_development_service() {
     // The other side of the two refusals above, so they cannot be satisfied by a rule that
-    // refuses everything.
+    // refuses everything. This is also the SHAPE OF THE NORMAL DEPLOYMENT: a plaintext listener on
+    // every interface, with something in front of it that terminates TLS.
+    for declared in ["sidecar", "ingress"] {
+        let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+            "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"{declared}\"\n"
+        ));
+        let settings = Settings::load(&sources).expect("a declared and tokenised off-host bind is servable");
+        assert!(!settings.server().bind().is_loopback());
+        assert!(settings.security().access_token().is_some());
+        assert!(settings.security().tls_termination().is_declared());
+        // And what it declares is a terminator somewhere else, not encryption here.
+        assert!(!settings.security().tls_termination().terminates_here());
+    }
+}
+
+#[test]
+fn a_forwarded_header_is_not_believed_without_a_named_hop() {
+    // The refusal that keeps the limiter from being worse than useless. With no trusted hop, the
+    // header is a value every caller writes, so every bucket is theirs to choose.
+    let sources = Sources::defaults(Environment::Development).with_overlay("rate_limit:\n  client_address: \"forwarded\"\n");
+    let error = Settings::load(&sources).expect_err("a believed header with no named hop is refused");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::ForwardedWithoutTrustedProxies]);
+}
+
+#[test]
+fn a_trusted_proxy_list_that_nothing_reads_is_refused() {
+    // The other direction, and it is refused for the reason every unknown key here is an error: a
+    // list that has no effect reads as a control that is in place.
+    let sources = Sources::defaults(Environment::Development)
+        .with_overlay("rate_limit:\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n    - \"10.1.0.0/16\"\n");
+    let error = Settings::load(&sources).expect_err("a list nothing reads is refused");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::TrustedProxiesWithoutForwarding { count: 2 }]);
+}
+
+#[test]
+fn forwarded_keying_with_a_named_hop_loads() {
+    // The positive case, without which the two refusals above are satisfied by refusing every
+    // forwarded configuration there is.
+    let sources = Sources::defaults(Environment::Development)
+        .with_overlay("rate_limit:\n  client_address: \"forwarded\"\n  trusted_proxies:\n    - \"10.0.0.0/8\"\n");
+    let settings = Settings::load(&sources).expect("a named hop and a header source load");
+    assert_eq!(settings.rate_limit().client_address(), ClientAddressSource::Forwarded);
+    assert!(
+        settings
+            .rate_limit()
+            .trusted_proxies()
+            .trusts("10.1.2.3".parse().expect("a test address is an address"))
+    );
+}
+
+#[test]
+fn in_process_tls_needs_material_and_material_needs_in_process_tls() {
+    // Both halves of one question. Either mismatch is a listener that is not what the file says: a
+    // declaration with no key cannot serve TLS, and a key with no declaration is never read.
     let sources = Sources::defaults(Environment::Development).with_overlay(format!(
-        "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  expose_beyond_loopback: true\n"
+        "server:\n  host: \"0.0.0.0\"\nsecurity:\n  access_token: \"{TOKEN}\"\n  tls_termination: \"in-process\"\n"
     ));
-    let settings = Settings::load(&sources).expect("acknowledged and tokenised is servable");
-    assert!(!settings.server().bind().is_loopback());
-    assert!(settings.security().access_token().is_some());
+    let error = Settings::load(&sources).expect_err("in-process TLS with no material is refused");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert!(refusals.contains(&NotFitToServe::InProcessTlsWithoutMaterial), "{refusals:?}");
+
+    let sources = Sources::defaults(Environment::Development)
+        .with_overlay("server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\n");
+    let error = Settings::load(&sources).expect_err("material nothing reads is refused");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(
+        *refusals,
+        vec![NotFitToServe::TlsMaterialWithoutInProcessTermination { declared: "none" }]
+    );
+}
+
+#[test]
+fn in_process_tls_is_refused_when_the_binary_cannot_do_it() {
+    // The failure mode that must never be quiet: a binary with no TLS implementation linked in,
+    // asked to terminate TLS. The alternative to refusing is plaintext on a port an operator
+    // configured to be encrypted.
+    //
+    // Both arms are asserted, because which one holds is a property of the BUILD rather than of the
+    // configuration - and a test that only checked one would pass for the wrong reason in the other
+    // feature state.
+    let sources = Sources::defaults(Environment::Development).with_overlay(format!(
+        "server:\n  tls_certificate: \"/tls/chain.pem\"\n  tls_key: \"/tls/key.pem\"\nsecurity:\n  \
+         access_token: \"{TOKEN}\"\n  tls_termination: \"in-process\"\n"
+    ));
+    let loaded = Settings::load(&sources);
+    if cfg!(feature = "tls") {
+        let settings = loaded.expect("with the feature on, declared and provisioned TLS loads");
+        assert!(settings.security().tls_termination().terminates_here());
+        assert!(settings.server().tls().is_some());
+    } else {
+        let error = loaded.expect_err("without the feature there is nothing to terminate TLS with");
+        let SettingsError::NotFitToServe { ref refusals } = error else {
+            panic!("expected a posture refusal, got {error:?}");
+        };
+        assert_eq!(*refusals, vec![NotFitToServe::InProcessTlsNotCompiledIn]);
+    }
 }
 
 #[test]
@@ -258,7 +373,7 @@ fn production_refuses_to_start_with_rate_limiting_switched_off() {
 fn production_refuses_an_ephemeral_port() {
     let sources = Sources::defaults(Environment::Production).with_overlay(format!(
         "server:\n  host: \"0.0.0.0\"\n  port: 0\nsecurity:\n  access_token: \"{TOKEN}\"\n  \
-         expose_beyond_loopback: true\n"
+         tls_termination: \"ingress\"\n"
     ));
     let error = Settings::load(&sources).expect_err("production on a kernel-chosen port is refused");
     let SettingsError::NotFitToServe { ref refusals } = error else {
@@ -329,6 +444,99 @@ fn an_explicit_format_overrides_the_environment_and_is_recorded_as_explicit() {
     assert!(settings.telemetry().format_was_explicit());
     assert!(settings.api().docs_enabled());
     assert!(settings.api().docs_were_explicit());
+}
+
+// -------------------------------------------- the limiter follows the environment ----
+
+#[test]
+fn the_limiter_follows_the_environment_when_nobody_writes_it_down() {
+    // The split, asserted at the outermost layer: off on a laptop and in a test, on in production,
+    // with nothing in any file saying so. The sibling assertion for `telemetry.format` and
+    // `api.docs` is `the_log_format_and_the_documentation_surface_follow_the_environment`; this is
+    // the third key that works that way and the first whose permissive answer is the OFF one.
+    for permissive in [Environment::Development, Environment::Test] {
+        let settings = Settings::load(&Sources::defaults(permissive)).expect("a permissive environment loads");
+        assert!(!settings.rate_limit().enabled(), "{permissive} defaulted the limiter on");
+        assert!(
+            !settings.rate_limit().enabled_was_explicit(),
+            "{permissive} recorded a defaulted switch as chosen"
+        );
+    }
+    let production =
+        Settings::load(&Sources::defaults(Environment::Production).with_overlay(production_overlay())).expect("production loads");
+    assert!(production.rate_limit().enabled(), "production defaulted the limiter off");
+    assert!(!production.rate_limit().enabled_was_explicit());
+}
+
+#[test]
+fn an_explicit_switch_in_development_is_honoured_and_recorded_as_explicit() {
+    // The developer who is testing the limiter itself. The environment default is a default and not
+    // a ceiling.
+    //
+    // The first assertion is what makes the second one mean something: without it, a test that only
+    // checked `enabled()` after writing `enabled: true` would pass just as well against a flat
+    // default of `true`, which is the behaviour this change replaces.
+    let bare = Settings::load(&Sources::defaults(Environment::Development)).expect("development loads");
+    assert!(
+        !bare.rate_limit().enabled(),
+        "development is the environment that defaults off"
+    );
+
+    let sources = Sources::defaults(Environment::Development).with_overlay("rate_limit:\n  enabled: true\n");
+    let settings = Settings::load(&sources).expect("an explicit switch loads");
+    assert!(settings.rate_limit().enabled());
+    // And the flag, which is what lets the startup log say a person chose this rather than that
+    // nobody did. `true` in development looks identical either way once it is stored.
+    assert!(settings.rate_limit().enabled_was_explicit());
+}
+
+#[test]
+fn production_still_refuses_an_explicitly_disabled_limiter() {
+    // THE assertion this change must not weaken, and the one test here that passed before the
+    // change as well as after: default-off in development is a convenience, silently-off in
+    // production is a security regression, and conflating the two is how the second arrives
+    // disguised as the first. A guard that only started passing with the change would be a guard
+    // that had not been in place.
+    //
+    // Written down as `false`, so this is the EXPLICIT case and not a defaulted one - the refusal
+    // reads the loaded value and does not care which layer produced it, which is exactly the
+    // property that makes an environment-derived default safe to add underneath it.
+    let sources = Sources::defaults(Environment::Production)
+        .with_overlay(format!("{}rate_limit:\n  enabled: false\n", production_overlay()));
+    let error = Settings::load(&sources).expect_err("an explicit false in production is refused");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
+}
+
+#[test]
+fn a_variable_overrides_the_environment_default_in_both_directions() {
+    // On where the environment says off. Both halves asserted from the same sources, because a test
+    // that only checked the value AFTER the variable cannot tell an override from a default that
+    // already agreed with it.
+    let bare = Settings::load(&Sources::defaults(Environment::Development)).expect("development loads");
+    assert!(
+        !bare.rate_limit().enabled(),
+        "development is the environment that defaults off"
+    );
+    let sources =
+        Sources::defaults(Environment::Development).with_variables(variables(&[("SUTURA__RATE_LIMIT__ENABLED", "true")]));
+    let settings = Settings::load(&sources).expect("a variable switching the limiter on loads");
+    assert!(settings.rate_limit().enabled());
+    assert!(settings.rate_limit().enabled_was_explicit());
+
+    // And off where it says on - which in production is a refusal rather than a load, because that
+    // is the one direction this crate does not let an operator take quietly. The variable layer is
+    // applied last, so this is also the layer a deployment manifest would use.
+    let sources = Sources::defaults(Environment::Production)
+        .with_overlay(production_overlay())
+        .with_variables(variables(&[("SUTURA__RATE_LIMIT__ENABLED", "false")]));
+    let error = Settings::load(&sources).expect_err("a variable cannot switch the limiter off in production");
+    let SettingsError::NotFitToServe { ref refusals } = error else {
+        panic!("expected a posture refusal, got {error:?}");
+    };
+    assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
 }
 
 // ------------------------------------------------------------------ secrets ----

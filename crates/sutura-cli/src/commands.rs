@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use sutura_app::prompt::{CatalogProse, PromptInputs, Tool};
 use sutura_catalog_local::LocalCatalog;
 use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::{ModelName, SourceName, TableName};
@@ -19,7 +20,8 @@ use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalo
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_exec_datafusion::DataFusionWarehouse;
-use sutura_semantic::{Compiled, Dialect};
+use sutura_semantic::Compiled;
+use sutura_sql::Dialect;
 
 /// The version a locally-read catalog is stamped with when the caller did not say.
 ///
@@ -178,6 +180,78 @@ pub(crate) fn describe(args: &[String]) -> ExitCode {
     })())
 }
 
+/// `prompt <dir> [config-dir]`: the system prompt an agent should be given.
+///
+/// **The reachable consumer of the `prompt` configuration group**, and that is why it exists as a
+/// command rather than only as an endpoint. A key that is parsed, range-checked and read by nothing
+/// reads as a control that is in place; this is what reads it. An operator pipes the output into an
+/// agent's configuration.
+///
+/// Two arguments, and the second one is the deployment's configuration directory - the same
+/// `base.yaml` plus `<environment>.yaml` a service would read, layered under the same
+/// `SUTURA__PROMPT__*` variables. So the text rendered here is the text that deployment would hand
+/// out, rather than a second rendering with its own flags that could disagree.
+///
+/// **A configuration that will not serve will not describe what it serves either.** `Settings::load`
+/// runs the posture refusals, so `SUTURA_ENVIRONMENT=production` with no access token configured
+/// fails here exactly as it would at startup. That is deliberate: the alternative is a second,
+/// weaker door into the settings, and the refusal names the key to fix.
+pub(crate) fn prompt(args: &[String]) -> ExitCode {
+    report((|| {
+        let usage = "prompt <catalog-dir> [config-dir]";
+        let root = arg(args, 0, "catalog-dir", usage)?;
+        let environment = sutura_config::environment_from_process().map_err(|e| render(&e))?;
+        let settings = sutura_config::Settings::load(&sutura_config::Sources::from_process_environment(
+            environment,
+            args.get(1).map(PathBuf::from),
+        ))
+        .map_err(|e| render(&e))?;
+        let (prose, instructions) = prompt_inputs(settings.prompt())?;
+        let pinned = load(Path::new(&root))?;
+        // Every operation, because the HTTP surface mounts every operation. A transport that hid one
+        // passes the subset it mounts and the workflow drops the step rather than telling an agent
+        // to call something that is not there.
+        let inputs = PromptInputs::new(Tool::ALL, prose, instructions.as_deref());
+        print!("{}", sutura_app::prompt::render(&pinned, &inputs));
+        Ok(())
+    })())
+}
+
+/// How the catalog's prose is treated, and the operator's own text if a path was configured.
+///
+/// A named alias because the inline tuple is over the complexity threshold in `clippy.toml`, and
+/// naming it is the better half of that trade: the pair is what the settings resolve to.
+type ResolvedPromptText = (CatalogProse, Option<String>);
+
+/// The prompt's two non-catalog inputs, resolved from the settings.
+///
+/// **A configured instructions file that cannot be read is an error, not an omitted section.** The
+/// implementation this prompt is modelled on omits its `instructions.md` silently when the file is
+/// absent, which is right for a convention - no file means nobody wrote one. Here the path was
+/// written down, so absence means the operator's rules are missing from a document that says it
+/// carries them, and serving that quietly is the failure this repository refuses everywhere else.
+fn prompt_inputs(settings: &sutura_config::PromptSettings) -> Result<ResolvedPromptText, String> {
+    let prose = if settings.catalog_prose().is_quoted() {
+        CatalogProse::Quoted
+    } else {
+        CatalogProse::Omitted
+    };
+    let instructions = match settings.instructions_file() {
+        None => None,
+        Some(configured) => {
+            let path = configured.path();
+            Some(std::fs::read_to_string(path).map_err(|e| {
+                format!(
+                    "prompt.instructions_file is {} and it could not be read: {e}\nremove the key to \
+                     render the prompt without an operator section",
+                    path.display()
+                )
+            })?)
+        }
+    };
+    Ok((prose, instructions))
+}
+
 /// `compile <dir> <question> [dialect]`: the statement, without a data system.
 pub(crate) fn compile(args: &[String]) -> ExitCode {
     report((|| {
@@ -195,7 +269,7 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
                 println!("refused: {reason:?}");
             }
             Compiled::Planned { plan } => {
-                let query = sutura_semantic::generate::generate(&plan, dialect).map_err(|e| render(&e))?;
+                let query = sutura_sql::generate(&plan, dialect).map_err(|e| render(&e))?;
                 println!("-- dialect {dialect}");
                 println!("{}", query.sql());
                 println!();
@@ -319,7 +393,7 @@ mod tests {
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-    use super::{ENGINE_SOURCE, load, open_engine};
+    use super::{ENGINE_SOURCE, load, open_engine, prompt_inputs};
 
     fn example() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
@@ -357,7 +431,6 @@ mod tests {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
-            sutura_catalog_local::digest_of,
         )
         .expect("the test definitions hash")
     }
@@ -395,5 +468,60 @@ mod tests {
             ENGINE_SOURCE,
             "the engine answers to its own name, not to the catalog's"
         );
+    }
+
+    #[test]
+    fn the_prompt_settings_reach_the_renderer() {
+        // The point of the whole configuration group: what an operator wrote down is what the
+        // rendered prompt is built from. Both keys, both directions, and no process environment
+        // involved - `PromptSettings` is constructed directly so this stays hermetic.
+        let (prose, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(None, sutura_config::CatalogProse::Quoted))
+            .expect("no operator file is not an error");
+        assert_eq!(prose, sutura_app::prompt::CatalogProse::Quoted);
+        assert!(instructions.is_none());
+
+        let (prose, _) = prompt_inputs(&sutura_config::PromptSettings::new(
+            None,
+            sutura_config::CatalogProse::Omitted,
+        ))
+        .expect("no operator file is not an error");
+        assert_eq!(prose, sutura_app::prompt::CatalogProse::Omitted);
+    }
+
+    #[test]
+    fn a_configured_instructions_file_that_is_not_there_is_an_error_and_not_a_missing_section() {
+        // The divergence from the implementation this prompt is modelled on, asserted. That one
+        // omits its `instructions.md` in silence when the file is absent, which is right for a
+        // CONVENTION. Here a path was written down, so silence would serve a document that claims
+        // to carry the operator's rules and does not.
+        let configured = sutura_config::InstructionsFile::parse("/nowhere/house-rules.md").expect("a path is a path");
+        let error = prompt_inputs(&sutura_config::PromptSettings::new(
+            Some(configured),
+            sutura_config::CatalogProse::Quoted,
+        ))
+        .expect_err("a configured file that cannot be read is an error");
+        assert!(error.contains("/nowhere/house-rules.md"), "{error}");
+        assert!(error.contains("remove the key"), "the error does not say what to do: {error}");
+    }
+
+    #[test]
+    fn the_operator_text_is_read_from_the_configured_path() {
+        // The other half, so the assertion above is not merely "reading a missing file fails". The
+        // scratch directory is named after the process, which is the shape the catalog adapter's own
+        // filesystem tests use: `CARGO_TARGET_TMPDIR` is defined for an integration target and not
+        // for a unit test in `src/`.
+        let dir = std::env::temp_dir().join(format!("sutura-cli-prompt-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+        let path = dir.join("house-rules.md");
+        std::fs::write(&path, "Prefer the month grain.\n").expect("a scratch file is writable");
+        let configured = sutura_config::InstructionsFile::parse(path.to_string_lossy().as_ref()).expect("a path is a path");
+        let (_, instructions) = prompt_inputs(&sutura_config::PromptSettings::new(
+            Some(configured),
+            sutura_config::CatalogProse::Quoted,
+        ))
+        .expect("a readable file is read");
+        assert_eq!(instructions.as_deref(), Some("Prefer the month grain.\n"));
+        drop(std::fs::remove_dir_all(&dir));
     }
 }

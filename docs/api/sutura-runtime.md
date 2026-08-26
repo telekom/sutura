@@ -7,8 +7,8 @@
 
 The public API of `sutura-runtime`, rendered from rustdoc JSON.
 
-Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal
-and the banner.
+Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
+the banner, and the bound on how much executes at once.
 
 # Why this is its own crate
 
@@ -25,7 +25,7 @@ installs anything. A second surface - an MCP transport, say - gets the same trea
 
 ```no_run
 use sutura_config::{Settings, Sources, environment_from_process};
-use sutura_runtime::{banner, shutdown::Shutdown, telemetry};
+use sutura_runtime::{Admission, banner, shutdown::Shutdown, telemetry};
 
 # fn main() -> Result<(), Box<dyn core::error::Error>> {
 // 1. The environment, first: it decides the log format and which file is layered.
@@ -40,9 +40,14 @@ telemetry::install(settings.telemetry())?;
 sutura_runtime::install_panic_hook();
 // 5. What was resolved, including the line about what this service does not do.
 banner::announce(&settings);
-// 6. The shutdown, shared with the server and with the signal listener.
-let shutdown = Shutdown::new();
+// 6. The shutdown, shared with the server and with the signal listener. Built with the
+//    configured grace period, so the number an operator wrote is the number that bounds
+//    stopping.
+let shutdown = Shutdown::with_grace(settings.runtime().shutdown_grace().duration());
 tokio::spawn(sutura_runtime::shutdown::listen(shutdown.clone()));
+// 7. The bound on how many questions execute at once, shared with every transport. One per
+//    process: two independently sized ones would each report a limit the other can exceed.
+let admission = Admission::from_settings(settings.runtime());
 # Ok(())
 # }
 ```
@@ -62,6 +67,156 @@ thing.
 ## `use None`
 
 ## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## Module `admission`
+
+How many questions may be executing at once, and how long a caller waits for a turn.
+
+# Why this is a bound on the work and not a bound on the reply
+
+`server.request_timeout_seconds` is a deadline on the **reply**. When it expires the caller is
+answered `408` and the handler future is dropped - and a started `tokio::task::spawn_blocking`
+task cannot be aborted, so the question keeps running. Without something else in the picture a
+caller asking questions that cost more than the timeout gets a fast turnaround while the
+deployment keeps the whole cost, and in-flight work accumulates at the rate limit with nothing
+shedding it. The blocking pool defaults to 512 threads with an unbounded queue, so that backlog
+is bounded by memory.
+
+`Admission` is the bound. It is the number of questions that may be *executing*, and the slot
+is meant to be held by the blocking task rather than by the handler future - so a timed-out
+request does not hand its slot back until the work it started actually finishes.
+
+# What it does not do, stated first because it is the part that gets assumed
+
+**It does not cancel anything.** The `Warehouse` port is synchronous and has no cancellation
+token, so a question already handed to the blocking pool runs to completion whatever the caller
+is told. A timed-out request therefore still holds its slot until the data system answers it -
+which is exactly why the slot matters: the backlog becomes a number somebody chose instead of
+memory.
+
+**It is not a per-caller budget.** It bounds the deployment, not a principal. One caller filling
+every slot sheds every other caller, and nothing here can tell the two apart - that needs an
+identity, which this service does not have. `sutura_config::RateLimitSettings` is what bounds a
+single address's rate, and it counts requests rather than execution.
+
+**It is not a queue.** Waiting is bounded by the admission timeout and a waiter that runs out of
+it is shed. A refused waiter costs a dropped future rather than a thread, which is what stops
+the queue in front of the bound from being a second unbounded thing.
+
+# Why it lives here rather than in the transport
+
+The resource it bounds is the *process*: a blocking-pool thread holding a data system. A second
+transport - an MCP surface, say - would need the same bound over the same pool, and two
+independently sized semaphores would be two controls each reporting a limit that the other can
+exceed. So the composition root builds one, exactly as it builds one `crate::Shutdown`.
+
+### `struct AtCapacity`
+
+```rust
+pub struct AtCapacity
+```
+
+Nothing was free inside the admission timeout.
+
+Carries both numbers because the answer to it differs by which one is wrong: a bound that is too
+small for the machine is a configuration change, and a wait that expires under normal load is a
+deployment that needs another replica.
+
+#### Methods
+
+```rust
+pub const fn bound(self) -> usize
+```
+
+How many slots there are in total.
+
+```rust
+pub const fn waited(self) -> Duration
+```
+
+How long the caller waited before being shed.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct Admission`
+
+```rust
+pub struct Admission
+```
+
+The bound on how many questions execute at once, and the bound on waiting for a turn.
+
+Cloneable and cheap: every clone shares one permit set, which is the property that makes this a
+bound at all. A per-request or per-connection copy would be a number that reads like a limit and
+bounds nothing.
+
+#### Methods
+
+```rust
+pub async fn admit(&self) -> Result<Slot, AtCapacity>
+```
+
+Waits for a slot, for at most the admission timeout.
+
+The returned `Slot` must be moved into whatever does the work rather than held by the
+awaiting future, or the bound becomes a bound on *starting* work instead of on running it -
+see the module documentation.
+
+```rust
+pub const fn bound(&self) -> usize
+```
+
+How many questions may execute at once.
+
+```rust
+pub fn free(&self) -> usize
+```
+
+How many slots are free right now.
+
+For a log line and for a test. Not for a decision: it is true when it is read and can be
+false by the time it is acted on, which is what `Self::admit` exists to avoid.
+
+```rust
+pub fn from_settings(runtime: RuntimeSettings) -> Self
+```
+
+The same, from the group the two keys live in.
+
+What a composition root calls, so the two values cannot be taken from different places.
+
+```rust
+pub fn new(concurrency: QueryConcurrency, timeout: AdmissionTimeout) -> Self
+```
+
+Builds the bound from two values that have each already been parsed.
+
+```rust
+pub const fn wait(&self) -> Duration
+```
+
+How long a question may wait for a slot.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `type_alias Slot`
+
+The right to execute one question, held for as long as the question runs.
+
+An alias for `tokio`'s owned permit rather than a newtype around it, because the type's whole
+contract is its `Drop`: the slot comes back when the value is dropped, and a wrapper would only
+add a way to get that wrong. Owned rather than borrowed so it can be moved into the blocking
+task, which is the whole point - see the module documentation.
 
 ## Module `banner`
 
@@ -146,7 +301,10 @@ Three things have to be true of a shutdown, and each of them is a separate part 
 * **In-flight work drains.** `axum` waits for every open connection, which is what makes a
   rolling deployment not drop answers - and which is also how one wedged connection pins the
   process open past the kill deadline. So the drain is *bounded*: see
-  `Shutdown::grace_period`.
+  `Shutdown::grace_period`, and `Shutdown::remaining_grace` for what is left of that budget
+  once the drain has had its turn. The two together are what make the number a bound on
+  *stopping* rather than on the connection drain alone: dropping an `axum` serve future ends the
+  drain, and the runtime then still waits for every blocking task it cannot cancel.
 * **The reason is recorded.** A process that vanished and a process that was asked to stop look
   identical in a log that says nothing, and only one of them is a bug.
 
@@ -197,7 +355,7 @@ what makes the log line at the end say something.
 pub const fn grace_period(&self) -> Duration
 ```
 
-How long the drain may take once this has been triggered.
+The whole budget for stopping, from the moment stopping is asked for.
 
 ```rust
 pub fn new() -> Self
@@ -210,6 +368,31 @@ pub fn reason(&self) -> Option<ShutdownReason>
 ```
 
 The reason, if shutdown has been asked for.
+
+```rust
+pub fn remaining_grace(&self) -> Duration
+```
+
+What is left of that budget.
+
+**The connection drain is not the whole of stopping, and this is the difference.** Dropping
+an `axum` serve future ends the drain and returns; the runtime then still waits for every
+blocking task, because `tokio` documents that a started `spawn_blocking` task cannot be
+aborted and that runtime shutdown waits for one. A process that spent its whole grace period
+draining connections and then waited a full grace period again for the blocking pool would
+take twice the number an operator configured - and that number was chosen against their
+orchestrator's kill timer, so twice it is being killed mid-answer.
+
+The full grace period before stopping has been asked for, because there is nothing to count
+from yet: this is a bound on the *rest* of stopping, and stopping has not started.
+
+Saturating, so an overrun is zero rather than a wrapped duration. Zero is a legitimate
+answer and means the budget is spent: whatever waits on it should not wait at all.
+
+Measured on `std::time::Instant` and not on `tokio`'s clock, deliberately. What this number
+is racing is an orchestrator's kill timer, which is wall time, and what consumes it is
+`tokio::runtime::Runtime::shutdown_timeout`, which is also wall time. A test-controllable
+clock here would make the two disagree in exactly the deployment where it matters.
 
 ```rust
 pub async fn requested(&self) -> ShutdownReason
