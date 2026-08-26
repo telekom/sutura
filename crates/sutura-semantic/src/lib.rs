@@ -35,7 +35,7 @@ use crate::resolve::ResolveError;
 use sutura_domain::pinned::PinnedDefinitions;
 pub use sutura_domain::plan::QueryPlan;
 use sutura_domain::plan::QueryPlan as DomainPlan;
-pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PredicateOrigin};
+pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
 ///

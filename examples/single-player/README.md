@@ -45,8 +45,9 @@ questions/*.yaml               the corpus, including the ones that are refused
 A catalog document is YAML frontmatter and a prose body, and the prose is part of the
 format rather than a comment. It travels with the definition and comes back out of
 `sutura describe`, so it is where a definition says what it means and why it is drawn that
-way. Read `catalog/metrics/subscriptions_churned.md` first; it is the one that explains a
-metric this vocabulary cannot express.
+way. Read `catalog/metrics/churn_rate.md` first, and `subscriptions_churned.md` beside it:
+between them they are the record of a metric this vocabulary could not express, and of the
+change that made it sayable.
 
 Three more commands, in the order a reader usually wants them:
 
@@ -63,25 +64,35 @@ the answer was.
 
 ## The measure vocabulary, in one catalog
 
-A measure is one of three shapes, and a metric may carry filters that are part of its
-definition. There is no field anywhere that takes a SQL expression. All four are here:
+The vocabulary has two levels, and the second one is the extensible one. A **term** is what
+one number is computed from - an `aggregate` over a column, or a `count_if` over a boolean
+column. A **shape** says how terms combine: `simple` is one term, `ratio` is one divided by
+another. Either term is usable in either half of either shape. Beside that, a metric may carry
+filters that are part of its definition. There is no field anywhere that takes a SQL
+expression, and every combination below is here:
 
-| Metric | Shape | Why it is written that way |
+| Metric | Measure | Why it is written that way |
 | --- | --- | --- |
-| `voice_minutes` | `simple` | One aggregate over one column. Most metrics look like this |
-| `recurring_revenue` | `simple` + `required_filters` | The active-only predicate is part of the name, and a caller can neither see it nor remove it |
-| `subscriptions_churned` | `count_if` | A count of a boolean column would count the `false` rows too |
-| `revenue_per_customer` | `ratio`, `zero_safe` | A sum over a distinct count of customers. Not the mean of a column, and computing it as one is a different number |
+| `voice_minutes` | `simple` + `aggregate` | One aggregate over one column. Most metrics look like this |
+| `recurring_revenue` | `simple` + `aggregate` + `required_filters` | The active-only predicate is part of the name, and a caller can neither see it nor remove it |
+| `subscriptions_churned` | `simple` + `count_if` | A count of a boolean column would count the `false` rows too |
+| `revenue_per_customer` | `ratio` of two aggregates | A sum over a distinct count of customers. Not the mean of a column, and computing it as one is a different number |
+| `churn_rate` | `ratio` with a `count_if` numerator | A conditional count over a distinct count. This is the one that needed the two levels |
+
+`churn_rate` is worth opening for the second reason as well: the catalog could not express it
+until the vocabulary stopped treating a conditional count as a whole measure, and both files
+say so - one as the metric, the other as the record of what it cost.
 
 The pair worth reading together is `active_subscriptions` and `subscription_base`. They are
 the same aggregate over the same rows in the same month; one carries `status = active` as a
 definitional filter and the other does not. For June 2026 their certified numbers are 58
 and 61, and `subscriptions_churned` reports 3 for the same month. One predicate, three
-numbers that add up, and no caller can reach any of them.
+numbers that add up, and no caller can reach any of them. `churn_rate` is the fourth: 3 over
+61, certified as `0.04918032786885246`.
 
 ## Anchors
 
-Four metrics declare an `anchor`: a range and the number the metric produced over it when
+Five metrics declare an `anchor`: a range and the number the metric produced over it when
 it was certified.
 
 ```yaml
@@ -96,11 +107,18 @@ Each one is re-executed before the catalog can answer anything. Change a number 
 `data/`, or widen a required filter, and the run stops with a mismatch naming the metric
 instead of quietly returning a different figure under the certified name.
 
-The three metrics without anchors are the ones whose result is a float. A division and a
-sum of decimals are not exact in binary, so an anchor written as text would pin how a
-language prints a binary expansion rather than pinning a number. Money is held in minor
+An anchor is compared as rendered TEXT, at the metric's coarsest declared grain, which is
+what makes a float-valued metric awkward to anchor: a sum of decimals is not exact in
+binary and two engines may legitimately differ in the last place, so the comparison would
+pin how a language prints an expansion rather than pinning a number. Money is held in minor
 units throughout for the same reason: `mrr_cents` is an integer, so a total is exact and
 the comparison is too.
+
+The three metrics without anchors are the ones that argument reaches. `churn_rate` is the
+one float that carries one, because both of its halves are counts: exact integers in a
+double however they were summed, so the whole measure is a single rounding of two
+exactly-represented values, and both of them are separately certified beside it. Its own
+file makes that case in full.
 
 ## Refusals
 

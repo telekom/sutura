@@ -242,7 +242,7 @@ mod tests {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, Definitions, Metric, Model};
     use sutura_domain::definitions::DefinitionDigest;
-    use sutura_domain::measure::{AggregatedColumn, Measure};
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
     use sutura_domain::pinned::DefinitionVersion;
     use sutura_domain::plan::QueryPlan;
@@ -277,7 +277,7 @@ mod tests {
         let revenue = Metric::new(
             metric(),
             ModelName::parse("orders").expect("a test model is a model"),
-            Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
             Vec::new(),
             column("order_date"),
             BTreeSet::from([Grain::Month]),

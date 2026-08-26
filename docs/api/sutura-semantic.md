@@ -104,6 +104,8 @@ only way this can fail. A refused question is not a failure and comes back as `C
 
 ## `use None`
 
+## `use None`
+
 ## Module `dialect`
 
 Which data system a statement is rendered for, and the two things we do not delegate.

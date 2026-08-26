@@ -6,7 +6,7 @@ measure:
   ratio:
     numerator: { aggregate: sum, column: amount_cents }
     denominator: { aggregate: count_distinct, column: order_id }
-    zero_safe: true
+    zero_denominator: yields_null
 time_column: order_date
 grains: [day, month]
 ---
@@ -21,7 +21,7 @@ only declared relationship is many-to-one, which cannot fan a row out. That
 agreement is a property of this catalog rather than of the two definitions, and
 only one of them keeps saying "per order" if the shape of the statement changes.
 
-`zero_safe` is written out because a period with no orders has to mean
+`zero_denominator` is written out because a period with no orders has to mean
 something, and both answers are defensible. Here it means null: a day with no
 orders is a day with no average, which is a different statement from a day whose
 average is zero.

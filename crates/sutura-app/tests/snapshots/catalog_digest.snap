@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden.rs
 expression: pinned.digest().as_str()
 ---
-035a1c9d5659ca914055a77cef58b0370b3fd56f5e2396f7f16f6033b88ec107
+f0df84f5f0e19a823dd886bb804deb4f697f16b5fd60ad0cb2c134d87485a850

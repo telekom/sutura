@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 use sutura_catalog_local::{LocalCatalog, digest_of};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
-use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter};
+use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
@@ -175,7 +175,7 @@ fn metrics() -> Vec<Metric> {
     let revenue = Metric::new(
         MetricName::parse("revenue").expect("a name"),
         ModelName::parse("orders").expect("a name"),
-        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
@@ -195,7 +195,7 @@ fn metrics() -> Vec<Metric> {
     let orders_placed = Metric::new(
         MetricName::parse("orders_placed").expect("a name"),
         ModelName::parse("orders").expect("a name"),
-        Measure::Simple(AggregatedColumn::new(Aggregate::Count, column("order_id"))),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Count, column("order_id")))),
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Day, Grain::Month]),
@@ -211,7 +211,7 @@ fn metrics() -> Vec<Metric> {
     let average_order = Metric::new(
         MetricName::parse("average_order").expect("a name"),
         ModelName::parse("orders").expect("a name"),
-        Measure::Simple(AggregatedColumn::new(Aggregate::Avg, column("amount_cents"))),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Avg, column("amount_cents")))),
         Vec::new(),
         column("order_date"),
         BTreeSet::from([Grain::Month]),
@@ -227,9 +227,9 @@ fn metrics() -> Vec<Metric> {
         MetricName::parse("average_order_value").expect("a name"),
         ModelName::parse("orders").expect("a name"),
         Measure::Ratio {
-            numerator: AggregatedColumn::new(Aggregate::Sum, column("amount_cents")),
-            denominator: AggregatedColumn::new(Aggregate::CountDistinct, column("order_id")),
-            zero_safe: true,
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("order_id"))),
+            zero_denominator: ZeroDenominator::Null,
         },
         Vec::new(),
         column("order_date"),
@@ -241,7 +241,7 @@ fn metrics() -> Vec<Metric> {
     let web_revenue = Metric::new(
         MetricName::parse("web_revenue").expect("a name"),
         ModelName::parse("orders").expect("a name"),
-        Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
         vec![RequiredFilter::Equals {
             column: column("channel"),
             value: String::from("web"),
@@ -449,7 +449,7 @@ impl SemanticCatalog for TwoSourceCatalog {
         let revenue = Metric::new(
             MetricName::parse("revenue").expect("a name"),
             ModelName::parse("orders").expect("a name"),
-            Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
             Vec::new(),
             column("order_date"),
             BTreeSet::from([Grain::Month]),

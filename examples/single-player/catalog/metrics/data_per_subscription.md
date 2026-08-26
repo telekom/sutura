@@ -6,7 +6,7 @@ measure:
   ratio:
     numerator: { aggregate: sum, column: data_gb }
     denominator: { aggregate: count_distinct, column: subscription_key }
-    zero_safe: true
+    zero_denominator: yields_null
 time_column: usage_date
 grains: [day, month]
 ---
@@ -22,8 +22,8 @@ this is volume per subscription that used the network, not volume per subscriber
 second number needs the monthly snapshot, and `daily_usage` says why this catalog cannot
 yet join to it.
 
-`zero_safe` because a range holding no usage rows at all is a range with no figure, not a
-range whose figure is zero.
+`zero_denominator: yields_null` because a range holding no usage rows at all is a range
+with no figure, not a range whose figure is zero.
 
 No anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as
 text pins how a language prints a binary expansion.

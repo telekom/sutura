@@ -34,8 +34,9 @@
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr};
 use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder};
+use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType};
-use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, QueryPlan};
+use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 use sutura_domain::warehouse::GeneratedQuery;
 
 use crate::dialect::{Dialect, PlaceholderStyle};
@@ -148,6 +149,28 @@ fn aggregate(kind: Aggregate, over: Expr) -> Expr {
     }
 }
 
+/// One term, as one expression.
+///
+/// A conditional count is `SUM(CASE WHEN col THEN 1 ELSE 0 END)` rather than the dialect layer's own
+/// `CountIf` node. That node does lower correctly for all three of our targets, unlike `SafeDivide`
+/// below, so this is the weaker of the two decisions - but it keeps every term rendered by one
+/// mechanism we can read, and it counts 0 rather than null for a false row, so a period with no
+/// matches answers 0 instead of nothing.
+fn term_expression(term: &PlanTerm) -> Expr {
+    match *term {
+        PlanTerm::Aggregate {
+            aggregate: kind,
+            column: ref col,
+        } => aggregate(kind, column(col)),
+        PlanTerm::CountIf { column: ref col } => builder::sum(
+            builder::case()
+                .when(column(col), builder::lit(1))
+                .else_(builder::lit(0))
+                .build(),
+        ),
+    }
+}
+
 /// The measure, as one expression.
 ///
 /// A ratio is rendered as a division with a `NULLIF` on the denominator, rather than through the
@@ -171,34 +194,17 @@ fn aggregate(kind: Aggregate, over: Expr) -> Expr {
 /// for every ratio anybody actually wants.
 fn measure_expression(measure: &PlanMeasure) -> Expr {
     match *measure {
-        PlanMeasure::Simple {
-            aggregate: kind,
-            column: ref col,
-        } => aggregate(kind, column(col)),
-        // `SUM(CASE WHEN col THEN 1 ELSE 0 END)` rather than the dialect layer's `CountIf` node.
-        // That node does lower correctly for all three of our targets, unlike `SafeDivide` above, so
-        // this is the weaker of the two decisions - but it keeps both measure shapes rendered by one
-        // mechanism we can read, and it counts 0 rather than null for a false row, so a period with
-        // no matches answers 0 instead of nothing.
-        PlanMeasure::CountIf { column: ref col } => builder::sum(
-            builder::case()
-                .when(column(col), builder::lit(1))
-                .else_(builder::lit(0))
-                .build(),
-        ),
+        PlanMeasure::Simple { ref term } => term_expression(term),
         PlanMeasure::Ratio {
-            numerator_aggregate,
             ref numerator,
-            denominator_aggregate,
             ref denominator,
-            zero_safe,
+            zero_denominator,
         } => {
-            let top = aggregate(numerator_aggregate, column(numerator)).cast("DOUBLE");
-            let bottom = aggregate(denominator_aggregate, column(denominator));
-            let bottom = if zero_safe {
-                builder::null_if(bottom, builder::lit(0))
-            } else {
-                bottom
+            let top = term_expression(numerator).cast("DOUBLE");
+            let bottom = term_expression(denominator);
+            let bottom = match zero_denominator {
+                ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),
+                ZeroDenominator::Fail => bottom,
             };
             top.div(bottom)
         }

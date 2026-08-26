@@ -15,15 +15,19 @@ bucket:
 keys: []
 measure:
   ratio:
-    numerator_aggregate: sum
     numerator:
-      table: orders
-      column: amount_cents
-    denominator_aggregate: count_distinct
+      aggregate:
+        aggregate: sum
+        column:
+          table: orders
+          column: amount_cents
     denominator:
-      table: orders
-      column: order_id
-    zero_safe: true
+      aggregate:
+        aggregate: count_distinct
+        column:
+          table: orders
+          column: order_id
+    zero_denominator: yields_null
 measure_label: average_order_value
 filters:
   - origin: definition

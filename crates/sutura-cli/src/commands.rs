@@ -315,7 +315,7 @@ mod tests {
 
     use sutura_domain::catalog::{Definitions, Metric, Model};
     use sutura_domain::definitions::DefinitionDigest;
-    use sutura_domain::measure::{AggregatedColumn, Measure};
+    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
@@ -344,7 +344,10 @@ mod tests {
         let metric = Metric::new(
             MetricName::parse("customers_signed").expect("a test metric is a metric"),
             ModelName::parse("customers").expect("a test model is a model"),
-            Measure::Simple(AggregatedColumn::new(Aggregate::Count, column("customer_key"))),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+                Aggregate::Count,
+                column("customer_key"),
+            ))),
             Vec::new(),
             column("signed_at"),
             BTreeSet::from([Grain::Month]),

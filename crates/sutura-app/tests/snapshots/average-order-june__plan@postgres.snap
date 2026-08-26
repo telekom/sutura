@@ -15,10 +15,12 @@ bucket:
 keys: []
 measure:
   simple:
-    aggregate: avg
-    column:
-      table: orders
-      column: amount_cents
+    term:
+      aggregate:
+        aggregate: avg
+        column:
+          table: orders
+          column: amount_cents
 measure_label: average_order
 filters:
   - origin: definition

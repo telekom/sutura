@@ -3,7 +3,7 @@ kind: metric
 name: subscriptions_churned
 model: subscriptions
 measure:
-  count_if: { column: churned_in_month }
+  simple: { count_if: churned_in_month }
 time_column: month
 grains: [month]
 dimensions:
@@ -39,9 +39,15 @@ the kind of thing that should not be in a catalog document.
 No status filter, because churn is an event inside the month rather than a state at the
 end of it. Narrowing on the surviving state would remove the rows being counted.
 
-There is no churn RATE here, and its absence is a limit of the vocabulary rather than a
-decision about the business. A rate is a conditional count divided by a distinct count,
-and each half of a ratio is one aggregate over one column: `count_if` is a shape a
-measure can have, not a term a ratio can hold. So both halves ship as metrics, this one
-and `subscription_base`, and the division belongs to whoever asked for it. Two certified
-numbers and one visible division beats one number nobody can reproduce.
+This is the numerator of a rate and not the rate itself, which is a decision about the
+business rather than a limit of the vocabulary. A count of terminations is the figure
+somebody reconciles against a churn report; the share is `churn_rate`, declared beside it
+over the same numerator and `subscription_base`'s denominator. Both are certified, and the
+one that answers "how many" is not the one that answers "what fraction".
+
+It used to be a limit of the vocabulary, and the note that said so is worth keeping as a
+record of what changed. `count_if` was a measure *shape*, a sibling of `ratio` rather than
+a term inside one, so a rate over a conditional count had every ingredient present and
+nowhere to write it. The fix was to make the extensible axis the term instead of the shape:
+`simple` and `ratio` are the two shapes, `aggregate` and `count_if` are the two terms, and
+either term is usable in either half of either shape.

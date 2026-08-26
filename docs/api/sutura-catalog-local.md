@@ -132,8 +132,8 @@ about it for a reason that says nothing about a typo.
 
 `sutura_domain::measure` is the one exception, and the `measure` field of `MetricDoc` argues
 for it where a reader will be standing when they wonder. In short: those types already carry
-exactly this format's representation, and mirroring seven variants here would buy nothing but a
-place to forget the eighth.
+exactly this format's representation, and mirroring its variants here would buy nothing but a
+place to forget the next one.
 
 ### `enum DocumentKind`
 

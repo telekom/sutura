@@ -15,8 +15,8 @@
 //! decided shows up as a reviewable diff rather than as a different number.
 
 use crate::calendar::TimeRange;
-use crate::measure::{Measure, RequiredFilter};
-use crate::model::{ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
+use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use crate::warehouse::ParamValue;
 
 /// The most rows any plan may return.
@@ -162,26 +162,41 @@ impl PlanKey {
     }
 }
 
+/// One term of a measure, with its column resolved to a table.
+///
+/// [`Term`] restated over [`PlanColumn`] rather than [`ColumnName`]. Mirrored at the same level the
+/// domain names it, so an adapter that renders one half of a ratio and one that renders a whole
+/// measure reach for the same function instead of each flattening two levels its own way.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanTerm {
+    Aggregate { aggregate: Aggregate, column: PlanColumn },
+    CountIf { column: PlanColumn },
+}
+
+impl PlanTerm {
+    #[inline]
+    pub const fn column(&self) -> &PlanColumn {
+        match *self {
+            Self::Aggregate { ref column, .. } | Self::CountIf { ref column } => column,
+        }
+    }
+}
+
 /// What is measured, under what label, with every column resolved to a table.
 ///
-/// The shape is [`Measure`]'s, restated over [`PlanColumn`] rather than [`ColumnName`]: the plan
-/// knows which table each column comes from and the catalog does not have to.
+/// The shape is [`Measure`]'s, restated over [`PlanTerm`]: the plan knows which table each column
+/// comes from and the catalog does not have to.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PlanMeasure {
     Simple {
-        aggregate: crate::model::Aggregate,
-        column: PlanColumn,
-    },
-    CountIf {
-        column: PlanColumn,
+        term: PlanTerm,
     },
     Ratio {
-        numerator_aggregate: crate::model::Aggregate,
-        numerator: PlanColumn,
-        denominator_aggregate: crate::model::Aggregate,
-        denominator: PlanColumn,
-        zero_safe: bool,
+        numerator: PlanTerm,
+        denominator: PlanTerm,
+        zero_denominator: ZeroDenominator,
     },
 }
 
@@ -424,23 +439,29 @@ impl QueryPlan {
 
 /// Restated over plan columns, so an adapter does not need the catalog to know which table a
 /// measure's column comes from.
+///
+/// Resolves one term at a time rather than one shape at a time, which is why a term added to the
+/// vocabulary is one arm here instead of one arm per shape.
 pub fn plan_measure(measure: &Measure, resolve: impl Fn(&ColumnName) -> PlanColumn) -> PlanMeasure {
+    let resolve_term = |term: &Term| match *term {
+        Term::Aggregate(ref inner) => PlanTerm::Aggregate {
+            aggregate: inner.aggregate(),
+            column: resolve(inner.column()),
+        },
+        Term::CountIf { ref column } => PlanTerm::CountIf { column: resolve(column) },
+    };
     match *measure {
         Measure::Simple(ref term) => PlanMeasure::Simple {
-            aggregate: term.aggregate(),
-            column: resolve(term.column()),
+            term: resolve_term(term),
         },
-        Measure::CountIf { ref column } => PlanMeasure::CountIf { column: resolve(column) },
         Measure::Ratio {
             ref numerator,
             ref denominator,
-            zero_safe,
+            zero_denominator,
         } => PlanMeasure::Ratio {
-            numerator_aggregate: numerator.aggregate(),
-            numerator: resolve(numerator.column()),
-            denominator_aggregate: denominator.aggregate(),
-            denominator: resolve(denominator.column()),
-            zero_safe,
+            numerator: resolve_term(numerator),
+            denominator: resolve_term(denominator),
+            zero_denominator,
         },
     }
 }

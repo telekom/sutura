@@ -15,10 +15,12 @@ bucket:
 keys: []
 measure:
   simple:
-    aggregate: sum
-    column:
-      table: orders
-      column: amount_cents
+    term:
+      aggregate:
+        aggregate: sum
+        column:
+          table: orders
+          column: amount_cents
 measure_label: web_revenue
 filters:
   - origin: definition

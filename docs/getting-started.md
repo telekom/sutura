@@ -183,23 +183,35 @@ anchor:
 Total booked order value, in minor units.
 ```
 
-`measure` names its shape, and there are three. `simple` is one aggregate over one column, above.
-The other two exist because most certified metrics are not that:
+`measure` has two levels. A **term** is what one number is computed from, and there are two of
+them: `aggregate` with a `column`, as above, or `count_if` over a boolean column. A **shape** says
+how terms combine, and there are two of those: `simple` is one term, `ratio` is one divided by
+another. Either term goes in either position:
 
 ```yaml
-# A ratio: one aggregate divided by another, over possibly different columns.
+# How many rows have a boolean column true. Its own term because COUNT(col) counts
+# the false ones too, which is a wrong number that raises no error.
+measure:
+  simple: { count_if: churned_in_month }
+```
+
+```yaml
+# A ratio: one term divided by another, over possibly different columns.
 measure:
   ratio:
     numerator:   { aggregate: sum,            column: amount_cents }
     denominator: { aggregate: count_distinct, column: order_id }
-    zero_safe: true
+    zero_denominator: yields_null
 ```
 
 ```yaml
-# How many rows have a boolean column true. Its own shape because COUNT(col) counts
-# the false ones too, which is a wrong number that raises no error.
+# A conditional count as the numerator of a rate - the combination the vocabulary
+# exists at two levels for. `examples/single-player` ships it as `churn_rate`.
 measure:
-  count_if: { column: churned_in_month }
+  ratio:
+    numerator:   { count_if: churned_in_month }
+    denominator: { aggregate: count_distinct, column: subscription_key }
+    zero_denominator: yields_null
 ```
 
 A metric may also carry `required_filters`, which are part of what it *means* rather than something
@@ -212,13 +224,14 @@ required_filters:
 
 Four things about all that are worth knowing before you write one:
 
-- **A measure is a shape from a closed vocabulary, not an expression.** There is no field for
-  `sum(price * quantity)`, and [the closed vocabulary for
+- **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
+  for `sum(price * quantity)`, and [the closed vocabulary for
   measures](adr/0002-a-closed-vocabulary-for-measures.md) argues why: a string field is an escape
   hatch, and an escape hatch on the query path is the thing being defended against. What the
-  vocabulary cannot say belongs in a statement rendered upstream. `zero_safe` is required rather than
-  defaulted, because "a rate over an empty period is null" and "is an error" are both defensible and
-  a definition should say which.
+  vocabulary cannot say belongs in a statement rendered upstream. `zero_denominator` is required
+  rather than defaulted, because "a rate over an empty period is null" and "is an error" are both
+  defensible and a definition should say which - which is also why it is a word (`yields_null` or
+  `fails`) rather than a boolean that records only that somebody thought about it.
 - **A `required_filter` is definitional, and a caller can neither see it nor turn it off.**
   `web_revenue` *means* the web number; a statement that left the predicate out would return total
   revenue under a certified name. That is a wrong answer arrived at by omission rather than by

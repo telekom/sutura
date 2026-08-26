@@ -12,8 +12,8 @@
 //!
 //! [`sutura_domain::measure`] is the one exception, and the `measure` field of [`MetricDoc`] argues
 //! for it where a reader will be standing when they wonder. In short: those types already carry
-//! exactly this format's representation, and mirroring seven variants here would buy nothing but a
-//! place to forget the eighth.
+//! exactly this format's representation, and mirroring its variants here would buy nothing but a
+//! place to forget the next one.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -192,13 +192,14 @@ pub struct MetricDoc {
     /// The one departure from this module's rule that the file format is its own thing, and it is
     /// chosen rather than inherited. [`sutura_domain::measure`] already derives `Deserialize` with
     /// exactly the representation this format wants, and each part of that is load-bearing here:
-    /// externally tagged, so a shape is a word an author writes rather than something inferred from
-    /// which fields are present; `deny_unknown_fields` on every variant, so a misspelled key nested
-    /// inside `simple:` is still an error naming the typo; and `zero_safe` with no default, so its
-    /// absence is a missing-field error naming `zero_safe` instead of a silent pick between two
-    /// defensible behaviours. A mirror would be three shapes and four operators of restatement, and
-    /// its failure mode is the expensive one: a shape added to the domain and forgotten here is a
-    /// shape no document can express, with nothing anywhere failing to say so.
+    /// the shape is externally tagged, so `simple:` or `ratio:` is a word an author writes rather
+    /// than something inferred from which fields are present; `deny_unknown_fields` holds at every
+    /// depth, on the variant and on the struct behind a term, so a misspelled key nested inside
+    /// `simple:` is still an error naming the typo; and `zero_denominator` has no default, so its
+    /// absence is a missing-field error naming the field instead of a silent pick between two
+    /// defensible behaviours. A mirror would be two shapes, two terms and four operators of
+    /// restatement, and its failure mode is the expensive one: a shape or a term added to the domain
+    /// and forgotten here is one no document can express, with nothing anywhere failing to say so.
     ///
     /// The rule still holds for everything else. `Model`, `Relationship`, `Metric` and `Dimension`
     /// derive only `Serialize`, and that asymmetry is the domain saying which of its types it also
@@ -212,6 +213,12 @@ pub struct MetricDoc {
     /// nothing about the document they wrote. `singleton_map` reads the one-key mapping form that
     /// the rest of the format already looks like, and leaves every field inside it, including
     /// `deny_unknown_fields`, to the ordinary derive.
+    ///
+    /// Non-recursive, and that is now a statement about the shapes rather than an accident. The two
+    /// enums nested inside a measure need no adapter: a term is a flat mapping read through a
+    /// `try_from` struct, and `zero_denominator` is a unit variant, which `serde_norway` already
+    /// spells as a plain scalar. `singleton_map_recursive` would reach into both and is not needed
+    /// by either.
     #[serde(with = "serde_norway::with::singleton_map")]
     measure: Measure,
     /// Predicates that are part of the definition, applied to every question about the metric.
@@ -274,7 +281,7 @@ impl MetricDoc {
 #[cfg(test)]
 mod tests {
     use super::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
-    use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter};
+    use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
     fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
@@ -283,6 +290,10 @@ mod tests {
 
     fn column(raw: &str) -> ColumnName {
         ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn aggregated(aggregate: Aggregate, raw: &str) -> Term {
+        Term::Aggregate(AggregatedColumn::new(aggregate, column(raw)))
     }
 
     const MINIMAL_METRIC: &str = "
@@ -311,10 +322,7 @@ grains: [month]
             .into_domain(String::from("Net revenue."))
             .expect("no dimensions cannot be duplicated");
         assert_eq!(metric.name(), &MetricName::parse("revenue").expect("a name"));
-        assert_eq!(
-            metric.measure(),
-            &Measure::Simple(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))
-        );
+        assert_eq!(metric.measure(), &Measure::Simple(aggregated(Aggregate::Sum, "amount_cents")));
         assert!(metric.supports_grain(Grain::Month));
         assert!(!metric.supports_grain(Grain::Day));
         assert_eq!(metric.description(), "Net revenue.");
@@ -367,26 +375,26 @@ colums: [amount_cents]
     }
 
     #[test]
-    fn a_count_if_measure_has_a_word_of_its_own_in_the_format() {
+    fn a_count_if_term_has_a_word_of_its_own_in_the_format() {
         // The number this prevents: "how many rows are true" written as a count of a boolean column.
         // `COUNT(col)` counts non-null rows, so it counts the `false` ones too, and the wrong answer
         // arrives with no error anywhere on the way. A format with no word for the thing that was
         // meant is a format that pushes the author towards the spelling that silently lies.
-        let yaml = metric_measuring("  count_if: { column: churned_in_month }\n");
+        let yaml = metric_measuring("  simple: { count_if: churned_in_month }\n");
         let metric = metric_doc(&yaml)
-            .expect("count_if is a measure shape")
+            .expect("count_if is a term")
             .into_domain(String::new())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
-            &Measure::CountIf {
+            &Measure::Simple(Term::CountIf {
                 column: column("churned_in_month"),
-            }
+            })
         );
     }
 
     #[test]
-    fn a_ratio_measure_keeps_its_two_aggregates_apart() {
+    fn a_ratio_measure_keeps_its_two_terms_apart() {
         // The number this prevents: a ratio collapsed into `avg`. `sum(mrr) / count(distinct
         // customer)` is not the mean of a column, and a document that could only say `avg` would
         // send whoever wanted the real figure to a hand-written statement outside this catalog.
@@ -394,7 +402,7 @@ colums: [amount_cents]
             "  ratio:\n",
             "    numerator: { aggregate: sum, column: mrr_eur }\n",
             "    denominator: { aggregate: count_distinct, column: customer_key }\n",
-            "    zero_safe: true\n",
+            "    zero_denominator: yields_null\n",
         ));
         let metric = metric_doc(&yaml)
             .expect("a ratio is a measure shape")
@@ -403,9 +411,37 @@ colums: [amount_cents]
         assert_eq!(
             metric.measure(),
             &Measure::Ratio {
-                numerator: AggregatedColumn::new(Aggregate::Sum, column("mrr_eur")),
-                denominator: AggregatedColumn::new(Aggregate::CountDistinct, column("customer_key")),
-                zero_safe: true,
+                numerator: aggregated(Aggregate::Sum, "mrr_eur"),
+                denominator: aggregated(Aggregate::CountDistinct, "customer_key"),
+                zero_denominator: ZeroDenominator::Null,
+            }
+        );
+    }
+
+    #[test]
+    fn a_conditional_count_can_be_written_as_a_ratio_numerator() {
+        // The document that could not be written before, and the reason the vocabulary was
+        // refactored: a churn rate is a conditional count over a distinct count. While `count_if`
+        // was a sibling of `ratio` rather than a term inside one, this file had to be split into two
+        // certified metrics and a division somebody did by hand.
+        let yaml = metric_measuring(concat!(
+            "  ratio:\n",
+            "    numerator: { count_if: churned_in_month }\n",
+            "    denominator: { aggregate: count_distinct, column: subscription_key }\n",
+            "    zero_denominator: yields_null\n",
+        ));
+        let metric = metric_doc(&yaml)
+            .expect("a conditional count is a term like any other")
+            .into_domain(String::new())
+            .expect("no dimensions to duplicate");
+        assert_eq!(
+            metric.measure(),
+            &Measure::Ratio {
+                numerator: Term::CountIf {
+                    column: column("churned_in_month"),
+                },
+                denominator: aggregated(Aggregate::CountDistinct, "subscription_key"),
+                zero_denominator: ZeroDenominator::Null,
             }
         );
     }
@@ -415,14 +451,47 @@ colums: [amount_cents]
         // What external tagging buys, and the reason the measure is not inferred from which fields
         // are present: an unrecognised shape fails naming the word that was written. Inferred from
         // fields, the same document would fail with "data did not match any variant", which names
-        // nothing and sends the reader to guess which of three shapes was nearly right.
+        // nothing and sends the reader to guess which of two shapes was nearly right.
         let yaml = metric_measuring("  median: { column: amount_cents }\n");
         let err = metric_doc(&yaml).expect_err("median is not a measure shape");
         assert!(err.to_string().contains("median"), "{err}");
     }
 
     #[test]
-    fn a_ratio_without_zero_safe_is_an_error_and_not_a_default() {
+    fn an_unknown_term_is_refused_by_name_too() {
+        // A term is flat rather than externally tagged, so `deny_unknown_fields` on the struct
+        // behind it is what keeps the same property one level down: an unrecognised term names the
+        // word that was written and lists the words that exist, instead of "data did not match any
+        // variant" - which is exactly what `#[serde(untagged)]` on the term would have produced.
+        let yaml = metric_measuring("  simple: { median: amount_cents }\n");
+        let err = metric_doc(&yaml).expect_err("median is not a term");
+        let message = err.to_string();
+        assert!(message.contains("median"), "{message}");
+        assert!(message.contains("count_if"), "{message}");
+    }
+
+    #[test]
+    fn half_a_term_is_refused_by_what_is_missing() {
+        // The one cost of the flat form, and it is paid in a sentence rather than in a guess. An
+        // aggregate with no column and a column with no aggregate are both documents somebody meant
+        // something by, so each is named for what it is short of.
+        let no_column = metric_measuring("  simple: { aggregate: sum }\n");
+        let err = metric_doc(&no_column).expect_err("an aggregate with no column is not a term");
+        assert!(err.to_string().contains("no `column`"), "{err}");
+
+        let no_aggregate = metric_measuring("  simple: { column: amount_cents }\n");
+        let err = metric_doc(&no_aggregate).expect_err("a column with no aggregate is not a term");
+        assert!(err.to_string().contains("no `aggregate`"), "{err}");
+
+        // Both at once is refused rather than resolved by precedence: the document means one of
+        // them, and picking one would certify a number nobody asked for.
+        let both = metric_measuring("  simple: { aggregate: sum, column: amount_cents, count_if: paid }\n");
+        let err = metric_doc(&both).expect_err("two terms in one mapping is not a term");
+        assert!(err.to_string().contains("a term is one thing"), "{err}");
+    }
+
+    #[test]
+    fn a_ratio_without_zero_denominator_is_an_error_and_not_a_default() {
         // Both behaviours are defensible: a rate over a period with no rows is arguably null and
         // arguably a failure. So a default here would pick one on the author's behalf and the
         // document would not record which. The failure that hides behind it is a metric that reads
@@ -432,18 +501,56 @@ colums: [amount_cents]
             "    numerator: { aggregate: sum, column: mrr_eur }\n",
             "    denominator: { aggregate: count_distinct, column: customer_key }\n",
         ));
-        let err = metric_doc(&yaml).expect_err("zero_safe has no default to fall back on");
-        assert!(err.to_string().contains("zero_safe"), "{err}");
+        let err = metric_doc(&yaml).expect_err("zero_denominator has no default to fall back on");
+        assert!(err.to_string().contains("zero_denominator"), "{err}");
     }
 
     #[test]
-    fn a_misspelled_key_inside_a_measure_shape_is_refused_too() {
+    fn the_null_case_is_spelled_yields_null_because_yaml_owns_the_word_null() {
+        // Why the two words are not `null` and `fail`. In YAML a bare `null` is the null literal, so
+        // the most natural spelling in the whole vocabulary would hand the deserializer a unit value
+        // and fail with a type error about a line that looks right. Named after what a zero
+        // denominator does instead, so the field and its value read as one sentence and neither of
+        // them can collide with a scalar YAML resolves itself.
+        let ratio = |zero_denominator: &str| {
+            metric_measuring(&format!(
+                concat!(
+                    "  ratio:\n",
+                    "    numerator: {{ aggregate: sum, column: mrr_eur }}\n",
+                    "    denominator: {{ aggregate: count_distinct, column: customer_key }}\n",
+                    "    zero_denominator: {}\n",
+                ),
+                zero_denominator
+            ))
+        };
+        for (word, expected) in [("yields_null", ZeroDenominator::Null), ("fails", ZeroDenominator::Fail)] {
+            let metric = metric_doc(&ratio(word))
+                .expect("both words are words")
+                .into_domain(String::new())
+                .expect("no dimensions to duplicate");
+            assert_eq!(
+                metric.measure(),
+                &Measure::Ratio {
+                    numerator: aggregated(Aggregate::Sum, "mrr_eur"),
+                    denominator: aggregated(Aggregate::CountDistinct, "customer_key"),
+                    zero_denominator: expected,
+                }
+            );
+        }
+        // And the spelling that would have been the trap: refused, rather than read as the variant
+        // whose Rust name it happens to match.
+        let err = metric_doc(&ratio("null")).expect_err("a YAML null is not a zero-denominator behaviour");
+        assert!(err.to_string().contains("zero_denominator"), "{err}");
+    }
+
+    #[test]
+    fn a_misspelled_key_inside_a_term_is_refused_too() {
         // `deny_unknown_fields` has to hold at every depth, not only on the outer document. Without
-        // it on the nested shape, `agregate:` is dropped and the error becomes "missing field
-        // `aggregate`" printed next to a line that plainly has one, which sends the reader looking
-        // for a field they can see rather than at the typo in it.
+        // it on the term, `agregate:` is dropped and the error becomes one about a term that says
+        // nothing, printed next to a line that plainly names an aggregate - which sends the reader
+        // looking for a field they can see rather than at the typo in it.
         let yaml = metric_measuring("  simple: { agregate: sum, column: amount_cents }\n");
-        let err = metric_doc(&yaml).expect_err("a misspelled key nested in a shape is not a field");
+        let err = metric_doc(&yaml).expect_err("a misspelled key nested in a term is not a field");
         assert!(err.to_string().contains("agregate"), "{err}");
     }
 

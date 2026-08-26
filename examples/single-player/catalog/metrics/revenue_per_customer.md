@@ -6,7 +6,7 @@ measure:
   ratio:
     numerator: { aggregate: sum, column: mrr_cents }
     denominator: { aggregate: count_distinct, column: customer_key }
-    zero_safe: true
+    zero_denominator: yields_null
 required_filters:
   - equals: { column: status, value: active }
 time_column: month
@@ -27,7 +27,7 @@ subscriptions is one customer and three rows, so the two answers differ by howev
 the base fans out, and only one of them is the number people mean by revenue per
 customer.
 
-`zero_safe` is written out because a month with no active subscriptions has to mean
+`zero_denominator` is written out because a month with no active subscriptions has to mean
 something and both answers are defensible. Here it means null: a month with no customers
 is a month with no revenue per customer, which is a different statement from a month
 whose figure is zero.

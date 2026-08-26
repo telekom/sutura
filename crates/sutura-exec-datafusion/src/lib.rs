@@ -34,15 +34,13 @@ use datafusion::arrow::array::{
     StringViewArray, UInt8Array, UInt16Array, UInt32Array, UInt64Array,
 };
 use datafusion::arrow::datatypes::DataType;
-use datafusion::common::{Column, DFSchema, JoinType as EngineJoin, ScalarValue, TableReference};
-use datafusion::functions::expr_fn::{date_trunc, nullif};
-use datafusion::functions_aggregate::expr_fn::{avg, count, count_distinct, max, min, sum};
-use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder, cast, lit, when};
+use datafusion::common::{Column, DFSchema, JoinType as EngineJoin};
+use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionContext};
 use sutura_domain::calendar::Date;
-use sutura_domain::model::{Aggregate, Grain, JoinType, SourceName, TableName};
-use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, QueryPlan};
-use sutura_domain::warehouse::{MalformedRowSet, ParamValue, RowSet, Value, Warehouse};
+use sutura_domain::model::{JoinType, SourceName, TableName};
+use sutura_domain::plan::QueryPlan;
+use sutura_domain::warehouse::{MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -135,154 +133,12 @@ pub enum DataFusionError {
     NoPredicate,
 }
 
-/// The one way a column is referenced in this adapter.
-///
-/// **`col("orders.order_date")` lowercases the identifier** - `Column::from_qualified_name`
-/// normalises every part of a dotted name - and the domain deliberately preserves case, for the
-/// reasons `parse_identifier` in `sutura_domain::model` gives. So a `col(..)` anywhere in this crate
-/// is a bug, and this is the case-preserving form it is a bug instead of.
-fn column(plan_column: &PlanColumn) -> Expr {
-    Expr::Column(Column::new(
-        Some(table_reference(plan_column.table())),
-        plan_column.column().as_str(),
-    ))
-}
+/// A plan becomes expressions in [`crate::translate`], which is the half of this adapter that never
+/// reads a result. What is left in this file is the other half: the session, the schema work, and
+/// turning Arrow arrays back into domain rows.
+mod translate;
 
-/// A table name, as the engine's reference type, without normalisation.
-///
-/// `TableReference::bare` and not `TableReference::from(&str)`: the `From` impl parses the string
-/// and lowercases anything unquoted, which is the same case-folding trap as `col`. Registration and
-/// reference both go through here, so the two cannot disagree about the name of a table.
-fn table_reference(table: &TableName) -> TableReference {
-    TableReference::bare(table.as_str())
-}
-
-/// A parameter, as a typed literal.
-///
-/// **This is not inlining in the injection sense, and it is worth being precise about why.** The SQL
-/// path binds a placeholder because there a value would otherwise become text inside a statement,
-/// where a quote is syntax. Here there is no parser and no statement: a `ScalarValue::Utf8` is a
-/// value in a plan node, and the only thing the engine can do with it is compare it. It cannot
-/// become syntax, because there is no syntax to become. That makes this the strongest form of
-/// parameterisation available rather than a weakening of one - the engine is never handed a string
-/// it has to interpret.
-fn literal(param: &ParamValue) -> Expr {
-    match *param {
-        ParamValue::Text(ref v) => lit(v.as_str()),
-        ParamValue::Integer(v) => lit(v),
-        // Days since the epoch, which is what a `Date32` column actually holds, so the comparison is
-        // exact rather than a cast of text the engine parsed.
-        ParamValue::Date(d) => lit(ScalarValue::Date32(Some(d.days_since_epoch()))),
-    }
-}
-
-/// The grain, as the argument the truncation function takes.
-const fn unit(grain: Grain) -> &'static str {
-    match grain {
-        Grain::Day => "day",
-        Grain::Week => "week",
-        Grain::Month => "month",
-        Grain::Quarter => "quarter",
-        Grain::Year => "year",
-    }
-}
-
-/// The truncated time column, cast back to a date.
-///
-/// **`date_trunc` over a `Date32` returns `Timestamp(Nanosecond, None)`, not a date.** Without the
-/// cast the `period` column would come back as a timestamp here and as a date from the SQL path,
-/// which renders differently and would make a differential comparison fail for a formatting reason.
-/// `generate.rs` casts for the same reason, which is what keeps the two agreeing.
-fn bucket_expression(grain: Grain, plan_column: &PlanColumn) -> Expr {
-    cast(date_trunc(lit(unit(grain)), column(plan_column)), DataType::Date32)
-}
-
-/// One aggregate over one column.
-fn aggregate_expr(kind: Aggregate, over: Expr) -> Expr {
-    match kind {
-        Aggregate::Sum => sum(over),
-        Aggregate::Count => count(over),
-        Aggregate::CountDistinct => count_distinct(over),
-        Aggregate::Avg => avg(over),
-        Aggregate::Min => min(over),
-        Aggregate::Max => max(over),
-    }
-}
-
-/// The measure, as one expression, with the same arithmetic the SQL path emits.
-///
-/// **Integer division truncates and errors on a zero denominator.** In this engine `lit(7i64) /
-/// lit(2i64)` is `3`, and dividing by `lit(0i64)` is a hard "Divide by zero" rather than a null. So
-/// a ratio casts its numerator to `Float64` first, which is what `generate.rs` emits as
-/// `CAST(.. AS DOUBLE)`, and a zero-safe one wraps the denominator in a null-if against `0.0`, which
-/// is the `NULLIF(.., 0)` the SQL path emits. Both halves are load-bearing: without the cast a
-/// revenue-per-order ratio silently returns a whole number, and without the null-if a period with no
-/// orders fails the whole query instead of answering null for that one row.
-fn measure_expression(measure: &PlanMeasure) -> Result<Expr, DataFusionError> {
-    match *measure {
-        PlanMeasure::Simple {
-            aggregate: kind,
-            column: ref plan_column,
-        } => Ok(aggregate_expr(kind, column(plan_column))),
-        // A summed CASE rather than a filtered count, because that is what `generate.rs` renders: it
-        // counts 0 rather than null for a false row, so a period with no matches answers 0 instead
-        // of nothing. `is_true` is what makes a null row false here, the way falling through to the
-        // ELSE branch does there.
-        PlanMeasure::CountIf { column: ref plan_column } => {
-            let branch = when(column(plan_column).is_true(), lit(1_i64))
-                .otherwise(lit(0_i64))
-                .map_err(|cause| DataFusionError::Build { cause })?;
-            Ok(sum(branch))
-        }
-        PlanMeasure::Ratio {
-            numerator_aggregate,
-            ref numerator,
-            denominator_aggregate,
-            ref denominator,
-            zero_safe,
-        } => {
-            let top = cast(aggregate_expr(numerator_aggregate, column(numerator)), DataType::Float64);
-            let bottom = aggregate_expr(denominator_aggregate, column(denominator));
-            let bottom = if zero_safe {
-                nullif(cast(bottom, DataType::Float64), lit(0.0_f64))
-            } else {
-                bottom
-            };
-            Ok(top / bottom)
-        }
-    }
-}
-
-/// One predicate, with its value resolved by the index the plan recorded.
-///
-/// By index and not by position in the filter list, because that is what the plan records and what
-/// the SQL path's placeholder positions are derived from. An adapter that walked the filters and
-/// consumed parameters in order would agree with it right up until a filter stopped binding one.
-fn predicate(plan: &QueryPlan, plan_predicate: &PlanPredicate) -> Result<Expr, DataFusionError> {
-    let subject = column(plan_predicate.column());
-    let bound = match plan_predicate.param() {
-        None => None,
-        Some(index) => Some(literal(plan.params().get(index).ok_or(DataFusionError::MissingParam {
-            index,
-            count: plan.params().len(),
-        })?)),
-    };
-    match (plan_predicate, bound) {
-        (&PlanPredicate::AtOrAfter { .. }, Some(value)) => Ok(subject.gt_eq(value)),
-        (&PlanPredicate::Before { .. }, Some(value)) => Ok(subject.lt(value)),
-        (&PlanPredicate::Equals { .. }, Some(value)) => Ok(subject.eq(value)),
-        (&PlanPredicate::NotEquals { .. }, Some(value)) => Ok(subject.not_eq(value)),
-        (&PlanPredicate::IsTrue { .. }, _) => Ok(subject.is_true()),
-        (&PlanPredicate::IsNotNull { .. }, _) => Ok(subject.is_not_null()),
-        // A comparing predicate whose parameter did not resolve. `param()` returns `Some` for
-        // exactly the four arms above, so this is the shape a change to that method would produce,
-        // and it is an error rather than a silently dropped comparison.
-        (_, None) => Err(DataFusionError::MissingParam {
-            index: usize::MAX,
-            count: plan.params().len(),
-        }),
-    }
-}
+use crate::translate::{bucket_expression, column, measure_expression, predicate, table_reference};
 
 /// The aliased projection, and the expressions to order the result by.
 ///
@@ -644,16 +500,18 @@ mod value_mapping_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::{DataFusionError, DataFusionWarehouse, aggregate_expr, cell, column, literal, measure_expression, unit};
+    use super::translate::{aggregate_expr, literal, measure_expression, unit};
+    use super::{DataFusionError, DataFusionWarehouse, cell, column};
     use datafusion::arrow::array::{ArrayRef, BooleanArray, Date32Array, Float32Array, Int64Array, StringArray};
     use datafusion::arrow::datatypes::{DataType, Field, Schema};
     use datafusion::arrow::record_batch::RecordBatch;
     use datafusion::prelude::col;
     use std::sync::Arc;
     use sutura_domain::calendar::{Date, TimeRange};
+    use sutura_domain::measure::ZeroDenominator;
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::plan::{
-        PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PredicateOrigin, QueryPlan,
+        PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
     };
     // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
     use sutura_domain::warehouse::{ParamValue, Value, Warehouse as _};
@@ -668,6 +526,19 @@ mod tests {
 
     fn on(name: &str) -> PlanColumn {
         PlanColumn::new(orders(), ColumnName::parse(name).expect("a test column is a column"))
+    }
+
+    fn agg(aggregate: Aggregate, name: &str) -> PlanTerm {
+        PlanTerm::Aggregate {
+            aggregate,
+            column: on(name),
+        }
+    }
+
+    fn simple(aggregate: Aggregate, name: &str) -> PlanMeasure {
+        PlanMeasure::Simple {
+            term: agg(aggregate, name),
+        }
     }
 
     /// One month of one table, grouped by region, over a bounded range.
@@ -846,11 +717,9 @@ mod tests {
         // as it does in SQL, so a ratio of 7 to 2 answers 3. Checked on the expression as well as
         // end to end below, because the cast is the part a refactor would drop.
         let measure = PlanMeasure::Ratio {
-            numerator_aggregate: Aggregate::Sum,
-            numerator: on("hits"),
-            denominator_aggregate: Aggregate::Sum,
-            denominator: on("tries"),
-            zero_safe: false,
+            numerator: agg(Aggregate::Sum, "hits"),
+            denominator: agg(Aggregate::Sum, "tries"),
+            zero_denominator: ZeroDenominator::Fail,
         };
         let rendered = format!("{}", measure_expression(&measure).expect("a ratio is one expression"));
         assert!(rendered.contains("Float64"), "{rendered}");
@@ -873,14 +742,7 @@ mod tests {
                 Arc::new(Int64Array::from(vec![100_i64, 50_i64, 7_i64])),
             ],
         ));
-        let query = plan(
-            PlanMeasure::Simple {
-                aggregate: Aggregate::Sum,
-                column: on("amount"),
-            },
-            "revenue",
-            region_key(),
-        );
+        let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
         adapter.dry_run(&query).expect("the plan resolves");
         let result = adapter.execute(&query).expect("the plan runs");
         assert_eq!(result.columns(), query.result_labels().as_slice());
@@ -902,7 +764,7 @@ mod tests {
     }
 
     #[test]
-    fn a_zero_safe_ratio_answers_null_for_a_zero_denominator_rather_than_failing() {
+    fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing() {
         // Two bugs at once. Integer division would answer 3 for 7 over 2, and dividing by a zero
         // denominator is a hard "Divide by zero" in this engine rather than the null that SQL's
         // NULLIF produces - which would fail the whole question because one group had no tries.
@@ -922,11 +784,9 @@ mod tests {
         ));
         let query = plan(
             PlanMeasure::Ratio {
-                numerator_aggregate: Aggregate::Sum,
-                numerator: on("hits"),
-                denominator_aggregate: Aggregate::Sum,
-                denominator: on("tries"),
-                zero_safe: true,
+                numerator: agg(Aggregate::Sum, "hits"),
+                denominator: agg(Aggregate::Sum, "tries"),
+                zero_denominator: ZeroDenominator::Null,
             },
             "hit_rate",
             region_key(),
@@ -953,10 +813,52 @@ mod tests {
                 Arc::new(BooleanArray::from(vec![Some(false), None, Some(true)])),
             ],
         ));
-        let query = plan(PlanMeasure::CountIf { column: on("paid") }, "paid_orders", region_key());
+        let query = plan(
+            PlanMeasure::Simple {
+                term: PlanTerm::CountIf { column: on("paid") },
+            },
+            "paid_orders",
+            region_key(),
+        );
         let result = adapter.execute(&query).expect("the plan runs");
         assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
         assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
+    }
+
+    #[test]
+    fn a_conditional_count_is_usable_as_a_ratio_numerator() {
+        // The metric the previous vocabulary could not express, executed. `count_if` was a sibling
+        // of `ratio` rather than a term inside one, so a rate over a conditional count had every
+        // ingredient present and nowhere to write it. Two groups on purpose: `north` divides 1 by 2
+        // and `south` divides 0 by 1, which is the answer a `count_if` denominator would have got
+        // wrong as a null.
+        let adapter = warehouse(batch(
+            vec![
+                Field::new("region", DataType::Utf8, false),
+                Field::new("order_date", DataType::Date32, false),
+                Field::new("paid", DataType::Boolean, true),
+                Field::new("order_id", DataType::Int64, false),
+            ],
+            vec![
+                region_column(),
+                date_column(),
+                Arc::new(BooleanArray::from(vec![Some(true), Some(false), None])),
+                Arc::new(Int64Array::from(vec![1_i64, 2_i64, 3_i64])),
+            ],
+        ));
+        let query = plan(
+            PlanMeasure::Ratio {
+                numerator: PlanTerm::CountIf { column: on("paid") },
+                denominator: agg(Aggregate::CountDistinct, "order_id"),
+                zero_denominator: ZeroDenominator::Null,
+            },
+            "paid_share",
+            region_key(),
+        );
+        adapter.dry_run(&query).expect("the plan resolves");
+        let result = adapter.execute(&query).expect("the plan runs");
+        assert_eq!(result.cell(0, 2), Some(&Value::Real(0.5)));
+        assert_eq!(result.cell(1, 2), Some(&Value::Real(0.0)));
     }
 
     #[test]
@@ -966,14 +868,7 @@ mod tests {
         // that reads as "there was no revenue in June".
         let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"))
             .expect("a current-thread runtime builds");
-        let query = plan(
-            PlanMeasure::Simple {
-                aggregate: Aggregate::Sum,
-                column: on("amount"),
-            },
-            "revenue",
-            region_key(),
-        );
+        let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
         let error = adapter.dry_run(&query).expect_err("an unattached table does not resolve");
         assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
         assert_eq!(adapter.source().as_str(), "local");

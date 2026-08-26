@@ -32,10 +32,12 @@ keys:
       column: channel
 measure:
   simple:
-    aggregate: sum
-    column:
-      table: orders
-      column: amount_cents
+    term:
+      aggregate:
+        aggregate: sum
+        column:
+          table: orders
+          column: amount_cents
 measure_label: revenue
 filters:
   - origin: definition

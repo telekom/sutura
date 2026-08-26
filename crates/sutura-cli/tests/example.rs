@@ -191,25 +191,54 @@ mod tests {
     }
 
     #[test]
-    fn the_example_exercises_every_shape_in_the_measure_vocabulary() {
+    fn the_example_exercises_every_shape_and_every_term_in_the_measure_vocabulary() {
         // The bug this prevents: the example quietly stops being the thing it is for. Its whole
-        // purpose is to show all three measure shapes and a definitional filter in one catalog, and
-        // a metric deleted or rewritten during a refactor would leave the README claiming coverage
-        // that no longer exists. Written against the shapes rather than against metric names, so
-        // renaming a metric does not fail it and dropping a shape does.
+        // purpose is to show every measure shape, every term and a definitional filter in one
+        // catalog, and a metric deleted or rewritten during a refactor would leave the README
+        // claiming coverage that no longer exists. Written against the vocabulary rather than
+        // against metric names, so renaming a metric does not fail it and dropping a shape does.
+        //
+        // Terms are asserted as well as shapes, and that is the half this test used to be missing.
+        // A conditional count was a shape when it could only be a whole measure; now it is a term,
+        // so a catalog holding one `simple` and one `ratio` would satisfy a shape-only check while
+        // never once compiling a `count_if` - which is precisely the coverage this example exists
+        // to carry.
         let pinned = load();
         let mut shapes: BTreeSet<&str> = BTreeSet::new();
+        let mut terms: BTreeSet<&str> = BTreeSet::new();
+        let mut ratio_terms: BTreeSet<&str> = BTreeSet::new();
         let mut with_required_filter = 0_usize;
         for metric in pinned.definitions().metrics().values() {
-            shapes.insert(metric.measure().shape());
+            let measure = metric.measure();
+            shapes.insert(measure.shape());
+            for term in measure.terms() {
+                terms.insert(term.kind());
+                if measure.shape() == "ratio" {
+                    ratio_terms.insert(term.kind());
+                }
+            }
             if !metric.required_filters().is_empty() {
                 with_required_filter += 1;
             }
         }
         assert_eq!(
             shapes,
-            BTreeSet::from(["count_if", "ratio", "simple"]),
+            BTreeSet::from(["ratio", "simple"]),
             "the example is supposed to demonstrate every measure shape"
+        );
+        assert_eq!(
+            terms,
+            BTreeSet::from(["aggregate", "count_if"]),
+            "the example is supposed to demonstrate every term"
+        );
+        // The point of the two-level vocabulary, asserted rather than described: a conditional count
+        // is usable where an aggregate is. A catalog that used `count_if` only as a whole measure
+        // would pass every other assertion here and demonstrate nothing that the previous
+        // vocabulary could not already do.
+        assert_eq!(
+            ratio_terms,
+            BTreeSet::from(["aggregate", "count_if"]),
+            "no ratio in the example holds a conditional count, which is the metric the vocabulary was changed for"
         );
         assert!(
             with_required_filter > 0,

@@ -4,6 +4,7 @@ expression: "&report"
 ---
 checks:
   active_subscriptions: Matched
+  churn_rate: Matched
   recurring_revenue: Matched
   subscription_base: Matched
   subscriptions_churned: Matched

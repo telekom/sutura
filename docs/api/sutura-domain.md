@@ -704,17 +704,26 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 What a metric measures, and the filters that are part of its definition rather than of a
 question.
 
-**A closed vocabulary of shapes, not a closed set of aggregates, and the difference is the whole
-design of this module.** The first version of this crate allowed exactly one aggregate over one
-column, which was safe and could not express the metrics people actually certify: a revenue that
-means "active subscriptions only", an average revenue per user that is one aggregate divided by
-another, a churn rate that is a conditional count over a distinct count. Two of seven real
-metrics fitted; five did not.
+**A closed vocabulary, and the axis it is closed along is the term rather than the shape.** The
+first version of this crate allowed exactly one aggregate over one column, which was safe and
+could not express the metrics people actually certify: a revenue that means "active subscriptions
+only", an average revenue per user that is one aggregate divided by another, a churn rate that is
+a conditional count over a distinct count. Two of seven real metrics fitted; five did not.
+
+The second version bought most of it back with three sibling shapes - `simple`, `count_if`,
+`ratio` - and left the seventh metric unsayable, for a reason that was structural rather than
+incidental. A conditional count was a *shape*, so it could not be a *half* of a ratio, and
+`count_if(churned) / count_distinct(subscription)` had every ingredient present and no way to
+write it. Adding `count_if_over_x` shapes would have been the same mistake once per numerator.
+
+So the vocabulary is two levels: a `Term` is what one number is computed from, and a
+`Measure` is one term or a ratio of two. Widening it is adding a `Term`, once, and every shape
+gets the new term for free.
 
 The security property was never "one aggregate". It was **no free-text SQL**: every leaf is a
 column the model declares, every operation is a variant the generator has an arm for, and there
-is no string anywhere that reaches a statement unexamined. Three shapes and four predicates buy
-back the expressiveness while keeping exactly that.
+is no string anywhere that reaches a statement unexamined. Two shapes, two terms and four
+predicates buy back the expressiveness while keeping exactly that.
 
 What is still unrepresentable, deliberately: an expression over two columns
 (`sum(price * quantity)`), a window function, a three-table join. Those need an expression
@@ -730,10 +739,12 @@ pub struct AggregatedColumn
 
 One aggregate applied to one declared column.
 
-The building block of every measure shape below. `Count` is the case where the column is not
-read and still has to be named: a `COUNT(*)` over a joined result counts join products rather
-than facts, so naming the column is what makes the generated count count the thing the model
-says it counts.
+`Count` is the case where the column is not read and still has to be named: a `COUNT(*)` over a
+joined result counts join products rather than facts, so naming the column is what makes the
+generated count count the thing the model says it counts.
+
+Carries no `serde` derive. A term's on-disk shape belongs to `TermRepr` and to nothing else, so
+there is exactly one place where the format of `{ aggregate: sum, column: x }` is decided.
 
 #### Methods
 
@@ -751,7 +762,116 @@ pub const fn new(aggregate: Aggregate, column: ColumnName) -> Self
 
 #### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Term`
+
+```rust
+pub enum Term
+```
+
+One number a measure is computed from.
+
+**The extensible axis.** A shape says how terms combine; a term says what one of them is. That
+split is what makes a conditional count usable as a ratio's numerator, which is the metric the
+previous vocabulary could not say with every one of its ingredients already present.
+
+**Flat on disk, and read through `TermRepr` rather than by an external tag.** The one-key
+mapping the rest of this format uses would spell the common half of a ratio
+`numerator: { aggregate: { aggregate: sum, column: mrr_cents } }`: the tag word and the field
+word are the same word, so the nesting says nothing and every existing `simple:` document in
+every catalog would have to be rewritten to gain it. `#[serde(untagged)]` is not the way out
+either - it reports "data did not match any variant", which names nothing, and `document.rs`
+carries a test that exists to keep that error out of this format.
+
+So a term is one flat mapping with a `deny_unknown_fields` struct behind it, and the word that
+says which term it is - `aggregate` or `count_if` - is a key the author writes rather than a
+shape inferred from an absence. A misspelled key is still an error naming the typo, an
+unrecognised term is an error naming the word that was written, and a document that writes half
+of one or both of them gets a `InvalidTerm` that says which.
+
+#### Variants
+
+- `Aggregate` - One aggregate over one column: `SUM(amount_cents)`.
+- `CountIf` - How many rows have this boolean column true.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+The column this term reads.
+
+```rust
+pub const fn kind(&self) -> &'static str
+```
+
+The name of this term, for a refusal or a description.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidTerm`
+
+```rust
+pub enum InvalidTerm
+```
+
+Why a term was rejected.
+
+Four variants rather than one message, because each of them is a different mistake and the
+variant is what says which. A single "invalid term" would send an author back to compare their
+line against a grammar.
+
+#### Variants
+
+- `Empty` - Nothing was written. The mapping parsed and named no term at all.
+- `TwoTerms` - Both terms at once. Refused rather than resolved by precedence: a document that writes both means one of them, and picking one would certify a number the author did not ask for.
+- `NoColumn`
+- `NoAggregate`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum ZeroDenominator`
+
+```rust
+pub enum ZeroDenominator
+```
+
+What a zero denominator means.
+
+An enum and not a boolean, because `zero_safe: true` records that somebody thought about it and
+not what they decided. Both behaviours are defensible - a rate over an empty period is arguably
+null and arguably an error - the difference shows up only in the periods where it matters, and a
+definition should say which one it means in a word a reader can check against the metric's prose.
+
+**The on-disk words are `yields_null` and `fails`, and the first one is not cosmetic.** The
+obvious spelling of the null case is `null`, and in YAML `null` is the null literal: a document
+writing `zero_denominator: null` would hand the deserializer a unit value, and the author of the
+most natural spelling in the vocabulary would get a type error about a line that looks right.
+Naming the variants after what a zero denominator *does* means the field and its value read as
+one sentence and neither of them can collide with a scalar YAML resolves itself.
+
+#### Variants
+
+- `Null` - The measure is null for that row. The generator guards the denominator - a `NULLIF`, or the dialect's own safe-divide.
+- `Fail` - The division is emitted unguarded, so a zero denominator is whatever the data system does with one. Named for the intent rather than for the mechanism: a definition choosing this is saying an empty period is a fault and not a figure.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The word a catalog writes, and the word a description reads back.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum Measure`
 
@@ -761,15 +881,14 @@ pub enum Measure
 
 What a metric measures.
 
-Externally tagged, so a document names its shape: `simple:`, `count_if:` or `ratio:`. That makes
-a measure's shape a word an author writes rather than something inferred from which fields are
-present, and it makes an unrecognised shape an error naming what it found.
+Externally tagged, so a document names its shape: `simple:` or `ratio:`. That makes a measure's
+shape a word an author writes rather than something inferred from which fields are present, and
+it makes an unrecognised shape an error naming what it found.
 
 #### Variants
 
-- `Simple` - One aggregate over one column: `SUM(amount_cents)`.
-- `CountIf` - How many rows have this boolean column true.
-- `Ratio` - One aggregate divided by another: an average revenue per user, a rate, a share.
+- `Simple` - One term: `SUM(amount_cents)`, or a conditional count.
+- `Ratio` - One term divided by another: an average revenue per user, a rate, a share.
 
 #### Methods
 
@@ -787,6 +906,14 @@ pub const fn shape(&self) -> &'static str
 ```
 
 The name of this shape, for a refusal or a description.
+
+```rust
+pub fn terms(&self) -> Vec<&Term>
+```
+
+The terms this measure is computed from, in the order a reader would say them.
+
+One place, so a shape added here is a shape everything that walks terms already handles.
 
 #### Implements
 
@@ -1631,6 +1758,33 @@ pub const fn new(label: String, column: PlanColumn) -> Self
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
+### `enum PlanTerm`
+
+```rust
+pub enum PlanTerm
+```
+
+One term of a measure, with its column resolved to a table.
+
+`Term` restated over `PlanColumn` rather than `ColumnName`. Mirrored at the same level the
+domain names it, so an adapter that renders one half of a ratio and one that renders a whole
+measure reach for the same function instead of each flattening two levels its own way.
+
+#### Variants
+
+- `Aggregate`
+- `CountIf`
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &PlanColumn
+```
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
 ### `enum PlanMeasure`
 
 ```rust
@@ -1639,13 +1793,12 @@ pub enum PlanMeasure
 
 What is measured, under what label, with every column resolved to a table.
 
-The shape is `Measure`'s, restated over `PlanColumn` rather than `ColumnName`: the plan
-knows which table each column comes from and the catalog does not have to.
+The shape is `Measure`'s, restated over `PlanTerm`: the plan knows which table each column
+comes from and the catalog does not have to.
 
 #### Variants
 
 - `Simple`
-- `CountIf`
 - `Ratio`
 
 #### Implements
@@ -1829,6 +1982,9 @@ pub fn plan_measure(measure: &crate::measure::Measure, resolve: impl Fn(&crate::
 
 Restated over plan columns, so an adapter does not need the catalog to know which table a
 measure's column comes from.
+
+Resolves one term at a time rather than one shape at a time, which is why a term added to the
+vocabulary is one arm here instead of one arm per shape.
 
 ### `fn plan_required_filter`
 

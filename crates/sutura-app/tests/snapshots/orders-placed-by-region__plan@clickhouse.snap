@@ -28,10 +28,12 @@ keys:
       column: region_code
 measure:
   simple:
-    aggregate: count
-    column:
-      table: orders
-      column: order_id
+    term:
+      aggregate:
+        aggregate: count
+        column:
+          table: orders
+          column: order_id
 measure_label: orders_placed
 filters:
   - origin: definition
