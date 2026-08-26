@@ -77,7 +77,7 @@ supply-chain)
         exit "$status"
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: cargo-deny absent, using nix (same pin as CI)"
-        exec nix run .#deny -- check
+        exec nix run .#deny
     else
         echo "run-gate: SKIPPED supply chain - no cargo-deny and no nix on this host."
         echo "          CI runs it on every push; this only delays the finding."
@@ -126,7 +126,15 @@ fmt-parity)
     # and no second target directory is filled.
     if command -v nix >/dev/null 2>&1; then
         system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
-        exec nix build ".#checks.${system}.fmt" -L
+        # `--offline` is retried rather than passed always, matching `just ci`. This tree's
+        # substituter list includes a private cache, and an expired credential there answers
+        # 401 - which nix treats as a hard failure of the build, not of a lookup it could skip.
+        # A push blocked because a *cache* would not talk to us reports a formatting problem
+        # where there is none. Offline still reaches the same verdict from local store paths;
+        # only a genuinely uncached check degrades, and it degrades to a local build.
+        nix build ".#checks.${system}.fmt" -L \
+            || nix build ".#checks.${system}.fmt" -L --offline
+        exit "$?"
     else
         echo "run-gate: SKIPPED the stable-channel format check - no nix on this host."
         echo "          Commit-stage formatting ran on whatever cargo is on PATH; CI runs stable."
