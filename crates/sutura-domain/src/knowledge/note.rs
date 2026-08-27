@@ -206,9 +206,36 @@ impl Example {
         &self.body
     }
 
+    /// The authored bytes of this example, the rendered question included.
+    ///
+    /// **The question is counted, and leaving it out was a hole rather than a rounding.** The
+    /// aggregate cap bounds the size of one prompt, and `sutura_app::prompt` renders every dimension
+    /// and every filter of this question into that prompt - so a question carrying ten thousand
+    /// filters on one permitted value is inside every per-note bound, passes
+    /// `Knowledge::assemble`'s per-question checks, and is not an example of anything. The grain and
+    /// the period are fixed-width and are the one part not counted; nothing an author writes can make
+    /// either of them longer.
     pub(super) fn authored_bytes(&self) -> usize {
         phrase_bytes(self.asked.iter())
             .saturating_add(self.name.as_str().len())
             .saturating_add(self.body.as_str().len())
+            .saturating_add(question_bytes(&self.question))
     }
+}
+
+/// The authored bytes of one worked question: every name and value of it that reaches the prompt.
+fn question_bytes(question: &Query) -> usize {
+    let dimensions = sum_bytes(question.dimensions().iter().map(|name| name.as_str().len()));
+    let filters = sum_bytes(
+        question
+            .filters()
+            .iter()
+            .map(|filter| filter.dimension().as_str().len().saturating_add(filter.value().len())),
+    );
+    question
+        .metric()
+        .as_str()
+        .len()
+        .saturating_add(dimensions)
+        .saturating_add(filters)
 }

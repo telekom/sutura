@@ -18,7 +18,8 @@
 //! metric is free-text SQL" is invisible in a diff.
 //!
 //! **Nothing here parses.** A [`SqlFragment`] is checked for being *a plausible fragment* - present,
-//! bounded, free of control characters - and nothing more. Whether it is one SQL expression, over
+//! bounded, and free of the characters that make the text a reviewer reads differ from the text
+//! that compiles - and nothing more. Whether it is one SQL expression, over
 //! columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
 //! catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
 //! domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
@@ -69,6 +70,21 @@ pub enum InvalidFragment {
     /// or an attempt to hide part of a fragment from a reviewer's terminal.
     #[error("an authored expression may not contain the control character {code:#04x}")]
     ControlCharacter { code: u32 },
+    /// A character a terminal, a diff and a browser do not render, or render in the wrong order.
+    ///
+    /// A second refusal beside [`Self::ControlCharacter`] rather than a wider version of it,
+    /// because it is a second character class: `char::is_control` is **false** for every one of
+    /// these - they are general category `Cf`, not `Cc` - so the refusal above let them through
+    /// while its stated reason, "an attempt to hide part of a fragment from a reviewer's
+    /// terminal", is precisely what they do.
+    ///
+    /// This is Trojan Source, CVE-2021-42574, pointed at a metric definition. A fragment holding a
+    /// right-to-left override inside a string literal reads in a terminal, in a diff and in a pull
+    /// request as `status = 'active'` and compiles to a comparison against something else, so the
+    /// branch never fires and the number certified under the name a reviewer approved is zero. The
+    /// digest covers text, faithfully, and the text is not what the reviewer read.
+    #[error("an authored expression may not contain the invisible or direction-changing character {code:#06x}")]
+    InvisibleCharacter { code: u32 },
 }
 
 /// Why a dialect word is not one.
@@ -111,6 +127,11 @@ impl SqlFragment {
                 code: u32::from(offending),
             });
         }
+        if let Some(offending) = trimmed.chars().find(|c| is_invisible(*c)) {
+            return Err(InvalidFragment::InvisibleCharacter {
+                code: u32::from(offending),
+            });
+        }
         Ok(Self(String::from(trimmed)))
     }
 
@@ -118,6 +139,36 @@ impl SqlFragment {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// A character a terminal, a diff or a browser does not show, or shows in the wrong order.
+///
+/// Refused for the reason the control characters are, and the reason is the whole of it: **the
+/// fragment a reviewer reads has to be the fragment that compiles.** These are all general category
+/// `Cf`, so `char::is_control` is false for every one and the check above cannot see them.
+///
+/// Enumerated rather than taken as a whole category. `Cf` also holds the language-tag and
+/// variation-selector blocks, and a category test would move with the Unicode table under a
+/// dependency bump - which for a load-bearing refusal is a set that changes without a diff. The
+/// ranges here are the ones that reorder or erase rendered text:
+///
+/// - `U+00AD` soft hyphen, and `U+FEFF` byte order mark - invisible, and legal mid-string;
+/// - `U+200B..200F` the zero-width set, ending in the two directional marks;
+/// - `U+202A..202E` the bidirectional embeddings and overrides - the Trojan Source characters;
+/// - `U+2060..2064` word joiner and the invisible operators;
+/// - `U+2066..2069` the bidirectional isolates, which do the same job as the overrides;
+/// - `U+FFF9..FFFB` interlinear annotation, which hides one run of text behind another.
+const fn is_invisible(c: char) -> bool {
+    matches!(
+        c,
+        '\u{00AD}'
+            | '\u{200B}'..='\u{200F}'
+            | '\u{202A}'..='\u{202E}'
+            | '\u{2060}'..='\u{2064}'
+            | '\u{2066}'..='\u{2069}'
+            | '\u{FEFF}'
+            | '\u{FFF9}'..='\u{FFFB}'
+    )
 }
 
 /// Delegates to `parse`, so `serde(try_from)` above and a direct call are one code path.
@@ -152,28 +203,44 @@ impl DialectTag {
     /// the author's claim, and the compile step checks the half of it that is checkable.
     pub const PORTABLE: &'static str = "portable";
 
+    /// Checks that this is one dialect word. **Surrounding whitespace is a load failure, not
+    /// something trimmed away**, and that is the half worth writing down.
+    ///
+    /// A tag is a key in [`AuthoredSql`]'s map. Trimming made `duckdb` and ` duckdb ` the same tag,
+    /// and `BTreeMap`'s deserialize keeps the LAST value for a repeated key - so a document writing
+    /// both had one of its two authored fragments silently discarded and the other certified, with
+    /// the definition digest taken over the survivor. That is the outcome
+    /// [`Computation::assemble`] refuses when a metric writes `measure` beside `authored_sql`, for
+    /// the same reason: a document that writes two means one of them, and choosing certifies a
+    /// number its author did not ask for. Refusing the whitespace costs the author one character.
+    ///
+    /// [`SqlFragment::parse`] still trims, and the asymmetry is deliberate: a fragment that differs
+    /// from another only by surrounding whitespace is the same fragment, so trimming there loses
+    /// nothing. Two map keys that differ only by whitespace are two keys.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDialectTag> {
-        let trimmed = raw.as_ref().trim();
-        if trimmed.is_empty() {
+        let raw = raw.as_ref();
+        // The emptiness check is the one place whitespace is still folded, so that a key holding
+        // only spaces is reported as the missing name it is rather than as an illegal space.
+        if raw.trim().is_empty() {
             return Err(InvalidDialectTag::Empty);
         }
-        if let Some(offending) = trimmed
+        if let Some(offending) = raw
             .chars()
             .find(|c| !(c.is_ascii_lowercase() || c.is_ascii_digit() || *c == '_'))
         {
             return Err(InvalidDialectTag::IllegalCharacter {
-                value: String::from(trimmed),
+                value: String::from(raw),
                 offending,
             });
         }
-        if trimmed.len() > MAX_TAG_LEN {
+        if raw.len() > MAX_TAG_LEN {
             return Err(InvalidDialectTag::TooLong {
-                value: String::from(trimmed),
-                len: trimmed.len(),
+                value: String::from(raw),
+                len: raw.len(),
                 limit: MAX_TAG_LEN,
             });
         }
-        Ok(Self(String::from(trimmed)))
+        Ok(Self(String::from(raw)))
     }
 
     /// The word resolution falls back to, and the only word it falls back to.
@@ -408,7 +475,7 @@ mod tests {
 
     use super::{
         AuthoredSql, Computation, DialectTag, InvalidAuthoredSql, InvalidComputation, InvalidDialectTag, InvalidFragment,
-        MAX_FRAGMENT_LEN, SqlFragment,
+        MAX_FRAGMENT_LEN, SqlFragment, is_invisible,
     };
     use crate::measure::{AggregatedColumn, Measure, Term};
     use crate::model::{Aggregate, ColumnName};
@@ -462,6 +529,56 @@ mod tests {
     }
 
     #[test]
+    fn an_invisible_or_direction_changing_character_is_refused_although_it_is_not_a_control_one() {
+        // Trojan Source, CVE-2021-42574, against a metric definition. `char::is_control` is FALSE
+        // for every character here - they are `Cf`, not `Cc` - so the control-character refusal
+        // cannot see them, while the reason it gives ("an attempt to hide part of a fragment from a
+        // reviewer's terminal") is exactly what they do.
+        //
+        // The first fragment renders in a terminal, in a diff and in a pull request as
+        // `SUM(CASE WHEN status = 'active' THEN mrr_eur END)` and compares against something that
+        // is not `active`, so the branch never fires and the metric certifies zero under a name a
+        // reviewer approved. The definition digest covers the text faithfully; the text is not what
+        // the reviewer read.
+        assert_eq!(
+            SqlFragment::parse("SUM(CASE WHEN status = '\u{202E}evitca\u{202C}' THEN mrr_eur END)"),
+            Err(InvalidFragment::InvisibleCharacter { code: 0x202E })
+        );
+        // A bidirectional ISOLATE does the same job as the override and is a different code point,
+        // which is why the refusal is a set of ranges rather than one character.
+        assert_eq!(
+            SqlFragment::parse("SUM(CASE WHEN status = '\u{2066}evitca\u{2069}' THEN mrr_eur END)"),
+            Err(InvalidFragment::InvisibleCharacter { code: 0x2066 })
+        );
+        // And a zero-width space, which needs no reordering: two fragments a reviewer cannot tell
+        // apart compare against two different strings.
+        assert_eq!(
+            SqlFragment::parse("SUM(CASE WHEN status = 'act\u{200B}ive' THEN mrr_eur END)"),
+            Err(InvalidFragment::InvisibleCharacter { code: 0x200B })
+        );
+        // Every listed range, at both ends, so a typo in one of them fails here rather than at a
+        // review a year from now.
+        for code in [
+            0x00AD_u32, 0x200B, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x2069, 0xFEFF, 0xFFF9, 0xFFFB,
+        ] {
+            let offending = char::from_u32(code).expect("a listed code point is a character");
+            assert_eq!(
+                SqlFragment::parse(format!("SUM({offending}mrr_eur)")),
+                Err(InvalidFragment::InvisibleCharacter { code }),
+                "{code:#06x}"
+            );
+        }
+        // And the neighbours of each range are NOT refused, so the refusal is the set written down
+        // rather than a wider sweep that would reject ordinary text.
+        for code in [
+            0x00AC_u32, 0x00AE, 0x200A, 0x2010, 0x2029, 0x202F, 0x205F, 0x2065, 0x206A, 0xFEFE, 0xFF00, 0xFFFC,
+        ] {
+            let benign = char::from_u32(code).expect("a listed code point is a character");
+            assert!(!is_invisible(benign), "{code:#06x} is not one of the invisible ones");
+        }
+    }
+
+    #[test]
     fn a_dialect_tag_is_one_lower_case_word() {
         assert_eq!(tag("duckdb").as_str(), "duckdb");
         assert!(tag("portable").is_portable());
@@ -484,6 +601,41 @@ mod tests {
                 offending: '-',
             })
         );
+    }
+
+    #[test]
+    fn two_dialect_keys_that_differ_only_by_whitespace_do_not_collapse_into_one() {
+        // `parse` used to trim, which made `duckdb` and ` duckdb ` the same tag - and `BTreeMap`'s
+        // deserialize keeps the LAST value for a repeated key. One of two authored fragments was
+        // therefore silently discarded and the other certified, with the definition digest taken
+        // over the survivor: the outcome `Computation::assemble` refuses for `measure` beside
+        // `authored_sql`, arrived at without anybody writing two keys on purpose.
+        assert_eq!(
+            DialectTag::parse(" duckdb "),
+            Err(InvalidDialectTag::IllegalCharacter {
+                value: String::from(" duckdb "),
+                offending: ' ',
+            })
+        );
+        assert_eq!(
+            DialectTag::parse("duckdb\t"),
+            Err(InvalidDialectTag::IllegalCharacter {
+                value: String::from("duckdb\t"),
+                offending: '\t',
+            })
+        );
+        // So the pair that used to collapse is a load failure on the deserialize path, which is the
+        // only path a catalog file takes.
+        let err = serde_json::from_str::<AuthoredSql>("{\"duckdb\":\"SUM(mrr_eur)\",\" duckdb \":\"SUM(customer_key)\"}")
+            .expect_err("two keys differing by whitespace are not one dialect");
+        assert!(err.to_string().contains("lower-case"), "{err}");
+        // A key holding nothing but whitespace is still reported as the missing name it is rather
+        // than as an illegal space, which is the one place whitespace is still folded.
+        assert_eq!(DialectTag::parse("  "), Err(InvalidDialectTag::Empty));
+        assert_eq!(DialectTag::parse("\t\n"), Err(InvalidDialectTag::Empty));
+        // And a fragment is still trimmed, deliberately: two fragments differing only by
+        // surrounding whitespace are the same fragment, where two map keys are two keys.
+        assert_eq!(fragment("  SUM(mrr_eur)  ").as_str(), "SUM(mrr_eur)");
     }
 
     #[test]

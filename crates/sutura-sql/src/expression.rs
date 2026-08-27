@@ -39,10 +39,12 @@
 //!
 //! # What the compile guarantees, and what it does not
 //!
-//! It guarantees the fragment is one expression, over columns the metric's own model declares,
-//! reaching no table and no query it was not given; that none of the constructs in [`Construct`] is
-//! present; and that the rendering for each target is well-formed SQL that parses in that target's
-//! dialect.
+//! It guarantees the fragment is one expression, over columns the metric's own model declares -
+//! **every one of them carrying that model's table**, asserted after the rewrite rather than assumed
+//! from it - reaching no table and no query it was not given; that every function it calls is one of
+//! the names in the allowlist [`Construct::UnknownFunction`] names; that it nests no deeper than the
+//! checks can walk without the stack; that none of the constructs in [`Construct`] is present; and
+//! that the rendering for each target is well-formed SQL that parses in that target's dialect.
 //!
 //! It does **not** guarantee the target has the function. `MEDIAN(x)`, `COUNT_IF(x)` and
 //! `PERCENTILE_CONT(..) WITHIN GROUP (..)` are emitted verbatim into Postgres and `ClickHouse` by
@@ -68,7 +70,7 @@ mod vocabulary;
 #[cfg(test)]
 mod tests;
 
-use crate::expression::vocabulary::{kind_refusal, name_refusal};
+use crate::expression::vocabulary::{UNKNOWN_FUNCTION_WHY, kind_refusal, name_refusal};
 
 /// The dialect a fragment is READ in, whatever it is rendered into.
 ///
@@ -81,6 +83,16 @@ const AUTHORING: DialectType = DialectType::DuckDB;
 
 /// What the fragment is wrapped in to be parsed, and how far that shifts a reported column.
 const WRAPPER: &str = "SELECT ";
+
+/// The deepest tree the checks will walk.
+///
+/// **A stack bound, not a style judgement**, and the number is the small half of the decision.
+/// Measured, counting the wrapper's `SELECT` as a level: the conditional sum this hatch exists for
+/// nests four, and the deepest fragment any test in this repository needs is five -
+/// `SUM(x) / (NULLIF(COUNT(DISTINCT k), 0))`. Thirty-two leaves room for something nobody has
+/// written yet, and it is far below the depth at which the two unguarded walks run out of stack -
+/// see the guard in [`parse`] for which walks those are and what they cost.
+const MAX_DEPTH: usize = 32;
 
 /// A construct an authored fragment may not contain, and why.
 ///
@@ -107,6 +119,8 @@ pub enum Construct {
     QualifiedFunctionName,
     /// Anything that reads a date or a time.
     DateTimeFunction,
+    /// A called function whose name is not in the allowlist.
+    UnknownFunction,
     /// `FILTER (WHERE ..)` on an aggregate.
     AggregateFilter,
     /// A comment inside the fragment.
@@ -137,6 +151,7 @@ impl Construct {
             Self::QualifiedColumn => "a qualified column reference",
             Self::QualifiedFunctionName => "a schema-qualified function name",
             Self::DateTimeFunction => "a date or time function",
+            Self::UnknownFunction => "a function outside the allowed set",
             Self::AggregateFilter => "FILTER (WHERE ..)",
             Self::Comment => "a comment",
             Self::RowConstructor => "a row constructor, or a multi-argument DISTINCT",
@@ -175,6 +190,7 @@ impl Construct {
                  dialect spells the rest differently: `generate_date_trunc` special-cases exactly two dialect \
                  families, which means a third compiled dialect would silently get its argument order wrong"
             }
+            Self::UnknownFunction => UNKNOWN_FUNCTION_WHY,
             Self::AggregateFilter => {
                 "`aggregate_filter_supported` is set false by six dialects and is never read anywhere in the \
                  dialect layer, so FILTER is emitted unconditionally for every target - including the six \
@@ -184,7 +200,9 @@ impl Construct {
                 "a `-- ..` comment is re-emitted as a `/* .. */` one INTO the statement, so text a \
                  catalog wrote ends up between our own generated tokens; the generator does escape a \
                  closing `*/` into `* /`, measured, and a measure has no reason to carry prose that \
-                 the document around it cannot hold instead"
+                 the document around it cannot hold instead - and an UNTERMINATED `/*` is refused as \
+                 a comment too, because the tokenizer discards it together with everything the author \
+                 wrote after it and leaves nothing in the tree to say so"
             }
             Self::RowConstructor => {
                 "`COUNT(DISTINCT a, b)` is rewritten into a `CASE WHEN .. IS NULL` form for `DuckDB` and \
@@ -302,6 +320,23 @@ pub enum ExpressionError {
     Refused { tag: String, construct: Construct },
     #[error("the {tag} fragment reads column {column:?}, which model table {table} does not declare")]
     UnknownColumn { tag: String, column: String, table: TableName },
+    /// A called function that is not one of the names a measure may call.
+    ///
+    /// Its own variant rather than a bare [`Self::Refused`], because this is the one refusal whose
+    /// value is a *pair*: the allowed set, which [`Construct::UnknownFunction`] carries, and the name
+    /// that is not in it. A fragment may hold a dozen calls, and telling an author that one of them
+    /// is unlisted without saying which sends them to read this file.
+    #[error("the {tag} fragment calls {name}, which is refused: {}", Construct::UnknownFunction.why())]
+    UnknownFunction { tag: String, name: String },
+    /// A fragment nesting deeper than the checks can walk. See the guard in [`parse`].
+    #[error("the {tag} fragment nests {depth} levels deep, and at most {limit} is checked")]
+    TooDeep { tag: String, depth: usize, limit: usize },
+    /// A column the qualification rewrite did not reach. See [`require_qualified`].
+    #[error(
+        "the {tag} fragment leaves column {column:?} of model table {table} unqualified, so it would bind to \
+         whichever joined table has it"
+    )]
+    NotQualified { tag: String, column: String, table: TableName },
     #[error("the {tag} fragment could not be qualified against model table {table}")]
     Qualify {
         tag: String,
@@ -480,18 +515,92 @@ fn check(
     table: &TableName,
     columns: &BTreeSet<ColumnName>,
 ) -> Result<Expression, ExpressionError> {
+    // First, and asked of the TEXT rather than of the tree, because the tokenizer is where the
+    // evidence is destroyed. See `unbalanced_comment`.
+    if unbalanced_comment(fragment.as_str()) {
+        return Err(refused(tag, Construct::Comment));
+    }
     let expression = parse(fragment, tag)?;
     // Before the node walk, because a FILTER's predicate IS walked as an ordinary child: without
     // this the refusal for `SUM(a) FILTER (WHERE b = 1)` would be about `b`.
     if carries(&expression, "filter") {
         return Err(refused(tag, Construct::AggregateFilter));
     }
-    if carries(&expression, "trailing_comments") {
+    if carries_comment(&expression) {
         return Err(refused(tag, Construct::Comment));
     }
+    refuse_nodes(&expression, tag, table, columns)?;
+    // Asked of the dialect layer rather than of our own lists, so a node kind missing from
+    // `QUERY_KINDS` or `TABLE_KINDS` is still refused.
+    if expression.contains(traversal::is_query) {
+        return Err(refused(tag, Construct::Query));
+    }
+    if expression.contains(traversal::is_ddl) {
+        return Err(refused(tag, Construct::SchemaStatement));
+    }
+    if !aggregates(&expression) {
+        return Err(refused(tag, Construct::NotAggregated));
+    }
+    let qualified = qualify(expression, tag, table)?;
+    require_qualified(&qualified, tag, table)?;
+    Ok(qualified)
+}
+
+/// Does the TEXT open a comment it never closes?
+///
+/// Asked of the text and not of the tree, because the tokenizer is where the evidence is destroyed.
+/// `SUM(mrr_eur) /* note */` is refused as a comment; `SUM(mrr_eur) /* note` was **accepted**, with
+/// everything after the `/*` swallowed by the tokenizer and nothing in the AST recording that it was
+/// ever there. That is the same shape as the dropped `WHERE` that [`Shape::CarriedClause`] exists
+/// for - text an author wrote, silently removed, and the remainder certified under the metric's name.
+///
+/// Counting delimiters rather than tracking tokenizer state, and it FAILS CLOSED on one input: a
+/// string literal holding an unbalanced delimiter - `SUM(CASE WHEN status = '/*' THEN mrr_eur END)` -
+/// is refused too. Accepted deliberately, and stated in `docs/adr/0004`: a measure has no reason to
+/// compare a column against a comment delimiter, and the alternative is a second tokenizer here.
+fn unbalanced_comment(text: &str) -> bool {
+    text.matches("/*").count() != text.matches("*/").count()
+}
+
+/// Does this fragment aggregate anything?
+///
+/// Two questions, and the second one exists because the first classifies by node KIND.
+/// `contains_aggregate` is true for `SUM(x)` and for `sumIf(x, p)` - each of those gets a node the
+/// dialect layer recognises - and **false** for `uniqExact(k)`, which arrives as a plain `Function`.
+/// `uniqExact` is a real `ClickHouse` aggregate and precisely the case a per-dialect variant exists
+/// for, so refusing it as "no aggregate" was wrong. The allowlist's own mark answers for the names
+/// that classifier has no node for, and it is the only place an aggregate name is written down: the
+/// kinds the dialect layer already knows are not restated.
+fn aggregates(expression: &Expression) -> bool {
+    traversal::contains_aggregate(expression)
+        || traversal::contains_window_function(expression)
+        || expression.contains(|node| called_name(node).is_some_and(vocabulary::aggregates))
+}
+
+/// The name of a generic call, or `None` for a node that is not one.
+///
+/// **Both spellings, and that is not belt-and-braces.** An arbitrary name becomes an
+/// `AggregateFunction` rather than a `Function` as soon as the call carries a `FILTER`, an
+/// `IGNORE NULLS` or a `WITHIN GROUP` - measured in the authoring dialect's parser - so a check that
+/// looked only at `Function` would have a bypass spelled `getenv('X') IGNORE NULLS`.
+fn called_name(node: &Expression) -> Option<&str> {
+    match *node {
+        Expression::Function(ref call) => Some(call.name.as_str()),
+        Expression::AggregateFunction(ref call) => Some(call.name.as_str()),
+        _ => None,
+    }
+}
+
+/// Every node walked once: what it is, and whether the column it names is declared.
+fn refuse_nodes(
+    expression: &Expression,
+    tag: &DialectTag,
+    table: &TableName,
+    columns: &BTreeSet<ColumnName>,
+) -> Result<(), ExpressionError> {
     for node in expression.dfs() {
         if let Some(construct) = node_refusal(node) {
-            return Err(refused(tag, construct));
+            return Err(node_error(tag, construct, node));
         }
         if let Expression::Column(column) = node {
             let name = column.name.name.as_str();
@@ -504,18 +613,54 @@ fn check(
             }
         }
     }
-    // Asked of the dialect layer rather than of our own lists, so a node kind missing from
-    // `QUERY_KINDS` or `TABLE_KINDS` is still refused.
-    if expression.contains(traversal::is_query) {
-        return Err(refused(tag, Construct::Query));
+    Ok(())
+}
+
+/// The refusal for one node: the construct, and for an unlisted call the name as well.
+fn node_error(tag: &DialectTag, construct: Construct, node: &Expression) -> ExpressionError {
+    match (construct, called_name(node)) {
+        (Construct::UnknownFunction, Some(name)) => ExpressionError::UnknownFunction {
+            tag: String::from(tag.as_str()),
+            name: String::from(name),
+        },
+        _ => refused(tag, construct),
     }
-    if expression.contains(traversal::is_ddl) {
-        return Err(refused(tag, Construct::SchemaStatement));
+}
+
+/// Every column reference carries the model's table - the POSTCONDITION of [`qualify`], asserted.
+///
+/// Checked rather than trusted, because the rewrite cannot be relied on to have run.
+/// `traversal::transform_map` dispatches on a hardcoded list of node kinds and a kind it has no arm
+/// for is returned untouched, children and all - its own comment says so, and `WithinGroup`'s adds
+/// that it does not descend into `this`. The unknown-column check is a `dfs` walk, which uses the
+/// WIDER coverage of the traversal API. So the check saw columns the rewrite did not touch, and eight
+/// measured fragments passed every guard with a bare column in the output: `MAX(x COLLATE ..)`,
+/// `SUM(x) SIMILAR TO ..`, `SUM(x) WITHIN GROUP (..)`, `ARRAY_AGG`/`LIST`/`GROUP_CONCAT` with an
+/// `ORDER BY`, and both placements of `IGNORE NULLS`.
+///
+/// What that costs is not a syntax error at load. Measured in `DuckDB` 1.5.5 for the `COLLATE` case
+/// against a joined dimension carrying the same column name: `Binder Error: Ambiguous reference to
+/// column name "region"` - a metric whose load SUCCEEDED, answering the questions that join nothing
+/// and failing the ones that do, which is exactly what load-time checking exists to prevent. On an
+/// engine that resolves by precedence rather than erroring it is silently the wrong number, which is
+/// the reason [`qualify`] exists at all.
+///
+/// Asserting the postcondition rather than widening the rewrite is the choice worth recording: the
+/// walk belongs to the dialect layer, so a version of it that gains an arm makes more fragments
+/// compile, and no fragment gets out of here with a bare column either way.
+fn require_qualified(expression: &Expression, tag: &DialectTag, table: &TableName) -> Result<(), ExpressionError> {
+    let unqualified = expression.dfs().find_map(|node| match *node {
+        Expression::Column(ref column) if column.table.is_none() => Some(column.name.name.as_str()),
+        _ => None,
+    });
+    if let Some(column) = unqualified {
+        return Err(ExpressionError::NotQualified {
+            tag: String::from(tag.as_str()),
+            column: String::from(column),
+            table: table.clone(),
+        });
     }
-    if !traversal::contains_aggregate(&expression) && !traversal::contains_window_function(&expression) {
-        return Err(refused(tag, Construct::NotAggregated));
-    }
-    qualify(expression, tag, table)
+    Ok(())
 }
 
 /// `SELECT {fragment}`, with one guard for each way that can come back as something else.
@@ -535,6 +680,32 @@ fn parse(fragment: &SqlFragment, tag: &DialectTag) -> Result<Expression, Express
         return Err(not_one(tag, Shape::ManyStatements));
     }
     let statement = statements.remove(0);
+    // HERE, and it has to be here: before anything CLONES or SERIALIZES this tree.
+    //
+    // Two of the walks over a parsed fragment are ours and neither is guarded. `Expression`'s
+    // derived `Clone` recurses once per node, and `projection.clone()` at the end of this function
+    // runs it; `serde_json::to_value` inside `carries` recurses once per node too, and `has_field`
+    // recurses again over the `Value` it produces. The dialect layer guards its own - the parser
+    // enforces `ComplexityGuardOptions`, the generator wraps generation in `stacker::maybe_grow`,
+    // and its `Drop` is iterative - so these two are the whole exposure.
+    //
+    // A stack overflow is not a panic. `panic = "abort"` is beside the point: there is no unwinding
+    // to catch and the process simply dies, so a guard in `check` would be too late because the
+    // clone is in here. Measured in a debug build on a 2 MiB stack - which is what a tokio worker
+    // thread and a spawned std thread both have - four ordinary fragments under half of
+    // `MAX_FRAGMENT_LEN` each ABORTED the process: 500 `+ 1` terms, a 500-deep list literal, 250
+    // `NOT`s and 505 parentheses. In a release build the same abort needs only 128 KiB, which is
+    // musl's default main-thread stack.
+    //
+    // `tree_depth` is iterative, so asking the question costs no stack at all.
+    let depth = statement.tree_depth();
+    if depth > MAX_DEPTH {
+        return Err(ExpressionError::TooDeep {
+            tag: String::from(tag.as_str()),
+            depth,
+            limit: MAX_DEPTH,
+        });
+    }
     let Expression::Select(ref select) = statement else {
         return Err(not_one(tag, Shape::NotASelect));
     };
@@ -631,7 +802,46 @@ const fn dialect_type(dialect: Dialect) -> DialectType {
 /// serialization, where a field name is visible - which also means an aggregate that gains a filter
 /// field upstream is covered with no edit here.
 fn carries(expression: &Expression, field: &str) -> bool {
-    serde_json::to_value(expression).is_ok_and(|value| has_field(&value, field))
+    // `is_none_or`, and the `None` half is the whole of a fix: this was `is_ok_and`, so a tree that
+    // would not serialize was reported as carrying NOTHING - which is the one answer a refusal must
+    // never guess. Latent, because the AST holds no `f64` and so nothing in it can fail to become
+    // JSON today; a guard whose failure mode is "allow" is a guard that stops being one the moment
+    // upstream adds a field that can.
+    serialized(expression).is_none_or(|value| has_field(&value, field))
+}
+
+/// The tree as JSON, or `None` if it would not serialize. See [`carries`] for why `None` is not
+/// treated as an absence of anything.
+fn serialized(expression: &Expression) -> Option<serde_json::Value> {
+    serde_json::to_value(expression).ok()
+}
+
+/// Does any node carry a comment, under any of the names the AST spells one?
+///
+/// **Asked by SUFFIX, because `trailing_comments` is one of seven.** The AST also spells a comment
+/// `leading_comments`, `comments`, `pre_alias_comments`, `post_select_comments`, `operator_comments`
+/// and `left_comments`, and three of those six are re-emitted INTO the statement - measured, all
+/// three accepted before this: `SUM(x) /* c */ + 1` keeps its comment through `left_comments`,
+/// `SUM(x) + /* c */ 1` through `operator_comments`, and `CASE /* c */ WHEN ..` moves its comment to
+/// the end of the `CASE` through `comments`. Up to a thousand characters of catalog prose between our
+/// own generated tokens, under a refusal that reads as if it held.
+///
+/// Not an injection - `*/` and `/*` are both escaped on these paths, tried and confirmed - so what
+/// was broken is the refusal, not the quoting. Matching the suffix covers the four spellings nothing
+/// has been measured for and a name upstream has not added yet, which is the same argument
+/// [`carries`] makes for asking the serialization rather than the type.
+fn carries_comment(expression: &Expression) -> bool {
+    serialized(expression).is_none_or(|value| has_comment(&value))
+}
+
+fn has_comment(value: &serde_json::Value) -> bool {
+    match *value {
+        serde_json::Value::Object(ref map) => map
+            .iter()
+            .any(|(key, child)| (key.ends_with("comments") && !empty(child)) || has_comment(child)),
+        serde_json::Value::Array(ref items) => items.iter().any(has_comment),
+        _ => false,
+    }
 }
 
 fn has_field(value: &serde_json::Value, field: &str) -> bool {

@@ -241,6 +241,54 @@ fn a_phrase_is_one_line_and_bounded() {
 }
 
 #[test]
+fn a_phrase_is_normalised_so_that_two_of_them_cannot_look_identical() {
+    // What `parse` STORES is what a reader sees. Without this, a run of spaces and an invisible code
+    // point were each a second spelling of a phrase the glossary already had - and the phrase index
+    // is a map, so two entries a reader cannot tell apart both loaded and both rendered.
+    assert_eq!(phrase("monthly   recurring  revenue").as_str(), "monthly recurring revenue");
+    // Built from code points rather than written as literals: the workspace denies a non-ASCII
+    // literal in source, which is a fact about its lint table and not about the type.
+    let zero_width = char::from_u32(0x200b).expect("U+200B is a character");
+    assert_eq!(phrase(&format!("m{zero_width}rr")).as_str(), "mrr");
+    let right_to_left_override = char::from_u32(0x202e).expect("U+202E is a character");
+    assert_eq!(phrase(&format!("{right_to_left_override}revenue")).as_str(), "revenue");
+    // A phrase of nothing but invisible characters is a phrase of nothing, which the emptiness
+    // refusal now reaches.
+    assert_eq!(
+        Phrase::parse(format!("{zero_width}{zero_width}")).unwrap_err(),
+        InvalidPhrase::Empty
+    );
+    // Case is NOT folded here: it is meaning, and the prompt renders the spelling an author chose.
+    // What folds case is `phrase_identity`, which is what every index in this module is keyed on -
+    // so "MRR" and "mrr" are one phrase for the purpose of noticing that two documents disagree and
+    // two phrases for the purpose of rendering them.
+    assert_eq!(phrase("MRR").as_str(), "MRR");
+    assert_eq!(super::phrase_identity(&phrase("MRR")), "mrr");
+    assert_eq!(
+        super::phrase_identity(&phrase("Monthly  Recurring Revenue")),
+        "monthly recurring revenue"
+    );
+}
+
+#[test]
+fn a_phrase_with_no_letter_and_no_digit_is_not_a_phrase() {
+    // What a YAML scalar that is not text arrives as: a null reaches this constructor as the one
+    // character it prints as, and without this clause the prompt renders a glossary entry for a
+    // tilde. The placeholders somebody meant to fill in later go the same way.
+    for raw in ["~", "--", "...", "?!"] {
+        assert_eq!(
+            Phrase::parse(raw).unwrap_err(),
+            InvalidPhrase::NotAWord {
+                value: String::from(raw)
+            },
+            "{raw:?} carries no word"
+        );
+    }
+    // A digit on its own is a word, though: "5G" is a phrase somebody says.
+    assert_eq!(phrase("5G").as_str(), "5G");
+}
+
+#[test]
 fn a_note_body_is_refused_over_the_cap_rather_than_cut_to_fit() {
     // The decision this asserts: over the cap the DOCUMENT does not load. Truncating instead would
     // make the rendered prompt say something the author did not write, about a bundle whose digest
@@ -434,6 +482,25 @@ fn every_capability_there_is_comes_from_the_one_exhaustive_match() {
             Capability::Examples,
         ]
     );
+    // **The seed, which was the hole this pair did not cover.** `every` starts at `Glossary` by
+    // name, so a variant declared ABOVE it left every match in this crate exhaustive and simply
+    // never appeared - in `all()`, in the rendered declaration, or in `Knowledge::assemble`'s
+    // undeclared-content guard, which walks this iterator. A review inserted one there and both of
+    // the guard's own tests still passed. `Capability::previous` is the second match the compiler
+    // forces, the const assertion beside the enum is what now fails to compile, and this is the same
+    // fact asserted where a reader of the list above will see it.
+    assert!(
+        Capability::Glossary.previous().is_none(),
+        "every() is seeded with Glossary, so no capability may be declared before it"
+    );
+    // And the two matches are each other's inverse over the whole list, so neither can be edited
+    // into agreeing with a different order than the other.
+    for capability in Capability::every() {
+        if let Some(next) = capability.next() {
+            assert_eq!(next.previous(), Some(capability), "{capability} and {next} disagree");
+        }
+    }
+    assert_eq!(Capability::Examples.next(), None);
     // And `all()` is that same list, so an adapter declaring everything cannot declare less than
     // everything.
     let all = KnowledgeCapabilities::all();

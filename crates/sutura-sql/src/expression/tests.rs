@@ -10,6 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
 use sutura_domain::model::{ColumnName, TableName};
 
+use super::vocabulary::{ALLOWED_FUNCTION_NAMES, Called};
 use super::{Construct, ExpressionError, Shape, compile, embed};
 use crate::dialect::{ALL, Dialect};
 
@@ -260,6 +261,301 @@ fn a_date_or_time_function_is_refused_however_it_is_spelled() {
 }
 
 #[test]
+fn a_function_name_outside_the_allowed_set_is_refused_and_the_refusal_names_it() {
+    // THE REASON THE NAME CHECK IS AN ALLOWLIST, and `docs/adr/0004` records the reversal. A generic
+    // call is emitted verbatim into every target with no lowering at all, so its name is unbounded
+    // reach. Measured against DuckDB 1.5.5: the rendering of `MAX(getenv('X'))` is
+    // `SELECT (MAX(GETENV('X'))) FROM fact_subscription`, and with `SUTURA_SECRET_PROBE` set in the
+    // process that statement ANSWERED THE VALUE. Every secret the sutura process holds - a
+    // service-account path, a warehouse password, a token - was readable that way, under a certified
+    // metric name, out of a catalog file. `Construct::TableReference::why` states the invariant it
+    // breaks: "a measure expression may read only the columns its own model declares".
+    //
+    // A denylist over names cannot bound that space. It is every function every target has, plus
+    // every user-defined one, and the list below is a sample of one afternoon's reading of three
+    // manuals. The set a MEASURE needs is short, so that is what is enumerated.
+    for (raw, name) in [
+        // DuckDB: reads the process environment, and reads engine configuration.
+        ("MAX(getenv('SUTURA_SECRET_PROBE'))", "getenv"),
+        ("SUM(mrr_eur) + LEN(getenv('HOME'))", "getenv"),
+        ("MAX(current_setting('temp_directory'))", "current_setting"),
+        // Postgres: reads an arbitrary file, lists a directory, writes one to disk.
+        ("SUM(mrr_eur) + LENGTH(pg_read_file('/etc/passwd'))", "pg_read_file"),
+        ("SUM(mrr_eur) + pg_ls_dir('/')", "pg_ls_dir"),
+        ("SUM(mrr_eur) + lo_import('/etc/passwd')", "lo_import"),
+        // Postgres: EXECUTES an arbitrary query and returns its rows.
+        (
+            "SUM(mrr_eur) + LENGTH(query_to_xml('SELECT * FROM secret_table', true, false, ''))",
+            "query_to_xml",
+        ),
+        ("SUM(mrr_eur) + LENGTH(dblink('x', 'y'))", "dblink"),
+        // Postgres: mutates a sequence, and holds the connection for as long as it likes.
+        ("SUM(nextval('some_sequence'))", "nextval"),
+        ("SUM(setval('some_sequence', 1))", "setval"),
+        ("SUM(mrr_eur) + pg_sleep(1000000)", "pg_sleep"),
+        // ClickHouse: a dictionary lookup, a setting, and its own sleep.
+        ("MAX(dictGet('d', 'a', customer_key))", "dictGet"),
+        ("MAX(getSetting('s'))", "getSetting"),
+        ("SUM(mrr_eur) + sleep(3)", "sleep"),
+        // A UDF, which the denylist allowed on the grounds that an author naming a dialect had taken
+        // the claim. Portability is the author's claim to make; what the process can reach is not.
+        ("SUM(our_own_udf(mrr_eur))", "our_own_udf"),
+        // And the two spellings that turn an ARBITRARY name into an `AggregateFunction` rather than a
+        // `Function` - measured in the authoring dialect's parser - so a check that looked only at
+        // `Function` would have had a bypass here.
+        ("getenv('SUTURA_SECRET_PROBE') IGNORE NULLS", "getenv"),
+        ("getenv('SUTURA_SECRET_PROBE') WITHIN GROUP (ORDER BY mrr_eur)", "getenv"),
+    ] {
+        match portable(raw) {
+            Err(ExpressionError::UnknownFunction { tag, name: found }) => {
+                assert_eq!(found, name, "{raw:?}");
+                assert_eq!(tag, "portable", "{raw:?}");
+            }
+            other => panic!("{raw:?}: expected an unknown function, got {other:?}"),
+        }
+    }
+    // The refusal carries BOTH halves, which is why it is not a bare `Refused`: the name that is not
+    // allowed, and the set that is.
+    let rendered = portable("MAX(getenv('SUTURA_SECRET_PROBE'))")
+        .expect_err("getenv is refused")
+        .to_string();
+    assert!(rendered.contains("getenv"), "{rendered}");
+    assert!(rendered.contains("PERCENTILE_CONT"), "{rendered}");
+    assert!(rendered.contains("NULLIF"), "{rendered}");
+    // A date name keeps its own refusal, which is the better sentence for whoever has to fix the
+    // file: the argument-order defect rather than "not on the list".
+    assert_eq!(
+        refusal("SUM(CASE WHEN order_date > NOW() THEN mrr_eur END)"),
+        Construct::DateTimeFunction
+    );
+    // And a dotted name is still reported as the schema it reaches, not as an unknown name.
+    assert_eq!(refusal("secret.udf(mrr_eur)"), Construct::Opaque);
+}
+
+#[test]
+fn the_allowlist_is_the_one_place_a_callable_name_is_written_down() {
+    // Three properties of the list itself, because it is the whole boundary now.
+    //
+    // Sorted, and strictly: the order is what makes a diff to it readable, and a duplicate carrying
+    // two different marks would be decided by whichever line came first, silently.
+    for (earlier, later) in ALLOWED_FUNCTION_NAMES.iter().zip(ALLOWED_FUNCTION_NAMES.iter().skip(1)) {
+        assert!(earlier.0 < later.0, "{:?} is not sorted before {:?}", earlier.0, later.0);
+    }
+    for &(name, _) in ALLOWED_FUNCTION_NAMES {
+        // Upper case, because the compare is `eq_ignore_ascii_case` and a lower-case entry would
+        // read as if case mattered here.
+        assert_eq!(name, name.to_uppercase(), "{name} is not written in upper case");
+        // And unqualified, because a schema on a name is `Construct::QualifiedFunctionName` and
+        // would never reach the list anyway.
+        assert!(!name.contains('.'), "{name} is schema-qualified");
+    }
+    // And the refusal NAMES the allowed set, generated from the list rather than restated beside it:
+    // a name added above appears in the message with no second edit, which is the whole reason the
+    // list is declared through a macro.
+    let why = Construct::UnknownFunction.why();
+    for &(name, _) in ALLOWED_FUNCTION_NAMES {
+        assert!(why.contains(name), "{name} is not in the refusal message: {why}");
+    }
+}
+
+#[test]
+fn an_aggregate_mark_agrees_with_the_dialect_layer_wherever_that_layer_has_an_opinion() {
+    // The mark is DERIVED rather than kept by hand. For every name the allowlist calls an aggregate,
+    // `NAME(mrr_eur)` is parsed in the authoring dialect and the dialect layer's own
+    // `contains_aggregate` is asked - so where the two agree the mark restates nothing, and the
+    // aggregate node kinds are written down in exactly one place, which is upstream.
+    //
+    // Where they disagree the name is listed here, so the exception is enumerated rather than
+    // implicit. There is one, and it is the finding the mark exists for: `uniqExact` is a real
+    // ClickHouse aggregate the dialect layer has no node for, so it arrived as a plain `Function`,
+    // `contains_aggregate` said false, and a per-dialect variant nobody could write any other way
+    // was refused as `NotAggregated`.
+    const THE_DIALECT_LAYER_HAS_NO_NODE_FOR: &[&str] = &["UNIQEXACT"];
+    let authoring = polyglot_sql::dialects::Dialect::get(polyglot_sql::DialectType::DuckDB);
+    for &(name, called) in ALLOWED_FUNCTION_NAMES {
+        if called != Called::Aggregate {
+            continue;
+        }
+        let statements = authoring
+            .parse(&format!("SELECT {name}(mrr_eur)"))
+            .unwrap_or_else(|err| panic!("{name}(mrr_eur) should parse in the authoring dialect: {err}"));
+        let upstream_knows = statements.iter().any(polyglot_sql::traversal::contains_aggregate);
+        assert_eq!(
+            upstream_knows,
+            !THE_DIALECT_LAYER_HAS_NO_NODE_FOR.contains(&name),
+            "{name}: the dialect layer says aggregate={upstream_knows}, and the exception list disagrees"
+        );
+    }
+    // The scalar half is load-bearing in the other direction, so the mark is not decoration: a
+    // scalar call over a bare column aggregates nothing, and every question about a metric is
+    // grouped.
+    assert_eq!(refusal("ROUND(mrr_eur, 2)"), Construct::NotAggregated);
+    assert_eq!(refusal("GREATEST(mrr_eur, 0)"), Construct::NotAggregated);
+    assert_eq!(refusal("ABS(mrr_eur)"), Construct::NotAggregated);
+}
+
+#[test]
+fn a_dialect_aggregate_the_dialect_layer_has_no_node_for_still_counts_as_aggregating() {
+    // `uniqExact` is ClickHouse's exact distinct count and has no portable spelling, which makes it
+    // precisely the case a per-dialect variant exists for - and it was refused as "no aggregate",
+    // because the classifier that answers that question works by node kind and there is no node.
+    let compiled = compile(
+        &authored(&[
+            ("portable", "COUNT(DISTINCT customer_key)"),
+            ("clickhouse", "uniqExact(customer_key)"),
+        ]),
+        &table(),
+        &columns(),
+    )
+    .expect("a ClickHouse-only aggregate compiles for ClickHouse");
+    let click = compiled.for_dialect(Dialect::ClickHouse).expect("clickhouse resolved");
+    assert_eq!(click.authored_for().as_str(), "clickhouse");
+    assert_eq!(click.sql(), "uniqExact(\"fact_subscription\".\"customer_key\")");
+    // And it is still only a NAME on the allowlist: every other check is unchanged, so the column it
+    // reads is checked against the model exactly as any other fragment's is.
+    assert!(matches!(
+        portable("uniqExact(sales_territory)"),
+        Err(ExpressionError::UnknownColumn { .. })
+    ));
+    assert_eq!(refusal("uniqExact(*)"), Construct::Star);
+}
+
+#[test]
+fn a_fragment_that_nests_deeper_than_the_checks_walk_is_refused_rather_than_ending_the_process() {
+    // FOUR ORDINARY FRAGMENTS, each under the domain's own length bound, each of which ABORTED the
+    // process. Two walks over a parsed fragment are ours and neither was guarded: `Expression`'s
+    // derived `Clone`, run by `projection.clone()` at the end of `parse`, and `serde_json::to_value`
+    // inside `carries`. A stack overflow is not a panic - `panic = "abort"` is beside the point,
+    // there is nothing to catch - so the process simply died. Measured in a debug build on a 2 MiB
+    // stack, which is what a tokio worker thread and a spawned std thread both have; in a release
+    // build the same abort needs only 128 KiB, which is musl's default main-thread stack.
+    for raw in [
+        format!("SUM(mrr_eur){}", "+1".repeat(500)),
+        format!("SUM({}1{})", "[".repeat(500), "]".repeat(500)),
+        format!("SUM({}1)", "NOT ".repeat(250)),
+        format!("SUM({}mrr_eur{})", "(".repeat(505), ")".repeat(505)),
+    ] {
+        assert!(
+            SqlFragment::parse(&raw).is_ok(),
+            "the domain accepts it, at {} characters",
+            raw.chars().count()
+        );
+        match portable(&raw) {
+            Err(ExpressionError::TooDeep { tag, depth, limit }) => {
+                assert_eq!(tag, "portable");
+                assert_eq!(limit, super::MAX_DEPTH);
+                assert!(depth > limit, "{depth} is not deeper than {limit}");
+            }
+            other => panic!("expected a depth refusal, got {other:?}"),
+        }
+    }
+    // The bound acts at the number written down rather than near it. Thirty parentheses is a tree of
+    // depth 32 - the wrapper's `SELECT` and the `SUM` are the other two levels - and thirty-one is
+    // 33, so one level under the limit compiles and one level over does not.
+    let nest = |count: usize| format!("SUM({}mrr_eur{})", "(".repeat(count), ")".repeat(count));
+    portable(&nest(30)).expect("a fragment at the limit compiles");
+    assert!(matches!(
+        portable(&nest(31)),
+        Err(ExpressionError::TooDeep {
+            depth: 33,
+            limit: 32,
+            ..
+        })
+    ));
+}
+
+#[test]
+fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
+    // The POSTCONDITION, and it is checked because the rewrite could not be trusted to have run.
+    // `traversal::transform_map` dispatches on a hardcoded list of node kinds and returns a kind it
+    // has no arm for untouched, children and all; the unknown-column check is a `dfs` walk, which
+    // has the WIDER coverage. So the check saw columns the rewrite never touched, and each of these
+    // eight compiled with a bare column in the output.
+    //
+    // Measured in DuckDB 1.5.5 for the COLLATE case, against a joined dimension carrying the same
+    // column name: `Binder Error: Ambiguous reference to column name "region"` - at query time, for
+    // a metric whose load succeeded. On an engine that resolves by precedence instead of erroring it
+    // is silently the wrong number, which is what `qualify` exists to prevent.
+    for raw in [
+        "MAX(mrr_eur COLLATE NOCASE)",
+        "SUM(mrr_eur) SIMILAR TO 'x'",
+        "SUM(mrr_eur) WITHIN GROUP (ORDER BY region)",
+        "ARRAY_AGG(mrr_eur ORDER BY region)",
+        "LIST(mrr_eur ORDER BY region)",
+        "GROUP_CONCAT(status ORDER BY region)",
+        "FIRST_VALUE(mrr_eur IGNORE NULLS) OVER (PARTITION BY region)",
+        "LAST_VALUE(mrr_eur) IGNORE NULLS OVER (PARTITION BY region)",
+    ] {
+        match portable(raw) {
+            Err(ExpressionError::NotQualified { tag, column, table }) => {
+                assert_eq!(tag, "portable", "{raw:?}");
+                assert!(
+                    columns().iter().any(|declared| declared.as_str() == column),
+                    "{raw:?}: {column} is not one of the model's columns"
+                );
+                assert_eq!(table, table_named("fact_subscription"), "{raw:?}");
+            }
+            other => panic!("{raw:?}: expected an unqualified column, got {other:?}"),
+        }
+    }
+    // And because it is a check on the OUTPUT rather than a second denylist of node kinds, every
+    // fragment the rewrite DOES reach still compiles - including `WITHIN GROUP`, whose `order_by` is
+    // rewritten while its `this` is not, which is why one of the two is here and the other is above.
+    for raw in [
+        "PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mrr_eur)",
+        "SUM(mrr_eur) OVER (PARTITION BY region)",
+        "SUM(CASE WHEN status = 'active' THEN mrr_eur END)",
+        "ARRAY_AGG(DISTINCT mrr_eur)",
+    ] {
+        let compiled = portable(raw).unwrap_or_else(|err| panic!("{raw:?} should still compile: {err}"));
+        for dialect in ALL.iter().copied() {
+            let sql = compiled.for_dialect(dialect).expect("resolved").sql();
+            assert!(!sql.contains("(\"mrr_eur\""), "{raw:?} for {dialect}: {sql}");
+        }
+    }
+}
+
+#[test]
+fn a_comment_is_refused_under_every_name_the_ast_spells_one() {
+    // `carries(.., "trailing_comments")` asked about ONE field. The AST spells a comment seven ways
+    // and three of the others are re-emitted INTO the statement - measured, all three accepted
+    // before the question became a suffix match: `SUM(x) /* c */ + 1` through `left_comments`,
+    // `SUM(x) + /* c */ 1` through `operator_comments`, and `CASE /* c */ WHEN ..` through
+    // `comments`, which moves it to the end of the `CASE`. Up to a thousand characters of catalog
+    // prose between our own generated tokens, under a refusal that read as though it held.
+    //
+    // Not an injection - `*/` and `/*` are both escaped on these paths, tried and confirmed - so
+    // what was broken is the refusal and not the quoting.
+    for raw in [
+        "SUM(mrr_eur) /* left */ + 1",
+        "SUM(mrr_eur) + /* operator */ 1",
+        "CASE /* leading */ WHEN 1 = 1 THEN SUM(mrr_eur) END",
+        "SUM(mrr_eur) -- trailing on a line\n + 1",
+        "SUM(mrr_eur) /* trailing */",
+    ] {
+        assert_eq!(refusal(raw), Construct::Comment, "{raw:?}");
+    }
+}
+
+#[test]
+fn an_unterminated_comment_is_refused_rather_than_discarding_the_rest_of_the_fragment() {
+    // `SUM(mrr_eur) /* note */` was refused as a comment. `SUM(mrr_eur) /* note` was ACCEPTED, with
+    // everything after the `/*` swallowed by the tokenizer and nothing left in the tree to record
+    // that it was there - the same shape as the dropped clause `Shape::CarriedClause` exists for,
+    // arrived at through the tokenizer rather than the parser. Which is why the question is asked of
+    // the TEXT: by the time there is an AST, the evidence is gone.
+    assert_eq!(
+        refusal("SUM(mrr_eur) /* actually we want SUM(customer_key) here"),
+        Construct::Comment
+    );
+    assert_eq!(refusal("SUM(mrr_eur) */"), Construct::Comment);
+    // The fail-closed caveat, asserted so that it is a decision on the record rather than a surprise
+    // in a year: counting delimiters cannot tell a comment from a string literal holding one, so a
+    // measure comparing a column against `/*` is refused too. A measure has no reason to.
+    assert_eq!(refusal("SUM(CASE WHEN status = '/*' THEN mrr_eur END)"), Construct::Comment);
+}
+
+#[test]
 fn a_subquery_is_refused_even_though_every_shape_guard_passes_it() {
     // The hole the four shape guards do not close, and the one worth having found: a scalar subquery
     // in the projection is one statement, one expression, no FROM and no alias, so it passes all
@@ -454,6 +750,7 @@ fn a_refusal_says_what_it_found_and_why() {
         Construct::QualifiedColumn,
         Construct::QualifiedFunctionName,
         Construct::DateTimeFunction,
+        Construct::UnknownFunction,
         Construct::AggregateFilter,
         Construct::Comment,
         Construct::RowConstructor,

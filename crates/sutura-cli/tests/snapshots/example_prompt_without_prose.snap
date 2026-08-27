@@ -303,8 +303,9 @@ not infer a meaning from the name alone and present it as the definition.
 ## Worked questions
 
 Questions somebody actually asked, with the request that answers each. Copy the shape. Every value
-in them is one this snapshot declares, so a question below is one this deployment answers rather
-than one it would decline.
+in them is one this snapshot declares, and every one of them is inside the bounds above - the
+period, the group-by count - because a bundle carrying one that is not does not load. So a question
+below is one this deployment answers rather than one it would decline.
 
 ### business_revenue_in_the_north
 

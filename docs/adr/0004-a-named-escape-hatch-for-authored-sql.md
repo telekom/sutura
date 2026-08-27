@@ -1,6 +1,6 @@
 ---
 title: A named escape hatch for authored SQL
-description: Why a metric may carry a SQL expression somebody wrote, why it is a separate named shape rather than a field on the measure, why the fragment is parsed and generated rather than transpiled, and which four constructs are refused at load and why each one is on the list.
+description: Why a metric may carry a SQL expression somebody wrote, why it is a separate named shape rather than a field on the measure, why the fragment is parsed and generated rather than transpiled, why node kinds are a denylist and function names are an allowlist, and which constructs are refused at load and why each one is on the list.
 ---
 
 # A named escape hatch for authored SQL
@@ -64,9 +64,33 @@ this build renders for is also a load failure, not a variant silently never chos
 `postgresql:` beside a `portable:` means Postgres quietly gets the portable text and nobody learns
 that the variant written for it was never read.
 
-The domain holds the fragment as **text** and no more. It checks that a fragment is present, bounded
-and free of control characters, and it owns none of the SQL judgement, because it has no parser and
-`cargo xtask check-boundaries` keeps it that way.
+The domain holds the fragment as **text** and no more. It checks that a fragment is present, bounded,
+and free of the characters that make the text a reviewer reads differ from the text that compiles,
+and it owns none of the SQL judgement, because it has no parser and `cargo xtask check-boundaries`
+keeps it that way.
+
+Two of those checks are worth naming, because both were found by attacking the text rather than by
+reasoning about it.
+
+**`char::is_control` is not the check its own reason asked for.** The refusal's stated purpose is to
+stop "an attempt to hide part of a fragment from a reviewer's terminal", and the characters that do
+that are general category `Cf`, not `Cc` - so `is_control` is false for every one of them and they
+passed. `SUM(CASE WHEN status = '<U+202E>evitca<U+202C>' THEN mrr_eur END)` renders in a terminal, in
+a diff and in a pull request as `status = 'active'` while comparing against something else, so the
+branch never fires and the metric certifies zero under a name a reviewer approved. That is Trojan
+Source (CVE-2021-42574) pointed at a metric definition, and the definition digest covers the text
+faithfully while the text is not what the reviewer read. `InvalidFragment::InvisibleCharacter` is a
+second refusal beside the first, over an enumerated set of ranges rather than the `Cf` category: a
+category test would move with the Unicode table under a dependency bump, which for a load-bearing
+refusal is a set that changes with no diff.
+
+**A dialect word is not trimmed.** `DialectTag::parse` used to trim, which made `duckdb` and
+` duckdb ` the same tag - and `BTreeMap`'s deserialize keeps the LAST value for a repeated key, so
+`{"duckdb": A, " duckdb ": B}` silently discarded `A` and certified `B`, with the digest taken over
+the survivor. That is the outcome `Computation::assemble` refuses when a metric writes `measure`
+beside `authored_sql`, arrived at without anybody writing two keys on purpose. Surrounding whitespace
+is now an `IllegalCharacter` load failure. `SqlFragment` still trims, deliberately: two fragments
+that differ only by surrounding whitespace are the same fragment, where two map keys are two keys.
 
 ### Parse and generate, at load, per dialect
 
@@ -98,6 +122,31 @@ resolve by writing the call and watching clippy reject it - an unresolvable path
 `disallowed-methods` is silently ignored, so an unverified entry would read as enforcement and do
 nothing.
 
+### The fragment is bounded in depth as well as in length
+
+`MAX_FRAGMENT_LEN` bounds the text at 1024 characters and the parser's own `ComplexityGuardOptions`
+bound nesting at 512 levels, which between them let a catalog file hold a tree 507 levels deep. Two
+walks over that tree are **ours** and neither was guarded: `projection.clone()` at the end of `parse`,
+because `Expression`'s derived `Clone` recurses once per node, and `serde_json::to_value` inside
+`carries`, which recurses once per node before `has_field` recurses again over the `Value`. The
+dialect layer guards its own - the parser enforces its complexity limits, the generator wraps
+generation in `stacker::maybe_grow`, and its `Drop` is iterative - so those two were the whole
+exposure.
+
+A stack overflow is **not a panic.** `panic = "abort"` is beside the point: there is no unwinding to
+catch, and the process dies. Measured, in a debug build on a 2 MiB stack - which is what a tokio
+worker thread and a spawned std thread both have - four ordinary fragments each under the length
+bound aborted the process: 500 `+ 1` terms, a 500-deep list literal, 250 `NOT`s and 505 parentheses.
+In a release build the same abort needs only 128 KiB, which is musl's default main-thread stack.
+
+`parse` therefore bounds the depth at `MAX_DEPTH = 32`, immediately after the statement comes out of
+the parser and **before anything clones or serializes it** - a guard in `check` would be too late,
+because the clone is inside `parse`. `ExpressionWalk::tree_depth` is iterative, so asking the
+question costs no stack at all. The number is the small half of the decision: counting the wrapper's
+`SELECT` as a level, the conditional sum this hatch exists for nests four and the deepest fragment any
+test in this repository needs is five, while 30 parentheses is a tree of depth 32 that compiles and 31
+is 33 and does not.
+
 **The authoring dialect is `DuckDB` and may not be `ClickHouse`.** Measured: ClickHouse's parser
 accepts `SUM(x))` and `x) FROM secret --`, silently dropping the tail. That is injection-shaped input
 passing validation. DuckDB rejects both, and rejects `SUM(x) garbage garbage`, `SUM(x), COUNT(y)`,
@@ -117,6 +166,26 @@ metric's model table - the same rule the plan already follows, for the same reas
 column in a statement that later grows a join binds to whichever table happens to have it, and that
 is a wrong number rather than an error.
 
+**And the compile asserts that it did, rather than trusting the rewrite.** The rewrite runs inside
+`traversal::transform_map`, whose child coverage is NARROWER than the traversal API's: it dispatches
+on a hardcoded list of node kinds and returns a kind it has no arm for untouched, children and all -
+its own comment says so, and `WithinGroup`'s adds that it does not descend into `this`. The
+unknown-column check is a `dfs` walk, which has the wider coverage. So the check saw columns the
+rewrite never reached, and eight measured fragments passed every guard and emitted a bare column:
+`MAX(x COLLATE ..)`, `SUM(x) SIMILAR TO ..`, `SUM(x) WITHIN GROUP (..)`, `ARRAY_AGG`/`LIST`/
+`GROUP_CONCAT` with an `ORDER BY`, and both placements of `IGNORE NULLS`.
+
+The cost of that is not a load failure. Measured in DuckDB 1.5.5 for the `COLLATE` case against a
+joined dimension carrying the same column name: `Binder Error: Ambiguous reference to column name
+"region"` - at query time, for a metric whose load SUCCEEDED, so the questions that join nothing are
+answered and the ones that join fail. That is exactly what load-time checking exists to prevent, and
+on an engine that resolves by precedence rather than erroring it is silently the wrong number.
+
+So after `qualify`, any `Expression::Column` with no table is `ExpressionError::NotQualified`.
+Asserting the postcondition rather than widening the rewrite is the choice: the walk belongs to the
+dialect layer, so a version of it that gains an arm makes more fragments compile and none escapes the
+check either way.
+
 ### The denylist
 
 Four constructs are refused at catalog-validation time. **Nothing upstream errors on any of them**,
@@ -134,6 +203,91 @@ Plus `x IS TRUE`, already recorded as not portable in
 rather than portability: a subquery, a table reference, a star, a bind placeholder, a schema
 statement, a node the generator emits with no handling at all, and a fragment that aggregates
 nothing.
+
+### Node kinds are a denylist. Function names are an allowlist
+
+This reverses what *Alternatives considered* decided below, and the reversal is confined to names.
+
+A generic function call is the case where the dialect layer has no typed node, so it emits the name
+**verbatim into every target with no lowering of any kind**. The old check compared that name against
+the date-and-time list and let everything else through, on the stated grounds that a UDF was the
+author's claim to make. Measured against DuckDB 1.5.5, that was not a claim about portability but
+about reach: the rendering of `MAX(getenv('X'))` is
+`SELECT (MAX(GETENV('X'))) FROM fact_subscription`, and with `SUTURA_SECRET_PROBE` set in the process
+that statement **answered the value of the environment variable.** Every secret the sutura process
+holds - a service-account path, a warehouse password, a token - was readable that way, under a
+certified metric name, out of a catalog file. `Construct::TableReference::why` states the invariant it
+breaks: "a measure expression may read only the columns its own model declares". Also accepted at
+compile, from one afternoon over three manuals: Postgres `query_to_xml` (executes arbitrary SQL and
+returns its rows), `pg_read_file`, `pg_ls_dir`, `lo_import` (writes to disk), `nextval` and `setval`
+(mutate a sequence), `pg_sleep` and `dblink`; ClickHouse `dictGet`, `getSetting` and `sleep`; DuckDB
+`current_setting`.
+
+**A denylist over function names cannot bound that space.** It is every function every target has,
+plus every user-defined one, plus every function a future version of any of them adds. So the
+direction is reversed for names: `Construct::UnknownFunction` refuses every name that is not on a
+short list, and the refusal **names the list**, generated from the list itself so the sentence an
+author reads cannot disagree with the check that refused them.
+
+The count argument below does not transfer, and that is the whole reason this is a reversal rather
+than a contradiction. It was made about node KINDS - "some six hundred", and enumerating the ones
+that are fine would recreate the closed vocabulary - and it still holds for them, which is why kinds
+are still a denylist backed by `traversal::is_query` and `traversal::is_ddl`. The set of *names a
+measure needs* is a different set: percentiles, a null guard, a rounding, a min/max pair, and the
+aggregates. It fits on one screen:
+
+`ABS`, `ARRAY_AGG`, `AVG`, `CAST`, `COALESCE`, `COUNT`, `COUNTIF`, `COUNT_IF`, `GREATEST`,
+`GROUP_CONCAT`, `LEAST`, `LIST`, `MAX`, `MEDIAN`, `MIN`, `NULLIF`, `PERCENTILE_CONT`,
+`PERCENTILE_DISC`, `ROUND`, `STDDEV`, `STDDEV_POP`, `STDDEV_SAMP`, `STRING_AGG`, `SUM`, `SUMIF`,
+`SUM_IF`, `TRY_CAST`, `UNIQEXACT`, `VARIANCE`, `VAR_POP`, `VAR_SAMP`.
+
+Three things follow.
+
+**A variant needing one more name is a review-visible edit to that list**, which is precisely the
+property the hatch exists to have: a metric using SQL is already a named, greppable shape, and now so
+is the vocabulary it may use. Matching is `eq_ignore_ascii_case`, so one entry covers a dialect's own
+casing - `SUMIF` is how `sumIf` is written - while a spelling differing by more than case, such as
+`stddevPop` beside `STDDEV_POP`, needs its own line.
+
+**The residual date fail-open this record used to state is closed.** A date function spelled with a
+name not on the date list and with no typed node used to render verbatim; it is now refused as a name
+outside the allowlist. The date list survives because it gives such a name a refusal that says *date
+function* and points at the argument-order defect, which is a better sentence for an author than "not
+on the list".
+
+**Each name carries whether calling it aggregates**, and that mark fixed a second defect in the other
+direction. `traversal::contains_aggregate` classifies by node kind, so it is true for `SUM(x)` and
+`sumIf(x, p)` and **false** for `uniqExact(k)` - a real ClickHouse aggregate the dialect layer has no
+node for. A per-dialect variant nobody could write any other way was therefore refused as
+`NotAggregated`. The mark is asked only for names that classifier has no node for, so the aggregate
+node kinds are still written down in exactly one place, which is upstream; a test parses
+`NAME(mrr_eur)` for every aggregate-marked name and asserts the two agree, with the one exception
+enumerated rather than implicit.
+
+### Two more holes in the comment refusal
+
+Both are the refusal not holding rather than the escaping failing - `*/` and `/*` are escaped on
+every path that re-emits a comment, tried and confirmed.
+
+**A comment was refused under one of the seven names the AST spells it.** `carries` asked about
+`trailing_comments`; the AST also has `leading_comments`, `comments`, `pre_alias_comments`,
+`post_select_comments`, `operator_comments` and `left_comments`, and three of those six are re-emitted
+INTO the statement - measured, all three accepted: `SUM(x) /* c */ + 1` through `left_comments`,
+`SUM(x) + /* c */ 1` through `operator_comments`, and `CASE /* c */ WHEN ..` through `comments`, which
+moves it to the end of the `CASE`. Up to a thousand characters of catalog prose between our own
+generated tokens. The question is now asked by SUFFIX, so a field nobody has seen yet is covered -
+the same argument this file already makes for asking the serialization rather than the type.
+
+**An unterminated `/*` silently discarded the rest of the fragment.**
+`SUM(mrr_eur) /* SUM(customer_key) is what runs` was accepted, with everything after the `/*`
+swallowed by the tokenizer and nothing left in the tree to record that it was there. That is the same
+family as the dropped clause below - the one this record calls the worse of the two - reached through
+the tokenizer rather than the parser, which is why the question is asked of the TEXT: by the time
+there is an AST, the evidence is gone. Comparing the count of `/*` against the count of `*/` FAILS
+CLOSED on one input, and that is accepted rather than worked around: a string literal holding an
+unbalanced delimiter, `SUM(CASE WHEN status = '/*' THEN mrr_eur END)`, is refused too. A measure has
+no reason to compare a column against a comment delimiter, and the alternative is a second tokenizer
+in a file whose whole point is not to have one.
 
 ### Two holes the four shape guards do not close
 
@@ -177,9 +331,24 @@ measure has no reason to carry prose that the document around it can hold instea
   likewise into ClickHouse. No per-dialect function catalogue is compiled into this build. Per-dialect
   variants are how an author discharges that claim precisely, and a dialect with no variant and no
   `portable` fragment is refused rather than guessed at.
-- A residual fail-open remains on the date denylist: a date function spelled with a name not on the
-  list, and with no typed node, renders verbatim. It is bounded by the fact that nothing needs one,
-  and it is stated rather than hidden.
+- **The re-parse in `render` proves well-formedness and nothing about meaning.** It renders for the
+  target, parses the result back in that target, and DISCARDS what it parsed - so it cannot see a
+  construct whose meaning changed on the way out. Measured, this build:
+  `TRY_CAST(SUM(mrr_eur) AS DOUBLE)` renders as `TRY_CAST(.. AS DOUBLE)` for `DuckDB` and as
+  `CAST(.. AS DOUBLE PRECISION)` and `CAST(.. AS Nullable(Float64))` for Postgres and `ClickHouse`,
+  which turns null-on-failure into an error raised at query time; `SUM(mrr_eur)::VARCHAR` renders
+  three ways - `CAST(.. AS TEXT)`, `CAST(.. AS VARCHAR)` and `.. ::VARCHAR`; and a `json_extract`
+  becomes a differently-named function with a rewritten path expression. This is the same class as the
+  four denylisted defects and is not fixed here: comparing the two ASTs would need a semantic
+  equivalence the dialect layer does not offer. It is stated so that the guard is not read as more
+  than it is.
+- **`RenderedDoesNotParse` is weak for `ClickHouse` specifically.** Its parser accepts `SUM(x))` and
+  `x) FROM secret --` by discarding the tail - which is why it may not be the authoring dialect - and
+  the same laxity means a malformed rendering targeted at it is less likely to come back as an error.
+  The guard is worth having for the two strict targets and is not evidence for the third.
+- The residual fail-open on the date denylist is CLOSED, by the allowlist above: a date function with
+  an unlisted name and no typed node is now refused as a name outside the allowed set rather than
+  rendered verbatim.
 - Definition digests do not move. `Computation` is externally tagged so that flattened into a metric
   document a closed-vocabulary metric serializes as the `measure:` key it already had.
 - The definition digest now covers a string somebody wrote. A catalog edit still cannot change what
@@ -209,6 +378,13 @@ relation - so reach is a denylist backed by the dialect layer's own `is_query` a
 classifiers, and portability is a denylist of four measured defects. The residual risk of an
 unlisted-but-harmful node kind arriving in a future version of the dialect layer is accepted and
 stated.
+
+> **Amended.** This still stands for node KINDS and is why they are still a denylist. It was extended
+> to called function NAMES, and that extension was wrong: a name is not a node kind, the space is
+> unbounded rather than six hundred, and the proof is `MAX(getenv('X'))` returning a secret out of the
+> process. Names are now an allowlist -
+> [see above](#node-kinds-are-a-denylist-function-names-are-an-allowlist) - and the count argument is
+> the reason the two halves differ rather than the reason they agree.
 
 **Refuse the whole class and keep pushing these metrics to the pinned-statement path.** No parser
 anywhere on the definition path. Rejected for the reason 0002 rejected it once already: that path

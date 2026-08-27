@@ -15,15 +15,25 @@
 //! [`crate::catalog::Definitions::assemble`] already makes and the reason [`Knowledge::assemble`]
 //! takes the definitions rather than being handed a value somebody else checked. A glossary check
 //! inside the markdown adapter is a check a metadata-service adapter would not have.
+//!
+//! # One phrase, and what that means
+//!
+//! Every index here is keyed on [`super::phrase_identity`] rather than on the authored [`Phrase`],
+//! and the authored phrase is the value. Two documents whose phrases differ only in case, only in a
+//! run of spaces or only in an invisible code point are two documents about one phrase as far as
+//! whoever reads the rendered prompt is concerned, so they are refused rather than both rendered.
+//! Byte equality in one check beside a case-folded comparison in the next is how a glossary line and
+//! an absence line came to be rendered, three sections apart, about the same word.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     Absence, Absences, Capability, Caveat, Caveats, Example, Examples, Glossary, GlossaryEntry, KnowledgeCapabilities,
-    MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, sum_bytes,
+    MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, phrase_identity, sum_bytes,
 };
 use crate::catalog::Definitions;
 use crate::model::{DimensionName, Grain, MetricName};
+use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
 /// Everything a catalog said about what it defines, checked against the definitions it is about.
 ///
@@ -171,7 +181,7 @@ pub enum InconsistentKnowledge {
     /// prompt's preamble.
     #[error("caveat {name} is about nothing, so there is no question it would be shown beside")]
     CaveatAboutNothing { name: NoteName },
-    /// One phrase, claimed by two glossary entries. A phrase resolves to at most one thing across the
+    /// One phrase, claimed by TWO glossary entries. A phrase resolves to at most one thing across the
     /// whole glossary, and the check is on the CLAIM rather than on what it resolves to: two entries
     /// claiming one phrase are two bodies for it, and a map would keep the second silently.
     ///
@@ -180,8 +190,21 @@ pub enum InconsistentKnowledge {
     /// It also keeps this variant inside the size the workspace holds an error type to - the
     /// `result_large_err` lint is deliberately not allowed here, and two referents were 160 bytes of
     /// it.
+    ///
+    /// Two DOCUMENTS, because one document claiming one phrase twice would make `first` and `second`
+    /// the same term and send an author looking for a second file that does not exist. That case is
+    /// [`Self::TermIsItsOwnSynonym`].
     #[error("the phrase {phrase} is claimed by two glossary entries, {first} and {second}")]
     AmbiguousPhrase { phrase: Phrase, first: Phrase, second: Phrase },
+    /// One glossary entry claiming one phrase twice: a synonym that is the term again, or two
+    /// synonyms that are one phrase once case, spacing and invisible code points are set aside.
+    ///
+    /// Its own variant because the remedy is different. [`Self::AmbiguousPhrase`] says which two
+    /// documents disagree; here there is one document, and the line to delete is inside it.
+    #[error(
+        "glossary entry {term} claims the phrase {phrase} twice: a term is not its own synonym, and two synonyms are not one phrase"
+    )]
+    TermIsItsOwnSynonym { term: Phrase, phrase: Phrase },
     #[error("the phrase {phrase} is both given a meaning by the glossary and declared undefined")]
     PhraseBothDefinedAndNot { phrase: Phrase },
     /// **What stops the absence list rotting into a lie.** A note saying a term has no definition
@@ -191,6 +214,28 @@ pub enum InconsistentKnowledge {
     /// "Customer Lifetime Value" is recognised as naming a metric called `customer_lifetime_value`.
     #[error("the phrase {phrase} is declared undefined, and metric {metric} defines it")]
     AbsenceNamesADefinedMetric { phrase: Phrase, metric: MetricName },
+    /// The same rot one level down. A note declaring "segment" undefined renders three sections above
+    /// a metric block that lists `segment` among the things a question may group by and filter on, so
+    /// the prompt tells an agent to decline a question the bundle answers - which is exactly what
+    /// [`Self::AbsenceNamesADefinedMetric`] exists to prevent, and a metric name is not the only name
+    /// a bundle declares.
+    #[error("the phrase {phrase} is declared undefined, and metric {metric} declares a dimension called {dimension}")]
+    AbsenceNamesADeclaredDimension {
+        phrase: Phrase,
+        metric: MetricName,
+        dimension: DimensionName,
+    },
+    /// And one level down again: a phrase declared undefined that is a value the metric block prints
+    /// as one a question may filter on.
+    #[error(
+        "the phrase {phrase} is declared undefined, and it is the value {value:?} of dimension {dimension}, which metric {metric} permits"
+    )]
+    AbsenceNamesADeclaredValue {
+        phrase: Phrase,
+        metric: MetricName,
+        dimension: DimensionName,
+        value: String,
+    },
     #[error("example {name} asks about metric {metric}, which is not defined")]
     ExampleUnknownMetric { name: NoteName, metric: MetricName },
     #[error("example {name} asks metric {metric} at the {grain} grain, which it does not declare")]
@@ -216,6 +261,28 @@ pub enum InconsistentKnowledge {
         dimension: DimensionName,
         value: String,
     },
+    /// The example asks for a longer span of history than a request may.
+    ///
+    /// **The limit is READ from [`MAX_RANGE_DAYS`], not restated**, which is why checking it here is
+    /// the same opinion the compiler holds rather than a second one. The prompt tells an agent that
+    /// a worked question is "one this deployment answers rather than one it would decline"; without
+    /// this check an example spanning twenty-six years loaded, rendered under that sentence, and was
+    /// refused as `TimeRangeTooLong` the moment an agent copied it.
+    #[error("example {name} asks for {days} days of history, and a request may ask for {limit}")]
+    ExampleRangeTooLong { name: NoteName, days: i32, limit: i32 },
+    /// The example groups by more dimensions than a request may. [`MAX_DIMENSIONS`]'s half of the
+    /// same argument.
+    #[error("example {name} groups by {requested} dimensions, and a request may group by {limit}")]
+    ExampleTooManyDimensions { name: NoteName, requested: usize, limit: usize },
+    /// The example was asked in a phrase this catalog records as deliberately undefined.
+    ///
+    /// The rendered document would say "a question about one of these terms is to be DECLINED" and
+    /// then, further down, show the same wording as a worked question to copy. Narrow on purpose: it
+    /// is the phrase index's `not_defined` claims only. A worked question OVERLAPPING the glossary is
+    /// legitimate and common - an `asked` phrase is a sentence, and the glossary is what its words
+    /// mean.
+    #[error("example {name} is asked as {phrase}, which this catalog declares undefined")]
+    ExampleAsksWhatIsDeclaredUndefined { name: NoteName, phrase: Phrase },
     /// The aggregate cap, so that N conforming notes cannot do what one oversized note cannot.
     #[error("the notes carry {bytes} bytes of authored text, and the limit is {limit}")]
     KnowledgeTooLarge { bytes: usize, limit: usize },
@@ -226,6 +293,8 @@ pub enum InconsistentKnowledge {
 /// Two claims on one phrase are three different errors depending on which pair they are, so the index
 /// has to remember which kind of note made each one - and, for a glossary claim, WHICH entry made it,
 /// because that is the document an author has to open.
+///
+/// Keyed by [`phrase_identity`] rather than by the phrase, so "MRR" and "mrr" are one claim.
 enum Claim {
     Defined { term: Phrase },
     NotDefined,
@@ -267,10 +336,10 @@ fn fault_in<'a>(definitions: &Definitions, referent: &'a Referent) -> Option<Ref
 /// The identifier a phrase would be, if somebody wrote it as one.
 ///
 /// Lower-cased, with every run of characters that cannot appear in an identifier collapsed into one
-/// underscore. It exists for exactly one comparison - an absence against a metric name - and it is a
-/// free function rather than a method on [`Phrase`] because turning prose into an identifier is not
-/// something a phrase should offer to do: the only legitimate use of the result is to notice that two
-/// documents disagree.
+/// underscore. It exists for exactly one comparison - an absence against a name the bundle declares -
+/// and it is a free function rather than a method on [`Phrase`] because turning prose into an
+/// identifier is not something a phrase should offer to do: the only legitimate use of the result is
+/// to notice that two documents disagree.
 pub(super) fn identifier_shape(phrase: &str) -> String {
     let mut out = String::new();
     for character in phrase.chars() {
@@ -283,17 +352,50 @@ pub(super) fn identifier_shape(phrase: &str) -> String {
     String::from(out.trim_matches('_'))
 }
 
-/// The metric this phrase names, if the bundle defines one under that name.
+/// What this phrase names, if the bundle declares anything at all under that name.
 ///
-/// Compared through [`identifier_shape`], so a phrase written the way a person writes it is recognised
-/// as naming a metric written the way an identifier is written.
-fn defines(definitions: &Definitions, phrase: &Phrase) -> Option<MetricName> {
+/// Compared through [`identifier_shape`] on both sides, so a phrase written the way a person writes it
+/// is recognised as naming something written the way an identifier is written - and a declared value
+/// like `business` is recognised in a note about "Business".
+///
+/// A [`Referent`] is the return type because a referent is exactly the set of things a bundle declares
+/// under a name: a metric, a dimension of one, a permitted value of one. The caller dresses whichever
+/// it found as the error that names it.
+///
+/// Three passes rather than one, so the message is about the most important thing the phrase collides
+/// with: a phrase that names a metric is reported as naming the metric even if some dimension
+/// somewhere shares the word.
+fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<Referent> {
     let shape = identifier_shape(phrase.as_str());
-    definitions
-        .metrics()
-        .keys()
-        .find(|name| name.as_str().to_ascii_lowercase() == shape)
-        .cloned()
+    for name in definitions.metrics().keys() {
+        if identifier_shape(name.as_str()) == shape {
+            return Some(Referent::Metric { metric: name.clone() });
+        }
+    }
+    for (name, metric) in definitions.metrics() {
+        for dimension in metric.dimensions().keys() {
+            if identifier_shape(dimension.as_str()) == shape {
+                return Some(Referent::Dimension {
+                    metric: name.clone(),
+                    dimension: dimension.clone(),
+                });
+            }
+        }
+    }
+    for (name, metric) in definitions.metrics() {
+        for (dimension, declared) in metric.dimensions() {
+            for value in declared.allowed_values().into_iter().flatten() {
+                if identifier_shape(value) == shape {
+                    return Some(Referent::Value {
+                        metric: name.clone(),
+                        dimension: dimension.clone(),
+                        value: value.clone(),
+                    });
+                }
+            }
+        }
+    }
+    None
 }
 
 impl Knowledge {
@@ -392,9 +494,14 @@ impl Knowledge {
     /// reason: the rule lives beside the thing it is a rule about, so every adapter gets it rather
     /// than the first one that thought of it.
     ///
-    /// What it deliberately does NOT check is whether an example's question is inside the bounds a
-    /// request is held to - the range cap, the dimension count. Those belong to the compiler, and a
-    /// second copy of them here would be a second opinion about what a permitted question is.
+    /// **An example's question is checked against the bounds a REQUEST is held to, and that is not a
+    /// second opinion.** This function used to say it was, and left [`MAX_RANGE_DAYS`] and
+    /// [`MAX_DIMENSIONS`] to "the compiler" - but both are `pub const` in this same crate, so reading
+    /// them here is the same opinion read from the same place. What the argument was really about is
+    /// still true and is a different thing: nothing here CALLS the compiler, which lives in a crate
+    /// above this one. The cost of having believed otherwise was concrete: an example asking for
+    /// twenty-six years of history loaded, rendered under a sentence promising it was a question this
+    /// deployment answers, and was refused the moment an agent copied it.
     pub fn assemble(definitions: &Definitions, input: KnowledgeInput) -> Result<Self, InconsistentKnowledge> {
         // The declaration first, because it is what the content is allowed to be. Walked over
         // `Capability::every` rather than over four hand-written checks, so a capability added to the
@@ -405,13 +512,15 @@ impl Knowledge {
                 return Err(InconsistentKnowledge::UndeclaredContent { capability, supplied });
             }
         }
-        // One index across the glossary and the absences, because the interesting failures are the
-        // ones that span them: a phrase cannot be given a meaning and declared meaningless at once.
-        let mut claims: BTreeMap<Phrase, Claim> = BTreeMap::new();
+        // One index across the glossary, the absences and the worked questions, because the
+        // interesting failures are the ones that span them: a phrase cannot be given a meaning and
+        // declared meaningless at once, and a phrase recorded as undefined cannot also be the way a
+        // worked question was asked.
+        let mut claims: BTreeMap<String, Claim> = BTreeMap::new();
         let glossary = Self::index_glossary(definitions, input.glossary, &mut claims)?;
         let caveats = Self::index_caveats(definitions, input.caveats)?;
         let absences = Self::index_absences(definitions, input.absences, &mut claims)?;
-        let examples = Self::index_examples(definitions, input.examples)?;
+        let examples = Self::index_examples(definitions, input.examples, &claims)?;
         let assembled = Self {
             declares: input.declares,
             glossary,
@@ -432,18 +541,31 @@ impl Knowledge {
     fn index_glossary(
         definitions: &Definitions,
         entries: Vec<GlossaryEntry>,
-        claims: &mut BTreeMap<Phrase, Claim>,
+        claims: &mut BTreeMap<String, Claim>,
     ) -> Result<Glossary, InconsistentKnowledge> {
         let mut indexed: Glossary = BTreeMap::new();
         for entry in entries {
             if let Some(fault) = fault_in(definitions, entry.means()) {
                 return Err(glossary_fault(&fault, entry.term(), entry.means().metric()));
             }
+            // One entry against itself first. A synonym that is the term again, or two synonyms that
+            // are one phrase, is an ambiguity inside a single document - and reporting it as
+            // `AmbiguousPhrase` would name that document twice and send an author looking for a
+            // second file.
+            let mut mine: BTreeSet<String> = BTreeSet::new();
+            for phrase in entry.phrases() {
+                if !mine.insert(phrase_identity(phrase)) {
+                    return Err(InconsistentKnowledge::TermIsItsOwnSynonym {
+                        term: entry.term().clone(),
+                        phrase: phrase.clone(),
+                    });
+                }
+            }
             for phrase in entry.phrases() {
                 let claim = Claim::Defined {
                     term: entry.term().clone(),
                 };
-                if let Some(Claim::Defined { term: first }) = claims.insert(phrase.clone(), claim) {
+                if let Some(Claim::Defined { term: first }) = claims.insert(phrase_identity(phrase), claim) {
                     return Err(InconsistentKnowledge::AmbiguousPhrase {
                         phrase: phrase.clone(),
                         first,
@@ -483,18 +605,15 @@ impl Knowledge {
     fn index_absences(
         definitions: &Definitions,
         notes: Vec<Absence>,
-        claims: &mut BTreeMap<Phrase, Claim>,
+        claims: &mut BTreeMap<String, Claim>,
     ) -> Result<Absences, InconsistentKnowledge> {
         let mut indexed: Absences = BTreeMap::new();
         for note in notes {
             for phrase in note.phrases() {
-                if let Some(metric) = defines(definitions, phrase) {
-                    return Err(InconsistentKnowledge::AbsenceNamesADefinedMetric {
-                        phrase: phrase.clone(),
-                        metric,
-                    });
+                if let Some(declared) = declared_as(definitions, phrase) {
+                    return Err(absence_fault(phrase, &declared));
                 }
-                match claims.insert(phrase.clone(), Claim::NotDefined) {
+                match claims.insert(phrase_identity(phrase), Claim::NotDefined) {
                     None => {}
                     Some(Claim::Defined { .. }) => {
                         return Err(InconsistentKnowledge::PhraseBothDefinedAndNot { phrase: phrase.clone() });
@@ -511,10 +630,28 @@ impl Knowledge {
         Ok(indexed)
     }
 
-    fn index_examples(definitions: &Definitions, notes: Vec<Example>) -> Result<Examples, InconsistentKnowledge> {
+    /// The worked questions, and the one thing they are checked against the phrase index for.
+    ///
+    /// `claims` is read and not written. A worked question's phrasing is a sentence, not a claim about
+    /// what a word means, so it makes no entry - the only thing being caught is the pair that makes
+    /// the rendered document contradict itself: a phrase the same bundle records as deliberately
+    /// undefined, shown as a question to copy.
+    fn index_examples(
+        definitions: &Definitions,
+        notes: Vec<Example>,
+        claims: &BTreeMap<String, Claim>,
+    ) -> Result<Examples, InconsistentKnowledge> {
         let mut indexed: Examples = BTreeMap::new();
         for note in notes {
             Self::check_question(definitions, &note)?;
+            for phrase in note.asked() {
+                if matches!(claims.get(&phrase_identity(phrase)), Some(&Claim::NotDefined)) {
+                    return Err(InconsistentKnowledge::ExampleAsksWhatIsDeclaredUndefined {
+                        name: note.name().clone(),
+                        phrase: phrase.clone(),
+                    });
+                }
+            }
             if let Some(existing) = indexed.insert(note.name().clone(), note) {
                 return Err(InconsistentKnowledge::DuplicateExample {
                     name: existing.name().clone(),
@@ -526,9 +663,11 @@ impl Knowledge {
 
     /// The question in an example, checked the way the compiler would check it.
     ///
-    /// Not by calling the compiler, which lives in a crate above this one. The four things checked are
-    /// the four an author gets wrong by hand: a metric that has been renamed, a grain the metric never
-    /// declared, a dimension it does not have, and a filter value outside its allowlist.
+    /// Not by calling the compiler, which lives in a crate above this one - but against the same
+    /// numbers, which are `pub const` in this crate and are read rather than restated. The six things
+    /// checked are the six an author gets wrong by hand: a metric that has been renamed, a grain the
+    /// metric never declared, a dimension it does not have, a filter value outside its allowlist, a
+    /// period longer than a request may ask for, and more group-by keys than a request may carry.
     fn check_question(definitions: &Definitions, note: &Example) -> Result<(), InconsistentKnowledge> {
         let question = note.question();
         let name = note.name().clone();
@@ -544,6 +683,23 @@ impl Knowledge {
                 name,
                 metric: metric_name,
                 grain: question.grain(),
+            });
+        }
+        // The two request bounds, in the order `sutura_semantic::resolve` checks them: the span
+        // first, because it is the one about cost.
+        let days = question.range().days();
+        if days > MAX_RANGE_DAYS {
+            return Err(InconsistentKnowledge::ExampleRangeTooLong {
+                name,
+                days,
+                limit: MAX_RANGE_DAYS,
+            });
+        }
+        if question.dimensions().len() > MAX_DIMENSIONS {
+            return Err(InconsistentKnowledge::ExampleTooManyDimensions {
+                name,
+                requested: question.dimensions().len(),
+                limit: MAX_DIMENSIONS,
             });
         }
         for dimension in question.dimensions() {
@@ -605,6 +761,31 @@ fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName, metric: &MetricName)
         },
         ReferentFault::ValueNotAllowed { dimension, value } => InconsistentKnowledge::CaveatValueNotAllowed {
             name,
+            metric,
+            dimension: dimension.clone(),
+            value: String::from(value),
+        },
+    }
+}
+
+/// What the bundle declares under a phrase somebody recorded as undefined, dressed as the absence's
+/// own error.
+///
+/// The same one-resolution-three-dressings shape [`glossary_fault`] uses, over the other direction:
+/// there the note names something that does not exist, here it says something that does exist does
+/// not.
+fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge {
+    let phrase = phrase.clone();
+    let metric = declared.metric().clone();
+    match (declared.dimension(), declared.value()) {
+        (None, _) => InconsistentKnowledge::AbsenceNamesADefinedMetric { phrase, metric },
+        (Some(dimension), None) => InconsistentKnowledge::AbsenceNamesADeclaredDimension {
+            phrase,
+            metric,
+            dimension: dimension.clone(),
+        },
+        (Some(dimension), Some(value)) => InconsistentKnowledge::AbsenceNamesADeclaredValue {
+            phrase,
             metric,
             dimension: dimension.clone(),
             value: String::from(value),

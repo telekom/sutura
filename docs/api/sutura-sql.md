@@ -210,10 +210,12 @@ injection-shaped input passing validation. `DuckDB` rejects both.
 
 # What the compile guarantees, and what it does not
 
-It guarantees the fragment is one expression, over columns the metric's own model declares,
-reaching no table and no query it was not given; that none of the constructs in `Construct` is
-present; and that the rendering for each target is well-formed SQL that parses in that target's
-dialect.
+It guarantees the fragment is one expression, over columns the metric's own model declares -
+**every one of them carrying that model's table**, asserted after the rewrite rather than assumed
+from it - reaching no table and no query it was not given; that every function it calls is one of
+the names in the allowlist `Construct::UnknownFunction` names; that it nests no deeper than the
+checks can walk without the stack; that none of the constructs in `Construct` is present; and
+that the rendering for each target is well-formed SQL that parses in that target's dialect.
 
 It does **not** guarantee the target has the function. `MEDIAN(x)`, `COUNT_IF(x)` and
 `PERCENTILE_CONT(..) WITHIN GROUP (..)` are emitted verbatim into Postgres and `ClickHouse` by
@@ -245,6 +247,7 @@ read this file.
 - `QualifiedColumn` - `t.column`.
 - `QualifiedFunctionName` - A function name with a schema on it.
 - `DateTimeFunction` - Anything that reads a date or a time.
+- `UnknownFunction` - A called function whose name is not in the allowlist.
 - `AggregateFilter` - `FILTER (WHERE ..)` on an aggregate.
 - `Comment` - A comment inside the fragment.
 - `RowConstructor` - A row constructor, which is also how `COUNT(DISTINCT a, b)` parses.
@@ -323,6 +326,9 @@ present in a bundle and unanswerable is a metric an agent will ask about.
 - `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
 - `Refused`
 - `UnknownColumn`
+- `UnknownFunction` - A called function that is not one of the names a measure may call.
+- `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `parse`.
+- `NotQualified` - A column the qualification rewrite did not reach. See `require_qualified`.
 - `Qualify`
 - `Render`
 - `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.

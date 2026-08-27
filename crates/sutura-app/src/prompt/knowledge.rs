@@ -21,14 +21,35 @@
 //! error in the one place that decides what a prompt may say about it, rather than a kind that
 //! silently renders nothing.
 //!
+//! **Three sentences per capability, not two, and the third is the one that used to be missing.**
+//! `declared` and `absent` were not enough: the declaration told an agent that a glossary "is listed
+//! below" and that worked questions are "at the end of this document" while [`glossary`] and
+//! [`examples`] returned nothing at all when their collection was empty, so a provider that declared
+//! all four and had recorded nothing produced a document pointing at two sections that were not
+//! there. The distinction the whole capability mechanism exists to carry was implemented for
+//! `Absences` alone, where `NOTHING_RECORDED` says the list is kept and empty. All four are held to
+//! that now: the declaration line says "and nothing is recorded yet", and each kind with a section of
+//! its own renders that section with the same sentence in it. Caveats have no section of their own by
+//! design - they are printed inside the metric block they are about - so the declaration line is the
+//! whole of it for that one, which is why the third sentence exists rather than three more headings.
+//!
 //! # The glossary renders from the STRUCTURE, not from the prose
 //!
-//! Every token of a glossary line is a phrase the domain parsed - one line, bounded, no control
-//! characters - or a name the pinned bundle already declares. No unbounded author text reaches that
-//! section, so the assertion `prompt::tests` makes about model, table and column names holds for it
-//! without a second argument. Note BODIES are the other thing: they are catalog prose, they go through
-//! [`quote`](super::quote) like a metric's description, and they ride the same
-//! `prompt.catalog_prose` switch. There is no new configuration key.
+//! Every token of a glossary line is a phrase the domain parsed - one line, bounded, normalised, no
+//! control characters - or a name the pinned bundle already declares. So the STRUCTURED half of every
+//! section here cannot name a model, a table or a column: there is no
+//! [`Referent`](sutura_domain::knowledge::Referent) variant that could hold one, which is a property
+//! of the type rather than a review of each rendering.
+//!
+//! **The narrow claim is the true one, and it is worth stating at its width.** A `Phrase` and a
+//! `NoteBody` are free text, both reach this document, and nothing mechanical stops an author writing
+//! a column name into either - just as nothing stops one in a metric description, which is a channel
+//! this repository already ships: the example catalog's own prose names `mrr_cents` and `status`, and
+//! `sutura-cli`'s prompt snapshot records that it does. Note BODIES go through
+//! [`quote`](super::quote) like a metric's description and ride the same `prompt.catalog_prose`
+//! switch, so an operator who does not trust the catalog's authors has already said so once. There is
+//! no new configuration key, and there is no load-time content scan - what bounds authored prose is
+//! that a catalog is reviewed content whose digest moves when a word of it changes.
 //!
 //! # Where each section sits, and why
 //!
@@ -55,13 +76,17 @@ use super::{CatalogProse, quote, wrap};
 
 /// What one capability licenses this document to say, and what its absence licenses instead.
 ///
-/// Two sentences per capability rather than one, because the interesting half is the second: a
-/// deployment whose provider cannot record an absence must not be described in a way that lets an
-/// agent infer anything from a term not being listed.
+/// Three sentences per capability rather than one, because the interesting halves are the second and
+/// the third: a deployment whose provider cannot record an absence must not be described in a way
+/// that lets an agent infer anything from a term not being listed, and a provider that CAN and has
+/// not yet must not be described as though the list were populated.
 struct Claim {
-    /// Rendered when the capability IS declared.
+    /// Rendered when the capability is declared and something is recorded.
     declared: &'static str,
-    /// Rendered when it is not.
+    /// Rendered when it is declared and nothing is recorded yet. A kept list that is empty is a fact
+    /// an agent may use; a section it was pointed at and that is not there is not.
+    empty: &'static str,
+    /// Rendered when it is not declared at all.
     absent: &'static str,
 }
 
@@ -78,12 +103,17 @@ const fn claim(capability: Capability) -> Claim {
             declared: "**A glossary** - the words people use for these metrics, and the one thing each of them means. It \
                        is listed below. Turning a question's wording into a metric name is YOUR step and worth naming in \
                        your answer.",
+            empty: "**A glossary**, and nothing is recorded in it yet. This deployment keeps one, so the section below \
+                    is empty rather than missing - match the user's words against the metric names and their \
+                    descriptions, and say which one you chose and why.",
             absent: "**No glossary.** Nothing here maps a phrase to a metric, so match the user's words against the \
                      metric names and their descriptions, and say which one you chose and why.",
         },
         Capability::Caveats => Claim {
             declared: "**Caveats** - things to know before trusting a number. Each one is printed under the metric it is \
                        about and applies to every question about that metric.",
+            empty: "**Caveats**, and none is recorded yet. This deployment keeps them, printed under the metric each \
+                    one is about, and today no metric has one - which is not a statement that there are no traps.",
             absent: "**No caveats.** Nothing here records a trap in a definition, which is not a statement that there \
                      are none.",
         },
@@ -91,6 +121,9 @@ const fn claim(capability: Capability) -> Claim {
             declared: "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
                        section. It is authoritative for what it names: a question about one of those terms is to be \
                        declined with the reason given, not approximated from the metrics that are defined.",
+            empty: "**A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal \
+                    section, with nothing on it. Somebody keeps that list and it is empty, so there is no term you are \
+                    being asked to decline on that ground.",
             absent: "**No record of what is deliberately undefined.** This deployment cannot tell you which terms were \
                      considered and rejected, so infer NOTHING from a term being absent from this document. The metric \
                      list is the only authority on what may be asked.",
@@ -98,6 +131,8 @@ const fn claim(capability: Capability) -> Claim {
         Capability::Examples => Claim {
             declared: "**Worked questions** - real questions with the request that answers each, at the end of this \
                        document. They are the shape to copy.",
+            empty: "**Worked questions**, and none is recorded yet. This deployment keeps them, at the end of this \
+                    document, and today there are none - so compose from the metric list and the bounds above.",
             absent: "**No worked questions.** Compose from the metric list and the bounds above.",
         },
     }
@@ -129,26 +164,63 @@ pub(super) fn declaration(knowledge: &Knowledge) -> String {
     // compile until somebody decides what it licenses.
     for capability in Capability::every() {
         let entry = claim(capability);
-        let text = if knowledge.declares().declares(capability) {
-            entry.declared
-        } else {
+        let text = if !knowledge.declares().declares(capability) {
             entry.absent
+        } else if recorded(knowledge, capability) == 0 {
+            entry.empty
+        } else {
+            entry.declared
         };
         lines.push(wrap("- ", text, "  "));
     }
     lines.join("\n")
 }
 
+/// How many notes of one kind this bundle carries.
+///
+/// A total match, so a fifth capability is a compile error here as well as in [`claim`]: what a
+/// declaration may claim depends on whether anything is recorded, and a kind whose count nobody wrote
+/// would be described as populated whatever it held.
+fn recorded(knowledge: &Knowledge, capability: Capability) -> usize {
+    match capability {
+        Capability::Glossary => knowledge.glossary().len(),
+        Capability::Caveats => knowledge.caveats().len(),
+        Capability::Absences => knowledge.absences().len(),
+        Capability::Examples => knowledge.examples().len(),
+    }
+}
+
+/// One section heading, and the sentence a kept-and-empty collection gets instead of a list.
+///
+/// The shape all three sections with a heading share, so "declared and empty says so" cannot be true
+/// of one of them and false of the next - which is how it came to be implemented for the absences
+/// alone. `None` means the capability is not declared and the section is not rendered at all.
+fn section(heading: &str, nothing: &str, declared: bool, is_empty: bool) -> Option<Vec<String>> {
+    if !declared {
+        return None;
+    }
+    let mut lines = vec![format!("{heading}\n")];
+    if is_empty {
+        lines.push(wrap("", nothing, ""));
+    }
+    Some(lines)
+}
+
 /// The glossary, rendered from the structure.
 pub(super) fn glossary(knowledge: &Knowledge, prose: CatalogProse) -> String {
-    if !knowledge.supports(Capability::Glossary) || knowledge.glossary().is_empty() {
+    let Some(mut lines) = section(
+        GLOSSARY_HEADING,
+        NO_GLOSSARY_RECORDED,
+        knowledge.supports(Capability::Glossary),
+        knowledge.glossary().is_empty(),
+    ) else {
         return String::new();
+    };
+    if knowledge.glossary().is_empty() {
+        return lines.join("\n");
     }
-    let mut lines = vec![
-        String::from("## The words a question may arrive in\n"),
-        wrap("", GLOSSARY_INTRO, ""),
-        String::new(),
-    ];
+    lines.push(wrap("", GLOSSARY_INTRO, ""));
+    lines.push(String::new());
     for entry in knowledge.glossary().values() {
         lines.push(wrap(
             "- ",
@@ -160,11 +232,17 @@ pub(super) fn glossary(knowledge: &Knowledge, prose: CatalogProse) -> String {
     lines.join("\n")
 }
 
+const GLOSSARY_HEADING: &str = "## The words a question may arrive in";
+
 const GLOSSARY_INTRO: &str = "Each line is a phrase somebody may use, and the one thing this deployment takes it to mean. \
                               **You do the resolving.** There is no field on a question that a phrase fits in - a request \
                               carries a metric name - so a wrong turn here is yours to catch rather than something the \
                               service will decline. Say which phrase you resolved and what you resolved it to, so the \
                               person can correct you.";
+
+const NO_GLOSSARY_RECORDED: &str = "None. This deployment keeps a glossary and there is nothing in it yet, so no phrase \
+                                    below this line has been given a meaning here. Match the user's words against the \
+                                    metric names and their descriptions, and say which one you chose and why.";
 
 /// The terms recorded as deliberately undefined.
 ///
@@ -172,12 +250,15 @@ const GLOSSARY_INTRO: &str = "Each line is a phrase somebody may use, and the on
 /// capability is declared rather than inferred: an empty list somebody keeps is a fact, and an empty
 /// list nobody keeps is nothing at all.
 pub(super) fn not_defined(knowledge: &Knowledge, prose: CatalogProse) -> String {
-    if !knowledge.supports(Capability::Absences) {
+    let Some(mut lines) = section(
+        NOT_DEFINED_HEADING,
+        NOTHING_RECORDED,
+        knowledge.supports(Capability::Absences),
+        knowledge.absences().is_empty(),
+    ) else {
         return String::new();
-    }
-    let mut lines = vec![String::from("## Terms this deployment records as NOT defined\n")];
+    };
     if knowledge.absences().is_empty() {
-        lines.push(wrap("", NOTHING_RECORDED, ""));
         return lines.join("\n");
     }
     lines.push(wrap("", NOT_DEFINED_INTRO, ""));
@@ -188,6 +269,8 @@ pub(super) fn not_defined(knowledge: &Knowledge, prose: CatalogProse) -> String 
     }
     lines.join("\n")
 }
+
+const NOT_DEFINED_HEADING: &str = "## Terms this deployment records as NOT defined";
 
 const NOTHING_RECORDED: &str = "None. This deployment keeps such a list and there is nothing on it, so there is no term \
                                 you are being asked to decline on that ground. `MetricUnknown` above is still the whole \
@@ -203,7 +286,9 @@ const NOT_DEFINED_INTRO: &str = "These terms were considered and deliberately ha
 /// The caveats about one metric, for the block that metric is rendered in.
 ///
 /// Returns the empty string when there are none, so the metric block is unchanged for a deployment
-/// with no caveats.
+/// with no caveats. **The one kind with no section of its own**, deliberately: a caveat belongs beside
+/// the question it is about. So "declared and empty" is said by [`declaration`] for this kind rather
+/// than by a heading over nothing, which is what the third sentence of a [`Claim`] is for.
 pub(super) fn caveats_about(knowledge: &Knowledge, metric: &MetricName, prose: CatalogProse) -> String {
     if !knowledge.supports(Capability::Caveats) {
         return String::new();
@@ -260,10 +345,18 @@ fn scope(note: &Caveat, metric: &MetricName) -> String {
 
 /// The worked questions.
 pub(super) fn examples(knowledge: &Knowledge, prose: CatalogProse) -> String {
-    if !knowledge.supports(Capability::Examples) || knowledge.examples().is_empty() {
+    let Some(mut lines) = section(
+        EXAMPLES_HEADING,
+        NO_EXAMPLES_RECORDED,
+        knowledge.supports(Capability::Examples),
+        knowledge.examples().is_empty(),
+    ) else {
         return String::new();
+    };
+    if knowledge.examples().is_empty() {
+        return lines.join("\n");
     }
-    let mut lines = vec![String::from("## Worked questions\n"), wrap("", EXAMPLES_INTRO, "")];
+    lines.push(wrap("", EXAMPLES_INTRO, ""));
     for note in knowledge.examples().values() {
         lines.push(String::new());
         lines.push(format!("### {}\n", note.name()));
@@ -274,9 +367,16 @@ pub(super) fn examples(knowledge: &Knowledge, prose: CatalogProse) -> String {
     lines.join("\n")
 }
 
+const EXAMPLES_HEADING: &str = "## Worked questions";
+
 const EXAMPLES_INTRO: &str = "Questions somebody actually asked, with the request that answers each. Copy the shape. \
-                              Every value in them is one this snapshot declares, so a question below is one this \
-                              deployment answers rather than one it would decline.";
+                              Every value in them is one this snapshot declares, and every one of them is inside the \
+                              bounds above - the period, the group-by count - because a bundle carrying one that is not \
+                              does not load. So a question below is one this deployment answers rather than one it \
+                              would decline.";
+
+const NO_EXAMPLES_RECORDED: &str = "None. This deployment keeps worked questions and none is recorded yet, so there is \
+                                    no shape here to copy - compose from the metric list and the bounds above.";
 
 /// One question, as the fields a caller sends.
 ///

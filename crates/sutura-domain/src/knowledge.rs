@@ -153,6 +153,78 @@ pub const MAX_NOTE_LINES: usize = 200;
 /// The most authored text a whole [`Knowledge`] may carry, in bytes.
 pub const MAX_KNOWLEDGE_BYTES: usize = 32 * 1024;
 
+/// The code points a reader cannot see, and that a phrase or a note body carries no meaning by
+/// holding.
+///
+/// The default-ignorable ranges that matter here: the zero-width and directional marks
+/// `U+200B..=U+200F`, the bidi embedding and override controls `U+202A..=U+202E`, the bidi isolates
+/// `U+2066..=U+2069`, and `U+FEFF`. None of them draws anything, and several of them REORDER what is
+/// drawn around them - so two phrases that differ only in one of these are one phrase to whoever
+/// reads the rendered prompt, and a body made of them renders as blank space under a heading.
+///
+/// Not the whole Unicode `Default_Ignorable_Code_Point` property, which needs a table this crate has
+/// no dependency for. The cost is stated rather than hidden: `U+200C` and `U+200D` are inside the
+/// first range and carry meaning in Persian, in several Indic scripts and inside an emoji sequence,
+/// so a phrase needing one cannot be written here. That is the price of a glossary whose two entries
+/// cannot look identical to a reader, and it is one line to revisit.
+const fn is_default_ignorable(character: char) -> bool {
+    matches!(
+        character,
+        '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
+    )
+}
+
+/// Does this text carry anything a reader would see?
+///
+/// A character reaches the rendered document when `sutura_app::prompt::quote` keeps it - a newline, a
+/// tab, or anything that is not a control character - and it draws something when it is neither
+/// whitespace nor a default ignorable. The zero-width half is the interesting one: those are not
+/// control characters, so the renderer keeps them, and they draw nothing.
+fn carries_prose(raw: &str) -> bool {
+    raw.chars()
+        .any(|character| !character.is_control() && !character.is_whitespace() && !is_default_ignorable(character))
+}
+
+/// One line of text with its invisible characters removed and every run of whitespace as one space.
+///
+/// Leading and trailing whitespace goes with them, so this trims as well. Read by [`Phrase::parse`],
+/// so that what is stored is what a reader sees, and by [`phrase_identity`], so that two phrases are
+/// compared the way they are read.
+fn collapse_spacing(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut pending = false;
+    for character in raw.chars() {
+        if is_default_ignorable(character) {
+            continue;
+        }
+        if character.is_whitespace() {
+            pending = !out.is_empty();
+            continue;
+        }
+        if pending {
+            out.push(' ');
+            pending = false;
+        }
+        out.push(character);
+    }
+    out
+}
+
+/// The form two phrases are compared in when the question is whether they are one phrase.
+///
+/// **Lower-cased, and that is the whole difference from what [`Phrase::parse`] stores.** Case is
+/// meaning inside a phrase - "MRR" is how somebody writes it - and case is NOT identity: a glossary
+/// that gives "MRR" a meaning while an absence declares "mrr" undefined renders both lines, three
+/// sections apart, about what a reader sees as one word. So the authored spelling is kept as the
+/// value everywhere, and this is what the index is keyed on.
+///
+/// A free function rather than a method, for the reason [`super::bundle::identifier_shape`] gives:
+/// the only legitimate use of the result is to notice that two documents disagree, and a phrase
+/// should not offer to fold its own case for anybody else.
+pub(super) fn phrase_identity(phrase: &Phrase) -> String {
+    collapse_spacing(&phrase.as_str().to_lowercase())
+}
+
 /// A natural-language phrase: what somebody says instead of a metric name.
 ///
 /// **Not an identifier, and the difference is the reason for the type.** Spaces are legitimate,
@@ -162,7 +234,15 @@ pub const MAX_KNOWLEDGE_BYTES: usize = 32 * 1024;
 ///
 /// What it refuses is what makes a phrase unusable as one: nothing, a newline or any other control
 /// character - a phrase is one line, and the prompt renders it inline, so a newline in one writes a
-/// line of that document - and anything long enough to be a sentence.
+/// line of that document - a run of punctuation with no letter or digit in it, and anything long
+/// enough to be a sentence.
+///
+/// **What it NORMALISES is the other half, and it is there so that two phrases a reader cannot tell
+/// apart cannot both exist.** Runs of whitespace collapse to one space and the invisible code points
+/// [`is_default_ignorable`] names are dropped, so "monthly  revenue" and "monthly revenue" are one
+/// value and a zero-width space inside "mrr" is not a second spelling of it. Case is deliberately
+/// NOT folded here - it is meaning, and the prompt renders the spelling an author chose - which is
+/// why identity is [`phrase_identity`] and not this type's `Eq`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
 // Without this the derived `Deserialize` writes straight into the private field, and the one path
 // that carries a catalog file bypasses every check in `parse`.
@@ -172,38 +252,58 @@ pub struct Phrase(String);
 /// Why a phrase was rejected.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidPhrase {
-    /// Empty or whitespace-only. A synonym for nothing resolves everything.
+    /// Empty or whitespace-only, invisible code points included. A synonym for nothing resolves
+    /// everything.
     #[error("a phrase must not be empty")]
     Empty,
     /// Holds a control character, a newline included. The prompt renders a phrase inline, so a
     /// newline here writes a line of a document nobody authored.
     #[error("a phrase must be one line and must not contain control characters: {value:?}")]
     ControlCharacter { value: String },
+    /// No letter and no digit. **The clause that catches a scalar that is not text**: a `term: ~` in
+    /// a YAML document reaches this constructor as the one-character string it prints as, and would
+    /// otherwise render into the prompt as a glossary entry for a tilde. It refuses the placeholders
+    /// somebody meant to fill in later for the same reason - a row of hyphens or of full stops.
+    #[error("a phrase must contain a letter or a digit: {value:?} has neither")]
+    NotAWord { value: String },
     #[error("a phrase may be at most {limit} characters, {value:?} has {len}")]
     TooLong { value: String, len: usize, limit: usize },
 }
 
 impl Phrase {
-    /// Parses a phrase, rejecting anything that is not one.
+    /// Parses a phrase, refusing anything that is not one and normalising what is.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPhrase> {
         let trimmed = raw.as_ref().trim();
         if trimmed.is_empty() {
             return Err(InvalidPhrase::Empty);
         }
+        // Before the normalisation, and reported as the author wrote it. A newline collapsed to a
+        // space first would be accepted in silence, and the value in the message is what somebody
+        // has to find in a file.
         if trimmed.chars().any(char::is_control) {
             return Err(InvalidPhrase::ControlCharacter {
                 value: String::from(trimmed),
             });
         }
-        let len = trimmed.chars().count();
+        let phrase = collapse_spacing(trimmed);
+        // Reachable only now that the invisible code points are dropped: a phrase of nothing but
+        // zero-width spaces normalises to nothing.
+        if phrase.is_empty() {
+            return Err(InvalidPhrase::Empty);
+        }
+        if !phrase.chars().any(char::is_alphanumeric) {
+            return Err(InvalidPhrase::NotAWord { value: phrase });
+        }
+        // Counted after normalising, because the bound is on what a reader has to read.
+        let len = phrase.chars().count();
         if len > MAX_PHRASE_CHARS {
             return Err(InvalidPhrase::TooLong {
-                value: String::from(trimmed),
+                value: phrase,
                 len,
                 limit: MAX_PHRASE_CHARS,
             });
         }
-        Ok(Self(String::from(trimmed)))
+        Ok(Self(phrase))
     }
 
     #[inline]
@@ -238,7 +338,9 @@ impl core::fmt::Display for Phrase {
 ///
 /// Newlines and tabs are content here, where [`Phrase`] refuses them: a body is a markdown block and
 /// its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
-/// the renderer, which is the one place that knows what it is rendering into.
+/// the renderer, which is the one place that knows what it is rendering into - so the emptiness check
+/// is made on what the renderer will keep and a body that would draw nothing is refused rather than
+/// rendered as a heading over blank space.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct NoteBody(String);
@@ -246,8 +348,10 @@ pub struct NoteBody(String);
 /// Why a note body was rejected.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidNoteBody {
-    /// Nothing. A note with no body is a claim with no reason attached, and the prompt would render a
-    /// heading over empty space.
+    /// Nothing a reader would see. A note with no body is a claim with no reason attached, and the
+    /// prompt would render a heading over empty space - so this covers whitespace, control
+    /// characters the renderer drops, and the zero-width code points that draw nothing, as well as
+    /// the empty string.
     #[error("a note body must not be empty")]
     Empty,
     /// Over [`MAX_NOTE_BODY_BYTES`]. The document does not load; it is not shortened.
@@ -267,7 +371,12 @@ impl NoteBody {
     /// four-kilobyte body is not, so the error says how much there was and where the limit is.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidNoteBody> {
         let trimmed = raw.as_ref().trim();
-        if trimmed.is_empty() {
+        // Emptiness is decided on what a READER will see, not on what the file holds.
+        // `sutura_app::prompt::quote` drops every control character other than a newline or a tab,
+        // and a default-ignorable code point draws nothing at all - so a body of bell characters, of
+        // zero-width spaces, or of one byte-order mark used to pass this check and then render as a
+        // heading over empty space, which is the exact state the check exists to make unreachable.
+        if !carries_prose(trimmed) {
             return Err(InvalidNoteBody::Empty);
         }
         if trimmed.len() > MAX_NOTE_BODY_BYTES {
@@ -314,10 +423,27 @@ identifier_newtype! {
 ///
 /// **There is deliberately no variant for a model, a table or a column, and that absence is load
 /// bearing rather than tidy.** A caller cannot ask about any of the three - [`crate::query::Query`] has no field
-/// for one - and `sutura_app::prompt` asserts that no model, table or column name from the bundle
-/// reaches the rendered document, because a name in an agent's context is a name it will eventually
-/// try to use. Every section this module adds to that document is rendered from a `Referent`, so the
-/// type is what keeps that assertion true for the new sections rather than a review of each one.
+/// for one - and a name in an agent's context is a name it will eventually try to use. Every
+/// STRUCTURED rendering `sutura_app::prompt` builds out of a note - the glossary line, a caveat's
+/// scope, the request in a worked question - is rendered from a `Referent`, so none of them CAN name
+/// a model, a table or a column, whatever an author writes. That is the claim the type holds up, and
+/// it is worth stating at its real width:
+///
+/// * **The structured renderings cannot name one.** There is no variant to put it in, so this half
+///   is a property of the type rather than a review of each rendering.
+/// * **[`Phrase`] and [`NoteBody`] are free text, and both reach the rendered document.** Nothing
+///   here stops an author writing a column name into a glossary term or a note body, and the
+///   pre-existing metric-description channel already carries such names into the prompt - the
+///   shipped example catalog's own prose names `mrr_cents` and `status`, and
+///   `sutura-cli`'s prompt snapshot records that it does. Prose is bounded, authored, reviewed
+///   content whose digest moves when a word of it changes; it is not mechanically constrained, and
+///   claiming otherwise would be claiming the wrong mechanism.
+///
+/// A load-time scan of every phrase and body for the bundle's own model, table and column names
+/// would close the second half. It is not here: it is a larger change than the type-level property
+/// needs, it would make an authored note refuse for naming a column in a sentence about why the
+/// column is not the thing being asked for, and the honest statement of what holds is the cheaper
+/// half of it.
 ///
 /// It carries `Deserialize` as well as `Serialize`, for the same reason [`crate::measure::Measure`]
 /// does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
@@ -500,14 +626,27 @@ pub enum Capability {
     Examples,
 }
 
+// `Capability::every` is seeded with `Glossary`, and this is what makes that a derived fact rather
+// than a hand-written guess. A variant declared above `Glossary` answers `Some(..)` to
+// `Capability::previous` and this file stops compiling - which is the failure the walk itself cannot
+// produce: `every` would simply start one variant late, and `Knowledge::assemble`'s
+// undeclared-content guard would never look at the new kind.
+//
+// `const _` rather than a named constant: a name would be an item nothing reads, and `dead_code` is
+// denied in this workspace.
+const _: () = assert!(
+    Capability::Glossary.previous().is_none(),
+    "Capability::every is seeded with Glossary, so no capability may be declared before it"
+);
+
 impl Capability {
     /// The next capability in declaration order, or `None` at the end.
     ///
-    /// **This function exists in order not to compile.** It is the ONE exhaustive match over this enum
-    /// in this crate, and [`Self::every`] is derived from it - so a fifth capability is a compile error
-    /// here rather than a variant that quietly never appears in a list. A hand-written `ALL` array is
-    /// the classic version of that bug: it type-checks with a variant missing, and the missing one is
-    /// then invisible everywhere the array is walked.
+    /// **This function exists in order not to compile.** It is one of the two exhaustive matches over
+    /// this enum in this crate, and [`Self::every`] is derived from it - so a fifth capability is a
+    /// compile error here rather than a variant that quietly never appears in a list. A hand-written
+    /// `ALL` array is the classic version of that bug: it type-checks with a variant missing, and the
+    /// missing one is then invisible everywhere the array is walked.
     ///
     /// The other place a `match` on this enum has to be total is `sutura_app::prompt::knowledge`, where
     /// each capability decides what the rendered document may CLAIM. That one is deliberately not
@@ -522,9 +661,34 @@ impl Capability {
         }
     }
 
+    /// The previous capability in declaration order, or `None` at the start.
+    ///
+    /// **The other half of [`Self::next`], and it exists because the SEED was the hole.** [`Self::every`]
+    /// starts at `Glossary`, and that name was written by hand - so a variant declared BEFORE
+    /// `Glossary` left every match in this crate exhaustive and was invisible to `every`, to
+    /// [`KnowledgeCapabilities::all`], to the rendered declaration, and to [`Knowledge::assemble`]'s
+    /// undeclared-content guard, which walks `every`. A review inserted one there, made every match
+    /// total, and both of the guard's own tests still passed: content for the new capability was never
+    /// looked at, because the walk never reached it.
+    ///
+    /// So the seed is checked rather than trusted. The const assertion below this `impl` block reads
+    /// this function, so a variant declared before `Glossary` fails to compile in this file rather than
+    /// disappearing out of a list. One more match the compiler forces, which is the same trade
+    /// [`Self::next`] already makes.
+    const fn previous(self) -> Option<Self> {
+        match self {
+            Self::Glossary => None,
+            Self::Caveats => Some(Self::Glossary),
+            Self::Absences => Some(Self::Caveats),
+            Self::Examples => Some(Self::Absences),
+        }
+    }
+
     /// Every capability there is, in declaration order.
     ///
-    /// Derived from [`Self::next`] rather than listed, so the two cannot drift.
+    /// Derived from [`Self::next`] rather than listed, and seeded by the one variant
+    /// [`Self::previous`] answers `None` for - which is asserted where this enum is declared rather
+    /// than assumed by whoever reads the line.
     pub fn every() -> impl Iterator<Item = Self> {
         core::iter::successors(Some(Self::Glossary), |current| current.next())
     }

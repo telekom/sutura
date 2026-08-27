@@ -760,7 +760,8 @@ word - `authored_sql` - that a reviewer greps for and an operator can list. Ther
 metric is free-text SQL" is invisible in a diff.
 
 **Nothing here parses.** A `SqlFragment` is checked for being *a plausible fragment* - present,
-bounded, free of control characters - and nothing more. Whether it is one SQL expression, over
+bounded, and free of the characters that make the text a reviewer reads differ from the text
+that compiles - and nothing more. Whether it is one SQL expression, over
 columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
 catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
 domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
@@ -793,6 +794,7 @@ Why a fragment is not one.
 - `Empty` - Empty or whitespace-only. This is the input that made the obvious fragment API unusable: the dialect layer's `Parser::parse_expressions` panics on an empty token list, and under `panic = "abort"` a blank line in a catalog file would end the process. It is refused here, before anything can be asked of it.
 - `TooLong`
 - `ControlCharacter` - A control character other than tab and newline. Those two are formatting a person might use inside a long `CASE`; the rest are not text, and their likeliest origin is a paste accident or an attempt to hide part of a fragment from a reviewer's terminal.
+- `InvisibleCharacter` - A character a terminal, a diff and a browser do not render, or render in the wrong order.
 
 #### Implements
 
@@ -875,6 +877,21 @@ pub fn is_portable(&self) -> bool
 ```rust
 pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDialectTag>
 ```
+
+Checks that this is one dialect word. **Surrounding whitespace is a load failure, not
+something trimmed away**, and that is the half worth writing down.
+
+A tag is a key in `AuthoredSql`'s map. Trimming made `duckdb` and ` duckdb ` the same tag,
+and `BTreeMap`'s deserialize keeps the LAST value for a repeated key - so a document writing
+both had one of its two authored fragments silently discarded and the other certified, with
+the definition digest taken over the survivor. That is the outcome
+`Computation::assemble` refuses when a metric writes `measure` beside `authored_sql`, for
+the same reason: a document that writes two means one of them, and choosing certifies a
+number its author did not ask for. Refusing the whitespace costs the author one character.
+
+`SqlFragment::parse` still trims, and the asymmetry is deliberate: a fragment that differs
+from another only by surrounding whitespace is the same fragment, so trimming there loses
+nothing. Two map keys that differ only by whitespace are two keys.
 
 ```rust
 pub fn portable() -> Self
@@ -1243,7 +1260,15 @@ Umsatz" and "monthly recurring revenue" are the values this exists to hold. So i
 
 What it refuses is what makes a phrase unusable as one: nothing, a newline or any other control
 character - a phrase is one line, and the prompt renders it inline, so a newline in one writes a
-line of that document - and anything long enough to be a sentence.
+line of that document - a run of punctuation with no letter or digit in it, and anything long
+enough to be a sentence.
+
+**What it NORMALISES is the other half, and it is there so that two phrases a reader cannot tell
+apart cannot both exist.** Runs of whitespace collapse to one space and the invisible code points
+`is_default_ignorable` names are dropped, so "monthly  revenue" and "monthly revenue" are one
+value and a zero-width space inside "mrr" is not a second spelling of it. Case is deliberately
+NOT folded here - it is meaning, and the prompt renders the spelling an author chose - which is
+why identity is `phrase_identity` and not this type's `Eq`.
 
 #### Methods
 
@@ -1255,7 +1280,7 @@ pub fn as_str(&self) -> &str
 pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPhrase>
 ```
 
-Parses a phrase, rejecting anything that is not one.
+Parses a phrase, refusing anything that is not one and normalising what is.
 
 #### Implements
 
@@ -1271,8 +1296,9 @@ Why a phrase was rejected.
 
 #### Variants
 
-- `Empty` - Empty or whitespace-only. A synonym for nothing resolves everything.
+- `Empty` - Empty or whitespace-only, invisible code points included. A synonym for nothing resolves everything.
 - `ControlCharacter` - Holds a control character, a newline included. The prompt renders a phrase inline, so a newline here writes a line of a document nobody authored.
+- `NotAWord` - No letter and no digit. **The clause that catches a scalar that is not text**: a `term: ~` in a YAML document reaches this constructor as the one-character string it prints as, and would otherwise render into the prompt as a glossary entry for a tilde. It refuses the placeholders somebody meant to fill in later for the same reason - a row of hyphens or of full stops.
 - `TooLong`
 
 #### Implements
@@ -1295,7 +1321,9 @@ what was measured to choose the numbers.
 
 Newlines and tabs are content here, where `Phrase` refuses them: a body is a markdown block and
 its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
-the renderer, which is the one place that knows what it is rendering into.
+the renderer, which is the one place that knows what it is rendering into - so the emptiness check
+is made on what the renderer will keep and a body that would draw nothing is refused rather than
+rendered as a heading over blank space.
 
 #### Methods
 
@@ -1327,7 +1355,7 @@ Why a note body was rejected.
 
 #### Variants
 
-- `Empty` - Nothing. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space.
+- `Empty` - Nothing a reader would see. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space - so this covers whitespace, control characters the renderer drops, and the zero-width code points that draw nothing, as well as the empty string.
 - `TooLong` - Over `MAX_NOTE_BODY_BYTES`. The document does not load; it is not shortened.
 - `TooManyLines` - Over `MAX_NOTE_LINES`. Separate from the byte cap because four thousand newlines are four thousand lines of a rendered prompt and eight kilobytes of nothing.
 
@@ -1378,10 +1406,27 @@ What one note is about: something the pinned bundle declares.
 
 **There is deliberately no variant for a model, a table or a column, and that absence is load
 bearing rather than tidy.** A caller cannot ask about any of the three - `crate::query::Query` has no field
-for one - and `sutura_app::prompt` asserts that no model, table or column name from the bundle
-reaches the rendered document, because a name in an agent's context is a name it will eventually
-try to use. Every section this module adds to that document is rendered from a `Referent`, so the
-type is what keeps that assertion true for the new sections rather than a review of each one.
+for one - and a name in an agent's context is a name it will eventually try to use. Every
+STRUCTURED rendering `sutura_app::prompt` builds out of a note - the glossary line, a caveat's
+scope, the request in a worked question - is rendered from a `Referent`, so none of them CAN name
+a model, a table or a column, whatever an author writes. That is the claim the type holds up, and
+it is worth stating at its real width:
+
+* **The structured renderings cannot name one.** There is no variant to put it in, so this half
+  is a property of the type rather than a review of each rendering.
+* **`Phrase` and `NoteBody` are free text, and both reach the rendered document.** Nothing
+  here stops an author writing a column name into a glossary term or a note body, and the
+  pre-existing metric-description channel already carries such names into the prompt - the
+  shipped example catalog's own prose names `mrr_cents` and `status`, and
+  `sutura-cli`'s prompt snapshot records that it does. Prose is bounded, authored, reviewed
+  content whose digest moves when a word of it changes; it is not mechanically constrained, and
+  claiming otherwise would be claiming the wrong mechanism.
+
+A load-time scan of every phrase and body for the bundle's own model, table and column names
+would close the second half. It is not here: it is a larger change than the type-level property
+needs, it would make an authored note refuse for naming a column in a sentence about why the
+column is not the thing being asked for, and the honest statement of what holds is the cheaper
+half of it.
 
 It carries `Deserialize` as well as `Serialize`, for the same reason `crate::measure::Measure`
 does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
@@ -1485,7 +1530,9 @@ pub fn every() -> impl Iterator<Item>
 
 Every capability there is, in declaration order.
 
-Derived from `Self::next` rather than listed, so the two cannot drift.
+Derived from `Self::next` rather than listed, and seeded by the one variant
+`Self::previous` answers `None` for - which is asserted where this enum is declared rather
+than assumed by whoever reads the line.
 
 #### Implements
 

@@ -136,8 +136,8 @@ impl ExampleDoc {
 
 #[cfg(test)]
 mod tests {
-    use super::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
-    use sutura_domain::knowledge::{NoteBody, Phrase, Referent};
+    use super::{CaveatDoc, DocumentKind, ExampleDoc, GlossaryDoc, NotDefinedDoc};
+    use sutura_domain::knowledge::{Capability, KnowledgeCapabilities, NoteBody, Phrase, Referent};
     use sutura_domain::model::{DimensionName, Grain, MetricName};
 
     const GLOSSARY: &str = "
@@ -318,5 +318,53 @@ synonyms: [CLV, Kundenwert]
             "range: { start: 2026-06-01 }",
         );
         drop(serde_norway::from_str::<ExampleDoc>(&open).expect_err("a period has both ends"));
+    }
+
+    /// The document kind this adapter reads for one knowledge capability.
+    ///
+    /// **A total match, and it exists in order not to compile.** `Collected::assemble` declares
+    /// `KnowledgeCapabilities::all()` - "this provider supports whatever kinds exist, including ones
+    /// added later" - and a capability with no `DocumentKind` beside it is one this adapter DECLARES
+    /// and cannot read. That is not a cosmetic drift: the declaration goes under the definition
+    /// digest, so the rendered prompt would claim a capability with nothing behind it and the
+    /// provenance would certify the claim. A fifth capability in the domain is a compile error here,
+    /// in the adapter that made the claim, rather than a kind nothing reads.
+    ///
+    /// In the test target on purpose. Nothing on the read path needs this mapping - the walk
+    /// dispatches on the `kind:` tag it found in a file, not on a capability - so a non-test copy
+    /// would be dead code, which this workspace denies. The gates compile the test targets, so the
+    /// compile error still lands in CI. `sutura_app::prompt::tests::guide_for` is the same trade for
+    /// the same reason.
+    const fn reads(capability: Capability) -> DocumentKind {
+        match capability {
+            Capability::Glossary => DocumentKind::Glossary,
+            Capability::Caveats => DocumentKind::Caveat,
+            Capability::Absences => DocumentKind::NotDefined,
+            Capability::Examples => DocumentKind::Example,
+        }
+    }
+
+    #[test]
+    fn every_capability_this_adapter_declares_is_one_it_has_a_document_for() {
+        // The declaration and the document shapes, checked against each other rather than kept in
+        // step by whoever remembers both. `reads` above is what stops compiling when they part
+        // company; this is the half that says what the pairing has to be.
+        let declared = KnowledgeCapabilities::all();
+        for capability in Capability::every() {
+            assert!(
+                declared.declares(capability),
+                "all() has to declare {capability} for this adapter to read it"
+            );
+        }
+        assert_eq!(declared.declared().len(), Capability::every().count());
+        // Written out, because listing the variants in a TEST is an assertion and listing them in a
+        // production path is the bug. The last pairing is the one worth spelling out: an author writes
+        // `kind: not_defined`, which says what they are doing, and the domain calls the thing an
+        // absence, which says what it is.
+        assert_eq!(reads(Capability::Glossary), DocumentKind::Glossary);
+        assert_eq!(reads(Capability::Caveats), DocumentKind::Caveat);
+        assert_eq!(reads(Capability::Absences), DocumentKind::NotDefined);
+        assert_eq!(reads(Capability::Examples), DocumentKind::Example);
+        assert_eq!(reads(Capability::Absences).as_str(), "not_defined");
     }
 }

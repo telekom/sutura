@@ -359,10 +359,18 @@ fn no_model_table_or_column_name_reaches_the_prompt() {
     // Asserted over both prose settings, because the quoted block is the other way a name could
     // arrive - the fixture's model description exists precisely so its absence means something.
     //
-    // **And over the bundle WITH notes attached**, which is the half the knowledge sections had to
-    // preserve. They can only render a metric, a dimension or a declared value, because
-    // `sutura_domain::knowledge::Referent` has no variant that could name anything else - so this is
-    // the assertion that type exists to keep true.
+    // **And over the bundle WITH notes attached - which is a NARROWER claim than the name of this
+    // test, and the narrow one is the true one.** What the type system holds up is the STRUCTURED
+    // half of every knowledge section: a glossary line, a caveat's scope and a worked question's
+    // request are rendered from a `sutura_domain::knowledge::Referent`, which has no variant that
+    // could name a model, a table or a column, so none of them CAN carry one. A `Phrase` and a
+    // `NoteBody` are free text and both reach this document, so what this loop proves about them is
+    // that the fixture above does not write those names - not that it could not. The channel is
+    // already open and already shipped: a metric DESCRIPTION is prose too, and the example catalog's
+    // own descriptions name `mrr_cents` and `status` in `sutura-cli`'s prompt snapshot. What bounds
+    // authored prose is that a catalog is reviewed content whose digest moves when a word of it
+    // changes; a load-time scan of every phrase and body against the bundle's own model, table and
+    // column names is the mechanism that would make the wide claim true, and it is not here.
     for prose in [CatalogProse::Quoted, CatalogProse::Omitted] {
         for text in [
             rendered(Tool::ALL, prose, None),
@@ -757,4 +765,128 @@ fn an_empty_description_produces_no_quoted_block() {
     // either an accident or an attempt to move a cursor, and neither is content.
     assert_eq!(quote("a\u{7}b"), "> ab");
     assert_eq!(quote("a\tb"), "> a\tb");
+}
+
+// ---------------------------------------------------------------- adversarial review findings ---
+//
+// Two properties this module's own documentation claims, stated as assertions that FAIL against the
+// code as committed.
+
+/// The knowledge fixture with whatever text a finding needs in the two free-text channels.
+fn notes_carrying(definitions: &Definitions, term: &str, prose: &str) -> Knowledge {
+    let range = TimeRange::new(
+        Date::parse("2026-06-01").expect("a test date is a date"),
+        Date::parse("2026-07-01").expect("a test date is a date"),
+    )
+    .expect("June is a range");
+    Knowledge::assemble(
+        definitions,
+        KnowledgeInput::new(
+            KnowledgeCapabilities::all(),
+            vec![GlossaryEntry::new(
+                phrase(term),
+                BTreeSet::new(),
+                Referent::Metric {
+                    metric: metric_name("revenue"),
+                },
+                note_body(prose),
+            )],
+            vec![Caveat::new(
+                note_name("leaky"),
+                vec![Referent::Metric {
+                    metric: metric_name("revenue"),
+                }],
+                note_body(prose),
+            )],
+            vec![Absence::new(phrase("something undefined"), BTreeSet::new(), note_body(prose))],
+            vec![Example::new(
+                note_name("leaky_example"),
+                vec![phrase("how was it asked")],
+                Query::new(metric_name("revenue"), Grain::Month, range, Vec::new(), Vec::new()),
+                note_body(prose),
+            )],
+        ),
+    )
+    .expect("these notes hold together with the test definitions")
+}
+
+/// The claim, stated at the width the mechanism actually holds.
+///
+/// `sutura_domain::knowledge::Referent` has no variant for a model, a table or a column, so the
+/// STRUCTURED half of every knowledge section - the `-> metric x` and `-> filter y = z` targets, and
+/// a worked question's `Send:` line - cannot name one. That half is closed by the type.
+///
+/// The prose half is NOT, and this test says so rather than pretending otherwise. A `Phrase` is free
+/// text and a `NoteBody` is free prose; an author who writes a column name into either gets it
+/// rendered. The reviewer who found this proposed asserting the render omits them, which cannot be
+/// satisfied: it would mean censoring authored prose at render time, and both `quote` and `NoteBody`
+/// are built on the opposite rule - refuse at load, never alter at render. A load-time scan for
+/// declared names is the mechanism that would close it, and it is not built.
+///
+/// So what is pinned here is the boundary: prose carries what its author wrote (asserted, so nobody
+/// mistakes this for a guarantee), and the structured lines carry only what the bundle declares.
+/// The wider claim is also already false through the pre-existing metric-description channel -
+/// `example_prompt.snap` quotes real column names out of metric bodies - so this is a limit of the
+/// design, not a regression in the knowledge layer.
+#[test]
+fn a_note_carries_its_author_s_prose_while_the_structured_lines_carry_only_declared_names() {
+    let definitions = definitions();
+    let prose = format!("Read it out of {TABLE}.{MEASURED_COLUMN} in model {MODEL}.");
+    let knowledge = notes_carrying(&definitions, TABLE, &prose);
+    let text = render(
+        &pin(definitions, knowledge),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+    );
+
+    // The prose reaches the reader verbatim, quoted. This is the honest half.
+    assert!(
+        text.contains(&prose),
+        "an authored body is rendered as written, and this test exists to keep that visible"
+    );
+
+    // The TARGET of a structured line - the half after the arrow - names only what the bundle
+    // declares, because `Referent` has no variant that could carry anything else. The PHRASE half is
+    // authored free text: this test first asserted on the whole line and failed on
+    // `- "zztable" -> metric `revenue``, which is the finding stated precisely. The guarantee is
+    // about the referent, not about the line.
+    for line in text.lines().filter(|line| line.contains(" -> ")) {
+        let target = line.split_once(" -> ").map_or("", |(_, after)| after);
+        assert!(
+            !target.contains(TABLE) && !target.contains(MODEL) && !target.contains(MEASURED_COLUMN),
+            "the target of a structured line named a model, a table or a column: {line}"
+        );
+    }
+}
+
+/// FINDING. `declaration` renders the glossary claim ("It is listed below") and the worked-question
+/// claim ("at the end of this document") from the declaration alone, while `glossary` and `examples`
+/// return nothing when their collection is empty. So a provider that declares all four and has
+/// recorded nothing yet produces a document pointing an agent at two sections that are not there,
+/// and the distinction the whole capability mechanism exists to carry is implemented for `Absences`
+/// alone, where `NOTHING_RECORDED` says the list is kept and empty.
+#[test]
+fn a_declared_and_empty_kind_says_so_rather_than_pointing_at_a_missing_section() {
+    let definitions = definitions();
+    let empty = Knowledge::assemble(
+        &definitions,
+        KnowledgeInput::new(KnowledgeCapabilities::all(), Vec::new(), Vec::new(), Vec::new(), Vec::new()),
+    )
+    .expect("an empty bundle of every kind is consistent with any definitions");
+    let text = render(
+        &pin(definitions, empty),
+        &PromptInputs::new(Tool::ALL, CatalogProse::Quoted, None),
+    );
+    // Absences already do this, and it is what the other three are being held to.
+    assert!(
+        text.contains("None. This deployment keeps such a list"),
+        "the absence section already says a kept list is empty"
+    );
+    assert!(
+        text.contains("## The words a question may arrive in"),
+        "the declaration says the glossary is listed below, so there has to be a section"
+    );
+    assert!(
+        text.contains("## Worked questions"),
+        "the declaration says the worked questions are at the end of this document, so there has to be a section"
+    );
 }

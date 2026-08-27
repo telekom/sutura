@@ -434,3 +434,288 @@ fn enough_conforming_notes_to_exceed_the_aggregate_cap_do_not_load() {
         .collect();
     assert_eq!(accepts(only_caveats(inside)).caveats().len(), 7);
 }
+
+// ---------------------------------------------------------------- adversarial review findings ---
+//
+// Each test below states a property this module's own documentation claims and FAILS against the
+// code as committed. Written as assertions rather than as prose so the finding cannot be lost.
+
+use super::tests::{body, definitions};
+use super::{Example, Knowledge};
+use crate::calendar::{Date, TimeRange};
+use crate::query::MAX_RANGE_DAYS;
+
+/// FINDING. `sutura_app::prompt::knowledge`'s `EXAMPLES_INTRO` tells an agent that "a question below
+/// is one this deployment answers rather than one it would decline". `Knowledge::check_question`
+/// checks only the four things a metric declares, so an example whose period is longer than
+/// `MAX_RANGE_DAYS` loads, renders, and is refused as `TimeRangeTooLong` when an agent copies it.
+/// Both caps live in this same crate, so checking them here is not a second opinion about what a
+/// permitted question is - it is the same opinion.
+#[test]
+fn a_worked_example_asking_for_more_history_than_a_request_may_does_not_load() {
+    let span = TimeRange::new(
+        Date::parse("2000-01-01").expect("a test date is a date"),
+        Date::parse("2026-01-01").expect("a test date is a date"),
+    )
+    .expect("twenty-six years is a range");
+    let asking = Query::new(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
+    assert!(
+        Knowledge::assemble(&definitions(), only_examples(vec![example("everything_ever", asking)])).is_err(),
+        "an example over the {MAX_RANGE_DAYS}-day cap is a shape an agent is told to copy and the surface declines"
+    );
+}
+
+/// FINDING. The claims index spans the glossary and the absences and never sees an example's
+/// `asked:` phrases, so one phrase can be declared undefined - which the prompt renders as "a
+/// question about one of them is to be DECLINED" - and be the phrasing of a worked question the same
+/// prompt tells the agent to copy.
+#[test]
+fn a_phrase_declared_undefined_is_not_also_the_way_a_worked_question_was_asked() {
+    let input = KnowledgeInput::new(
+        KnowledgeCapabilities::of([Capability::Absences, Capability::Examples]),
+        Vec::new(),
+        Vec::new(),
+        vec![absence("customer lifetime value", &["CLV"])],
+        vec![Example::new(
+            note_name("collides"),
+            vec![phrase("CLV")],
+            question(Grain::Month, Vec::new(), Vec::new()),
+            body(),
+        )],
+    );
+    assert!(
+        Knowledge::assemble(&definitions(), input).is_err(),
+        "a phrase recorded as undefined must not also be a worked question's own phrasing"
+    );
+}
+
+/// FINDING. `AbsenceNamesADefinedMetric` compares through `identifier_shape`, which lower-cases.
+/// `AmbiguousPhrase` and `PhraseBothDefinedAndNot` compare a `Phrase` by bytes. So one module treats
+/// "Recurring Revenue" and `recurring_revenue` as one phrase and "CLV" and "clv" as two, and the
+/// second pair renders a glossary line and an absence line for what a reader sees as one word.
+#[test]
+fn a_phrase_given_a_meaning_is_not_declared_undefined_in_another_case() {
+    let input = KnowledgeInput::new(
+        KnowledgeCapabilities::of([Capability::Glossary, Capability::Absences]),
+        vec![glossary_entry("CLV", &[], revenue())],
+        Vec::new(),
+        vec![absence("clv", &[])],
+        Vec::new(),
+    );
+    assert!(
+        Knowledge::assemble(&definitions(), input).is_err(),
+        "case is not meaning: one phrase must not be both given a meaning and declared undefined"
+    );
+}
+
+/// FINDING. Two glossary entries whose terms differ only in case, only in an invisible code point,
+/// or only in a run of spaces all load and all render - so an agent resolving the phrase a person
+/// typed picks one of two referents by whichever spelling it happened to match.
+#[test]
+fn two_glossary_entries_that_a_reader_cannot_tell_apart_do_not_load() {
+    for (first, second) in [
+        ("MRR", "mrr"),
+        ("mrr", "m\u{200b}rr"),
+        ("monthly revenue", "monthly  revenue"),
+    ] {
+        let input = KnowledgeInput::new(
+            KnowledgeCapabilities::of([Capability::Glossary]),
+            vec![
+                glossary_entry(first, &[], revenue()),
+                glossary_entry(
+                    second,
+                    &[],
+                    Referent::Metric {
+                        metric: metric_name("voice_minutes"),
+                    },
+                ),
+            ],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        assert!(
+            Knowledge::assemble(&definitions(), input).is_err(),
+            "{first:?} and {second:?} are one phrase to whoever reads the prompt"
+        );
+    }
+}
+
+/// FINDING. `AbsenceNamesADefinedMetric` guards metric names only. A note declaring the phrase
+/// "segment" undefined loads beside a metric block advertising `segment` as a dimension a question
+/// may group by and filter on, and the prompt then tells an agent to decline a question the bundle
+/// answers - which is the rot the metric-name check exists to prevent.
+#[test]
+fn an_absence_naming_a_declared_dimension_or_value_does_not_load() {
+    for undefined in ["segment", "business"] {
+        assert!(
+            Knowledge::assemble(&definitions(), only_absences(vec![absence(undefined, &[])])).is_err(),
+            "{undefined:?} is something this bundle declares, so it is not undefined here"
+        );
+    }
+}
+
+/// FINDING. `NoteBody::parse` refuses an empty body so the prompt cannot render a heading over empty
+/// space, but it trims only whitespace - and `quote` drops every control character. A body of control
+/// characters or of zero-width spaces therefore loads and renders as nothing at all, which is the
+/// state the emptiness check exists to make unreachable.
+#[test]
+fn a_body_that_renders_as_nothing_is_not_a_body() {
+    for raw in ["\u{7}\u{7}\u{7}", "\u{200b}\u{200b}", "\u{feff}"] {
+        assert!(
+            NoteBody::parse(raw).is_err(),
+            "{raw:?} carries no prose, so it is not a note body"
+        );
+    }
+}
+
+// ------------------------------------------------------- one test per refusal the fixes added ---
+//
+// The findings above assert only that a bundle does not load, which is the property. These name the
+// variant, because a variant nobody has seen fire is a variant nobody knows names the right thing -
+// and `docs/crap.md`'s gate scores this crate.
+
+use crate::query::MAX_DIMENSIONS;
+
+#[test]
+fn a_glossary_entry_that_claims_one_phrase_twice_says_which_document_to_open() {
+    // One document, one phrase, two claims. Its own refusal rather than `AmbiguousPhrase`, which
+    // would name this entry as both of the two entries at fault and send whoever reads it looking
+    // for a second file that does not exist.
+    assert_eq!(
+        refuses(only_glossary(vec![glossary_entry("revenue", &["Revenue"], revenue())])),
+        InconsistentKnowledge::TermIsItsOwnSynonym {
+            term: phrase("revenue"),
+            phrase: phrase("Revenue"),
+        }
+    );
+    // Two synonyms that are one phrase are the same fault, in the same one document.
+    assert_eq!(
+        refuses(only_glossary(vec![glossary_entry("turnover", &["MRR", "mrr"], revenue())])),
+        InconsistentKnowledge::TermIsItsOwnSynonym {
+            term: phrase("turnover"),
+            phrase: phrase("mrr"),
+        }
+    );
+}
+
+#[test]
+fn an_absence_naming_a_declared_dimension_or_value_says_which_one_it_found() {
+    // The same rot `AbsenceNamesADefinedMetric` exists to stop, one and two levels down: the prompt
+    // would say "segment is deliberately NOT defined - DECLINE" three sections above a metric block
+    // advertising `segment` as something a question may group by and filter on.
+    assert_eq!(
+        refuses(only_absences(vec![absence("Segment", &[])])),
+        InconsistentKnowledge::AbsenceNamesADeclaredDimension {
+            phrase: phrase("Segment"),
+            metric: metric_name("recurring_revenue"),
+            dimension: dimension_name("segment"),
+        }
+    );
+    assert_eq!(
+        refuses(only_absences(vec![absence("customer lifetime value", &["Business"])])),
+        InconsistentKnowledge::AbsenceNamesADeclaredValue {
+            phrase: phrase("Business"),
+            metric: metric_name("recurring_revenue"),
+            dimension: dimension_name("segment"),
+            value: String::from("business"),
+        }
+    );
+}
+
+#[test]
+fn a_worked_example_is_held_to_the_two_bounds_a_request_is_held_to() {
+    // Both caps are read from `crate::query`, so this is the same opinion about what a permitted
+    // question is rather than a second one - which is what the module used to argue against having.
+    let span = TimeRange::new(
+        Date::parse("2000-01-01").expect("a test date is a date"),
+        Date::parse("2026-01-01").expect("a test date is a date"),
+    )
+    .expect("twenty-six years is a range");
+    let days = span.days();
+    assert!(days > MAX_RANGE_DAYS, "{days} has to exceed the cap for this to test it");
+    let asking = Query::new(metric_name("recurring_revenue"), Grain::Month, span, Vec::new(), Vec::new());
+    assert_eq!(
+        refuses(only_examples(vec![example("everything_ever", asking)])),
+        InconsistentKnowledge::ExampleRangeTooLong {
+            name: note_name("everything_ever"),
+            days,
+            limit: MAX_RANGE_DAYS,
+        }
+    );
+
+    let wide: Vec<_> = ["one", "two", "three", "four", "five"]
+        .iter()
+        .map(|n| dimension_name(n))
+        .collect();
+    assert_eq!(wide.len(), MAX_DIMENSIONS.saturating_add(1));
+    assert_eq!(
+        refuses(only_examples(vec![example(
+            "by_everything",
+            question(Grain::Month, wide, Vec::new()),
+        )])),
+        InconsistentKnowledge::ExampleTooManyDimensions {
+            name: note_name("by_everything"),
+            requested: MAX_DIMENSIONS.saturating_add(1),
+            limit: MAX_DIMENSIONS,
+        }
+    );
+
+    // The other side of both, or the check refuses a question the surface would accept: ten calendar
+    // years is exactly the cap, and `resolve` lets it through.
+    let ten_years = TimeRange::new(
+        Date::parse("2016-01-01").expect("a test date is a date"),
+        Date::parse("2026-01-01").expect("a test date is a date"),
+    )
+    .expect("ten years is a range");
+    assert_eq!(ten_years.days(), MAX_RANGE_DAYS);
+    let at_the_cap = Query::new(
+        metric_name("recurring_revenue"),
+        Grain::Month,
+        ten_years,
+        Vec::new(),
+        Vec::new(),
+    );
+    assert_eq!(
+        accepts(only_examples(vec![example("ten_years", at_the_cap)]))
+            .examples()
+            .len(),
+        1
+    );
+}
+
+#[test]
+fn a_worked_question_may_repeat_a_glossary_phrase_and_may_not_repeat_an_undefined_one() {
+    // The narrow half of the check, and the reason it is narrow. An `asked` phrase is a sentence
+    // somebody said; the glossary is what the words in it mean, so an overlap there is what the two
+    // kinds are FOR. What must not overlap is the absence list, because the same document then says
+    // "DECLINE questions about it" and, further down, "copy this question".
+    let asked_undefined = KnowledgeInput::new(
+        KnowledgeCapabilities::of([Capability::Absences, Capability::Examples]),
+        Vec::new(),
+        Vec::new(),
+        vec![absence("customer lifetime value", &["CLV"])],
+        vec![Example::new(
+            note_name("collides"),
+            vec![phrase("clv")],
+            question(Grain::Month, Vec::new(), Vec::new()),
+            body(),
+        )],
+    );
+    assert_eq!(
+        refuses(asked_undefined),
+        InconsistentKnowledge::ExampleAsksWhatIsDeclaredUndefined {
+            name: note_name("collides"),
+            phrase: phrase("clv"),
+        }
+    );
+
+    let asked_defined = KnowledgeInput::new(
+        KnowledgeCapabilities::of([Capability::Glossary, Capability::Examples]),
+        vec![glossary_entry("how much revenue", &[], revenue())],
+        Vec::new(),
+        Vec::new(),
+        vec![example("in_june", question(Grain::Month, Vec::new(), Vec::new()))],
+    );
+    assert_eq!(accepts(asked_defined).examples().len(), 1);
+}
