@@ -4,14 +4,20 @@
 //! its complexity; the same function untested scores an order of magnitude higher. It is the one
 //! number that will not let "complex but fine" and "untested but trivial" cancel out.
 //!
-//! TWO TASKS, split by what they cost, because the expensive half cannot run everywhere:
+//! THREE TASKS, split by what they cost, because the expensive half cannot run everywhere:
 //!
 //!   `check-crap`  Hygiene. Reads files. Validates the policy, the allowlist discipline and the
 //!                 scope, and never compiles anything. Runs on every commit and in the Nix
 //!                 sandbox, where there is no network and no `.git`.
 //!   `crap`        Standalone. Runs `cargo llvm-cov` over the scoped packages and scores the
 //!                 result with `cargo crap`. Needs both tools; says so and FAILS when either is
-//!                 missing, because a gate whose tool is absent must not report success.
+//!                 missing, because a gate whose tool is absent must not report success. Also
+//!                 writes the PORTABLE BASELINE the task below compares against - see `delta`.
+//!   `crap-delta`  Standalone, and the only one of the three that touches no compiler and no
+//!                 tool. Two baseline files in, a verdict about the CHANGE out. It exists
+//!                 because an absolute threshold cannot say "worse than the base", and it costs
+//!                 no second coverage run: both files were produced by `crap` runs that already
+//!                 happened, one here and one on the base commit.
 //!
 //! WHY THE VERDICT IS COMPUTED HERE and not taken from `cargo crap --fail-above`'s exit code.
 //! Two reasons, and the first is the scar this repo already carries: a gate that "listed files
@@ -48,12 +54,13 @@
 //! artifacts the inner loop depends on and this repo's target directory is already tens of
 //! gigabytes.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::Verdict;
 use crate::repo;
 
+mod delta;
 mod report;
 
 use report::{AllowEntry, Entry, POLICY_FILE, Report, offenders, parse_policy, read_report, value_of};
@@ -104,6 +111,22 @@ const PIN_FILE: &str = "nix/crap.nix";
 
 /// The documentation page whose stated version must match the pin.
 const DOC_PAGE: &str = "docs/crap.md";
+
+/// The portable baseline `cargo xtask crap` writes, under `target/crap`.
+///
+/// A FILE AND NOT A FLAG, because two consumers need it and neither can ask for it. The Nix
+/// check copies it out of `$out` - a derivation cannot be told at build time whether CI wants
+/// the artifact - and a developer comparing two local runs wants the same file in the same place
+/// both times. `delta::portable` is what makes it comparable across machines.
+const BASELINE_FILE: &str = "baseline.json";
+
+/// The name the baseline takes inside a Nix build's `$out`.
+///
+/// Named separately from [`BASELINE_FILE`] because the two live in different worlds: one is
+/// under `target/`, gitignored and swept by `cargo clean`, and the other is a store path CI
+/// downloads by name. `.github/workflows/ci.yml` reads THIS one, so a rename here is a
+/// rename there.
+const PUBLISHED_BASELINE: &str = "crap-baseline.json";
 // ------------------------------------------------------------- check-crap (hygiene) ---
 
 /// The cheap half: is the policy a policy, and does the scope name real packages?
@@ -264,6 +287,14 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
             return Verdict::Fail;
         }
     };
+    // The portable baseline, written BEFORE the verdict so a failing local run still leaves a
+    // usable file behind. In the Nix sandbox the order is moot - a failing gate fails the
+    // derivation and `postInstall` never copies anything out - but locally the file is how a
+    // developer gets a base to compare a branch against without a network.
+    if let Err(reason) = write_baseline(&root, &report, &work.join(BASELINE_FILE)) {
+        eprintln!("xtask crap: {reason}");
+        return Verdict::Fail;
+    }
     verdict(&entries, policy.threshold)
 }
 
@@ -507,6 +538,240 @@ fn short_path(path: &str) -> &str {
     path.split_once("crates/").map_or(path, |(_, rest)| rest)
 }
 
+/// Turn the report `cargo crap` just wrote into the portable baseline.
+///
+/// Separate from [`score_coverage`] because it is a pure transform over a file that already
+/// exists, and because its refusal - a path outside the repo root - is about the ENVIRONMENT the
+/// run happened in rather than about the code being scored.
+fn write_baseline(root: &Path, report: &Path, baseline: &Path) -> Result<(), String> {
+    let json = std::fs::read_to_string(report).map_err(|error| format!("could not read {}: {error}", report.display()))?;
+    let portable = delta::portable(&json, root)?;
+    std::fs::write(baseline, portable).map_err(|error| format!("could not write {}: {error}", baseline.display()))?;
+    println!("xtask crap: baseline written to {}", baseline.display());
+    publish_baseline(baseline)?;
+    Ok(())
+}
+
+/// Also put the baseline in `$out` when this run IS a Nix build.
+///
+/// `$out` IS THE ONLY CHANNEL OUT OF A BUILD SANDBOX, and the delta gate needs exactly one thing
+/// through it: the numbers this run measured. CI then reads them from the store path instead of
+/// measuring a second time, which is what keeps delta control free - coverage is a separate
+/// compiler profile and a second run of it would be the most expensive thing in the pipeline.
+///
+/// WHY THE GATE PUBLISHES ITSELF instead of `flake.nix` copying the file out in a `postInstall`
+/// hook, which was written first and then removed. Two reasons, and the second is the one that
+/// decided it.
+///
+/// The gate owns its own outputs. Which artefacts a run produces is a property of the gate, so a
+/// filename agreed between this file and `flake.nix` would be a filename in two places, and the
+/// drift would surface as a CI step that cannot find a file nothing said had moved.
+///
+/// And `flake.nix` has no room. It sits at exactly the 1000-line limit `cargo xtask max-lines`
+/// enforces, which cannot be exempted for a first-party file, so a hook plus the comment
+/// explaining it would have failed the hygiene sweep on file length alone.
+///
+/// DETECTED BY `NIX_BUILD_TOP`, NOT BY `out` ALONE. `out` is a lowercase environment variable
+/// that a shell could plausibly have set for its own reasons; `NIX_BUILD_TOP` is set by stdenv
+/// and by nothing else. Requiring both is what stops a developer's stray `export out=...` from
+/// silently redirecting the file.
+///
+/// A NO-OP EVERYWHERE ELSE, and silent about it: outside a sandbox `target/crap/baseline.json` is
+/// already where a person and `just crap-delta` both look.
+fn publish_baseline(baseline: &Path) -> Result<(), String> {
+    if std::env::var_os("NIX_BUILD_TOP").is_none() {
+        return Ok(());
+    }
+    let Some(out) = std::env::var_os("out").filter(|value| !value.is_empty()) else {
+        return Ok(());
+    };
+    let directory = PathBuf::from(out);
+    std::fs::create_dir_all(&directory).map_err(|error| format!("could not create {}: {error}", directory.display()))?;
+    let published = directory.join(PUBLISHED_BASELINE);
+    std::fs::copy(baseline, &published).map_err(|error| {
+        format!(
+            "could not publish the baseline to {}: {error}\n  This IS a Nix build, so the delta \
+             gate would have no numbers for this commit.",
+            published.display()
+        )
+    })?;
+    println!("xtask crap: baseline published to {}", published.display());
+    Ok(())
+}
+
+// ------------------------------------------------------------- crap-delta (standalone) ---
+
+/// What `crap-delta` was asked to compare.
+#[derive(Debug)]
+struct DeltaRequest {
+    /// The base commit portable baseline, downloaded from an artifact in CI.
+    baseline: PathBuf,
+    /// This tree portable baseline, out of the `crap` check `$out`.
+    head: PathBuf,
+    /// Where to render the markdown a PR comment is made of, if anywhere.
+    comment: Option<PathBuf>,
+    /// The revision the baseline came from, for the comment only. A reader who cannot see WHICH
+    /// base a delta is against cannot tell a real regression from a stale baseline.
+    base: String,
+}
+
+/// The delta gate. Reads two files, compares, reports, and applies the three ratchet rules.
+///
+/// NO TOOL AND NO COMPILER, which is what makes it free to run and testable everywhere. It is
+/// also why it is a task of its own rather than a flag on `crap`: `crap` cannot run in the PR job
+/// outside the sandbox without a second coverage build, and this must run outside the sandbox
+/// because the baseline arrives over the network.
+pub(crate) fn run_delta(args: &[String]) -> Verdict {
+    let request = match parse_delta_args(args) {
+        Ok(request) => request,
+        Err(reason) => {
+            eprintln!("xtask crap-delta: {reason}");
+            eprintln!();
+            eprintln!("  usage: crap-delta --baseline <FILE> --head <FILE> [--comment <FILE>] [--base <REV>]");
+            return Verdict::Usage;
+        }
+    };
+    let Some(root) = repo::root() else {
+        eprintln!("xtask crap-delta: could not locate the repo root");
+        return Verdict::Fail;
+    };
+    let policy = match std::fs::read_to_string(root.join(POLICY_FILE))
+        .map_err(|error| format!("could not read {POLICY_FILE}: {error}"))
+        .and_then(|text| parse_policy(&text))
+    {
+        Ok(policy) => policy,
+        Err(reason) => {
+            eprintln!("xtask crap-delta: {reason}");
+            return Verdict::Fail;
+        }
+    };
+    let epsilon = policy.epsilon.unwrap_or(delta::DEFAULT_EPSILON);
+
+    let (baseline, head) = match read_sides(&request) {
+        Ok(pair) => pair,
+        Err(reason) => {
+            eprintln!("xtask crap-delta: {reason}");
+            return Verdict::Fail;
+        }
+    };
+    let comparison = delta::compare(&baseline, &head, epsilon);
+
+    if let Some(path) = request.comment.as_deref() {
+        let body = delta::comment(&comparison, policy.threshold, &SCOPE.join(", "), &request.base);
+        if let Err(error) = std::fs::write(path, body) {
+            eprintln!("xtask crap-delta: could not write {}: {error}", path.display());
+            return Verdict::Fail;
+        }
+    }
+    delta_verdict(&comparison, policy.threshold)
+}
+
+/// The two sides `crap-delta` compares: the base commit, then this tree.
+type Sides = (Vec<Entry>, Vec<Entry>);
+
+/// Both baselines, each refused the same way for the same reasons.
+fn read_sides(request: &DeltaRequest) -> Result<Sides, String> {
+    let mut sides = Vec::with_capacity(2);
+    for (label, path) in [("baseline", &request.baseline), ("head", &request.head)] {
+        let json =
+            std::fs::read_to_string(path).map_err(|error| format!("could not read the {label} {}: {error}", path.display()))?;
+        let entries = delta::read_portable(&json, SCOPE).map_err(|reason| format!("the {label} {}: {reason}", path.display()))?;
+        sides.push(entries);
+    }
+    let mut sides = sides.into_iter();
+    match (sides.next(), sides.next()) {
+        (Some(baseline), Some(head)) => Ok((baseline, head)),
+        _ => Err(String::from(
+            "both sides must be present - the loop above puts exactly two there",
+        )),
+    }
+}
+
+/// `--baseline X --head Y [--comment Z] [--base REV]`, and nothing else.
+///
+/// Hand-rolled rather than a dependency, like every other argument in this binary: four flags do
+/// not justify a parser, and `unused-deps` would be right to ask about one.
+fn parse_delta_args(args: &[String]) -> Result<DeltaRequest, String> {
+    let mut baseline = None;
+    let mut head = None;
+    let mut comment = None;
+    let mut base = String::from("unknown");
+    let mut pairs = args.chunks(2);
+    for pair in pairs.by_ref() {
+        let (Some(flag), Some(value)) = (pair.first(), pair.get(1)) else {
+            let dangling = pair.first().map_or_else(String::new, String::clone);
+            return Err(format!("`{dangling}` needs a value"));
+        };
+        match flag.as_str() {
+            "--baseline" => baseline = Some(PathBuf::from(value)),
+            "--head" => head = Some(PathBuf::from(value)),
+            "--comment" => comment = Some(PathBuf::from(value)),
+            "--base" => base.clone_from(value),
+            other => return Err(format!("unknown argument `{other}`")),
+        }
+    }
+    Ok(DeltaRequest {
+        baseline: baseline.ok_or_else(|| String::from("--baseline is required"))?,
+        head: head.ok_or_else(|| String::from("--head is required"))?,
+        comment,
+        base,
+    })
+}
+
+/// The delta verdict, and the table a person reads either way.
+///
+/// PRINTED EVEN WHEN IT PASSES, and that is the "a regression under the line should still be
+/// visible" half of this gate. A rule that only speaks when it fails cannot show a reviewer that
+/// a function slid from 12 to 29 - which passes, and is exactly the movement an absolute
+/// threshold is blind to.
+fn delta_verdict(comparison: &delta::Comparison, threshold: f64) -> Verdict {
+    let ratchet = delta::ratchet(comparison, threshold);
+    println!(
+        "xtask crap-delta: {} worse, {} better, {} new, {} removed, {:.1} point(s) added to pre-existing functions",
+        ratchet.regressions.len(),
+        ratchet.improvements,
+        ratchet.added,
+        comparison.removed.len(),
+        ratchet.budget_used
+    );
+    if !ratchet.regressions.is_empty() {
+        println!();
+        println!("     CRAP      WAS    DELTA   CC     COV  FUNCTION");
+        for change in &ratchet.regressions {
+            let was = change.baseline_crap.unwrap_or_default();
+            println!(
+                "  {:>7.1}  {:>7.1}  {:>+7.1}  {:>3.0}  {:>5.1}%  {}",
+                change.crap,
+                was,
+                change.delta(),
+                change.cyclomatic,
+                change.coverage,
+                change.function
+            );
+            println!("           {}:{}", change.file, change.line);
+        }
+    }
+    let reasons = ratchet.reasons(threshold);
+    if reasons.is_empty() {
+        println!("xtask crap-delta: ok - nothing crossed CRAP {threshold}, nothing over it got worse, budget intact");
+        return Verdict::Pass;
+    }
+    eprintln!();
+    eprintln!("xtask crap-delta: the delta ratchet FAILED\n");
+    for reason in &reasons {
+        eprintln!("  {reason}");
+    }
+    eprintln!();
+    eprintln!("This is the ratchet, not the line: `nix build .#checks.x86_64-linux.crap` already");
+    eprintln!("enforces CRAP {threshold} absolutely. What failed here is that the CHANGE made something");
+    eprintln!("worse than the base commit. The fix is a test for the branch you added, or a smaller");
+    eprintln!("function - never an allowlist entry, which {POLICY_FILE} refuses for untested code.");
+    eprintln!();
+    eprintln!("docs/crap.md explains the three rules and why a single sub-threshold regression is");
+    eprintln!("reported rather than failed.");
+    Verdict::Fail
+}
+
 #[cfg(test)]
 mod tests {
     use super::short_path;
@@ -581,5 +846,60 @@ mod tests {
         );
         // A path with no `crates/` segment is left alone rather than mangled.
         assert_eq!(short_path("xtask/src/crap.rs"), "xtask/src/crap.rs");
+    }
+
+    #[test]
+    fn the_delta_arguments_are_read_and_a_missing_one_is_a_usage_error() {
+        use super::parse_delta_args;
+        let ok = parse_delta_args(&[
+            String::from("--baseline"),
+            String::from("base.json"),
+            String::from("--head"),
+            String::from("head.json"),
+            String::from("--comment"),
+            String::from("body.md"),
+            String::from("--base"),
+            String::from("abc1234"),
+        ])
+        .expect("all four flags parse");
+        assert_eq!(ok.baseline.to_str(), Some("base.json"));
+        assert_eq!(ok.head.to_str(), Some("head.json"));
+        assert_eq!(ok.comment.as_deref().and_then(std::path::Path::to_str), Some("body.md"));
+        assert_eq!(ok.base, "abc1234");
+
+        // The two required ones are required, and the message says which.
+        let no_head =
+            parse_delta_args(&[String::from("--baseline"), String::from("b.json")]).expect_err("--head must be required");
+        assert!(no_head.contains("--head"), "{no_head}");
+        let no_baseline =
+            parse_delta_args(&[String::from("--head"), String::from("h.json")]).expect_err("--baseline must be required");
+        assert!(no_baseline.contains("--baseline"), "{no_baseline}");
+    }
+
+    #[test]
+    fn a_dangling_flag_or_an_unknown_one_is_refused_rather_than_ignored() {
+        use super::parse_delta_args;
+        // A flag with no value used to be the shape that silently compared the wrong files.
+        let dangling = parse_delta_args(&[String::from("--baseline"), String::from("b.json"), String::from("--head")])
+            .expect_err("a flag with no value must be refused");
+        assert!(dangling.contains("--head"), "{dangling}");
+        let unknown = parse_delta_args(&[String::from("--nope"), String::from("x")]).expect_err("must be refused");
+        assert!(unknown.contains("--nope"), "{unknown}");
+    }
+
+    #[test]
+    fn the_comment_is_optional_and_the_base_has_a_readable_default() {
+        use super::parse_delta_args;
+        let minimal = parse_delta_args(&[
+            String::from("--baseline"),
+            String::from("b.json"),
+            String::from("--head"),
+            String::from("h.json"),
+        ])
+        .expect("two flags are enough");
+        assert!(minimal.comment.is_none(), "no comment is written unless asked for");
+        // Never an empty string: the comment says which base it compared against, and a blank
+        // there reads as a bug in the gate rather than as a missing argument.
+        assert_eq!(minimal.base, "unknown");
     }
 }

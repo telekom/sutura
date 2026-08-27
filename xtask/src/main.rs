@@ -167,6 +167,20 @@ const TASKS: &[Task] = &[
         run: crap::run,
     },
     Task {
+        // The DELTA half, and standalone for a different reason from the two above: it needs no
+        // compiler and no tool at all, but it needs a BASELINE - a file produced by a `crap` run
+        // on the base commit, which in CI arrives over the network from an artifact. A hygiene
+        // task must run in the Nix sandbox, and a sandbox has no network, so this cannot be one.
+        //
+        // It costs no second coverage run. Both sides are baselines earlier `crap` runs already
+        // wrote; this reads two files and joins them. See `crap::delta` for the three rules and
+        // for why a single sub-threshold regression is reported rather than failed.
+        name: "crap-delta",
+        description: "did the CHANGE make anything worse; --baseline <F> --head <F> [--comment <F>]",
+        kind: Kind::Standalone,
+        run: crap::run_delta,
+    },
+    Task {
         name: "commit-msg",
         description: "the commit subject is a conventional commit (the hook passes the file)",
         kind: Kind::Standalone,
@@ -378,6 +392,10 @@ mod tests {
         // policy file from rotting on a tree nobody has run the expensive half against.
         let cheap = TASKS.iter().find(|t| t.name == "check-crap").expect("task is registered");
         assert_eq!(cheap.kind, super::Kind::Hygiene);
+        // And the DELTA half is standalone for a third reason: it needs a baseline that arrives
+        // over the network in CI, and the hygiene sweep runs in a sandbox with no network.
+        let delta = TASKS.iter().find(|t| t.name == "crap-delta").expect("task is registered");
+        assert_eq!(delta.kind, super::Kind::Standalone);
     }
 
     #[test]
