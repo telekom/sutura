@@ -13,8 +13,9 @@ names its dependencies by.
 Nothing here may depend on a framework: no async runtime, no web server, no query engine.
 `cargo xtask check-boundaries` enforces it over the whole transitive tree, because the rule
 is worth more as a check than as a sentence in a design document. The allowlist is `serde` and
-`thiserror` and their proc-macro support, and nothing else - which is why there is a hand-written
-calendar in `calendar` and no `serde_json` in any test here.
+`thiserror` and their proc-macro support, plus the `serde_json` and `sha2` that the definition
+digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
+and no SQL parser anywhere in this crate, `expression` included.
 
 **Two ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
@@ -29,8 +30,17 @@ types it speaks in:
 - `model` and `calendar` are the vocabulary: names, closed sets, dates.
 - `measure` is what a metric measures, as a closed vocabulary of shapes rather than an
   expression language.
+- `expression` is the escape hatch beside it: SQL a catalog author wrote, for the metrics that
+  vocabulary cannot say. It holds no parser - `sutura_sql` compiles a fragment at load - and
+  `expression::Computation` is what makes "this metric is authored SQL" a word rather than an
+  absence.
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
 - `catalog` is what a catalog says, and where its cross-references are checked.
+- `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
+  terms deliberately left undefined, the worked questions - checked against a `catalog` and read
+  by nothing but the agent-facing prompt. It is separate from `catalog` because the compiler
+  must not be able to reach it: descriptive content that could select what executes would not be
+  descriptive content.
 - `pinned` is the hashed snapshot a question resolves against, plus the catalog port.
 - `query` is the tool surface, defined mostly by what it has no field for.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
@@ -690,8 +700,9 @@ pub enum NotDigestible
 Why a set of definitions could not be reduced to a digest.
 
 Two variants, and neither is reachable from any catalog this repository can load - which is why
-they are variants rather than a panic. `Definitions` holds no floats and every map key is a
-newtype over a string, so the serializer has nothing to refuse; and lower-case hex of 32 bytes is
+they are variants rather than a panic. Neither `Definitions` nor `Knowledge` holds a float and
+every map key in both is a newtype over a string, so the serializer has nothing to refuse; and
+lower-case hex of 32 bytes is
 what a digest is. Each variant names which half changed, so a future field of a type that does not
 serialize says so instead of surfacing as "the catalog is broken".
 
@@ -726,6 +737,325 @@ a human and may be reworded without breaking a caller that matched on `WrongLeng
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `expression`
+
+The escape hatch: SQL a catalog author wrote, for the metrics the closed vocabulary cannot say.
+
+[`measure`](crate::measure) is closed and stays closed. A window function, a percentile, an
+expression over two columns - `SUM(price * quantity)` - has no `Measure` and cannot get one
+without turning that vocabulary into an expression language. Two things forced a second path
+anyway. Metrics people actually certify use those constructs; and a provider whose catalog
+**already holds SQL per metric** - wren's cubes carry
+`SUM(CASE WHEN status = 'active' THEN mrr_eur END)` in the file - has nothing to map onto a
+closed vocabulary and would arrive as "unsupported" for its entire metric set.
+
+So this module is the hatch, and everything about its shape is arranged so that it cannot be
+used by accident or unnoticed:
+
+**It is a sibling of the closed vocabulary, not a field on it.** `Computation` has two
+variants, `Computation::Measure` is the ordinary one, and a metric that uses SQL says so in a
+word - `authored_sql` - that a reviewer greps for and an operator can list. There is no
+`expression:` key on a measure, no `Option<String>` beside one, and no shape in which "this
+metric is free-text SQL" is invisible in a diff.
+
+**Nothing here parses.** A `SqlFragment` is checked for being *a plausible fragment* - present,
+bounded, free of control characters - and nothing more. Whether it is one SQL expression, over
+columns this model declares, reaching no table it was not given, is decided by `sutura_sql`, at
+catalog-compile time, and a fragment that fails is a **load failure naming line and column**. The
+domain may not do that work: it holds no SQL parser and `cargo xtask check-boundaries` keeps it
+that way. The consequence is worth stating plainly - **a `Computation::AuthoredSql` that has not
+been through `sutura_sql::expression::compile` is unvalidated**, and the composition root is what
+must not skip it.
+
+**It is a provider CAPABILITY, not a feature every provider has.** A wren-style directory has
+authored SQL because a person wrote the file. A metadata service that stores no executable SQL
+per metric, and an RDF vocabulary that never will, produce `Computation::Measure` for every
+metric and are complete rather than degraded. That is why the closed vocabulary is a *variant*
+and not the `None` arm of an `Option`: "no expression" is the ordinary shape of the type.
+
+**Nothing here is wren-shaped.** No `base_object`, no result `type:`, no assumption that the text
+came out of a `cubes/*.yml`. What a provider read, and out of what file, is the adapter's
+business; what arrives here is an authored fragment per dialect and nothing else. A provider that
+already stores per-dialect SQL maps onto `AuthoredSql`'s map directly, which is the strongest
+argument for that shape over a single string.
+
+### `enum InvalidFragment`
+
+```rust
+pub enum InvalidFragment
+```
+
+Why a fragment is not one.
+
+#### Variants
+
+- `Empty` - Empty or whitespace-only. This is the input that made the obvious fragment API unusable: the dialect layer's `Parser::parse_expressions` panics on an empty token list, and under `panic = "abort"` a blank line in a catalog file would end the process. It is refused here, before anything can be asked of it.
+- `TooLong`
+- `ControlCharacter` - A control character other than tab and newline. Those two are formatting a person might use inside a long `CASE`; the rest are not text, and their likeliest origin is a paste accident or an attempt to hide part of a fragment from a reviewer's terminal.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum InvalidDialectTag`
+
+```rust
+pub enum InvalidDialectTag
+```
+
+Why a dialect word is not one.
+
+#### Variants
+
+- `Empty`
+- `TooLong`
+- `IllegalCharacter`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct SqlFragment`
+
+```rust
+pub struct SqlFragment
+```
+
+One authored SQL fragment, as text and nothing more.
+
+Its own type rather than a `String` field, so the checks happen once and a value that reached
+them cannot be confused with a string that did not. Deliberately **not** an identifier newtype:
+the character set of SQL is not the character set of a name, and narrowing it here would reject
+the quotes, parentheses and commas the whole feature exists to allow.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidFragment>
+```
+
+Checks that this is a plausible fragment. It does **not** check that it is SQL.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct DialectTag`
+
+```rust
+pub struct DialectTag
+```
+
+Which dialect a fragment was authored for, as a word at rest.
+
+**The domain does not own the list of data systems we render for, and that is not an oversight.**
+`sutura_sql::dialect::Dialect` owns it, because each entry there is a claim that we generate
+correct SQL for that system and have a golden that says so - and a second copy of the set here
+would be one that has to be kept in step with nothing checking it, which is exactly what
+`crate::measure::Term` declines to do for aggregates. So a tag is a *word* until the compile
+step, which resolves it against the list that build actually renders for and refuses an unknown
+one naming the choices. A `postgresql:` where `postgres:` was meant is therefore a load failure
+and not a variant that is silently never chosen.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn is_portable(&self) -> bool
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDialectTag>
+```
+
+```rust
+pub fn portable() -> Self
+```
+
+The word resolution falls back to, and the only word it falls back to.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum InvalidAuthoredSql`
+
+```rust
+pub enum InvalidAuthoredSql
+```
+
+Why a set of authored fragments is not usable.
+
+#### Variants
+
+- `NoFragments` - The key was written and no fragment was given under it.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct AuthoredSql`
+
+```rust
+pub struct AuthoredSql
+```
+
+Catalog-authored SQL for one metric: one fragment per dialect, and a `portable` fallback.
+
+**A map and not a single string, because the honest answer to "it does not translate" is to say
+so per dialect.** Wren's own `Measure` has no expression field at all, and its cube path carries
+one string with no dialect attached to it; its OSI importer is the part that got this right, with
+`{dialects: [{dialect: SNOWFLAKE, expression: ..}, {dialect: ANSI_SQL, ..}]}`. This is that
+shape, as a map, so the key is unique by construction rather than by a duplicate check.
+
+**Resolution is exact dialect, then `portable`, then refuse - and the third step is where this
+departs from the importer it copies.** Wren falls back to the first non-empty variant. That
+hands a Postgres query a Snowflake expression because it happened to be listed first, which is a
+number computed by a definition nobody chose, under a certified name. Refusing names the dialect
+and costs an operator one line in a file.
+
+**On disk it is the map itself and not a struct holding one**, so a document writes
+`authored_sql: { portable: .. }` rather than `authored_sql: { fragments: { portable: .. } }`. The
+serde route is `try_from`/`into` rather than `transparent`, for the reason
+`crate::measure::Term`'s on-disk representation gives: `transparent` writes straight past
+`AuthoredSql::new`, so the empty-map refusal would hold for a constructor call and not for the
+one path that actually carries a catalog file.
+
+#### Methods
+
+```rust
+pub fn exact(&self, dialect: &DialectTag) -> Option<&SqlFragment>
+```
+
+The fragment authored for exactly this dialect, if there is one.
+
+```rust
+pub const fn fragments(&self) -> &BTreeMap<DialectTag, SqlFragment>
+```
+
+One authored fragment per dialect word, in a canonical order.
+
+```rust
+pub fn new(fragments: BTreeMap<DialectTag, SqlFragment>) -> Result<Self, InvalidAuthoredSql>
+```
+
+Takes the authored fragments, refusing an empty set.
+
+`BTreeMap` for the reason `crate::catalog::Definitions` uses one: the definition digest is
+taken over the serialized form, and a map that serialized in hash order would move the digest
+without the catalog moving.
+
+```rust
+pub fn portable(&self) -> Option<&SqlFragment>
+```
+
+The `portable` fragment, if there is one.
+
+```rust
+pub fn tags(&self) -> Vec<&DialectTag>
+```
+
+Which dialects this metric was authored for, for a refusal that lists them.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidComputation`
+
+```rust
+pub enum InvalidComputation
+```
+
+Why a metric does not say what it computes.
+
+#### Variants
+
+- `Nothing` - Neither key. Refused rather than defaulted: a metric with no measure has no number.
+- `Both` - Both keys. Refused rather than resolved by precedence, for the reason `crate::measure::InvalidTerm::TwoTerms` gives: a document that writes both means one of them, and choosing would certify a number the author did not ask for. It matters more here than there, because the two would not merely differ - one is composed by the generator and the other is text somebody wrote.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum Computation`
+
+```rust
+pub enum Computation
+```
+
+What a metric computes, and which of the two ways it says so.
+
+**Externally tagged and meant to be flattened into the metric document, which is what keeps every
+existing catalog byte-identical.** `Computation::Measure` serializes as `{"measure": ..}`,
+exactly the field a metric already had, so a closed-vocabulary metric's canonical form - and so
+its definition digest - does not move for gaining this type. An `authored_sql` metric is a new
+key, visible in the diff, which is the whole point.
+
+#### Variants
+
+- `Measure` - The closed vocabulary, and the ordinary case. Every metadata provider can produce this, and nothing about it is optional or degraded.
+- `AuthoredSql` - SQL somebody wrote in the catalog, compiled at load. The exception, named so that it reads as one.
+
+#### Methods
+
+```rust
+pub fn assemble(measure: Option<Measure>, authored_sql: Option<AuthoredSql>) -> Result<Self, InvalidComputation>
+```
+
+Builds a computation from the two sibling keys a metric document may carry.
+
+Two `Option`s in, and a refusal for each wrong combination - the shape
+`crate::measure::Term` uses, for the same reason and one more. `deny_unknown_fields` cannot
+coexist with `serde(flatten)`, so the adapter declares the two keys and this decides what
+they mean; and putting the decision here means a second catalog adapter cannot disagree about
+whether writing both is an error.
+
+```rust
+pub const fn authored_sql(&self) -> Option<&AuthoredSql>
+```
+
+The authored SQL, if this metric uses the escape hatch.
+
+```rust
+pub const fn kind(&self) -> &'static str
+```
+
+The word a catalog writes, and the word an operator lists metrics by.
+
+This is the mechanism behind "a reviewer and an operator must be able to see which metrics
+use the hatch": one accessor over the pinned definitions, rather than a grep over files.
+
+```rust
+pub const fn measure(&self) -> Option<&Measure>
+```
+
+The closed measure, if this metric uses the closed vocabulary.
+
+Every consumer that walks columns, resolves terms or renders an aggregate reads this, and a
+`None` is the signal that the number comes from a compiled fragment instead. An adapter that
+cannot execute one has to **refuse** on that `None` rather than skip the metric.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `constant MAX_FRAGMENT_LEN`
+
+The longest authored fragment accepted.
+
+A bound rather than a judgement about style: the fragment is handed to a recursive-descent parser
+at load, and an unbounded string out of a file is an unbounded amount of work and stack.
+Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
+derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
 
 ## Module `identity`
 
@@ -774,6 +1104,516 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+## Module `knowledge`
+
+What a catalog says ABOUT what it defines: the words a question arrives in, the traps a reader
+has to be warned about, the things deliberately NOT defined, and worked questions.
+
+`crate::catalog` holds what executes. This holds what a person needs in order to choose from it,
+and the two are separate types on purpose: `docs/architecture.md` and `docs/concepts.md` have both
+promised a glossary behind `SemanticCatalog` since before there was one, and the gap that promise
+covered is the largest single difference between this repository and the reference implementation
+it is measured against. A metric named `recurring_revenue` is unreachable to somebody who asks
+about "monatlicher Umsatz", and a refusal naming a metric they never heard of is not an answer to
+that.
+
+# The governance invariant, stated first because it is the one that can be lost
+
+`AGENTS.md`: *"Reading from the catalog at request time - descriptive content only, nothing that
+selects, widens or parameterizes what executes."* Knowledge is descriptive **only while the
+prompt is its only consumer**, and that is a property of where it is read rather than of what it
+contains.
+
+So: **never add server-side phrase resolution.** `crate::query::Query` keeps a
+`MetricName` and never gains a phrase, the glossary renders into the agent-facing prompt, and
+the AGENT does the resolving - which puts the resolution in the agent's own transcript, where it
+is auditable, instead of inside a service whose answer would then depend on a synonym table
+nobody saw. "Let sutura resolve the synonyms" is the plausible next feature, it looks like a
+convenience, and it moves the choice of what executes from a name a caller sent to a phrase match
+a caller did not.
+
+There is also **no new `crate::query::RefusalReason` variant**, and the absence is structural
+rather than an omission. Knowledge is checked when the bundle is loaded: a note naming a metric
+that does not exist fails the load, so no request can reach a state where the knowledge is wrong.
+A `PhraseNotDefined` refusal in particular would be unreachable - there is no field a caller
+could put a phrase in - and a variant no test can provoke is exactly what
+`crate::query::RefusalReason`'s own documentation refuses to carry.
+
+# Four kinds, and the two that were deliberately not adopted
+
+`GlossaryEntry`, `Caveat`, `Absence` and `Example`. The reference implementation keeps two
+more, and neither is here:
+
+* **A `rules` kind.** Five of its seven rules are already enforced by types in this crate or are
+  unrepresentable here - certified metrics only, no DML, a bounded time range, a join that cannot
+  duplicate rows, one data system - so restating them in the prompt is exactly what
+  `sutura_app::prompt`'s module documentation argues against: text teaching an agent to attempt
+  what the surface refuses by construction. The other two are a glossary entry and a caveat, which
+  this module has. And a `rules` kind is the only shape among the five that would be scoped to
+  NOTHING - a body of prose about the deployment at large - which is an unscoped global text
+  channel from the catalog into the prompt. The injection answer depends on that channel not
+  existing: every note here is attached to something the bundle declares, and
+  `InconsistentKnowledge::CaveatAboutNothing` is the check that keeps it so.
+* **A `certified-metrics` table.** Its definitional half is already generated from the pinned
+  bundle by `sutura_app::prompt`, so a second copy would break "one owner per artefact" and drift
+  the first time a measure changed. The reference implementation needs the prose table because its
+  measures are SQL strings a reader cannot check; here a measure is a closed vocabulary that
+  renders itself. Only the ABSENCE half of that document is information the bundle does not
+  already carry - "customer lifetime value has no definition here" - and that half is `Absence`.
+
+# Capability asymmetry: an adapter DECLARES what it supports
+
+Not every provider has all four concepts, and the asymmetry is permanent rather than a gap to be
+filled. A metadata service has glossary terms with synonyms and has nowhere at all to put a
+reviewed list of what is deliberately undefined or a worked question somebody signed off; those
+two are things only a reviewed first-party catalog can supply. That is the honest reason such a
+catalog is not merely a degraded metadata service.
+
+**So the adapter states its capabilities, in `KnowledgeCapabilities`, and the content is then
+just content.** Declaring is the mechanism; emptiness is not evidence of anything. Two facts that
+an empty collection cannot tell apart:
+
+* `not_defined` declared, nothing in it - nothing is recorded as deliberately undefined here, and
+  the record is one somebody keeps.
+* `not_defined` not declared - this provider has no way to record that, so the absence of an entry
+  says nothing at all.
+
+The difference decides what the rendered prompt may CLAIM, which is the whole point of carrying
+it: with `not_defined` declared, the prompt may say the list is authoritative and an agent may
+decline a question on the strength of it; without it, the prompt must imply nothing whatever about
+what is undefined. `sutura_app::prompt` renders that difference explicitly rather than by
+omission.
+
+Two consequences follow, and both are checks rather than intentions:
+
+* `Knowledge::assemble` REFUSES content for a kind the adapter did not declare. A glossary entry
+  arriving from a provider that declared no glossary is an adapter bug, and it fails the load at
+  the boundary where it happened instead of rendering into a document that then claims a
+  capability nobody said they had.
+* The declaration is under the definition digest, because it changes what the agent is told. A
+  deployment that silently stopped declaring `not_defined` has changed what its prompt claims, and
+  provenance that did not move would certify the old claim.
+
+**The port does not grow a method per kind.** `crate::pinned::SemanticCatalog::load` returns one
+bundle carrying the declaration; a provider with no glossary declares none and writes no other
+code. A trait method per kind would mean every adapter implementing four functions, most of them
+returning nothing, which is the "a port arrives with its implementor" rule inverted.
+
+# The bounds, and the measurement behind them
+
+Every note is authored prose, and prose reaches the agent-facing prompt. So it is bounded, and
+bounded **at load** rather than truncated at render: a description cut to fit makes the prompt say
+something the author did not write, about a bundle whose digest certifies the text as it stands.
+
+What was measured before the numbers were chosen. The reference implementation's entire knowledge
+tree is 6231 bytes across seven files, and its largest single note is 1566 bytes. The largest prose
+body already in this repository's own example catalog is 3513 bytes over 51 lines
+(`revenue_per_churned_subscription.md`), and that document is at the far end of how much argument
+one definition has ever needed here.
+
+* `MAX_NOTE_BODY_BYTES` is 4 KiB - a sixth more than the longest body this repository has ever
+  written, and two and a half times the longest note the reference implementation has. A note that
+  does not fit is not a note, it is a document.
+* `MAX_NOTE_LINES` is 200, about four times that same body's 51. It exists beside the byte cap
+  rather than instead of it because the two bound different things: four thousand newlines are
+  four thousand lines of a rendered prompt and well inside the byte budget.
+* `MAX_KNOWLEDGE_BYTES` is 32 KiB of authored text across every note - five times the reference
+  implementation's whole tree, and eight notes at the per-note cap. It exists because per-note
+  caps alone let N conforming notes do what one oversized note cannot, and the thing being bounded
+  is the size of one prompt rather than the size of one file.
+
+Argued the way `crate::query::MAX_RANGE_DAYS` is argued, and with the same honesty about what is
+not bounded: this caps the text, not the persuasiveness of it. Nothing here can catch prose that
+misleads without escaping. What bounds that is the same thing that bounds a metric description - a
+catalog is reviewed, authored content whose digest moves when a word of it changes.
+
+### `struct Phrase`
+
+```rust
+pub struct Phrase
+```
+
+A natural-language phrase: what somebody says instead of a metric name.
+
+**Not an identifier, and the difference is the reason for the type.** Spaces are legitimate,
+non-ASCII letters are legitimate, and mixed case is meaning rather than noise - "monatlicher
+Umsatz" and "monthly recurring revenue" are the values this exists to hold. So it cannot reuse
+`crate::model::InvalidIdentifier`'s parser, whose whole job is to refuse those.
+
+What it refuses is what makes a phrase unusable as one: nothing, a newline or any other control
+character - a phrase is one line, and the prompt renders it inline, so a newline in one writes a
+line of that document - and anything long enough to be a sentence.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidPhrase>
+```
+
+Parses a phrase, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum InvalidPhrase`
+
+```rust
+pub enum InvalidPhrase
+```
+
+Why a phrase was rejected.
+
+#### Variants
+
+- `Empty` - Empty or whitespace-only. A synonym for nothing resolves everything.
+- `ControlCharacter` - Holds a control character, a newline included. The prompt renders a phrase inline, so a newline here writes a line of a document nobody authored.
+- `TooLong`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct NoteBody`
+
+```rust
+pub struct NoteBody
+```
+
+Bounded authored prose: the body of one note.
+
+**Refused at load when it is over the cap, and never truncated at render.** A truncated
+description makes the rendered prompt say something the author did not write, about a definition
+whose digest certifies the text as it stands - and it would do so silently, because nothing
+downstream of the render can tell a cut body from a short one. The module documentation records
+what was measured to choose the numbers.
+
+Newlines and tabs are content here, where `Phrase` refuses them: a body is a markdown block and
+its paragraph breaks are the author's. Other control characters survive parsing and are dropped by
+the renderer, which is the one place that knows what it is rendering into.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidNoteBody>
+```
+
+Parses a body, rejecting anything too large to be one.
+
+The lengths are reported without the offending text, which is the opposite of what
+`InvalidPhrase` does and is deliberate: a phrase is short enough to name in a message and a
+four-kilobyte body is not, so the error says how much there was and where the limit is.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum InvalidNoteBody`
+
+```rust
+pub enum InvalidNoteBody
+```
+
+Why a note body was rejected.
+
+#### Variants
+
+- `Empty` - Nothing. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space.
+- `TooLong` - Over `MAX_NOTE_BODY_BYTES`. The document does not load; it is not shortened.
+- `TooManyLines` - Over `MAX_NOTE_LINES`. Separate from the byte cap because four thousand newlines are four thousand lines of a rendered prompt and eight kilobytes of nothing.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct NoteName`
+
+```rust
+pub struct NoteName
+```
+
+The name of one note: the handle a reviewer, a log line or an error uses for it.
+
+ An identifier and not a `Phrase`, because it names a document rather than saying anything: a
+ caveat is referred to by name in a review the way a metric is, and the parser that keeps a
+ metric name spellable keeps this one greppable. The macro is `crate::model`'s, so there is
+ one identifier parser in this crate and nothing for a second one to drift from.
+
+Construct it with `parse`. There is no other way in: the field is private and
+`Deserialize` is routed through the same constructor, so a value that is not a legal
+identifier does not exist to be passed anywhere.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
+```
+
+Parses a name, rejecting anything that is not one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum Referent`
+
+```rust
+pub enum Referent
+```
+
+What one note is about: something the pinned bundle declares.
+
+**There is deliberately no variant for a model, a table or a column, and that absence is load
+bearing rather than tidy.** A caller cannot ask about any of the three - `crate::query::Query` has no field
+for one - and `sutura_app::prompt` asserts that no model, table or column name from the bundle
+reaches the rendered document, because a name in an agent's context is a name it will eventually
+try to use. Every section this module adds to that document is rendered from a `Referent`, so the
+type is what keeps that assertion true for the new sections rather than a review of each one.
+
+It carries `Deserialize` as well as `Serialize`, for the same reason `crate::measure::Measure`
+does: this IS the on-disk shape, and a mirror of it in the adapter would be a second place to
+forget the next variant.
+
+**Flat on disk, and read through `ReferentRepr` rather than by an external tag**, which is
+`crate::measure::Term`'s decision and its argument applies here unchanged. The one-key mapping
+the rest of this format uses would spell the commonest referent
+`means: { metric: { metric: recurring_revenue } }`: the tag word and the field word are the same
+word, so the nesting says nothing. `#[serde(untagged)]` is not the way out either - it reports
+"data did not match any variant", which names nothing. So a referent is one flat mapping with a
+`deny_unknown_fields` struct behind it, a misspelled key is an error naming the typo, and the one
+combination that is not a referent - a value with no dimension - is an `InvalidReferent` that
+says so.
+
+#### Variants
+
+- `Metric` - The metric as a whole.
+- `Dimension` - One dimension of one metric. Scoped to the metric because a dimension is: two metrics may declare `segment` over the same column and still not permit the same questions about it.
+- `Value` - One declared value of one dimension of one metric.
+
+#### Methods
+
+```rust
+pub const fn dimension(&self) -> Option<&DimensionName>
+```
+
+The dimension, when this referent names one.
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+The metric every referent is scoped to.
+
+```rust
+pub fn value(&self) -> Option<&str>
+```
+
+The value, when this referent names one.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `enum InvalidReferent`
+
+```rust
+pub enum InvalidReferent
+```
+
+Why a referent was rejected.
+
+One variant, because there is one combination of the three fields that is not a referent. A
+missing `metric` is a serde missing-field error naming the field, which is a better message than
+anything this enum could produce for it.
+
+#### Variants
+
+- `ValueWithoutDimension`
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum Capability`
+
+```rust
+pub enum Capability
+```
+
+One thing a provider can declare it supports.
+
+A closed set, for the reason `crate::model::Aggregate` is one: the alternative is a string, and a
+provider that declared `"glossaries"` or `"Glossary "` would silently declare nothing at all. With
+an enum, an unrecognised capability is a parse error naming what was written and listing what
+exists.
+
+**The variants are named after the domain concepts rather than after the words a document writes.**
+`Absences` here is `kind: not_defined` in a markdown file; the format's word says what an author is
+doing, and this one says what the thing is.
+
+#### Variants
+
+- `Glossary` - The business glossary: phrases, and the one thing each of them means.
+- `Caveats` - Notes a reader has to see before trusting a number.
+- `Absences` - A reviewed list of terms that are deliberately not defined.
+- `Examples` - Worked questions: how somebody asked, and what to send.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The word this capability answers to, in a message and in a declaration.
+
+```rust
+pub fn every() -> impl Iterator<Item>
+```
+
+Every capability there is, in declaration order.
+
+Derived from `Self::next` rather than listed, so the two cannot drift.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct KnowledgeCapabilities`
+
+```rust
+pub struct KnowledgeCapabilities
+```
+
+What one provider declares it supports.
+
+**The declaration is the mechanism, and emptiness is not evidence.** A metadata service has
+glossary terms and no way to record that a term is deliberately undefined; a reviewed first-party
+catalog has both. Which of the two is talking decides what the rendered prompt may claim, and an
+empty collection cannot say - so the adapter says, here, and the content is then just content.
+
+A `BTreeSet` rather than four booleans: the order is content order, which the digest needs, and
+adding a capability does not add a field to every construction site. Wrapped in a newtype with the
+usual treatment - private field, one constructor, accessors, no `Deref` - because
+`xtask check-boundaries` fails a `pub` field on a `pub struct` and the rule does not make an
+exception for a type with no invariant to protect.
+
+The constructor is infallible, for the reason `crate::identity::Secret::new` gives: any set of
+capabilities is a legitimate declaration, and a `Result` here would be inventing an invariant. What
+is NOT legitimate is content for a capability that was not declared, and that is
+`Knowledge::assemble`'s to refuse.
+
+#### Methods
+
+```rust
+pub fn all() -> Self
+```
+
+Every capability there is.
+
+**What a REFERENCE adapter declares, and it means more than "all four today".** A provider
+calling this is saying it supports whatever kinds exist, including ones added later - which is
+true of a reviewed first-party catalog, whose format grows with the domain, and is not true of
+anything that maps a fixed external schema. Such an adapter lists its capabilities with
+`Self::of`, so a new kind leaves its declaration alone.
+
+```rust
+pub const fn declared(&self) -> &BTreeSet<Capability>
+```
+
+Everything declared, in a deterministic order.
+
+```rust
+pub fn declares(&self, capability: Capability) -> bool
+```
+
+Does this provider support that kind at all?
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Is nothing at all declared?
+
+Read by the prompt: a provider that declares nothing gets no section about what it records,
+because there is no distinction to draw and four lines saying "not recorded" is noise rather
+than information.
+
+```rust
+pub const fn none() -> Self
+```
+
+A provider with none of them.
+
+```rust
+pub fn of(capabilities: impl IntoIterator<Item>) -> Self
+```
+
+The capabilities a provider says it has.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `constant MAX_NOTE_BODY_BYTES`
+
+The longest note body, in bytes.
+
+### `constant MAX_NOTE_LINES`
+
+The most lines one note body may have.
+
+### `constant MAX_KNOWLEDGE_BYTES`
+
+The most authored text a whole `Knowledge` may carry, in bytes.
+
+### `type_alias Glossary`
+
+The glossary, keyed by the term each entry defines.
+
+An alias rather than the map written out at every use site, and not only for reading: the
+workspace's `type_complexity` threshold is 100 against clippy's default 250, so
+`Result<BTreeMap<Phrase, GlossaryEntry>, InconsistentKnowledge>` is a lint. Naming the four
+collections is the fix the lint asks for and the one that makes the accessors read as what they
+return.
+
+### `type_alias Caveats`
+
+The caveats, keyed by name.
+
+### `type_alias Absences`
+
+The terms declared undefined, keyed by the phrase each note is about.
+
+### `type_alias Examples`
+
+The worked examples, keyed by name.
 
 ## Module `measure`
 
@@ -1099,7 +1939,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1127,7 +1967,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1155,7 +1995,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1183,7 +2023,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1211,7 +2051,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1239,7 +2079,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1270,7 +2110,7 @@ pub fn as_str(&self) -> &str
 ```
 
 ```rust
-pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier>
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier>
 ```
 
 Parses a name, rejecting anything that is not one.
@@ -1389,9 +2229,9 @@ decides a refusal rather than a plan detail.
 The snapshot a question is answered against, and the port it arrives through.
 
 Definitions do not arrive live. They arrive as a `PinnedDefinitions`: a whole
-`crate::catalog::Definitions` with a version and a digest over its canonical form. Two
-consequences follow, and both are the reason this type exists rather than passing
-`Definitions` around directly.
+`crate::catalog::Definitions`, the `crate::knowledge::Knowledge` written about it, a version,
+and a digest over the canonical form of both. Two consequences follow, and both are the reason
+this type exists rather than passing `Definitions` around directly.
 
 A catalog edit cannot change what a question means between two invocations, because the bundle a
 request resolves against was fixed before the request arrived. It changes the digest instead, and
@@ -1409,9 +2249,9 @@ but not the proof. The proof is `sutura_app::Validated`, whose only constructor 
 been called. A report is public data anybody can build, and nothing anybody builds here turns
 into a bundle the service will serve.
 
-What it does hold is the hashing. `PinnedDefinitions::pin` takes a version and a set of
-definitions and nothing else: the digest is computed here, from the value being stored, by
-`DefinitionDigest::of`. The previous shape took the hash *function* from its
+What it does hold is the hashing. `PinnedDefinitions::pin` takes a version, a set of definitions
+and the knowledge about them, and nothing else: the digest is computed here, from the values being
+stored, by `DefinitionDigest::of`. The previous shape took the hash *function* from its
 caller, on the argument that the domain could not hash - and that left the hole intact, because a
 function handed the definitions is not a function that read them. `crate::definitions` says what
 the twelve allowlisted crates bought.
@@ -1494,6 +2334,20 @@ pub struct PinnedDefinitions
 
 An immutable, hashed snapshot of everything a catalog said.
 
+**Two halves, and the split between them is a governance boundary rather than a filing decision.**
+`Definitions` is exactly what the compiler reads - `sutura_semantic` resolves a question against
+it and nothing else - and `Knowledge` is what a person reads: the glossary, the caveats, the
+terms deliberately undefined, the worked questions. Keeping the second out of the first is what
+makes "descriptive content only" checkable: the resolver is handed a bundle whose `definitions()`
+carries no prose channel at all, so reaching the knowledge would mean naming
+`Self::knowledge` in the query path, which is a one-line diff a reviewer sees rather than a
+property somebody has to remember. `sutura_app::prompt` is the only thing in this workspace that
+names it.
+
+The digest covers both. A glossary decides which metric an agent asks about, so a bundle whose
+glossary changed answers different questions from the same words - `crate::definitions` argues it
+where the hashing is.
+
 #### Methods
 
 ```rust
@@ -1511,12 +2365,22 @@ pub const fn digest(&self) -> &DefinitionDigest
 ```
 
 ```rust
-pub fn pin(version: DefinitionVersion, definitions: Definitions) -> Result<Self, NotDigestible>
+pub const fn knowledge(&self) -> &Knowledge
 ```
 
-Pins a set of definitions, computing the digest here, from them.
+What this bundle says ABOUT what it defines.
 
-**Two arguments, and the absence of a third is the mechanism.** This constructor has been
+**Read by the prompt renderer and by nothing on the query path**, which is the whole of the
+governance argument in `crate::knowledge`: a glossary is descriptive content while a person
+or an agent is the one resolving it, and a selecting input the moment the service does.
+
+```rust
+pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge) -> Result<Self, NotDigestible>
+```
+
+Pins a set of definitions and the knowledge about them, computing the digest here, from both.
+
+**Three arguments, and the absence of a fourth is the mechanism.** This constructor has been
 wrong twice, and the second time is the more interesting one:
 
 * `new(version, digest, definitions)` took any syntactically valid digest next to any
@@ -1529,27 +2393,32 @@ wrong twice, and the second time is the more interesting one:
   untrusted code is not the same as that code having used it.**
 
 So the canonical digest operation is the constructor boundary now. `pin` calls
-`DefinitionDigest::of` on the value it is about to store, and there is no parameter, closure
+`DefinitionDigest::of` on the values it is about to store, and there is no parameter, closure
 or trait through which a caller can influence what the digest is taken over.
 `crate::definitions` holds the canonical form, the hash, and the measured cost of the two
 dependencies that made it possible.
 
-The forgery a caller could write before does not compile - there is no third parameter to
-pass it as:
+The knowledge argument arrived after both of those corrections and did not reopen either: it is
+a third piece of CONTENT, hashed with the rest, and not a third opinion about the hashing.
+
+The forgery a caller could write before does not compile - there is no parameter to pass it
+as, and adding the knowledge did not add one:
 
 ```compile_fail
 use core::convert::Infallible;
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
 // The digest of some OTHER catalog, returned by a closure that ignores its argument.
 fn _forged(
     version: DefinitionVersion,
     definitions: Definitions,
+    knowledge: Knowledge,
     elsewhere: DefinitionDigest,
 ) -> Result<PinnedDefinitions, Infallible> {
-    PinnedDefinitions::pin(version, definitions, |_| Ok(elsewhere))
+    PinnedDefinitions::pin(version, definitions, knowledge, |_| Ok(elsewhere))
 }
 ```
 
@@ -1559,14 +2428,16 @@ would pair them by hand is not a struct literal a caller can write:
 ```compile_fail
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::DefinitionDigest;
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
 fn _by_hand(
     version: DefinitionVersion,
     digest: DefinitionDigest,
     definitions: Definitions,
+    knowledge: Knowledge,
 ) -> PinnedDefinitions {
-    PinnedDefinitions { version, digest, definitions }
+    PinnedDefinitions { version, digest, definitions, knowledge }
 }
 ```
 
@@ -1576,13 +2447,15 @@ them pass vacuously:
 ```
 use sutura_domain::catalog::Definitions;
 use sutura_domain::definitions::NotDigestible;
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
 fn _pin(
     version: DefinitionVersion,
     definitions: Definitions,
+    knowledge: Knowledge,
 ) -> Result<PinnedDefinitions, NotDigestible> {
-    PinnedDefinitions::pin(version, definitions)
+    PinnedDefinitions::pin(version, definitions, knowledge)
 }
 ```
 

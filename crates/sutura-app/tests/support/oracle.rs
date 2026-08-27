@@ -38,10 +38,16 @@
 //! rather than as a catalog directory, because a corpus spanning two data systems would make every
 //! other test in the suite span two.
 
+// The other half of the same statement: what the catalog says ABOUT what it defines. Its own file for
+// the reason this one is its own file - a hand-written catalog is a list of literals and
+// `cargo xtask max-lines` fails at a thousand of them.
+mod knowledge;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -552,7 +558,12 @@ impl SemanticCatalog for HandWrittenCatalog {
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let (models, joins) = tables();
         let definitions = Definitions::assemble(models, joins, metrics()).expect("the hand-written catalog holds together");
-        Ok(PinnedDefinitions::pin(version(), definitions).expect("the definitions hash"))
+        // The knowledge is checked against these definitions, by the same function every adapter goes
+        // through - so a hand-written note naming a metric this hand-written catalog does not define
+        // fails here rather than being compared successfully against a markdown one that also has it
+        // wrong.
+        let stated = knowledge::stated(&definitions);
+        Ok(PinnedDefinitions::pin(version(), definitions, stated).expect("the definitions hash"))
     }
 }
 
@@ -624,6 +635,25 @@ where
 pub(crate) fn oracle_definitions() -> Definitions {
     let pinned = HandWrittenCatalog.load().expect("the hand-written catalog cannot fail");
     without_descriptions(pinned.definitions())
+}
+
+/// What a registered catalog says ABOUT what it defines, with the prose blanked.
+pub(crate) fn stated_knowledge<C>() -> Knowledge
+where
+    C: CatalogUnderTest,
+{
+    let pinned = load::<C>();
+    knowledge::without_bodies(pinned.definitions(), pinned.knowledge())
+}
+
+/// The same, stated independently of every adapter.
+///
+/// The notes are written out in Rust in `oracle/knowledge.rs`, from the documents' own prose, for the
+/// reason the metrics are: generated from them this would agree by construction, and sharing their
+/// parser it would share its bugs.
+pub(crate) fn oracle_knowledge() -> Knowledge {
+    let pinned = HandWrittenCatalog.load().expect("the hand-written catalog cannot fail");
+    knowledge::without_bodies(pinned.definitions(), pinned.knowledge())
 }
 
 /// June 2026, the range every anchor in this catalog is written for.
@@ -700,6 +730,6 @@ impl SemanticCatalog for TwoSourceCatalog {
         );
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");
-        Ok(PinnedDefinitions::pin(version(), definitions).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
     }
 }

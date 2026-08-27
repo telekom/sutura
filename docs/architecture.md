@@ -305,8 +305,21 @@ the vocabulary is a closed set of *shapes* rather than a single aggregate. The p
 was always no free-text SQL, and one aggregate over one column was a narrow means to it that could
 express two of a real semantic layer's seven metrics.
 
-The cost is unchanged: an expression over two columns cannot be said, and neither can a window
-function. Those belong on the other path.
+The cost is unchanged for the closed vocabulary: an expression over two columns cannot be said in a
+`Measure`, and neither can a window function.
+
+**There is now a second, explicitly-named way to say them, and it is a separate shape rather than a
+widening of the one above.** `Computation` has two variants - `measure:` for the closed vocabulary and
+`authored_sql:` for a fragment somebody wrote - so which metrics are governed by a closed set and
+which are text is a word in the document rather than a reading of it.
+[A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is the
+record: what the hatch is, what stays closed, which constructs are refused at load and why each one
+is on the list.
+
+**Partly built.** The domain types and the compile - parse, refuse, qualify against the model's
+columns, render per dialect, all at catalog-compile time - exist in `sutura_domain::expression` and
+`sutura_sql::expression`. What does not exist yet is the wiring: no catalog document can write
+`authored_sql:` and no plan can carry a compiled one, so no metric uses the hatch today.
 
 **A pinned statement**, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.

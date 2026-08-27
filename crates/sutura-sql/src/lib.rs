@@ -1,8 +1,9 @@
 //! Rendering: a `QueryPlan` becomes one statement in one dialect.
 //!
-//! Two modules, and they are the two halves of what a SQL-speaking adapter needs: `dialect` names
-//! the data systems we render for and owns the two decisions the dialect layer does not make for us,
-//! `generate` turns a plan into a statement and its bind parameters.
+//! Three modules. `dialect` names the data systems we render for and owns the two decisions the
+//! dialect layer does not make for us; `generate` turns a plan into a statement and its bind
+//! parameters; `expression` compiles the one thing a catalog is allowed to author as SQL, at load,
+//! for every dialect at once.
 //!
 //! # Why this is its own crate and not the compiler's last stage
 //!
@@ -31,12 +32,21 @@
 //! dialect somebody named. The engine adapter calls nothing here, which is the whole point of the
 //! port taking a plan.
 //!
-//! **Nothing here parses SQL, and nothing here translates between dialects.** There is no foreign
-//! SQL on this path to parse: the statement is generated from a model. Translation is banned
-//! separately, in `clippy.toml`, and the `transpile` feature is not even compiled - see the feature
+//! **Nothing here translates between dialects, and exactly one thing here parses SQL.** The
+//! statement is generated from a model, so there is no foreign SQL on the *query* path to parse.
+//! Translation is banned separately: the `transpile` feature is not even compiled - see the feature
 //! list in the workspace manifest for why not calling it was judged too weak.
+//!
+//! The one exception is [`expression`], and it is an exception with a stated shape. A catalog may
+//! author a SQL fragment for a metric the closed measure vocabulary cannot express, and that
+//! fragment is parsed - **at catalog-compile time, once, never on the query path** - checked against
+//! a list of constructs this build refuses, qualified against the model's columns, and rendered for
+//! every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
+//! is the decision.
 pub mod dialect;
+pub mod expression;
 pub mod generate;
 
 pub use crate::dialect::{Dialect, PlaceholderStyle};
+pub use crate::expression::{CompiledExpression, Construct, ExpressionError, Rendering, compile};
 pub use crate::generate::{GenerateError, generate};

@@ -91,10 +91,17 @@
 //! from a caller.
 
 use sutura_domain::catalog::Metric;
+use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::MAX_ROWS;
 use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
+
+// The four sections derived from what a catalog says ABOUT what it defines. Their own module because
+// this file is at four fifths of the limit `cargo xtask max-lines` enforces and cannot be exempted,
+// and because those sections share a decision the rest of this document does not have to make: what a
+// declared capability licenses the text to claim.
+mod knowledge;
 
 /// One operation a transport exposes.
 ///
@@ -358,14 +365,23 @@ const GUIDES: &[&Guide] = &[
 /// what lets the rendering be pinned by a snapshot rather than described.
 #[must_use]
 pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
+    let notes = pinned.knowledge();
     let mut sections: Vec<String> = vec![
         String::from(WHAT_THIS_IS),
         workflow(inputs),
         refusals(),
+        // Immediately after the refusals, because that is where `MetricUnknown`'s remedy is: an agent
+        // that has just been told to use a name from the list is the one that needs to know which
+        // names were considered and rejected. Empty - and therefore dropped - unless the provider
+        // declares that it records such a thing.
+        knowledge::not_defined(notes, inputs.prose),
         bounds(),
         String::from(NO_SUCH_FIELD),
         operations(inputs.tools),
+        knowledge::declaration(notes),
+        knowledge::glossary(notes, inputs.prose),
         metrics(pinned, inputs.prose),
+        knowledge::examples(notes, inputs.prose),
         String::from(PROVENANCE),
     ];
     if let Some(text) = inputs.instructions {
@@ -374,6 +390,9 @@ pub fn render(pinned: &PinnedDefinitions, inputs: &PromptInputs<'_>) -> String {
             sections.push(operator_instructions(text));
         }
     }
+    // Empty sections are dropped rather than joined, so a deployment whose provider records none of
+    // the four gets the document it had before this existed - not a run of headings over nothing.
+    sections.retain(|section| !section.is_empty());
     let mut out = sections.join("\n\n");
     out.push('\n');
     out
@@ -597,7 +616,7 @@ fn metrics(pinned: &PinnedDefinitions, prose: CatalogProse) -> String {
     for (name, metric) in definitions.metrics() {
         lines.push(String::new());
         lines.push(format!("### {name}\n"));
-        lines.push(one_metric(metric, prose));
+        lines.push(one_metric(metric, pinned.knowledge(), prose));
     }
     lines.join("\n")
 }
@@ -622,7 +641,11 @@ not infer a meaning from the name alone and present it as the definition.";
 /// Deliberately the same fields `GET /v1/catalog` exposes. No model, no table, no column, no measure
 /// expression, no required filter, no anchor: a caller needs none of them to form a question, and a
 /// column name in an agent's context is a name it will eventually try to use.
-fn one_metric(metric: &Metric, prose: CatalogProse) -> String {
+///
+/// Plus the caveats scoped to this metric, rendered HERE rather than in a preamble: a caveat read by
+/// somebody skimming the top of a document is a caveat read by nobody who was about to ask this
+/// question. It names only metrics, dimensions and declared values, so the rule above still holds.
+fn one_metric(metric: &Metric, notes: &Knowledge, prose: CatalogProse) -> String {
     let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
     // Coarsest first, matching the reader's view the HTTP surface renders and the order an anchor is
     // checked at, so the two cannot disagree about which grain is "the" one.
@@ -656,6 +679,10 @@ fn one_metric(metric: &Metric, prose: CatalogProse) -> String {
             lines.push(String::new());
             lines.push(quoted);
         }
+    }
+    let caveats = knowledge::caveats_about(notes, metric.name(), prose);
+    if !caveats.is_empty() {
+        lines.push(caveats);
     }
     lines.join("\n")
 }

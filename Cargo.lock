@@ -3484,6 +3484,7 @@ version = "0.2.4"
 dependencies = [
  "polyglot-sql",
  "serde",
+ "serde_json",
  "sutura-domain",
  "thiserror 2.0.20",
 ]

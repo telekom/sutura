@@ -9,9 +9,10 @@ The public API of `sutura-sql`, rendered from rustdoc JSON.
 
 Rendering: a `QueryPlan` becomes one statement in one dialect.
 
-Two modules, and they are the two halves of what a SQL-speaking adapter needs: `dialect` names
-the data systems we render for and owns the two decisions the dialect layer does not make for us,
-`generate` turns a plan into a statement and its bind parameters.
+Three modules. `dialect` names the data systems we render for and owns the two decisions the
+dialect layer does not make for us; `generate` turns a plan into a statement and its bind
+parameters; `expression` compiles the one thing a catalog is allowed to author as SQL, at load,
+for every dialect at once.
 
 # Why this is its own crate and not the compiler's last stage
 
@@ -40,10 +41,27 @@ other. `sutura-cli` calls it too, because `sutura compile` exists to print the s
 dialect somebody named. The engine adapter calls nothing here, which is the whole point of the
 port taking a plan.
 
-**Nothing here parses SQL, and nothing here translates between dialects.** There is no foreign
-SQL on this path to parse: the statement is generated from a model. Translation is banned
-separately, in `clippy.toml`, and the `transpile` feature is not even compiled - see the feature
+**Nothing here translates between dialects, and exactly one thing here parses SQL.** The
+statement is generated from a model, so there is no foreign SQL on the *query* path to parse.
+Translation is banned separately: the `transpile` feature is not even compiled - see the feature
 list in the workspace manifest for why not calling it was judged too weak.
+
+The one exception is `expression`, and it is an exception with a stated shape. A catalog may
+author a SQL fragment for a metric the closed measure vocabulary cannot express, and that
+fragment is parsed - **at catalog-compile time, once, never on the query path** - checked against
+a list of constructs this build refuses, qualified against the model's columns, and rendered for
+every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
+is the decision.
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -149,13 +167,276 @@ Every dialect, for iterating a golden suite over all of them.
 A `const` rather than a derive, so a new variant that is not added here fails the exhaustiveness
 test below rather than being silently untested.
 
+## Module `expression`
+
+Compile: an authored SQL fragment becomes one checked expression per target dialect.
+
+`sutura_domain::expression` holds the fragment as text and knows nothing about SQL, because the
+domain has no parser and `cargo xtask check-boundaries` keeps it that way. This module is the
+other half: it parses what a catalog author wrote, refuses what it will not carry, qualifies the
+columns against the model, and renders the result for **every** dialect this build renders for -
+all of it at catalog-compile time, none of it on the query path.
+
+# Parse and generate, never transpile
+
+`Dialect::parse` in one dialect, `Generator::generate` in another. `Dialect::transpile` is not
+called and its feature is not compiled, and that is a stronger reason than tidiness. Under
+`TranspileOptions::default()` the unsupported level is `Warn`: an unsupported construct returns
+`Ok(sql)` and pushes a diagnostic into `unsupported_messages`, which `Dialect::transpile` then
+**discards**. The default failure mode of the convenient call is therefore silent wrong output.
+Setting the level to `Raise` is not a usable net either - measured, it errors on every non-count
+aggregate targeting `ClickHouse` while staying silent on all four of the real breakages
+`Construct` refuses below.
+
+Parse-and-generate also turns out to be *more* faithful for the aggregation subset: measured
+byte-identical across all sixteen (read, write) pairs over `DuckDB`, Postgres, `ClickHouse` and
+`BigQuery` for the conditional sum, the guarded ratio, `COUNT(DISTINCT k)`, `AVG`, `COALESCE`, a
+bare `CASE`, `MIN`/`MAX` and `ARRAY_AGG(DISTINCT .. ORDER BY ..)`, with `CAST(.. AS DOUBLE)`
+retargeting correctly.
+
+# Why a `SELECT` wrapper and not the fragment API
+
+The obvious way to parse a fragment - `Parser::new(dialect.tokenize(x))` then
+`parse_expressions()` - **panics** on an empty token list, which is what `""`, whitespace-only
+and comment-only input all produce, in every one of our dialects. Under `panic = "abort"` that is
+a catalog file ending the process. So the fragment is parsed as `SELECT {fragment}` and the
+projection is taken back out, with a guard on each way that can go wrong: one statement, one
+projection, no `FROM`, no alias. `sutura_domain::expression::SqlFragment` refuses the empty
+cases before they get this far, and the guards here hold for everything else.
+
+**The authoring dialect is `DuckDB` and may not be `ClickHouse`.** Measured: `ClickHouse`'s
+parser accepts `SUM(x))` and `x) FROM secret --`, silently dropping the tail. That is
+injection-shaped input passing validation. `DuckDB` rejects both.
+
+# What the compile guarantees, and what it does not
+
+It guarantees the fragment is one expression, over columns the metric's own model declares,
+reaching no table and no query it was not given; that none of the constructs in `Construct` is
+present; and that the rendering for each target is well-formed SQL that parses in that target's
+dialect.
+
+It does **not** guarantee the target has the function. `MEDIAN(x)`, `COUNT_IF(x)` and
+`PERCENTILE_CONT(..) WITHIN GROUP (..)` are emitted verbatim into Postgres and `ClickHouse` by
+the dialect layer, and two of those three do not exist there. No per-dialect function catalogue
+is compiled into this build, so nothing here can tell. That is precisely what the per-dialect
+variants of `AuthoredSql` are for: the author names the dialect and takes the claim, and a
+dialect with neither an exact fragment nor a `portable` one is refused rather than guessed at.
+
+### `enum Construct`
+
+```rust
+pub enum Construct
+```
+
+A construct an authored fragment may not contain, and why.
+
+Every variant is a refusal a compile can produce, and the reason is carried with it rather than
+left in a design document: a refusal that names a construct without saying why sends an author to
+read this file.
+
+#### Variants
+
+- `Query` - A `SELECT`, a subquery, a set operation.
+- `TableReference` - A named table.
+- `SchemaStatement` - A schema or data statement inside an expression.
+- `Star` - `*`, either as a node or as `COUNT(*)`'s flag.
+- `BindParameter` - `?` or `$1`.
+- `Opaque` - A node the generator emits with no handling at all.
+- `QualifiedColumn` - `t.column`.
+- `QualifiedFunctionName` - A function name with a schema on it.
+- `DateTimeFunction` - Anything that reads a date or a time.
+- `AggregateFilter` - `FILTER (WHERE ..)` on an aggregate.
+- `Comment` - A comment inside the fragment.
+- `RowConstructor` - A row constructor, which is also how `COUNT(DISTINCT a, b)` parses.
+- `UnguardedDivision` - `/` whose divisor is not a `NULLIF`.
+- `IntegerDivision` - `//`, or any integer division node.
+- `IsTrue` - `x IS TRUE`, `x IS FALSE`, `x IS <expr>`.
+- `NotAggregated` - A fragment that aggregates nothing.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The name a refusal prints.
+
+```rust
+pub const fn why(self) -> &'static str
+```
+
+Why it is refused. One sentence, and it is the whole value of the refusal.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `enum Shape`
+
+```rust
+pub enum Shape
+```
+
+Which of the four shape guards a fragment failed.
+
+Named individually because each one is a different mistake: two projections is a comma somebody
+meant as an argument separator, a `FROM` is a whole query pasted into a measure, and an alias is
+a habit from writing `SELECT` lists. "Not one expression" would send all three to read a grammar.
+
+#### Variants
+
+- `ManyStatements` - More than one statement: a `;` in the fragment.
+- `NotASelect` - The wrapper did not come back as a `SELECT`. A set operation is the reachable case: `SUM(x) UNION SELECT 1` parses as a `Union`, not as a projection.
+- `ManyExpressions` - Not exactly one projected expression.
+- `CarriedFrom` - A `FROM` clause.
+- `CarriedAlias` - An `AS name`.
+- `CarriedClause` - Any other clause on the wrapper's `SELECT`, which taking the projection would DISCARD.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ExpressionError`
+
+```rust
+pub enum ExpressionError
+```
+
+Why an authored expression could not be compiled.
+
+**All of these are load failures.** A catalog that produces one does not serve; there is no
+degraded mode in which the metric is skipped and the rest is answered, because a metric that is
+present in a bundle and unanswerable is a metric an agent will ask about.
+
+#### Variants
+
+- `UnknownDialect` - A dialect word that is not one this build renders for. Refused rather than ignored: a `postgresql:` beside a `portable:` would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.
+- `NoFragment` - No exact fragment and no `portable` one. The refusal wren's importer does not have.
+- `Unparsable`
+- `NotOneExpression`
+- `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
+- `Refused`
+- `UnknownColumn`
+- `Qualify`
+- `Render`
+- `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct Rendering`
+
+```rust
+pub struct Rendering
+```
+
+One authored fragment, compiled for one dialect.
+
+`authored_for` is the traceability half and is not cosmetic: with a `portable` fragment and a
+`clickhouse` one in the same metric, "which one did this statement use" is otherwise a question
+answered by re-deriving the resolution rule in your head.
+
+#### Methods
+
+```rust
+pub const fn authored_for(&self) -> &DialectTag
+```
+
+The dialect word whose fragment was chosen: the target's own, or `portable`.
+
+```rust
+pub fn sql(&self) -> &str
+```
+
+The rendered expression, with every identifier already quoted.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct CompiledExpression`
+
+```rust
+pub struct CompiledExpression
+```
+
+An authored expression, compiled for every dialect this build renders for.
+
+Complete by construction: `compile` returns one of these only when every entry in
+`crate::dialect::ALL` resolved and rendered. So there is no per-query moment at which a target
+turns out to have no expression - that failure has already happened, at load, naming the dialect.
+
+#### Methods
+
+```rust
+pub fn for_dialect(&self, dialect: Dialect) -> Option<&Rendering>
+```
+
+The rendering for one target. Always `Some` for a dialect in `crate::dialect::ALL`.
+
+```rust
+pub const fn renderings(&self) -> &BTreeMap<Dialect, Rendering>
+```
+
+Every rendering, for a snapshot a reviewer reads.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `fn compile`
+
+```rust
+pub fn compile(authored: &sutura_domain::expression::AuthoredSql, table: &sutura_domain::model::TableName, columns: &std::collections::BTreeSet<sutura_domain::model::ColumnName>) -> Result<CompiledExpression, ExpressionError>
+```
+
+Compiles an authored expression for every dialect this build renders for.
+
+`columns` is the metric's own model's declared column set and `table` its table. Both are
+required rather than optional, which is the decision worth writing down: **an unknown column
+fails the load.** Wren's cube path does not check them - its own documentation tells the agent to
+expect a runtime error from the warehouse - while its model path does, through a schema-driven
+AST rewrite. The model path is right. A metric whose fragment names a column that does not exist
+is broken whether or not anybody asks about it, and the difference between finding out at load
+and finding out at query time is the difference between a refusal an operator can fix and a stack
+trace an agent shows a user.
+
+### `fn embed`
+
+```rust
+pub fn embed(rendering: &Rendering) -> polyglot_sql::builder::Expr
+```
+
+The compiled expression, as something the statement builder will accept.
+
+`Expression::Raw` is a true verbatim passthrough - the generator writes `raw.sql` and consults no
+dialect flag - which is what makes it right here and wrong almost everywhere else: the text was
+produced by `compile` for this exact target, with identifiers already quoted, so re-parsing it
+would be re-parsing our own output for nothing.
+
+Wrapped in a `Paren`. `Raw` reports `is_statement()`, carries no precedence and has no children,
+so an unparenthesised one placed under an operator would bind by text rather than by structure.
+The parentheses cost two characters and make the embedding position-independent.
+
 ## Module `generate`
 
 Generate: a plan becomes one statement in one dialect.
 
-The only module that names the dialect layer, so a pre-1.0 API change upstream touches one file,
-and the only one that produces SQL. An adapter that executes a plan without rendering it - the
-in-process engine - never calls anything here.
+The module that turns a plan into SQL. An adapter that executes a plan without rendering it -
+the in-process engine - never calls anything here.
+
+It used to be the only module that names the dialect layer. `crate::expression` names it too
+now, because compiling a catalog-authored fragment is parsing rather than rendering and the two
+jobs share no code: this file builds an AST from a plan, that one takes an AST apart and refuses
+most of it. A pre-1.0 API change upstream therefore touches two files in this crate, both of them
+here rather than anywhere else.
 
 Five things about how the dialect layer is used, every one of them measured rather than assumed,
 and every one of them looking right until it was rendered:

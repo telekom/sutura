@@ -91,6 +91,52 @@ Every reason you can be given, and what to do about each:
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.
 
+## Terms this deployment records as NOT defined
+
+These terms were considered and deliberately have no definition here. A question about one of them
+is to be DECLINED, with the reason below, and never approximated out of the metrics that are
+defined: a plausible number under a name nobody certified is the failure this entire surface is
+arranged to prevent. Say what is missing and that adding it is a decision for a person. The list is
+authoritative for what it names and is not a complete inventory of everything undefined - a term
+that is on neither this list nor the metric list is simply not answerable, which the refusal above
+already covers.
+
+- "customer churn", "Kundenabwanderung", "customer attrition", "customer churn rate"
+> Churn in this catalog is subscription-level. Customer-level churn has no definition here.
+>
+> The question it needs answered first is what it means for a customer to churn: losing every
+> subscription they held, losing their last one in a product family, or falling below some threshold
+> of spend. Those are three different numbers, and the choice belongs to whoever owns the figure
+> rather than to whoever is asked for it.
+>
+> `churn_rate` and `subscriptions_churned` are what exist, and the caveat on both says what they
+> count. Reporting either of them as customer churn is the specific mistake this note is here to
+> prevent.
+- "customer lifetime value", "CLTV", "CLV", "Kundenwert"
+> There is no certified definition of customer lifetime value here, and its absence is a decision
+> rather than a gap somebody has not got round to.
+>
+> Every version of it needs three things this catalog does not hold: an expected lifetime, a discount
+> rate, and a decision about which costs to net off. Any of the three chosen differently gives a
+> different number, and all three are commercial decisions rather than modelling ones.
+>
+> So a question asking for CLV gets told that plainly, together with what does exist -
+> `revenue_per_customer` for what a customer is worth in a month, and `churn_rate` for how quickly
+> subscriptions end. Composing those two into a lifetime value is exactly the step that needs the
+> decision, and it is not one for whoever is answering the question.
+- "revenue forecast", "Umsatzprognose", "forecast", "projected revenue"
+> Nothing here forecasts anything. Every metric in this catalog reports a period that has already
+> happened, out of rows that were written when it did.
+>
+> A question about next quarter therefore has no answer here, and the useful reply says so and offers
+> the history instead: `recurring_revenue` by month over the periods that exist is the input somebody
+> would forecast FROM, and producing the forecast is separate work with its own review.
+>
+> Extrapolating the trend and presenting the result beside a certified figure is the failure this note
+> exists to prevent. The number would carry the version and digest of definitions that never produced
+> it, which is worse than an uncertified number - it is an uncertified number wearing a provenance
+> record.
+
 ## The bounds a question is held to
 
 These are not soft limits and there is no way to raise one from the caller's side.
@@ -127,10 +173,135 @@ subscriptions, every answer for it is narrowed that way and no argument you send
   to group by, and equality filters over declared values. Returns either an answer with its
   provenance or a refusal with a typed reason.
 
+## What this deployment records about its own definitions
+
+A catalog may carry notes about what its numbers mean, and not every deployment carries every kind.
+This one records the following, and what it does NOT record is listed too - because a kind that is
+not recorded is a kind you must not draw a conclusion from.
+
+- **A glossary** - the words people use for these metrics, and the one thing each of them means. It
+  is listed below. Turning a question's wording into a metric name is YOUR step and worth naming in
+  your answer.
+- **Caveats** - things to know before trusting a number. Each one is printed under the metric it is
+  about and applies to every question about that metric.
+- **A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal
+  section. It is authoritative for what it names: a question about one of those terms is to be
+  declined with the reason given, not approximated from the metrics that are defined.
+- **Worked questions** - real questions with the request that answers each, at the end of this
+  document. They are the shape to copy.
+
+## The words a question may arrive in
+
+Each line is a phrase somebody may use, and the one thing this deployment takes it to mean. **You do
+the resolving.** There is no field on a question that a phrase fits in - a request carries a metric
+name - so a wrong turn here is yours to catch rather than something the service will decline. Say
+which phrase you resolved and what you resolved it to, so the person can correct you.
+
+- "average revenue per customer", "ARPU", "Umsatz pro Kunde", "revenue per customer" -> metric
+  `revenue_per_customer`
+> Recurring revenue divided by the number of customers behind it, over active subscriptions.
+>
+> "ARPU" is the term people reach for and it is the one worth being careful with, because the U is a
+> USER and this catalog has two candidates for that word. `revenue_per_customer` divides by distinct
+> customers; `mean_subscription_mrr` averages the subscription-months themselves. A customer holding
+> three subscriptions is one of the first and three of the second, so the two answers differ by
+> however much the base fans out.
+>
+> When a question says ARPU and the difference could matter, ask which one is meant rather than
+> picking.
+- "business customers", "B2B", "Firmenkunden", "enterprise customers" -> value `business` of
+  dimension `segment` of metric `recurring_revenue`
+> The commercial segment a customer sits in, as this catalog spells it: the value is `business`, in
+> the singular and in lower case.
+>
+> The spelling is the whole reason the entry exists. A filter is compared against the list of values
+> the definitions declare, and a question filtering on `B2B` or `Business` is declined with
+> `DimensionValueNotAllowed` - which names the dimension and, deliberately, does not repeat the value
+> back. So resolve the phrase here rather than guessing at the wire form.
+>
+> The `segment` dimension is declared on most metrics in this catalog with the same three values, and
+> this entry is written against `recurring_revenue` because that is the metric people ask about it.
+- "churn rate", "Abwanderungsrate", "attrition rate", "cancellation rate" -> metric `churn_rate`
+> The share of a month's subscriptions that terminated inside it.
+>
+> Subscription-level, always. The denominator is every subscription the month held and the numerator
+> is the ones that ended, so a customer who cancels one of three contracts moves this number by one
+> subscription and not by one customer. Customer-level churn is a different figure and this catalog
+> does not define it - the note recording that is what to say when somebody asks.
+>
+> If what somebody wants is the COUNT of terminations rather than the share, that is
+> `subscriptions_churned`, which is this metric's own numerator.
+- "consumer customers", "B2C", "Privatkunden", "residential customers" -> value `consumer` of
+  dimension `segment` of metric `recurring_revenue`
+> Private households, as opposed to companies. The value is `consumer`.
+>
+> The third value of that dimension is `wholesale`, which is the traffic sold on to other operators
+> rather than to anybody's customer. Nobody has a nickname for it, so it has no entry of its own -
+> but a question about "everybody except business" covers two values and not one, and the honest
+> answer groups by `segment` rather than filtering on a guess.
+- "contract term", "Vertragslaufzeit", "commitment", "term" -> dimension `contract_term` of metric
+  `recurring_revenue`
+> Whether a subscription is on a rolling month-to-month arrangement or a committed one: the two values
+> are `monthly` and `annual`, and both may be filtered on.
+>
+> Worth not confusing with the period a question asks about. "Monthly revenue for annual contracts"
+> is the `month` grain over a filter of `annual`, and both halves of that sentence use a word the
+> other one could have claimed.
+- "data usage", "Datenvolumen", "data volume", "gigabytes per subscription" -> metric
+  `data_per_subscription`
+> Data volume per subscription, in gigabytes, over the period asked about.
+>
+> Per subscription that USED the network rather than per subscription that existed: the denominator
+> counts the subscriptions appearing in the usage rows, and a subscription with no usage on a day has
+> no row for that day.
+>
+> It cannot be broken down by segment, region or product family, and that is a fact about the models
+> rather than an omission - the caveat on the metric says why. A question asking for data usage by
+> segment is answered by saying it is not available here, never by substituting a breakdown of
+> something else.
+- "monthly recurring revenue", "MRR", "monatlicher Umsatz", "recurring revenue", "wiederkehrender
+  Umsatz" -> metric `recurring_revenue`
+> The recurring part of what subscriptions bill in a month, and in this catalog it is always the
+> ACTIVE figure: `recurring_revenue` carries a definitional filter on the subscription's status, so
+> there is no way to ask it for a total that includes the subscriptions the month lost.
+>
+> No metric here REPORTS that wider figure. The nearest thing is the numerator of
+> `revenue_per_churned_subscription`, which is the whole base and is never reported on its own - so a
+> question about revenue including the terminated subscriptions is one to decline rather than to
+> assemble out of parts.
+>
+> Reported in minor units. A June figure of 202121 is 2021.21 in currency, and the caveat on the
+> metric says so where whoever is about to quote it will see it.
+>
+> "MRR" is the abbreviation people say out loud. The two German phrases are what the same question
+> looks like when it arrives in German, which here it does about half the time.
+- "subscriber count", "Anschluss", "Vertrag", "active lines", "subscribers" -> metric
+  `active_subscriptions`
+> How many subscriptions were active at the end of the month.
+>
+> A subscriber count is a SUBSCRIPTION count and never a customer count, which is the most expensive
+> confusion there is in a telco data set: one customer may hold a mobile contract, a fixed line and a
+> television package, and this metric counts three of them. The caveat on the metric says the same
+> thing where somebody is about to ask for it.
+>
+> "Anschluss" and "Vertrag" both arrive in German questions and both mean a subscription here. For
+> the base that also counts the subscriptions the month lost, ask `subscription_base` instead.
+- "tariff", "Tarif", "plan", "product name" -> dimension `product_name` of metric
+  `recurring_revenue`
+> The individual product somebody is subscribed to, by its own name rather than by its kind.
+>
+> It can be grouped by and NOT filtered on: the definitions declare no list of values for it, because
+> the list of tariffs moves faster than a reviewed catalog does. A question that filters on a tariff
+> is declined with `DimensionNotFilterable`, and the remedy the refusal gives is the right one - group
+> by it, and read the row you wanted out of the result.
+>
+> For the kind of product rather than the individual tariff, group by `product_family`, which does
+> declare its values and can be filtered.
+
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b`
+- Definitions digest: `9c1287efd8299fba28eefcc15d810b2ddadcac92cc1ab31eaad848e52038f5ac`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -161,6 +332,18 @@ carry on under the rules above.
 > away. The two carry different anchors over the same rows in the same month, and the only
 > thing between them is one definitional predicate. That is what `required_filters` buys,
 > shown as two numbers rather than asserted in a sentence.
+
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole:
+> Every one of these counts SUBSCRIPTIONS. None of them counts customers.
+>
+> One customer may hold several subscriptions - a mobile contract, a fixed line, a television package
+> - so a report presenting any of these figures as a customer count overstates the customer base by
+> however much the average customer holds. There is no metric here that counts customers at all: the
+> only place a customer count appears is inside the denominator of `revenue_per_customer`, where it is
+> never reported on its own.
+>
+> So if somebody asks how many customers there are, the answer is that this deployment does not answer
+> it - not a subscription count handed over under the other name.
 
 ### churn_rate
 
@@ -215,6 +398,18 @@ carry on under the rules above.
 > ratio, which is the shape the vocabulary was changed for. A shape nothing certifies is a shape
 > that merely compiles.
 
+**Caveat `churn_is_subscription_level`** - about this metric as a whole:
+> Churn here is an event on a SUBSCRIPTION inside a month, not a state of a customer.
+>
+> A customer who cancels one of three contracts appears in both of these figures and has not churned
+> as a customer. A customer who cancels all three appears three times. Neither number can be turned
+> into a customer-level churn rate by dividing it by anything this catalog defines, which is why
+> customer churn is recorded as undefined rather than left for somebody to work out.
+>
+> The other half of it: neither metric carries a status filter, and that is the definition rather than
+> an oversight. Churn is the event inside the month, so narrowing to the state a subscription ended
+> the month in would remove exactly the rows being counted.
+
 ### data_per_subscription
 
 - Grains: month, day
@@ -237,6 +432,19 @@ carry on under the rules above.
 >
 > No anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as
 > text pins how a language prints a binary expansion.
+
+**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole:
+> Neither of these can be broken down at all - not by segment, not by region, not by product.
+>
+> The usage rows are daily and the subscription snapshot is monthly. A join between them has to
+> constrain the snapshot month to the usage month, or every day of usage is multiplied by the number
+> of months that subscription existed. A relationship in this catalog declares one column on each
+> side, so that join cannot be written here at all, and it is therefore absent rather than declared
+> wrongly and quietly multiplying rows.
+>
+> The consequence for a question is concrete: usage by segment is not available. Say so. Answering
+> with usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape
+> of a right one.
 
 ### mean_subscription_mrr
 
@@ -275,6 +483,28 @@ carry on under the rules above.
 > are both certified beside it, under `recurring_revenue` and `active_subscriptions`, which is where
 > a drift in either half would surface first.
 
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole:
+> Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.
+>
+> A June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way
+> so that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to
+> round, and no question ever names that column, so this note is the only place a caller learns it.
+>
+> Divide by a hundred before quoting a figure to a person, and say which unit you are quoting. A
+> revenue number a hundred times too large is the kind of wrong answer nobody thinks to check.
+
+**Caveat `two_averages_of_the_same_revenue`** - about this metric as a whole:
+> These two both sound like "average revenue" and they average different things.
+>
+> `mean_subscription_mrr` is the mean of the revenue column over subscription-months, so a
+> subscription that existed for six of the months asked about is weighted six times.
+> `revenue_per_customer` is total revenue over the count of distinct customers, so a customer holding
+> three subscriptions counts once.
+>
+> Neither is wrong and they are not interchangeable. A question that says "average revenue" without
+> saying average over what is one to clarify before answering, and whichever figure is reported should
+> be named along with it.
+
 ### recurring_revenue
 
 - Grains: month
@@ -309,6 +539,16 @@ carry on under the rules above.
 > The anchor is what this metric produced for June 2026 when it was certified. It is
 > re-executed on every run and at startup, so a definition that has stopped meaning what it
 > claimed fails readiness rather than answering.
+
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole:
+> Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.
+>
+> A June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way
+> so that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to
+> round, and no question ever names that column, so this note is the only place a caller learns it.
+>
+> Divide by a hundred before quoting a figure to a person, and say which unit you are quoting. A
+> revenue number a hundred times too large is the kind of wrong answer nobody thinks to check.
 
 ### revenue_per_churned_subscription
 
@@ -367,6 +607,16 @@ carry on under the rules above.
 > anchor cannot be that period. What certifies it instead is the pair of questions above, whose rows
 > and whose failure are both pinned.
 
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole:
+> Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.
+>
+> A June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way
+> so that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to
+> round, and no question ever names that column, so this note is the only place a caller learns it.
+>
+> Divide by a hundred before quoting a figure to a person, and say which unit you are quoting. A
+> revenue number a hundred times too large is the kind of wrong answer nobody thinks to check.
+
 ### revenue_per_customer
 
 - Grains: month
@@ -391,6 +641,28 @@ carry on under the rules above.
 > formatting decision rather than a number, and the sum it is built from is already
 > anchored under `recurring_revenue`, which is where a drift would show up first.
 
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole:
+> Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.
+>
+> A June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way
+> so that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to
+> round, and no question ever names that column, so this note is the only place a caller learns it.
+>
+> Divide by a hundred before quoting a figure to a person, and say which unit you are quoting. A
+> revenue number a hundred times too large is the kind of wrong answer nobody thinks to check.
+
+**Caveat `two_averages_of_the_same_revenue`** - about this metric as a whole:
+> These two both sound like "average revenue" and they average different things.
+>
+> `mean_subscription_mrr` is the mean of the revenue column over subscription-months, so a
+> subscription that existed for six of the months asked about is weighted six times.
+> `revenue_per_customer` is total revenue over the count of distinct customers, so a customer holding
+> three subscriptions counts once.
+>
+> Neither is wrong and they are not interchangeable. A question that says "average revenue" without
+> saying average over what is one to clarify before answering, and whichever figure is reported should
+> be named along with it.
+
 ### subscription_base
 
 - Grains: month
@@ -410,6 +682,18 @@ carry on under the rules above.
 > for exactly that reason. If a later edit dropped the predicate from the other one, the
 > two definitions would silently become the same definition, and the anchor is what says
 > so.
+
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole:
+> Every one of these counts SUBSCRIPTIONS. None of them counts customers.
+>
+> One customer may hold several subscriptions - a mobile contract, a fixed line, a television package
+> - so a report presenting any of these figures as a customer count overstates the customer base by
+> however much the average customer holds. There is no metric here that counts customers at all: the
+> only place a customer count appears is inside the denominator of `revenue_per_customer`, where it is
+> never reported on its own.
+>
+> So if somebody asks how many customers there are, the answer is that this deployment does not answer
+> it - not a subscription count handed over under the other name.
 
 ### subscription_months_billed
 
@@ -452,6 +736,18 @@ carry on under the rules above.
 > which is the same reason `subscription_base` carries no filter, and the reason both of them can
 > serve as a denominator.
 
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole:
+> Every one of these counts SUBSCRIPTIONS. None of them counts customers.
+>
+> One customer may hold several subscriptions - a mobile contract, a fixed line, a television package
+> - so a report presenting any of these figures as a customer count overstates the customer base by
+> however much the average customer holds. There is no metric here that counts customers at all: the
+> only place a customer count appears is inside the denominator of `revenue_per_customer`, where it is
+> never reported on its own.
+>
+> So if somebody asks how many customers there are, the answer is that this deployment does not answer
+> it - not a subscription count handed over under the other name.
+
 ### subscriptions_churned
 
 - Grains: month
@@ -484,6 +780,30 @@ carry on under the rules above.
 > `simple` and `ratio` are the two shapes, `aggregate` and `count_if` are the two terms, and
 > either term is usable in either half of either shape.
 
+**Caveat `churn_is_subscription_level`** - about this metric as a whole:
+> Churn here is an event on a SUBSCRIPTION inside a month, not a state of a customer.
+>
+> A customer who cancels one of three contracts appears in both of these figures and has not churned
+> as a customer. A customer who cancels all three appears three times. Neither number can be turned
+> into a customer-level churn rate by dividing it by anything this catalog defines, which is why
+> customer churn is recorded as undefined rather than left for somebody to work out.
+>
+> The other half of it: neither metric carries a status filter, and that is the definition rather than
+> an oversight. Churn is the event inside the month, so narrowing to the state a subscription ended
+> the month in would remove exactly the rows being counted.
+
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole:
+> Every one of these counts SUBSCRIPTIONS. None of them counts customers.
+>
+> One customer may hold several subscriptions - a mobile contract, a fixed line, a television package
+> - so a report presenting any of these figures as a customer count overstates the customer base by
+> however much the average customer holds. There is no metric here that counts customers at all: the
+> only place a customer count appears is inside the denominator of `revenue_per_customer`, where it is
+> never reported on its own.
+>
+> So if somebody asks how many customers there are, the answer is that this deployment does not answer
+> it - not a subscription count handed over under the other name.
+
 ### voice_minutes
 
 - Grains: month, day
@@ -499,6 +819,75 @@ carry on under the rules above.
 > Same grains as `data_per_subscription`, and the same reason for carrying no anchor: a sum
 > of decimals is a float, so an anchor written as text would pin a formatting decision
 > rather than a number.
+
+**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole:
+> Neither of these can be broken down at all - not by segment, not by region, not by product.
+>
+> The usage rows are daily and the subscription snapshot is monthly. A join between them has to
+> constrain the snapshot month to the usage month, or every day of usage is multiplied by the number
+> of months that subscription existed. A relationship in this catalog declares one column on each
+> side, so that join cannot be written here at all, and it is therefore absent rather than declared
+> wrongly and quietly multiplying rows.
+>
+> The consequence for a question is concrete: usage by segment is not available. Say so. Answering
+> with usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape
+> of a right one.
+
+## Worked questions
+
+Questions somebody actually asked, with the request that answers each. Copy the shape. Every value
+in them is one this snapshot declares, so a question below is one this deployment answers rather
+than one it would decline.
+
+### business_revenue_in_the_north
+
+- Asked as: "what are business customers in the north worth per month", "Umsatz der Firmenkunden im
+  Norden"
+- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, `segment` =
+  `business`, `region` = `north`
+> Two filters and nothing to group by: this asks for one number rather than a breakdown.
+>
+> Both values are spelled the way the definitions declare them - `business` rather than `B2B`,
+> `north` rather than `North`. The glossary entries for those phrases exist for exactly this: a filter
+> is compared against the declared list, and a near miss is declined without the value being repeated
+> back for comparison.
+>
+> A filter does not have to appear in the group-by list. Filtering on `region` while grouping by
+> nothing is a total for one region; filtering on it while grouping by `segment` would be a total per
+> segment inside that region.
+
+### churn_rate_over_the_half_year
+
+- Asked as: "how has the churn rate developed this year", "wie hat sich die Abwanderungsrate
+  entwickelt"
+- Send: metric `churn_rate`, grain `month`, period `2026-01-01` to `2026-07-01`
+> A question about a trend is one question covering the whole trend, not six questions covering a
+> month each.
+>
+> The grain decides the shape of the answer: `month` over six months returns six rows, one per month.
+> `churn_rate` declares no other grain, so there is no finer version of this question - a weekly churn
+> rate is not a narrower cut of the same number, it is a number nobody certified, and asking for one
+> is declined with `GrainNotSupported`.
+>
+> Nothing to group by here. Adding `segment` would answer a different and equally reasonable question,
+> which is worth confirming before choosing between them.
+
+### revenue_by_segment_in_june
+
+- Asked as: "how much recurring revenue did each segment bring in June", "wie viel wiederkehrender
+  Umsatz kam im Juni pro Segment"
+- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, grouped by
+  `segment`
+> The plainest shape there is: one metric, one period with both ends given, one dimension to break it
+> down by.
+>
+> Note what the period is. June 2026 is `2026-06-01` up to but not including `2026-07-01`, because a
+> period here is half-open - the end is the first day that is NOT counted. A range of `2026-06-01` to
+> `2026-06-30` quietly leaves the last day of the month out, and nothing about the answer would say
+> so.
+>
+> The result is one row per segment, in minor units, and the caveat on the metric is the reason that
+> matters before quoting it.
 
 ## Provenance, and what makes a number checkable
 

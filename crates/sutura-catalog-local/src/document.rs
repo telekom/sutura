@@ -24,17 +24,40 @@ use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 
+// The four knowledge documents. Their own module because this file is already at two thirds of the
+// thousand-line limit `cargo xtask max-lines` enforces, and because they are a separate concern: a
+// definition decides what executes and a note decides what a reader understands.
+pub mod knowledge;
+
 /// What a document declares itself to be.
 ///
 /// Required in every document rather than inferred from the directory it sits in. A file in the
 /// wrong directory is then an error naming the mismatch, instead of a metric that was quietly never
 /// loaded, and the loader can walk one tree instead of trusting a layout convention.
+///
+/// **Seven kinds now, and the split between them is worth reading as two groups.** The first three
+/// are definitions: they decide what executes, and `sutura_domain::catalog` checks them. The last
+/// four are knowledge: they decide what a reader understands, and `sutura_domain::knowledge` checks
+/// them. Nothing in the loader treats the two groups differently - one walk, one tag, one dispatch -
+/// which is what keeps "which directory is this in" from becoming part of the format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentKind {
     Model,
     Relationship,
     Metric,
+    /// One entry of the business glossary.
+    Glossary,
+    /// Something a reader has to know before trusting a number.
+    Caveat,
+    /// A term this catalog deliberately does not define.
+    ///
+    /// The word an author writes is `not_defined`, which says what they are doing; the domain type
+    /// is `Absence`, which says what the thing is. Two names for two audiences, and the format's one
+    /// is the one that appears in an error about a file.
+    NotDefined,
+    /// A worked question: how somebody asked it, and what to send.
+    Example,
 }
 
 impl DocumentKind {
@@ -43,6 +66,10 @@ impl DocumentKind {
             Self::Model => "model",
             Self::Relationship => "relationship",
             Self::Metric => "metric",
+            Self::Glossary => "glossary",
+            Self::Caveat => "caveat",
+            Self::NotDefined => "not_defined",
+            Self::Example => "example",
         }
     }
 }

@@ -1,0 +1,222 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: pinned.knowledge()
+---
+declares:
+  - glossary
+  - caveats
+  - absences
+  - examples
+glossary:
+  average revenue per customer:
+    term: average revenue per customer
+    synonyms:
+      - ARPU
+      - Umsatz pro Kunde
+      - revenue per customer
+    means:
+      metric: revenue_per_customer
+    body: "Recurring revenue divided by the number of customers behind it, over active subscriptions.\n\n\"ARPU\" is the term people reach for and it is the one worth being careful with, because the U is a\nUSER and this catalog has two candidates for that word. `revenue_per_customer` divides by distinct\ncustomers; `mean_subscription_mrr` averages the subscription-months themselves. A customer holding\nthree subscriptions is one of the first and three of the second, so the two answers differ by\nhowever much the base fans out.\n\nWhen a question says ARPU and the difference could matter, ask which one is meant rather than\npicking."
+  business customers:
+    term: business customers
+    synonyms:
+      - B2B
+      - Firmenkunden
+      - enterprise customers
+    means:
+      metric: recurring_revenue
+      dimension: segment
+      value: business
+    body: "The commercial segment a customer sits in, as this catalog spells it: the value is `business`, in\nthe singular and in lower case.\n\nThe spelling is the whole reason the entry exists. A filter is compared against the list of values\nthe definitions declare, and a question filtering on `B2B` or `Business` is declined with\n`DimensionValueNotAllowed` - which names the dimension and, deliberately, does not repeat the value\nback. So resolve the phrase here rather than guessing at the wire form.\n\nThe `segment` dimension is declared on most metrics in this catalog with the same three values, and\nthis entry is written against `recurring_revenue` because that is the metric people ask about it."
+  churn rate:
+    term: churn rate
+    synonyms:
+      - Abwanderungsrate
+      - attrition rate
+      - cancellation rate
+    means:
+      metric: churn_rate
+    body: "The share of a month's subscriptions that terminated inside it.\n\nSubscription-level, always. The denominator is every subscription the month held and the numerator\nis the ones that ended, so a customer who cancels one of three contracts moves this number by one\nsubscription and not by one customer. Customer-level churn is a different figure and this catalog\ndoes not define it - the note recording that is what to say when somebody asks.\n\nIf what somebody wants is the COUNT of terminations rather than the share, that is\n`subscriptions_churned`, which is this metric's own numerator."
+  consumer customers:
+    term: consumer customers
+    synonyms:
+      - B2C
+      - Privatkunden
+      - residential customers
+    means:
+      metric: recurring_revenue
+      dimension: segment
+      value: consumer
+    body: "Private households, as opposed to companies. The value is `consumer`.\n\nThe third value of that dimension is `wholesale`, which is the traffic sold on to other operators\nrather than to anybody's customer. Nobody has a nickname for it, so it has no entry of its own -\nbut a question about \"everybody except business\" covers two values and not one, and the honest\nanswer groups by `segment` rather than filtering on a guess."
+  contract term:
+    term: contract term
+    synonyms:
+      - Vertragslaufzeit
+      - commitment
+      - term
+    means:
+      metric: recurring_revenue
+      dimension: contract_term
+    body: "Whether a subscription is on a rolling month-to-month arrangement or a committed one: the two values\nare `monthly` and `annual`, and both may be filtered on.\n\nWorth not confusing with the period a question asks about. \"Monthly revenue for annual contracts\"\nis the `month` grain over a filter of `annual`, and both halves of that sentence use a word the\nother one could have claimed."
+  data usage:
+    term: data usage
+    synonyms:
+      - Datenvolumen
+      - data volume
+      - gigabytes per subscription
+    means:
+      metric: data_per_subscription
+    body: "Data volume per subscription, in gigabytes, over the period asked about.\n\nPer subscription that USED the network rather than per subscription that existed: the denominator\ncounts the subscriptions appearing in the usage rows, and a subscription with no usage on a day has\nno row for that day.\n\nIt cannot be broken down by segment, region or product family, and that is a fact about the models\nrather than an omission - the caveat on the metric says why. A question asking for data usage by\nsegment is answered by saying it is not available here, never by substituting a breakdown of\nsomething else."
+  monthly recurring revenue:
+    term: monthly recurring revenue
+    synonyms:
+      - MRR
+      - monatlicher Umsatz
+      - recurring revenue
+      - wiederkehrender Umsatz
+    means:
+      metric: recurring_revenue
+    body: "The recurring part of what subscriptions bill in a month, and in this catalog it is always the\nACTIVE figure: `recurring_revenue` carries a definitional filter on the subscription's status, so\nthere is no way to ask it for a total that includes the subscriptions the month lost.\n\nNo metric here REPORTS that wider figure. The nearest thing is the numerator of\n`revenue_per_churned_subscription`, which is the whole base and is never reported on its own - so a\nquestion about revenue including the terminated subscriptions is one to decline rather than to\nassemble out of parts.\n\nReported in minor units. A June figure of 202121 is 2021.21 in currency, and the caveat on the\nmetric says so where whoever is about to quote it will see it.\n\n\"MRR\" is the abbreviation people say out loud. The two German phrases are what the same question\nlooks like when it arrives in German, which here it does about half the time."
+  subscriber count:
+    term: subscriber count
+    synonyms:
+      - Anschluss
+      - Vertrag
+      - active lines
+      - subscribers
+    means:
+      metric: active_subscriptions
+    body: "How many subscriptions were active at the end of the month.\n\nA subscriber count is a SUBSCRIPTION count and never a customer count, which is the most expensive\nconfusion there is in a telco data set: one customer may hold a mobile contract, a fixed line and a\ntelevision package, and this metric counts three of them. The caveat on the metric says the same\nthing where somebody is about to ask for it.\n\n\"Anschluss\" and \"Vertrag\" both arrive in German questions and both mean a subscription here. For\nthe base that also counts the subscriptions the month lost, ask `subscription_base` instead."
+  tariff:
+    term: tariff
+    synonyms:
+      - Tarif
+      - plan
+      - product name
+    means:
+      metric: recurring_revenue
+      dimension: product_name
+    body: "The individual product somebody is subscribed to, by its own name rather than by its kind.\n\nIt can be grouped by and NOT filtered on: the definitions declare no list of values for it, because\nthe list of tariffs moves faster than a reviewed catalog does. A question that filters on a tariff\nis declined with `DimensionNotFilterable`, and the remedy the refusal gives is the right one - group\nby it, and read the row you wanted out of the result.\n\nFor the kind of product rather than the individual tariff, group by `product_family`, which does\ndeclare its values and can be filtered."
+caveats:
+  churn_is_subscription_level:
+    name: churn_is_subscription_level
+    about:
+      - metric: churn_rate
+      - metric: subscriptions_churned
+    body: "Churn here is an event on a SUBSCRIPTION inside a month, not a state of a customer.\n\nA customer who cancels one of three contracts appears in both of these figures and has not churned\nas a customer. A customer who cancels all three appears three times. Neither number can be turned\ninto a customer-level churn rate by dividing it by anything this catalog defines, which is why\ncustomer churn is recorded as undefined rather than left for somebody to work out.\n\nThe other half of it: neither metric carries a status filter, and that is the definition rather than\nan oversight. Churn is the event inside the month, so narrowing to the state a subscription ended\nthe month in would remove exactly the rows being counted."
+  revenue_is_in_minor_units:
+    name: revenue_is_in_minor_units
+    about:
+      - metric: recurring_revenue
+      - metric: mean_subscription_mrr
+      - metric: revenue_per_customer
+      - metric: revenue_per_churned_subscription
+    body: "Every revenue figure in this catalog is in MINOR UNITS - cents, not currency.\n\nA June figure of 202121 for `recurring_revenue` is 2021.21. The underlying column is stored that way\nso that a sum is exact integer arithmetic rather than a decimal somebody has to decide where to\nround, and no question ever names that column, so this note is the only place a caller learns it.\n\nDivide by a hundred before quoting a figure to a person, and say which unit you are quoting. A\nrevenue number a hundred times too large is the kind of wrong answer nobody thinks to check."
+  subscriber_is_not_customer:
+    name: subscriber_is_not_customer
+    about:
+      - metric: active_subscriptions
+      - metric: subscription_base
+      - metric: subscription_months_billed
+      - metric: subscriptions_churned
+    body: "Every one of these counts SUBSCRIPTIONS. None of them counts customers.\n\nOne customer may hold several subscriptions - a mobile contract, a fixed line, a television package\n- so a report presenting any of these figures as a customer count overstates the customer base by\nhowever much the average customer holds. There is no metric here that counts customers at all: the\nonly place a customer count appears is inside the denominator of `revenue_per_customer`, where it is\nnever reported on its own.\n\nSo if somebody asks how many customers there are, the answer is that this deployment does not answer\nit - not a subscription count handed over under the other name."
+  two_averages_of_the_same_revenue:
+    name: two_averages_of_the_same_revenue
+    about:
+      - metric: mean_subscription_mrr
+      - metric: revenue_per_customer
+    body: "These two both sound like \"average revenue\" and they average different things.\n\n`mean_subscription_mrr` is the mean of the revenue column over subscription-months, so a\nsubscription that existed for six of the months asked about is weighted six times.\n`revenue_per_customer` is total revenue over the count of distinct customers, so a customer holding\nthree subscriptions counts once.\n\nNeither is wrong and they are not interchangeable. A question that says \"average revenue\" without\nsaying average over what is one to clarify before answering, and whichever figure is reported should\nbe named along with it."
+  usage_reaches_no_snapshot:
+    name: usage_reaches_no_snapshot
+    about:
+      - metric: data_per_subscription
+      - metric: voice_minutes
+    body: "Neither of these can be broken down at all - not by segment, not by region, not by product.\n\nThe usage rows are daily and the subscription snapshot is monthly. A join between them has to\nconstrain the snapshot month to the usage month, or every day of usage is multiplied by the number\nof months that subscription existed. A relationship in this catalog declares one column on each\nside, so that join cannot be written here at all, and it is therefore absent rather than declared\nwrongly and quietly multiplying rows.\n\nThe consequence for a question is concrete: usage by segment is not available. Say so. Answering\nwith usage overall, or with a segment breakdown of some other metric, is a wrong answer in the shape\nof a right one."
+absences:
+  customer churn:
+    phrase: customer churn
+    synonyms:
+      - Kundenabwanderung
+      - customer attrition
+      - customer churn rate
+    body: "Churn in this catalog is subscription-level. Customer-level churn has no definition here.\n\nThe question it needs answered first is what it means for a customer to churn: losing every\nsubscription they held, losing their last one in a product family, or falling below some threshold\nof spend. Those are three different numbers, and the choice belongs to whoever owns the figure\nrather than to whoever is asked for it.\n\n`churn_rate` and `subscriptions_churned` are what exist, and the caveat on both says what they\ncount. Reporting either of them as customer churn is the specific mistake this note is here to\nprevent."
+  customer lifetime value:
+    phrase: customer lifetime value
+    synonyms:
+      - CLTV
+      - CLV
+      - Kundenwert
+    body: "There is no certified definition of customer lifetime value here, and its absence is a decision\nrather than a gap somebody has not got round to.\n\nEvery version of it needs three things this catalog does not hold: an expected lifetime, a discount\nrate, and a decision about which costs to net off. Any of the three chosen differently gives a\ndifferent number, and all three are commercial decisions rather than modelling ones.\n\nSo a question asking for CLV gets told that plainly, together with what does exist -\n`revenue_per_customer` for what a customer is worth in a month, and `churn_rate` for how quickly\nsubscriptions end. Composing those two into a lifetime value is exactly the step that needs the\ndecision, and it is not one for whoever is answering the question."
+  revenue forecast:
+    phrase: revenue forecast
+    synonyms:
+      - Umsatzprognose
+      - forecast
+      - projected revenue
+    body: "Nothing here forecasts anything. Every metric in this catalog reports a period that has already\nhappened, out of rows that were written when it did.\n\nA question about next quarter therefore has no answer here, and the useful reply says so and offers\nthe history instead: `recurring_revenue` by month over the periods that exist is the input somebody\nwould forecast FROM, and producing the forecast is separate work with its own review.\n\nExtrapolating the trend and presenting the result beside a certified figure is the failure this note\nexists to prevent. The number would carry the version and digest of definitions that never produced\nit, which is worse than an uncertified number - it is an uncertified number wearing a provenance\nrecord."
+examples:
+  business_revenue_in_the_north:
+    name: business_revenue_in_the_north
+    asked:
+      - what are business customers in the north worth per month
+      - Umsatz der Firmenkunden im Norden
+    question:
+      metric: recurring_revenue
+      grain: month
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      dimensions: []
+      filters:
+        - dimension: segment
+          value: business
+        - dimension: region
+          value: north
+    body: "Two filters and nothing to group by: this asks for one number rather than a breakdown.\n\nBoth values are spelled the way the definitions declare them - `business` rather than `B2B`,\n`north` rather than `North`. The glossary entries for those phrases exist for exactly this: a filter\nis compared against the declared list, and a near miss is declined without the value being repeated\nback for comparison.\n\nA filter does not have to appear in the group-by list. Filtering on `region` while grouping by\nnothing is a total for one region; filtering on it while grouping by `segment` would be a total per\nsegment inside that region."
+  churn_rate_over_the_half_year:
+    name: churn_rate_over_the_half_year
+    asked:
+      - how has the churn rate developed this year
+      - wie hat sich die Abwanderungsrate entwickelt
+    question:
+      metric: churn_rate
+      grain: month
+      range:
+        start:
+          year: 2026
+          month: 1
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      dimensions: []
+      filters: []
+    body: "A question about a trend is one question covering the whole trend, not six questions covering a\nmonth each.\n\nThe grain decides the shape of the answer: `month` over six months returns six rows, one per month.\n`churn_rate` declares no other grain, so there is no finer version of this question - a weekly churn\nrate is not a narrower cut of the same number, it is a number nobody certified, and asking for one\nis declined with `GrainNotSupported`.\n\nNothing to group by here. Adding `segment` would answer a different and equally reasonable question,\nwhich is worth confirming before choosing between them."
+  revenue_by_segment_in_june:
+    name: revenue_by_segment_in_june
+    asked:
+      - how much recurring revenue did each segment bring in June
+      - wie viel wiederkehrender Umsatz kam im Juni pro Segment
+    question:
+      metric: recurring_revenue
+      grain: month
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      dimensions:
+        - segment
+      filters: []
+    body: "The plainest shape there is: one metric, one period with both ends given, one dimension to break it\ndown by.\n\nNote what the period is. June 2026 is `2026-06-01` up to but not including `2026-07-01`, because a\nperiod here is half-open - the end is the first day that is NOT counted. A range of `2026-06-01` to\n`2026-06-30` quietly leaves the last day of the month out, and nothing about the answer would say\nso.\n\nThe result is one row per segment, in minor units, and the caveat on the metric is the reason that\nmatters before quoting it."

@@ -389,6 +389,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use sutura_domain::catalog::{Definitions, Metric, Model};
+    use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
@@ -431,6 +432,7 @@ mod tests {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
+            Knowledge::none(),
         )
         .expect("the test definitions hash")
     }

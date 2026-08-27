@@ -389,6 +389,7 @@ mod tests {
 
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::catalog::{Anchor, Definitions, Metric, Model};
+    use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, NotValidated};
@@ -438,6 +439,7 @@ mod tests {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
+            Knowledge::none(),
         )
         .expect("the test definitions hash")
     }

@@ -11,7 +11,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
+-- definitions local-working-tree 9c1287efd8299fba28eefcc15d810b2ddadcac92cc1ab31eaad848e52038f5ac
 period  recurring_revenue
 2026-01-01      237320
 2026-02-01      232822
@@ -35,12 +35,27 @@ No feature flag and no database. The engine reads these CSVs directly, so `query
 ## What is here
 
 ```
-catalog/models/*.md            what tables exist and which columns may be read
-catalog/relationships/*.md     which joins are allowed, and at what cardinality
-catalog/metrics/*.md           what each certified number means
-data/*.csv                     one file per model, named after the table
-questions/*.yaml               the corpus, including the ones that are refused
+catalog/models/*.md                 what tables exist and which columns may be read
+catalog/relationships/*.md          which joins are allowed, and at what cardinality
+catalog/metrics/*.md                what each certified number means
+catalog/knowledge/glossary/*.md     the words a question may arrive in, and the one thing each means
+catalog/knowledge/caveats/*.md      what to know before trusting a number, per metric
+catalog/knowledge/not-defined/*.md  terms deliberately left undefined, and what to say instead
+catalog/knowledge/examples/*.md     worked questions: how somebody asked, and what to send
+data/*.csv                          one file per model, named after the table
+questions/*.yaml                    the corpus, including the ones that are refused
 ```
+
+The first three decide what executes. The four under `knowledge/` decide what a person - or an
+agent - understands about it, and they are read by `sutura prompt` and by nothing on the query
+path: a glossary that could select what runs would not be descriptive content. Both halves are
+under the same digest, because a glossary decides which metric a question is about.
+
+**The directory names are for whoever is reading the tree.** Every document declares its own
+`kind:` in its frontmatter, and the loader walks one tree and dispatches on that - so a file in
+the "wrong" directory loads exactly the same, and the layout is not part of the format. That is
+also the part of this catalog a metadata service could reproduce: a document kind is a concept, not
+a path.
 
 A catalog document is YAML frontmatter and a prose body, and the prose is part of the
 format rather than a comment. It travels with the definition and comes back out of
@@ -309,7 +324,7 @@ content-length: 347
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
+    "definition_digest": "9c1287efd8299fba28eefcc15d810b2ddadcac92cc1ab31eaad848e52038f5ac"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [

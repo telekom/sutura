@@ -71,6 +71,15 @@ shapes over a `Term` enum of two terms, `RequiredFilter` an enum of four operato
 `deny_unknown_fields` applies at every depth. sutura generates the whole statement from that, in
 `sutura-semantic`, so neither caller-authored nor catalogue-authored SQL is on the path at all.
 
+**Partly built, and named so it cannot be quiet.** A metric may instead carry `authored_sql:` - a SQL
+expression a catalogue author wrote, for what the closed vocabulary cannot say: a window function, a
+percentile, an expression over two columns. It is a *sibling* of `measure:` rather than a field on it,
+exactly one of the two may be present, and a fragment is parsed at load, checked against a list of
+refused constructs, checked against the model's declared columns and rendered for every dialect
+before anything serves. A caller still has no field for SQL, and the agent prompt still never sees
+any. [A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is
+the record. The types and the compile exist; no catalogue document can write the key yet.
+
 **Design target, not built.** A definition may instead arrive as **statement** text authored
 upstream, spliced into a generated wrapper byte for byte, because re-emitting it would substitute
 our reading for the author's and the number would change quietly. Nothing implements that splice:

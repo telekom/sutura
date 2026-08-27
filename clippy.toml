@@ -13,6 +13,21 @@ type-complexity-threshold = 100       # default 250
 enum-variant-name-threshold = 2       # default 3
 
 # A ban without a reason gets reverted by the next person who trips over it.
+#
+# VERIFIED TO RESOLVE, which for this file is the whole question. An unresolvable path in
+# `disallowed-methods` is silently ignored by clippy - measured, not assumed - so an entry that
+# reads as enforcement and does nothing is worse than no entry. Each of these was confirmed by
+# writing the banned call and watching clippy reject it.
+disallowed-methods = [
+  # The obvious way to parse a catalog-authored SQL fragment, and it PANICS. `Parser::new` over an
+  # empty token list hits an `expect` in the parser, which is what `""`, whitespace-only and
+  # comment-only input all tokenize to - in every one of our dialects. `panic = "abort"` makes that
+  # a catalog file ending the process. `sutura_sql::expression` parses `SELECT {fragment}` instead,
+  # with a guard on each way that can come back as something other than one expression.
+  { path = "polyglot_sql::parser::Parser::parse_expressions", reason = "panics on empty input, which is reachable from a catalog file; use sutura_sql::expression::compile" },
+  { path = "polyglot_sql::parser::Parser::new", reason = "the only reason to build a parser by hand is the panicking fragment API; use sutura_sql::expression::compile" },
+]
+
 disallowed-types = [
   { path = "std::sync::Mutex",  reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
   { path = "std::sync::RwLock", reason = "async code may deadlock the executor; use tokio::sync or parking_lot" },
