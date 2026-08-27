@@ -5,6 +5,10 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ## Unreleased
 
+### Features
+
+- The query path - a catalog compiles to a plan, and the plan executes (#19)
+
 ### Fixes
 
 - **docs**: Publish a version per release, so the dropdown has versions
