@@ -33,15 +33,14 @@ has none, and answering a number for it would answer a different question under 
 `churn_rate` and the other two ratios all choose `yields_null`, which is right for a share - a
 month with no subscriptions has no churn share - and wrong for this one.
 
-**Once one more catalog is gone this is the only document in this repository that chooses the word,
-and the only one that puts a conditional count in a denominator.** The other is the e-commerce
-fixture catalog under `crates/sutura-app/tests/fixtures`, which does both today and which this
-directory is being grown to replace, so writing it down here is what stops the coverage leaving
-with it. A variant nothing executes looks covered because the enum has a test for its spelling,
-which is exactly how `fails` came to answer the string `inf` under a certified metric name; the
-correction was `Value::Real` refusing a non-finite cell, and what keeps that correction honest is
-a question that reaches it. So it arrives here before the fixtures are retired rather than being
-noticed missing afterwards.
+**This is the only document in this repository that chooses the word, and the only one that puts a
+conditional count in a denominator.** The other was the e-commerce catalog the golden suite used to
+carry, which did both and which this directory replaced, so writing it down here is what stopped the
+coverage leaving with it. A variant nothing executes looks covered because the enum has a test for
+its spelling, which is exactly how `fails` came to answer the string `inf` under a certified metric
+name; the correction was `Value::Real` refusing a non-finite cell, and what keeps that correction
+honest is a question that reaches it. It arrived here before that catalog was retired rather than
+being noticed missing afterwards.
 
 The two questions beside it are that pair. June 2026 has three terminations, so it answers a real
 figure. January 2026 has seventy rows and none of them terminated, which is the shape that reaches

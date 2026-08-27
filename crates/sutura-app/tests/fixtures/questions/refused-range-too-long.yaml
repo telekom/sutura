@@ -1,5 +1,0 @@
-metric: revenue
-grain: month
-range:
-  start: 0001-01-01
-  end: 9999-12-31

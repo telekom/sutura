@@ -1,6 +1,0 @@
-metric: revenue
-grain: month
-range:
-  start: 2026-06-01
-  end: 2026-08-01
-dimensions: [region, channel]

@@ -1,0 +1,58 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: voice_minutes
+table: fct_usage_daily
+joins: []
+bucket:
+  label: period
+  grain: day
+  column:
+    table: fct_usage_daily
+    column: usage_date
+keys: []
+measure:
+  simple:
+    term:
+      aggregate:
+        aggregate: sum
+        column:
+          table: fct_usage_daily
+          column: voice_min
+measure_label: voice_minutes
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_usage_daily
+          column: usage_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_usage_daily
+          column: usage_date
+        param: 1
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 1
+  - Date:
+      year: 2026
+      month: 6
+      day: 5
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 6
+    day: 5
+max_rows: 10000

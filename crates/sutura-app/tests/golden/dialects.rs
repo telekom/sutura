@@ -66,10 +66,20 @@ fn without_spans(sql: &str, delimiter: char) -> String {
 
 /// The statement with every quoted identifier removed.
 ///
-/// Searching the raw SQL for a value gives false positives, and one bit immediately: the
-/// metric `web_revenue` has a required filter of `channel = 'web'`, the predicate is correctly
-/// bound as `"orders"."channel" = ?`, and a plain substring search still found "web" - inside
-/// the alias `AS "web_revenue"`. The value had not reached the statement at all.
+/// Searching the raw SQL for a value gives false positives, and one bit for real. **The catalog it
+/// happened under has been deleted and the record is kept on purpose**, because the false positive
+/// is a property of substring search rather than of that catalog: the e-commerce metric
+/// `web_revenue` had a required filter of `channel = 'web'`, the predicate was correctly bound as
+/// `"orders"."channel" = ?`, and a plain substring search still found "web" - inside the alias
+/// `AS "web_revenue"`. The value had not reached the statement at all, and what the test was
+/// reading was the metric's own name.
+///
+/// **Nothing in the telco vocabulary collides that way today, which is why the pass stays rather
+/// than why it could go.** `recurring_revenue` binds `status = 'active'`, and it takes only one
+/// metric alias containing the word - `active_subscriptions` is already there, in statements about
+/// itself - or one dimension value that is a substring of a column name, to put the false positive
+/// straight back. The mechanism is what protects the claim; a corpus that happens not to collide is
+/// not.
 ///
 /// Identifiers are double-quoted and a value inlined as text would be single-quoted, so
 /// dropping the double-quoted spans leaves exactly the part of the statement a value could
@@ -78,8 +88,8 @@ fn without_spans(sql: &str, delimiter: char) -> String {
 ///
 /// **The single-quoted spans STAY, and keeping this pass that narrow is the point.** They are
 /// exactly where a leaked value would be sitting, so a version of this that dropped them would
-/// delete the evidence rather than the noise: `revenue-north-only` written as `= 'north'` instead
-/// of bound would leave nothing behind to search for, and
+/// delete the evidence rather than the noise: `recurring-revenue-annual-in-north` written as
+/// `= 'north'` instead of bound would leave nothing behind to search for, and
 /// [`binds_every_value_rather_than_writing_it`] would report success on a generator that had
 /// stopped binding. [`without_string_literals`] drops them for the one assertion that has to look
 /// PAST a literal rather than at it, layered on top of this rather than folded into it. Two
@@ -102,12 +112,14 @@ fn without_identifiers(sql: &str) -> String {
 /// What goes wrong is the SEARCH. A model that declares a column called `month` puts `month` into
 /// the set of names [`quotes_every_identifier`] looks for; `'` is not a word character, so
 /// [`appears_bare`] matches the grain keyword and the test reports an unquoted identifier the
-/// generator never emitted. The e-commerce fixture in this crate happens to name no column after a
-/// grain, which is the only reason that stayed latent rather than red - the telco catalog under
-/// `examples/single-player` declares `month` on its `subscriptions` model, and every unit `Grain`
-/// has (`day`, `week`, `month`, `quarter`, `year`) is a name a modeller could reasonably pick. A
-/// catalog is data, so "no catalog names a column after a grain" is not something this suite gets
-/// to assume.
+/// generator never emitted. **This is live rather than hypothetical, and it is why the pass was
+/// written before the corpus moved:** the telco catalog under `examples/single-player` declares
+/// `month` on its `subscriptions` model, so every question at month grain renders
+/// `DATE_TRUNC('month', "fct_subscription_monthly"."month")`. The e-commerce fixture this crate used
+/// to read named no column after a grain, which is the only reason the hole stayed latent for as
+/// long as it did - and every unit `Grain` has (`day`, `week`, `month`, `quarter`, `year`) is a name
+/// a modeller could reasonably pick. A catalog is data, so "no catalog names a column after a grain"
+/// is not something this suite gets to assume.
 ///
 /// **So the identifier claim gets its own haystack and the value claim keeps the one it had.** They
 /// are not the same claim. The value test asks whether text reached the statement AT ALL, and a
@@ -265,7 +277,7 @@ fn quotes_every_identifier(dialect: Dialect) {
     }
     assert!(
         names.len() > 4,
-        "the fixture catalog names almost nothing, so this test would prove nothing: {names:?}"
+        "the example catalog names almost nothing, so this test would prove nothing: {names:?}"
     );
 
     let mut quoted_names_checked = 0_usize;

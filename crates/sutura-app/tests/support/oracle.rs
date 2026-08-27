@@ -16,6 +16,24 @@
 //! hand, from the catalog documents. Generated from them it would agree by construction; sharing
 //! their parser it would share its bugs.
 //!
+//! # Transcribed from the PROSE, and reconciled with the frontmatter afterwards
+//!
+//! **The procedure matters as much as the content, because the failure mode of this file is a GREEN
+//! test that proves nothing.** Copying each document's YAML into Rust produces an oracle that agrees
+//! by transcription: it shares whatever misreading the copying carried, and
+//! `agrees_with_the_oracle` then reports success over two statements of the same mistake. That is
+//! strictly worse than having no oracle, because it reads as coverage.
+//!
+//! So every metric below was written from what its document SAYS it measures - "a count of ROWS and
+//! not of subscriptions", "the whole base and not the survivors", "an event inside the month rather
+//! than a state at the end of it" - and each document's frontmatter was read last, as a check on the
+//! transcription rather than as its source. The one-line summary above each metric is the prose it
+//! came from, kept so the next edit can be made the same way.
+//!
+//! Where the two ever disagree, **the disagreement is the finding**. A document whose prose and
+//! frontmatter describe different definitions is a certified metric nobody can check, and the fix is
+//! in the document rather than here.
+//!
 //! [`TwoSourceCatalog`] provokes one refusal and is here for the same reason: it is built in code
 //! rather than as a catalog directory, because a corpus spanning two data systems would make every
 //! other test in the suite span two.
@@ -42,7 +60,7 @@ use crate::adapters::{CatalogUnderTest, load, source, version};
 pub(crate) struct HandWrittenCatalog;
 
 fn column(raw: &str) -> ColumnName {
-    ColumnName::parse(raw).expect("a fixture column is a column")
+    ColumnName::parse(raw).expect("a corpus column is a column")
 }
 
 fn values(raw: &[&str]) -> BTreeSet<String> {
@@ -51,71 +69,182 @@ fn values(raw: &[&str]) -> BTreeSet<String> {
 
 fn june() -> TimeRange {
     TimeRange::new(
-        Date::parse("2026-06-01").expect("a fixture date is a date"),
-        Date::parse("2026-07-01").expect("a fixture date is a date"),
+        Date::parse("2026-06-01").expect("a corpus date is a date"),
+        Date::parse("2026-07-01").expect("a corpus date is a date"),
     )
     .expect("June is a range")
 }
 
 fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>) -> (DimensionName, Dimension) {
-    let name = DimensionName::parse(name).expect("a fixture dimension is a dimension");
+    let name = DimensionName::parse(name).expect("a corpus dimension is a dimension");
     let dimension = Dimension::new(
         name.clone(),
         column(col),
-        via.map(|v| RelationshipName::parse(v).expect("a fixture relationship is a relationship")),
+        via.map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship")),
         allowed.map(values),
         String::new(),
     );
     (name, dimension)
 }
 
+// -------------------------------------------------------------------------- the five dimensions ---
+
+// **Each written once, and that is a claim about the catalog rather than a shortcut.** Five
+// dimensions appear across the metric documents and every document that declares one declares it
+// the same way: same column, same relationship or none, same value list. A document that started
+// naming a sixth region or reaching `segment` through another relationship would disagree with the
+// function below, and `agrees_with_the_oracle` is where that surfaces - so writing them once loses
+// no coverage and keeps the metrics readable as definitions rather than as walls of literals.
+//
+// One function each rather than one table, because the metrics take different SUBSETS and picking a
+// subset out of a map is more code than listing the members.
+
+/// The commercial segment of the customer, one many-to-one join away.
+fn segment() -> (DimensionName, Dimension) {
+    dimension(
+        "segment",
+        "segment",
+        Some("subscription_customer"),
+        Some(&["business", "consumer", "wholesale"]),
+    )
+}
+
+/// Where the customer is, through the same join.
+fn region() -> (DimensionName, Dimension) {
+    dimension(
+        "region",
+        "region",
+        Some("subscription_customer"),
+        Some(&["central", "east", "north", "south", "west"]),
+    )
+}
+
+/// The kind of product rather than the individual tariff, through the product join.
+fn product_family() -> (DimensionName, Dimension) {
+    dimension(
+        "product_family",
+        "product_family",
+        Some("subscription_product"),
+        Some(&["convergent", "fixed_internet", "mobile", "tv"]),
+    )
+}
+
+/// The individual tariff. **No value list, so it can be grouped by and not filtered on** - which is
+/// what `refused-dimension-not-filterable.yaml` exists to reach.
+fn product_name() -> (DimensionName, Dimension) {
+    dimension("product_name", "product_name", Some("subscription_product"), None)
+}
+
+/// **The one dimension in this catalog that names no relationship.**
+///
+/// It sits on the snapshot row itself, so a plan grouping by it contributes no join at all - the
+/// plainest group-by key the compiler resolves, and the one a catalog of exclusively joined
+/// dimensions would never once compile. Declared on two metrics rather than one, so the case
+/// survives either of them being rewritten.
+fn contract_term() -> (DimensionName, Dimension) {
+    dimension("contract_term", "contract_term", None, Some(&["annual", "monthly"]))
+}
+
+/// The three that four of these metrics declare together.
+fn segment_region_and_family() -> BTreeMap<DimensionName, Dimension> {
+    BTreeMap::from([segment(), region(), product_family()])
+}
+
 type ModelsAndJoins = (Vec<Model>, Vec<Relationship>);
 
-/// The two models and the one relationship between them.
+/// The four models and the two relationships between them.
 ///
-/// Split out of `load` because a fixture catalog is a list of literals, and one function holding all
-/// of them grows with every shape the vocabulary gains. Three functions that each build one kind of
+/// Split out of `load` because a catalog is a list of literals, and one function holding all of
+/// them grows with every shape the vocabulary gains. Three functions that each build one kind of
 /// thing stay readable where one does not.
+///
+/// **Two relationships and not three, and the absent one is a decision rather than an omission.**
+/// `daily_usage` carries `subscription_key` and nothing reaches from there to the monthly snapshot:
+/// the snapshot has one row per subscription per MONTH, so a join on that key alone would match
+/// every month the subscription existed and multiply each day of usage by that count. A
+/// relationship declares one column on each side, so the correct join - which would also constrain
+/// the snapshot month to the usage month - cannot be written. It is therefore absent rather than
+/// declared wrongly, and every metric on `daily_usage` groups by time and by nothing else.
 fn tables() -> ModelsAndJoins {
-    let orders = Model::new(
-        ModelName::parse("orders").expect("a name"),
+    let subscriptions = Model::new(
+        ModelName::parse("subscriptions").expect("a name"),
         source(),
-        TableName::parse("orders").expect("a name"),
+        TableName::parse("fct_subscription_monthly").expect("a name"),
         BTreeSet::from([
-            column("order_id"),
-            column("order_date"),
-            column("customer_id"),
-            column("channel"),
-            column("amount_cents"),
-            column("refunded"),
+            column("month"),
+            column("subscription_key"),
+            column("customer_key"),
+            column("product_key"),
+            column("status"),
+            column("mrr_cents"),
+            column("churned_in_month"),
+            column("contract_term"),
         ]),
         String::new(),
     );
     let customers = Model::new(
         ModelName::parse("customers").expect("a name"),
         source(),
-        TableName::parse("customers").expect("a name"),
-        BTreeSet::from([column("id"), column("region_code"), column("segment")]),
+        TableName::parse("dim_customer").expect("a name"),
+        BTreeSet::from([
+            column("customer_key"),
+            column("customer_id"),
+            column("segment"),
+            column("region"),
+        ]),
         String::new(),
     );
-    let joins = vec![Relationship::new(
-        RelationshipName::parse("orders_customer").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        column("customer_id"),
-        ModelName::parse("customers").expect("a name"),
-        column("id"),
-        JoinType::ManyToOne,
-    )];
+    let products = Model::new(
+        ModelName::parse("products").expect("a name"),
+        source(),
+        TableName::parse("dim_product").expect("a name"),
+        BTreeSet::from([column("product_key"), column("product_name"), column("product_family")]),
+        String::new(),
+    );
+    let daily_usage = Model::new(
+        ModelName::parse("daily_usage").expect("a name"),
+        source(),
+        TableName::parse("fct_usage_daily").expect("a name"),
+        BTreeSet::from([
+            column("usage_date"),
+            column("subscription_key"),
+            column("data_gb"),
+            column("voice_min"),
+        ]),
+        String::new(),
+    );
+    // Many subscription-months to one of each. The cardinality is declared rather than inferred
+    // because it decides whether a join may change a measure: many-to-one cannot duplicate a
+    // snapshot row, so a total is the same number grouped or ungrouped, and the catalog refuses to
+    // reach a dimension through a direction that may duplicate.
+    let joins = vec![
+        Relationship::new(
+            RelationshipName::parse("subscription_customer").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            column("customer_key"),
+            ModelName::parse("customers").expect("a name"),
+            column("customer_key"),
+            JoinType::ManyToOne,
+        ),
+        Relationship::new(
+            RelationshipName::parse("subscription_product").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            column("product_key"),
+            ModelName::parse("products").expect("a name"),
+            column("product_key"),
+            JoinType::ManyToOne,
+        ),
+    ];
 
-    (vec![orders, customers], joins)
+    (vec![subscriptions, customers, products, daily_usage], joins)
 }
 
-/// Every metric the fixture declares.
+/// Every metric the catalog declares.
 ///
 /// Two lists rather than one, split where the vocabulary was widened: the ones the original
 /// "one aggregate over one column" could express, and the ones it could not. Split for the same
-/// reason [`tables`] is split out - a fixture catalog is a list of literals, and one function
-/// holding all of them grows with every shape the vocabulary gains.
+/// reason [`tables`] is split out - a catalog is a list of literals, and one function holding all
+/// of them grows with every shape the vocabulary gains.
 fn metrics() -> Vec<Metric> {
     let mut all = metrics_the_original_vocabulary_could_express();
     all.extend(metrics_the_original_vocabulary_could_not());
@@ -123,116 +252,294 @@ fn metrics() -> Vec<Metric> {
 }
 
 /// One aggregate over one column, no filter, no ratio.
+///
+/// Three of the eleven, and the plainest three. `voice_minutes` is here on purpose rather than by
+/// accident: most certified metrics look like this, and a catalog whose every entry needed a
+/// paragraph of justification would be a catalog nobody trusted.
 fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
-    let revenue = Metric::new(
-        MetricName::parse("revenue").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+    // "How many subscriptions the month held, whatever state they ended it in." Unfiltered as the
+    // definition rather than by oversight: this is the denominator a churn share is taken against,
+    // and a base counting only the survivors would leave the terminated subscriptions in the
+    // numerator and out of the denominator at the same time.
+    let subscription_base = Metric::new(
+        MetricName::parse("subscription_base").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::CountDistinct,
+            column("subscription_key"),
+        ))),
         Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([
-            dimension("channel", "channel", None, Some(&["web", "store"])),
-            dimension(
-                "region",
-                "region_code",
-                Some("orders_customer"),
-                Some(&["north", "south", "west"]),
-            ),
-            dimension("segment", "segment", Some("orders_customer"), None),
-        ]),
-        Some(Anchor::new(june(), String::from("570022"))),
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        segment_region_and_family(),
+        Some(Anchor::new(june(), String::from("62"))),
         String::new(),
     );
-    let orders_placed = Metric::new(
-        MetricName::parse("orders_placed").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Count, column("order_id")))),
+    // "How many subscription-months the period billed." A count of ROWS and not of subscriptions:
+    // the same column as `subscription_base` under a different aggregate, and the same number over
+    // this catalog only because the snapshot holds one row per subscription per month and this
+    // declares only the month grain. Two anchors over the same month, so an edit that collapsed one
+    // definition into the other cannot pass as a rename. **The only plain `count` in the
+    // repository**, so no other document renders that generator arm.
+    let subscription_months_billed = Metric::new(
+        MetricName::parse("subscription_months_billed").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::Count,
+            column("subscription_key"),
+        ))),
         Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::from([dimension(
-            "region",
-            "region_code",
-            Some("orders_customer"),
-            Some(&["north", "south", "west"]),
-        )]),
-        Some(Anchor::new(june(), String::from("9"))),
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        BTreeMap::from([segment(), region(), product_family(), contract_term()]),
+        Some(Anchor::new(june(), String::from("62"))),
         String::new(),
     );
-    let average_order = Metric::new(
-        MetricName::parse("average_order").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Avg, column("amount_cents")))),
+    // "Outgoing voice minutes." One aggregate over one column, no definitional filter, no join, no
+    // ratio. No anchor, for the reason `data_per_subscription` gives: a sum of decimals is a float,
+    // so an anchor written as text would pin a formatting decision rather than a number.
+    let voice_minutes = Metric::new(
+        MetricName::parse("voice_minutes").expect("a name"),
+        ModelName::parse("daily_usage").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("voice_min")))),
         Vec::new(),
-        column("order_date"),
+        column("usage_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+
+    vec![subscription_base, subscription_months_billed, voice_minutes]
+}
+
+/// A required filter, a mean of a column, a conditional count, and four ratios.
+///
+/// Mirroring the catalog documents of the same names. They are the reason this file exists: if the
+/// markdown reader and this hand-written one disagree about a ratio, a required filter or which half
+/// of a ratio a conditional count sits in, one of them is wrong.
+///
+/// Two halves rather than one body, and the seam was chosen by a gate: `clippy::too_many_lines`
+/// fails at a hundred and eight metrics do not fit. The split is between the ones that widened the
+/// SHAPE and the ones that widened what a shape may hold - four `simple` measures that each needed
+/// something the first vocabulary had no field for, and the four `ratio`s.
+fn metrics_the_original_vocabulary_could_not() -> Vec<Metric> {
+    let mut all = simple_measures_that_needed_a_wider_vocabulary();
+    all.extend(the_ratios());
+    all
+}
+
+/// A definitional filter, a mean of a column, and a conditional count as a whole measure.
+///
+/// All four are `simple` in shape. What the first vocabulary could not write is on each of them
+/// separately: a predicate that is part of the name, `avg` over a column, and `count_if` as a term.
+fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
+    // "Recurring revenue recognised in the month, in minor units, from active subscriptions only."
+    // The filter is part of the NAME: a statement that left the predicate out would return revenue
+    // including terminated subscriptions under a certified name, so a caller can neither see it nor
+    // turn it off, and `status` is not a dimension here. `contract_term` is declared without a
+    // relationship - see [`contract_term`].
+    let recurring_revenue = Metric::new(
+        MetricName::parse("recurring_revenue").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: String::from("active"),
+        }],
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        BTreeMap::from([segment(), region(), product_family(), product_name(), contract_term()]),
+        Some(Anchor::new(june(), String::from("202121"))),
+        String::new(),
+    );
+    // "How many subscriptions were active at the end of the month." `subscription_base` with one
+    // predicate added, counting the key distinctly rather than counting rows. **The two anchors are
+    // what `required_filters` buys**: 59 against 62 over the same rows in the same month, with one
+    // definitional predicate between them, shown as two numbers rather than asserted in a sentence.
+    let active_subscriptions = Metric::new(
+        MetricName::parse("active_subscriptions").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(
+            Aggregate::CountDistinct,
+            column("subscription_key"),
+        ))),
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: String::from("active"),
+        }],
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        segment_region_and_family(),
+        Some(Anchor::new(june(), String::from("59"))),
+        String::new(),
+    );
+    // "What the average active subscription was worth in the month, in minor units." The mean of a
+    // COLUMN, which is a different definition from every ratio here: it averages subscription-MONTHS,
+    // where `revenue_per_customer` averages customers. **The only `avg` in the repository**, so an
+    // aggregate no other document writes is a generator arm nothing else renders. No anchor: a mean
+    // is a division, a division is not exact in binary, and an anchor is compared as rendered text.
+    let mean_subscription_mrr = Metric::new(
+        MetricName::parse("mean_subscription_mrr").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Avg, column("mrr_cents")))),
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: String::from("active"),
+        }],
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+    // "How many subscriptions terminated inside the month." `count_if` and not a count of the
+    // column, and the difference is a wrong number that raises no error: `count(churned_in_month)`
+    // counts the rows where the column is not null, which is every row, so it would report the whole
+    // base as churn. No status filter, because churn is an event INSIDE the month rather than a state
+    // at the end of it, and narrowing on the surviving state would remove the rows being counted.
+    let subscriptions_churned = Metric::new(
+        MetricName::parse("subscriptions_churned").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Simple(Term::CountIf {
+            column: column("churned_in_month"),
+        }),
+        Vec::new(),
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        segment_region_and_family(),
+        Some(Anchor::new(june(), String::from("3"))),
+        String::new(),
+    );
+    vec![
+        recurring_revenue,
+        active_subscriptions,
+        mean_subscription_mrr,
+        subscriptions_churned,
+    ]
+}
+
+/// The four ratios, and between them both meanings of an empty denominator and both positions a
+/// conditional count can sit in.
+///
+/// `churn_rate` puts one in the NUMERATOR and `revenue_per_churned_subscription` in the
+/// DENOMINATOR: nothing about the vocabulary makes the two positions different, and a catalog that
+/// wrote only one of them would demonstrate half of that and read as though it had shown all of it.
+fn the_ratios() -> Vec<Metric> {
+    // "What share of the month's subscriptions terminated inside it." The two halves are the two
+    // metrics that used to ship in its place: `subscriptions_churned` over `subscription_base`,
+    // unfiltered, because a base counting only the survivors would leave the terminated
+    // subscriptions in the numerator and out of the denominator at once. `yields_null` because a
+    // month with no subscriptions at all has no churn share - zero would claim they all survived.
+    //
+    // **The only anchor in the repository that re-executes a conditional count inside a ratio**,
+    // which is the shape the vocabulary was changed for, and it is anchorable where the other ratios
+    // are not because both halves are exact integers in a double: one division, one rounding, and
+    // nothing before it an evaluation order could perturb. Readable rather than opaque because both
+    // halves are separately certified - 3 over 62, over this same month.
+    let churn_rate = Metric::new(
+        MetricName::parse("churn_rate").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Ratio {
+            numerator: Term::CountIf {
+                column: column("churned_in_month"),
+            },
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("subscription_key"))),
+            zero_denominator: ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        segment_region_and_family(),
+        Some(Anchor::new(june(), String::from("0.04838709677419355"))),
+        String::new(),
+    );
+    // "Data volume per subscription, in gigabytes." A ratio with no definitional filter, which is the
+    // other half of what `required_filters` is for: this one means what it measures over every row in
+    // range and there is no predicate a reader has to be warned about. The denominator counts the
+    // subscriptions that APPEAR in the range rather than every subscription that existed during it,
+    // so it is volume per subscription that used the network. No dimensions at all, because
+    // `daily_usage` reaches the snapshot through no relationship. No anchor: a sum of decimal
+    // gigabytes over a count is a float.
+    let data_per_subscription = Metric::new(
+        MetricName::parse("data_per_subscription").expect("a name"),
+        ModelName::parse("daily_usage").expect("a name"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("data_gb"))),
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("subscription_key"))),
+            zero_denominator: ZeroDenominator::Null,
+        },
+        Vec::new(),
+        column("usage_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::new(),
+        None,
+        String::new(),
+    );
+    // "Recurring revenue per customer, in minor units, over active subscriptions." Per CUSTOMER and
+    // not per subscription, which is the whole reason it is a ratio rather than an `avg`: a customer
+    // holding three subscriptions is one customer and three rows, so the two answers differ by
+    // however much the base fans out. `yields_null` because a month with no customers is a month
+    // with no revenue per customer, which is a different statement from a figure of zero.
+    let revenue_per_customer = Metric::new(
+        MetricName::parse("revenue_per_customer").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents"))),
+            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("customer_key"))),
+            zero_denominator: ZeroDenominator::Null,
+        },
+        vec![RequiredFilter::Equals {
+            column: column("status"),
+            value: String::from("active"),
+        }],
+        column("month"),
+        BTreeSet::from([Grain::Month]),
+        BTreeMap::from([segment()]),
+        None,
+        String::new(),
+    );
+    // "How much recurring revenue the month carried for each subscription it lost, in minor units."
+    // **The mirror of `churn_rate`**: there a conditional count is the NUMERATOR of a ratio, here it
+    // is the DENOMINATOR. Nothing about the vocabulary makes the two positions different, and a
+    // catalog that only ever wrote one of them would demonstrate half of that claim.
+    //
+    // No status filter, which is `churn_rate`'s argument about its denominator turned around: the
+    // rows the denominator counts are the terminated ones, so narrowing to the surviving state would
+    // take them out of the numerator while leaving them in the denominator. The numerator is the
+    // whole base, which is what the name means - revenue the month carried, not revenue it kept.
+    //
+    // **The only metric here that chooses `fails`**, and the reason it exists is that a variant
+    // nothing executes is not covered: the enum had a test for its spelling and nothing for its
+    // behaviour, which is how `fails` came to answer the string `inf` under a certified name. No
+    // anchor, and not for the float reason - both halves are exact integers in a double. An anchor
+    // is re-executed before the bundle may answer anything, so anchoring this would mean picking a
+    // range where the denominator happens not to be zero and making readiness depend on that staying
+    // true; the period it exists to demonstrate is the one where it has no figure.
+    let revenue_per_churned_subscription = Metric::new(
+        MetricName::parse("revenue_per_churned_subscription").expect("a name"),
+        ModelName::parse("subscriptions").expect("a name"),
+        Measure::Ratio {
+            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents"))),
+            denominator: Term::CountIf {
+                column: column("churned_in_month"),
+            },
+            zero_denominator: ZeroDenominator::Fail,
+        },
+        Vec::new(),
+        column("month"),
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
         None,
         String::new(),
     );
 
-    vec![revenue, orders_placed, average_order]
-}
-
-/// A ratio, a required filter, and both `zero_denominator` words.
-///
-/// Mirroring the fixture documents of the same names. They are the reason this catalog exists: if
-/// the markdown reader and this hand-written one disagree about a ratio or a required filter, one of
-/// them is wrong.
-fn metrics_the_original_vocabulary_could_not() -> Vec<Metric> {
-    let average_order_value = Metric::new(
-        MetricName::parse("average_order_value").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Ratio {
-            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-            denominator: Term::Aggregate(AggregatedColumn::new(Aggregate::CountDistinct, column("order_id"))),
-            zero_denominator: ZeroDenominator::Null,
-        },
-        Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::new(),
-        None,
-        String::new(),
-    );
-    let web_revenue = Metric::new(
-        MetricName::parse("web_revenue").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-        vec![RequiredFilter::Equals {
-            column: column("channel"),
-            value: String::from("web"),
-        }],
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::new(),
-        None,
-        String::new(),
-    );
-
-    // The other `zero_denominator` word, mirroring the fixture document of the same name. It is the
-    // only metric here that chooses `fails`, and the reason it exists is that a variant nothing
-    // executes is not covered: the enum had a test for its spelling and nothing for its behaviour.
-    let revenue_per_refunded_order = Metric::new(
-        MetricName::parse("revenue_per_refunded_order").expect("a name"),
-        ModelName::parse("orders").expect("a name"),
-        Measure::Ratio {
-            numerator: Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))),
-            denominator: Term::CountIf {
-                column: column("refunded"),
-            },
-            zero_denominator: ZeroDenominator::Fail,
-        },
-        Vec::new(),
-        column("order_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
-        BTreeMap::new(),
-        None,
-        String::new(),
-    );
-
-    vec![average_order_value, web_revenue, revenue_per_refunded_order]
+    vec![
+        churn_rate,
+        data_per_subscription,
+        revenue_per_customer,
+        revenue_per_churned_subscription,
+    ]
 }
 
 impl SemanticCatalog for HandWrittenCatalog {
@@ -319,17 +626,25 @@ pub(crate) fn oracle_definitions() -> Definitions {
     without_descriptions(pinned.definitions())
 }
 
-/// June 2026, the range the fixture anchors use.
+/// June 2026, the range every anchor in this catalog is written for.
 ///
 /// Exposed because the two-source refusal test builds a question by hand rather than from a file.
 pub(crate) fn june_range() -> TimeRange {
     june()
 }
 
-/// The fixture catalog with `customers` moved to a second data system.
+/// The snapshot and its customers, with `customers` moved to a second data system.
 ///
 /// It exists to provoke one refusal: a plan whose join would reach a second data system is refused
 /// before anything runs, because a second data system is a second identity to satisfy.
+///
+/// **Two models and one metric rather than the whole catalog, and the reduction is deliberate.**
+/// Nothing here ever executes and nothing compares it against a document, so carrying eleven
+/// metrics would be eleven more literals to keep in step with a directory this type is not a
+/// statement of. What it does have to carry is the shape the refusal needs: a metric on the LOCAL
+/// model whose dimension is reached `via` a relationship whose target sits ELSEWHERE. The
+/// definitional filter the real `recurring_revenue` declares is left off for the same reason - it
+/// changes no plan that is refused before planning finishes.
 pub(crate) fn two_source_catalog() -> TwoSourceCatalog {
     TwoSourceCatalog
 }
@@ -345,45 +660,45 @@ impl SemanticCatalog for TwoSourceCatalog {
         reason = "every value here is a literal in this file, so a parse failure is a broken test \n                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \n                  not this one, which fires on position rather than on being test code"
     )]
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let orders = Model::new(
-            ModelName::parse("orders").expect("a name"),
+        let subscriptions = Model::new(
+            ModelName::parse("subscriptions").expect("a name"),
             source(),
-            TableName::parse("orders").expect("a name"),
+            TableName::parse("fct_subscription_monthly").expect("a name"),
             BTreeSet::from([
-                column("order_id"),
-                column("order_date"),
-                column("customer_id"),
-                column("amount_cents"),
+                column("month"),
+                column("subscription_key"),
+                column("customer_key"),
+                column("mrr_cents"),
             ]),
             String::new(),
         );
         let customers = Model::new(
             ModelName::parse("customers").expect("a name"),
             SourceName::parse("elsewhere").expect("a name"),
-            TableName::parse("customers").expect("a name"),
-            BTreeSet::from([column("id"), column("region_code")]),
+            TableName::parse("dim_customer").expect("a name"),
+            BTreeSet::from([column("customer_key"), column("region")]),
             String::new(),
         );
         let joins = vec![Relationship::new(
-            RelationshipName::parse("orders_customer").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            column("customer_id"),
+            RelationshipName::parse("subscription_customer").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            column("customer_key"),
             ModelName::parse("customers").expect("a name"),
-            column("id"),
+            column("customer_key"),
             JoinType::ManyToOne,
         )];
-        let revenue = Metric::new(
-            MetricName::parse("revenue").expect("a name"),
-            ModelName::parse("orders").expect("a name"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        let recurring_revenue = Metric::new(
+            MetricName::parse("recurring_revenue").expect("a name"),
+            ModelName::parse("subscriptions").expect("a name"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
             Vec::new(),
-            column("order_date"),
+            column("month"),
             BTreeSet::from([Grain::Month]),
-            BTreeMap::from([dimension("region", "region_code", Some("orders_customer"), None)]),
+            BTreeMap::from([dimension("region", "region", Some("subscription_customer"), None)]),
             None,
             String::new(),
         );
-        let definitions = Definitions::assemble(vec![orders, customers], joins, vec![revenue])
+        let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");
         Ok(PinnedDefinitions::pin(version(), definitions).expect("the definitions hash"))
     }

@@ -74,7 +74,7 @@ on:
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73"
+    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [

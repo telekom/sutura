@@ -25,10 +25,10 @@ this metric weights it six times. That is the right behaviour for the question i
 a row of this snapshot is typically worth - and the wrong behaviour for a question about
 subscriptions, which is why the metric that answers that one is a distinct count and not this.
 
-`avg` and nothing else, which is the second reason the document exists. It is the only use of
-that aggregate in this repository once the e-commerce fixtures under
-`crates/sutura-app/tests/fixtures` are retired in favour of this catalog, and an aggregate no
-document writes is a generator arm nothing renders and a plan nothing executes.
+`avg` and nothing else, which is the second reason the document exists. It is the only use of that
+aggregate in this repository - the golden suite used to carry an e-commerce catalog of its own, and
+this directory is what replaced it - and an aggregate no document writes is a generator arm nothing
+renders and a plan nothing executes.
 
 The status filter is part of the name, for the reason `recurring_revenue` gives at length: a
 terminated subscription is one the month lost, and averaging its last invoice into what an active

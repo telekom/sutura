@@ -130,7 +130,7 @@ subscriptions, every answer for it is narrowed that way and no argument you send
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73`
+- Definitions digest: `5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b`
 
 11 metrics, and they are the whole of what may be asked about.
 

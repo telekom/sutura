@@ -14,8 +14,8 @@ use crate::shared::{PROVOKED, question, settings};
 fn a_plan_that_would_reach_a_second_data_system_is_refused() {
     // Not reachable from a question file: it needs a catalog whose models sit on two data systems,
     // which `SourceUnavailable` and this variant are the only defences against. Built in code
-    // rather than as a fixture, because a fixture catalog with a second source would make every
-    // other test in the suite span two - which is also why it is not a registry entry.
+    // rather than as a directory of documents, because a corpus with a second source would make
+    // every other test in the suite span two - which is also why it is not a registry entry.
     //
     // The refusal exists because a second data system is a second identity to satisfy, and a plan
     // that runs partly as somebody else is the failure the whole design is arranged against.
@@ -25,7 +25,7 @@ fn a_plan_that_would_reach_a_second_data_system_is_refused() {
         .load()
         .expect("a two-source catalog can be built");
     let asked = Query::new(
-        sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+        sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
         sutura_domain::model::Grain::Month,
         crate::support::june_range(),
         vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
@@ -48,7 +48,7 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     let elsewhere = crate::support::RecordingWarehouse::pretending_to_be("somewhere_else");
     let outcome =
-        sutura_app::answer(&validated, &question("revenue-total-june.yaml"), &elsewhere).expect("a refusal is not an error");
+        sutura_app::answer(&validated, &question("recurring-revenue-june.yaml"), &elsewhere).expect("a refusal is not an error");
     assert!(
         matches!(outcome.refusal(), Some(&RefusalReason::SourceUnavailable { .. })),
         "expected a source refusal, got {outcome:?}"
@@ -93,16 +93,16 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     //
     // Not in `PROVOKED` and it cannot be: that table is refusals a QUESTION FILE provokes, decided
     // before anything runs, and `a_refused_question_never_reaches_the_data_system` asserts exactly
-    // that about every entry. This refusal is decided after a data system has answered. The fixture
-    // CSVs hold twelve orders, so nothing authorable here reaches ten thousand groups either - the
-    // honest instrument is a fake that decides its own row count.
+    // that about every entry. This refusal is decided after a data system has answered. The corpus
+    // CSVs hold a few hundred subscription-months, so nothing authorable here reaches ten thousand
+    // groups either - the honest instrument is a fake that decides its own row count.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     let cap = usize::try_from(MAX_ROWS).expect("the row cap fits a usize on every target this builds for");
 
     // One row past the cap. That row exists only because the plan asked for it: see below.
     let too_wide = crate::support::WideResult::of(cap.saturating_add(1));
-    let outcome =
-        sutura_app::answer(&validated, &question("revenue-by-region.yaml"), &too_wide).expect("a refusal is not an error");
+    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &too_wide)
+        .expect("a refusal is not an error");
     assert_eq!(
         outcome.refusal(),
         Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
@@ -122,8 +122,8 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     // And exactly the cap still answers, so this is not a test that would pass with every wide
     // question refused.
     let at_the_cap = crate::support::WideResult::of(cap);
-    let outcome =
-        sutura_app::answer(&validated, &question("revenue-by-region.yaml"), &at_the_cap).expect("a refusal is not an error");
+    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &at_the_cap)
+        .expect("a refusal is not an error");
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
         panic!("a result of exactly the cap is answerable, not {outcome:?}");
     };
@@ -142,13 +142,19 @@ fn a_corrupted_anchor_makes_the_bundle_unservable_rather_than_answering() {
     // `Validated::new`. Here the expected half comes from the catalog and only the actual half is
     // this test's - which is also why the instrument is a fake rather than a registered adapter: no
     // real one can be asked to misreport a number.
+    // Whichever metric sorts first among the anchored ones, so this test does not name a metric and
+    // does not go stale when the catalog gains one. The drift value has to be wrong for whatever
+    // that turns out to be, which is why it is negative rather than a plausible-looking figure:
+    // every anchored metric in this catalog is a count, a sum of minor units or a share of a month,
+    // and none of the three can be less than zero. A number that merely differed would test the same
+    // comparison; one that could not be that metric's answer says so to whoever reads the snapshot.
     let pinned = crate::adapters::load::<crate::adapters::ReferenceCatalog>();
     let (first, _) = pinned
         .anchored_metrics()
         .next()
-        .expect("the fixture catalog declares at least one anchor");
+        .expect("the example catalog declares at least one anchor");
     let drifted = first.clone();
-    let stopped_computing_it = crate::support::CertifiedNumbers::of(&pinned).misreporting(&drifted, "470022");
+    let stopped_computing_it = crate::support::CertifiedNumbers::of(&pinned).misreporting(&drifted, "-1");
     let err = sutura_app::verify_and_validate(pinned, &stopped_computing_it)
         .expect_err("a bundle with a mismatched anchor must not be servable");
     settings("").bind(|| insta::assert_snapshot!("anchor_mismatch", err.to_string()));
@@ -169,7 +175,7 @@ fn the_longest_permitted_range_is_answered_and_one_day_more_is_refused() {
     let ask = |start: &str, end: &str| {
         let day = |raw: &str| sutura_domain::calendar::Date::parse(raw).expect("a test date is a date");
         Query::new(
-            sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+            sutura_domain::model::MetricName::parse("recurring_revenue").expect("a name"),
             sutura_domain::model::Grain::Month,
             sutura_domain::calendar::TimeRange::new(day(start), day(end)).expect("a test range is a range"),
             Vec::new(),
@@ -208,7 +214,7 @@ fn a_question_carrying_sql_is_an_error_and_not_a_dropped_field() {
     //
     // Without `deny_unknown_fields`, `sql:` deserializes cleanly and is discarded, so a caller who
     // believes they sent SQL gets a confident answer to a different question.
-    let with_sql = "metric: revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\nsql: SELECT 1\n";
+    let with_sql = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n  end: 2026-07-01\nsql: SELECT 1\n";
     let err = serde_norway::from_str::<Query>(with_sql).expect_err("sql is not a field of a question");
     assert!(err.to_string().contains("sql"), "{err}");
 }
@@ -223,6 +229,6 @@ fn a_range_with_no_end_is_not_a_range() {
     // ABSENT bound. A range with both bounds present and ten thousand years between them
     // deserializes cleanly, and what refuses that is `TimeRangeTooLong` - a refusal, not a parse
     // error, provoked by `refused-range-too-long.yaml` and pinned to the day above.
-    let unbounded = "metric: revenue\ngrain: month\nrange:\n  start: 2026-06-01\n";
+    let unbounded = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n";
     drop(serde_norway::from_str::<Query>(unbounded).expect_err("a range without an end is not a range"));
 }

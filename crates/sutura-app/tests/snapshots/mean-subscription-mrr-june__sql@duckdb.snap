@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", AVG("fct_subscription_monthly"."mrr_cents") AS "mean_subscription_mrr" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) LIMIT 10001

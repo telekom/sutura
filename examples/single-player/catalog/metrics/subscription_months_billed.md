@@ -49,8 +49,8 @@ predicate, drawn here with an aggregate instead: two documents, one differing wo
 over the same month. If a later edit swapped this one to `count_distinct` the two definitions
 would silently become the same definition, and there would be nothing but the name to say so.
 
-**It is also the only plain `count` in this repository** once the e-commerce fixtures under
-`crates/sutura-app/tests/fixtures` are retired in favour of this catalog. Everything else counting
+**It is also the only plain `count` in this repository**, now that the e-commerce catalog the golden
+suite used to carry has been retired in favour of this one. Everything else counting
 things here counts them distinctly, or counts a condition; a `count` that no document writes is a
 generator arm nothing renders. `subscriptions_churned` says the other half of that: a count of a
 BOOLEAN column counts the false rows too, so `count` is right over a key and wrong over a flag,

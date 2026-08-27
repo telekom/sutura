@@ -9,7 +9,7 @@
 //! Registering an adapter is two things and neither of them is a test:
 //!
 //! 1. an `impl` of [`CatalogUnderTest`] or [`DataSystemUnderTest`] - what it is called, and how to
-//!    open it over the fixtures;
+//!    open it over the example corpus;
 //! 2. one line in [`registered`].
 //!
 //! In `tests/adapters/mod.rs` rather than `tests/adapters.rs` so cargo does not build it as a test
@@ -49,29 +49,48 @@ use sutura_domain::warehouse::Warehouse;
 ///
 /// Fixed, not derived from the working tree. A version that moved between runs would put a new value
 /// in every snapshot that carries provenance, and then no snapshot would mean anything.
+///
+/// **Deliberately not the string `crates/sutura-cli/tests/example.rs` stamps over the same
+/// directory.** The two suites read the same bytes and pin different things, so one shared constant
+/// would couple two snapshot sets that have no reason to move together. Keeping them apart costs
+/// nothing: the digest is taken over the parsed definitions and does not include the version, so both
+/// suites still pin the same digest for the same catalog, which is the number that would matter if
+/// they ever disagreed about it.
 const VERSION: &str = "golden-fixture-1";
 
-/// The one data system the fixture catalog reads from.
+/// The one data system every model in the example catalog declares.
 const SOURCE: &str = "local";
 
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
+/// The corpus: the catalog documents, the CSVs and the questions this suite reads.
+///
+/// **One directory, two purposes, and no second copy of either.** `examples/single-player` is what a
+/// reader is told to run, and it is also the corpus this suite expands over every registered adapter -
+/// the same bytes in both roles. A quickstart that stopped working therefore fails this build rather
+/// than failing the next person who tried it, and a catalog kept only for the tests cannot drift from
+/// the one the README shows, because there is no second one to drift.
+///
+/// It reaches OUTSIDE this crate, which is the one thing worth flagging to whoever reads the paths
+/// below. The source filter in `flake.nix` names `crates/*/tests` and `examples/` separately and a nix
+/// build sees only what it keeps, so this suite now depends on BOTH clauses: dropping either one makes
+/// it compile and find nothing, which is green over an empty corpus and only in CI.
+fn example_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
 }
 
 fn catalog_root() -> PathBuf {
-    fixtures().join("catalog")
+    example_root().join("catalog")
 }
 
 fn data_root() -> PathBuf {
-    fixtures().join("data")
+    example_root().join("data")
 }
 
 pub(crate) fn source() -> sutura_domain::model::SourceName {
-    sutura_domain::model::SourceName::parse(SOURCE).expect("the fixture source name is a name")
+    sutura_domain::model::SourceName::parse(SOURCE).expect("the example source name is a name")
 }
 
 pub(crate) fn version() -> DefinitionVersion {
-    DefinitionVersion::parse(VERSION).expect("the fixture version is a version")
+    DefinitionVersion::parse(VERSION).expect("the pinned version is a version")
 }
 
 /// Every question in the corpus, in sorted order.
@@ -80,7 +99,7 @@ pub(crate) fn version() -> DefinitionVersion {
 /// order changes between runs produces snapshot churn that has nothing to do with the change under
 /// review.
 pub(crate) fn questions() -> Vec<PathBuf> {
-    let dir = fixtures().join("questions");
+    let dir = example_root().join("questions");
     let mut found: Vec<PathBuf> = std::fs::read_dir(&dir)
         .expect("the questions directory is there")
         .map(|entry| entry.expect("a directory entry is readable").path())
@@ -114,7 +133,7 @@ pub(crate) trait CatalogUnderTest: SemanticCatalog + Sized {
     /// The name this adapter's tests and snapshots carry.
     const NAME: &'static str;
 
-    /// Builds it over the fixture catalog.
+    /// Builds it over the example catalog.
     fn open() -> Self;
 }
 
@@ -126,12 +145,12 @@ impl CatalogUnderTest for sutura_catalog_local::LocalCatalog {
     }
 }
 
-/// A `Warehouse` adapter this suite executes the fixture corpus against.
+/// A `Warehouse` adapter this suite executes the example corpus against.
 ///
 /// [`open`] takes the bundle because attaching a table per model is what makes a data system able to
 /// answer anything, and only the bundle knows which tables there are. It is on the trait rather than
 /// in each test for the reason the trait exists at all: two copies of "open a data system over the
-/// fixture CSVs" is two things to keep in step, and they did not stay in step.
+/// example CSVs" is two things to keep in step, and they did not stay in step.
 ///
 /// [`open`]: DataSystemUnderTest::open
 pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
@@ -203,7 +222,7 @@ where
 {
     C::open()
         .load()
-        .unwrap_or_else(|e| panic!("the fixture catalog does not load through the {} adapter: {e}", C::NAME))
+        .unwrap_or_else(|e| panic!("the example catalog does not load through the {} adapter: {e}", C::NAME))
 }
 
 /// A registered data system, opened over the bundle it is about to be asked about.

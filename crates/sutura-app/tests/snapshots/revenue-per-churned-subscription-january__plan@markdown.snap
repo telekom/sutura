@@ -1,0 +1,64 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: revenue_per_churned_subscription
+table: fct_subscription_monthly
+joins: []
+bucket:
+  label: period
+  grain: month
+  column:
+    table: fct_subscription_monthly
+    column: month
+keys: []
+measure:
+  ratio:
+    numerator:
+      aggregate:
+        aggregate: sum
+        column:
+          table: fct_subscription_monthly
+          column: mrr_cents
+    denominator:
+      count_if:
+        column:
+          table: fct_subscription_monthly
+          column: churned_in_month
+    zero_denominator: fails
+measure_label: revenue_per_churned_subscription
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 1
+params:
+  - Date:
+      year: 2026
+      month: 1
+      day: 1
+  - Date:
+      year: 2026
+      month: 2
+      day: 1
+range:
+  start:
+    year: 2026
+    month: 1
+    day: 1
+  end:
+    year: 2026
+    month: 2
+    day: 1
+max_rows: 10000

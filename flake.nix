@@ -79,19 +79,30 @@
           # "failed to read vendor/mimalloc_rust/Cargo.toml".
           #
           # Keep `crates/*/tests/**` WHOLESALE, and this one is the trap. crane keeps Cargo
-          # inputs, which means `.rs`, `Cargo.toml` and `Cargo.lock` - so the golden suite's
-          # fixtures (markdown catalog documents, CSV data, question files) and its committed
-          # `.snap` snapshots are all dropped. The suite then COMPILES and finds no fixtures,
-          # which is a green check over nothing. `just test` in the dev shell reads the real
-          # tree and would not notice, so `just ci` is the only thing that catches it.
+          # inputs, which means `.rs`, `Cargo.toml` and `Cargo.lock` - so the golden suites'
+          # committed `.snap` snapshots are dropped. insta reads those at RUN TIME, and
+          # `checks.nextest` sets `INSTA_UPDATE = "no"` precisely so a missing snapshot FAILS
+          # rather than being written and passed - so the symptom is every snapshot in the suite
+          # reported absent at once, which reads as a catastrophe and is one deleted clause.
+          # `just test` in the dev shell reads the real tree and would not notice, so `just ci`
+          # is the only thing that catches it.
+          #
+          # **The corpus moved out from under this clause and the clause still carries the
+          # snapshots.** The golden suite used to hold its own e-commerce catalog under
+          # `crates/sutura-app/tests/fixtures`; it now reads `examples/single-player`, the same
+          # directory the CLI example test reads. So the `examples/` clause below is load-bearing
+          # for TWO test targets rather than one, and this clause is load-bearing for the
+          # snapshots of both. Deleting either because "the fixtures moved" is exactly the
+          # CI-only failure this block exists to warn about.
           #
           # THE RULE, because this filter has now bitten three times and each clause below is one
           # of them: **any directory a build or a test READS has to be named here.** crane keeps
           # Cargo inputs only, so everything else is absent from the sandbox while being present
           # in the dev shell - which makes this the one bug class local gates cannot see. The
-          # three: the golden fixtures under `crates/*/tests`, `defaults.yaml` under
-          # `crates/*/src`, and `examples/` read by `sutura-cli`'s example test. Adding a data
-          # directory means adding a clause, and `just validate` is what proves it.
+          # three: the golden suites' snapshots under `crates/*/tests`, `defaults.yaml` under
+          # `crates/*/src`, and `examples/` - the corpus BOTH `sutura-cli`'s example test and
+          # `sutura-app`'s golden suite read. Adding a data directory means adding a clause, and
+          # `just validate` is what proves it.
           #
           # Keep non-Rust files under `crates/*/src/**` for the same reason, one layer in, and
           # this one bit for real: `sutura-config` holds its defaults as `defaults.yaml` beside
@@ -666,7 +677,8 @@
             # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
             # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
             # BY DESIGN - `nix/crap.nix` against `docs/crap.md`, `devco/max-lines-ignore`, the
-            # workflows. The golden suites read fixtures and `examples/`. Every one of those is
+            # workflows. Both golden suites read the one corpus under `examples/` and their own
+            # committed snapshots under `crates/*/tests`. Every one of those is
             # invisible under crane's filter, so each new one was a green local run and a red
             # CI step: three found that way already, and the fourth was found here.
             #

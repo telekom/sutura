@@ -11,7 +11,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73
+-- definitions local-working-tree 5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
 period  recurring_revenue
 2026-01-01      237320
 2026-02-01      232822
@@ -309,7 +309,7 @@ content-length: 347
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73"
+    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -567,22 +567,32 @@ terminations at all, which is the month `revenue_per_churned_subscription` has n
 
 ## As a test
 
-The same directory is an integration test, and there is no second copy of it:
+**The same directory is the corpus of every test that reads a catalog, and there is no second copy
+of it anywhere.** That is a recent thing worth stating plainly: the golden suite under
+`crates/sutura-app/tests` used to carry a second, e-commerce catalog of its own, so the documented
+example and the certified one were two directories that agreed only as long as somebody kept them
+agreeing. There is now one, and this is it.
 
 ```bash
-cargo test -p sutura-cli --test example
+cargo test -p sutura-cli --test example   # the narrow claim: the quickstart still answers
+cargo test -p sutura-app                  # the wide one: every adapter, every dialect
 ```
 
-It loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and
+The first loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and
 snapshots the generated SQL and whatever came back - rows, a refusal reason, or the error chain
-of the one question that fails. That is what stops the commands above from rotting: an edit that
-changes what this example does shows up as a snapshot diff to review rather than as a README that
-used to be true.
+of the one question that fails. It runs on the one pair the shipped binary composes: the local
+catalog adapter and the engine.
 
-Two of its assertions are not snapshots and are the reason a case cannot quietly leave. The
-`refused-` prefix is read as a convention in both directions, so a refusal fixture that started
-answering and a plain question that started being refused are each a failure rather than a passing
-corpus. And the measure vocabulary is asserted as four exact sets - shapes, terms, the terms a
+The second expands this same corpus over a matrix - every registered catalog adapter, every dialect
+the compiler renders for, every registered data system - and compares the parsed definitions
+against a statement of them written out by hand in Rust, so two readers of these documents cannot
+agree by sharing a bug. Between them: an edit that changes what this example does shows up as a
+snapshot diff to review rather than as a README that used to be true.
+
+Two of the first test's assertions are not snapshots and are the reason a case cannot quietly
+leave. The `refused-` prefix is read as a convention in both directions, so a refusal question that
+started answering and a plain question that started being refused are each a failure rather than a
+passing corpus. And the measure vocabulary is asserted as four exact sets - shapes, terms, the terms a
 ratio holds, and the aggregates - so this section's table cannot claim coverage the catalog has
 stopped carrying.
 
