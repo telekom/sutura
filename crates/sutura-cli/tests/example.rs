@@ -139,6 +139,24 @@ mod tests {
             .map_or_else(|| String::from("unnamed"), |s| s.to_string_lossy().into_owned())
     }
 
+    /// An error and every cause beneath it, outermost first, as one block.
+    ///
+    /// Snapshotted rather than asserted with `contains`, for the reason the `query` command walks
+    /// the chain at all: `Display` on a `thiserror` enum prints the outermost message and stops,
+    /// and the outermost message for the case this reaches is "the data system did not answer",
+    /// which names nothing. What a reader needs is the column and which of the three non-finite
+    /// values it was, and both of those live one and two levels down.
+    fn chain(error: &dyn core::error::Error) -> String {
+        let mut out = error.to_string();
+        let mut cursor = error.source();
+        while let Some(cause) = cursor {
+            out.push_str("\n  caused by: ");
+            out.push_str(&cause.to_string());
+            cursor = cause.source();
+        }
+        out
+    }
+
     /// A statement and the values bound to it, as `sutura compile` prints them.
     ///
     /// One snapshot rather than two. The parameters are here rather than in a file of their own
@@ -211,12 +229,20 @@ mod tests {
         let mut shapes: BTreeSet<&str> = BTreeSet::new();
         let mut terms: BTreeSet<&str> = BTreeSet::new();
         let mut ratio_terms: BTreeSet<&str> = BTreeSet::new();
+        let mut aggregates: BTreeSet<&str> = BTreeSet::new();
+        let mut zero_denominators: BTreeSet<&str> = BTreeSet::new();
         let mut with_required_filter = 0_usize;
         for metric in pinned.definitions().metrics().values() {
             let measure = metric.measure();
             shapes.insert(measure.shape());
+            if let sutura_domain::measure::Measure::Ratio { zero_denominator, .. } = *measure {
+                zero_denominators.insert(zero_denominator.as_str());
+            }
             for term in measure.terms() {
                 terms.insert(term.kind());
+                if let sutura_domain::measure::Term::Aggregate(ref aggregated) = *term {
+                    aggregates.insert(aggregated.aggregate().as_str());
+                }
                 if measure.shape() == "ratio" {
                     ratio_terms.insert(term.kind());
                 }
@@ -243,6 +269,32 @@ mod tests {
             ratio_terms,
             BTreeSet::from(["aggregate", "count_if"]),
             "no ratio in the example holds a conditional count, which is the metric the vocabulary was changed for"
+        );
+        // The third axis, and the one this test used to leave open. A shape and a term say how a
+        // measure is assembled; the AGGREGATE is what it computes, and each one is a separate arm in
+        // each generator. `avg` and a plain `count` are the two that reach nothing else here: every
+        // other count in the catalog is distinct or conditional, and every other mean is a ratio. So
+        // a refactor that dropped `mean_subscription_mrr` or rewrote `subscription_months_billed` to
+        // `count_distinct` would leave two generator arms rendered by no document in this repository,
+        // with the shape and term assertions above still green.
+        //
+        // `min` and `max` are deliberately absent from the expectation rather than missing from it. A
+        // metric here would have to mean something - a smallest monthly bill is a real figure and a
+        // definition nobody asked for - and the set is written as an equality so adding one is a
+        // decision that shows up in this diff.
+        assert_eq!(
+            aggregates,
+            BTreeSet::from(["avg", "count", "count_distinct", "sum"]),
+            "the example no longer writes every aggregate it is supposed to demonstrate"
+        );
+        // And the other closed set a ratio carries. Both words have to be reachable or the enum is
+        // half-covered: `yields_null` guards the division, `fails` emits it unguarded and is caught
+        // where the value crosses back into the domain, and the second one answered the string `inf`
+        // under a certified metric name for exactly as long as no document chose it.
+        assert_eq!(
+            zero_denominators,
+            BTreeSet::from(["fails", "yields_null"]),
+            "the example no longer declares both meanings of a zero denominator"
         );
         assert!(
             with_required_filter > 0,
@@ -363,7 +415,7 @@ mod tests {
     }
 
     #[test]
-    fn every_question_in_the_example_answers_or_is_refused_and_the_rows_are_pinned() {
+    fn every_question_in_the_example_answers_is_refused_or_fails_and_the_rows_are_pinned() {
         // The bug this prevents: a change that compiles to the same statement and returns different
         // rows. Nothing upstream of the data system can catch that, which is why the rows are
         // pinned here and not only the SQL - a CSV edited in the same commit is exactly the change
@@ -371,27 +423,55 @@ mod tests {
         //
         // The refusals are asserted rather than snapshotted: the compile test already pins the
         // reason, and what matters at this end is that the question did not reach the data system.
+        //
+        // THREE outcomes, not two, and the third is not an escape hatch for a flaky corpus. A
+        // question may be one the data system answered and the adapter will not carry:
+        // `revenue_per_churned_subscription` declares `zero_denominator: fails`, so over a month
+        // with no terminations the division is emitted unguarded, IEEE float division answers `inf`
+        // rather than raising, and `Value::Real` refuses to hold it. That is the whole point of the
+        // word, so the corpus has to be able to express it - and the failure is pinned as its error
+        // chain, which is what would go red if the guard were removed and the string `inf` came back
+        // under a certified metric name instead.
         let pinned = load();
         let warehouse = engine(&pinned);
         let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
+        let mut failures = 0_usize;
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let outcome = sutura_app::answer(&validated, &question, &warehouse).unwrap_or_else(|e| panic!("{name} failed: {e}"));
+            let answered = sutura_app::answer(&validated, &question, &warehouse);
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
-            settings().bind(|| match outcome {
-                sutura_domain::query::ToolOutcome::Refusal { ref reason } => {
+            settings().bind(|| match answered {
+                Ok(sutura_domain::query::ToolOutcome::Refusal { ref reason }) => {
                     assert!(
                         expected_refusal,
                         "{name} was refused as {reason:?}, and is not named as a refusal"
                     );
                 }
-                sutura_domain::query::ToolOutcome::Answer { ref rows, .. } => {
+                Ok(sutura_domain::query::ToolOutcome::Answer { ref rows, .. }) => {
                     assert!(!expected_refusal, "{name} is named as a refusal and was answered");
                     insta::assert_yaml_snapshot!(format!("{name}__rows"), stable(rows));
                 }
+                Err(ref error) => {
+                    // A refusal is decided before anything runs, so a `refused-` question that
+                    // reached the data system at all is a hole in the governance rather than a
+                    // failing fixture, whatever the error says.
+                    assert!(
+                        !expected_refusal,
+                        "{name} is named as a refusal and instead reached the data system: {}",
+                        chain(error)
+                    );
+                    failures += 1;
+                    insta::assert_snapshot!(format!("{name}__error"), chain(error));
+                }
             });
         }
+        // Or the arm above is decoration. `fails` was a wish for as long as nothing executed it.
+        assert!(
+            failures > 0,
+            "no question in the example fails, so `zero_denominator: fails` is once again a word \
+             nothing in this corpus reaches"
+        );
     }
 
     // ------------------------------------------------------------------- the agent prompt ---

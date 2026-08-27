@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - annual
+  - 2026-06-01
+  - "14914"

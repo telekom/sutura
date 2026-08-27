@@ -130,9 +130,9 @@ subscriptions, every answer for it is narrowed that way and no argument you send
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `befdaa16966b6fce5d7a306fa23aab97611ae3b4c9ec3c29149142e6fcb0c9a5`
+- Definitions digest: `0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73`
 
-8 metrics, and they are the whole of what may be asked about.
+11 metrics, and they are the whole of what may be asked about.
 
 The descriptions the catalog authors wrote are NOT included in this document, by this deployment's
 configuration. They exist. If you need to know what a metric means beyond its name, ask a person, or
@@ -160,14 +160,25 @@ not infer a meaning from the name alone and present it as the definition.
 - Grains: month, day
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
 
+### mean_subscription_mrr
+
+- Grains: month
+- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
 ### recurring_revenue
 
 - Grains: month
 - Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `product_name` - group by only - no set of values is declared, so it cannot be filtered
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
+
+### revenue_per_churned_subscription
+
+- Grains: month
+- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
 
 ### revenue_per_customer
 
@@ -179,6 +190,15 @@ not infer a meaning from the name alone and present it as the definition.
 
 - Grains: month
 - Dimensions:
+  - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
+  - `region` - group by or filter. Values: central, east, north, south, west
+  - `segment` - group by or filter. Values: business, consumer, wholesale
+
+### subscription_months_billed
+
+- Grains: month
+- Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale

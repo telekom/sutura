@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+DimensionNotPermitted:
+  metric: revenue_per_customer
+  dimension: region

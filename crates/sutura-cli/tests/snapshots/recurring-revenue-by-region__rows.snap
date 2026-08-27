@@ -2,15 +2,21 @@
 source: crates/sutura-cli/tests/example.rs
 expression: stable(rows)
 ---
-- - business
+- - central
   - 2026-06-01
-  - "66630"
-- - consumer
+  - "51739"
+- - east
   - 2026-06-01
-  - "123119"
-- - wholesale
+  - "32598"
+- - north
   - 2026-06-01
-  - "7373"
+  - "42157"
+- - south
+  - 2026-06-01
+  - "21203"
+- - west
+  - 2026-06-01
+  - "49425"
 - - "null"
   - 2026-06-01
   - "4999"

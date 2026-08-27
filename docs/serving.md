@@ -74,12 +74,12 @@ on:
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "befdaa16966b6fce5d7a306fa23aab97611ae3b4c9ec3c29149142e6fcb0c9a5"
+    "definition_digest": "0be421868ca979d8a7cc4b9d5212c4c021feb7899b5e9601ad1a7143cb2bec73"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
     ["2026-01-01", "237320"], ["2026-02-01", "232822"], ["2026-03-01", "216700"],
-    ["2026-04-01", "206160"], ["2026-05-01", "202994"], ["2026-06-01", "197122"]
+    ["2026-04-01", "206160"], ["2026-05-01", "202994"], ["2026-06-01", "202121"]
   ]
 }
 ```

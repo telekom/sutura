@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rendered(&query)
+---
+SELECT CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", SUM("fct_subscription_monthly"."mrr_cents") AS "recurring_revenue" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) LIMIT 10001
+-- $1 = 2026-06-01
+-- $2 = 2026-07-01
+-- $3 = "active"

@@ -28,7 +28,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: 58
+  value: 59
 ---
 How many subscriptions were active at the end of the month.
 
