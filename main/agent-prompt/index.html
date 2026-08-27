@@ -6,29 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="The system prompt sutura generates for an agent, what each section is derived from, and what an operator can layer on top.">
       
       
       
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/agent-prompt/">
       
+      
+        <link rel="prev" href="../qa/">
+      
+      
+        <link rel="next" href="../contributing/">
       
       
         
       
       
-      <link rel="icon" href="/sutura/main/assets/favicon.svg">
+      <link rel="icon" href="../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura</title>
+        <title>The agent prompt - sutura</title>
       
     
     
-      <link rel="stylesheet" href="/sutura/main/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/sutura/main/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/sutura/main/css/telekom.css">
+      <link rel="stylesheet" href="../css/telekom.css">
     
-    <script>__md_scope=new URL("/sutura/main",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -67,6 +73,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#the-agent-prompt" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -83,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/sutura/main/." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -102,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              The agent prompt
             
           </span>
         </div>
@@ -230,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/sutura/main/." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href=".." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -259,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/." class="md-nav__link">
+      <a href=".." class="md-nav__link">
         
   
   
@@ -283,8 +294,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -305,11 +318,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -330,7 +343,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -348,7 +361,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/concepts/" class="md-nav__link">
+      <a href="../concepts/" class="md-nav__link">
         
   
   
@@ -376,7 +389,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/getting-started/" class="md-nav__link">
+      <a href="../getting-started/" class="md-nav__link">
         
   
   
@@ -404,7 +417,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/qa/" class="md-nav__link">
+      <a href="../qa/" class="md-nav__link">
         
   
   
@@ -429,10 +442,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/sutura/main/agent-prompt/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -448,6 +488,81 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-each-section-comes-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where each section comes from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-deliberately-does-not-say" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it deliberately does not say
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalog-prose-is-untrusted-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog prose is untrusted content
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-consumer-that-exists-and-the-one-that-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The consumer that exists, and the one that does not
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -529,7 +644,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/contributing/" class="md-nav__link">
+      <a href="../contributing/" class="md-nav__link">
         
   
   
@@ -557,7 +672,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/crap/" class="md-nav__link">
+      <a href="../crap/" class="md-nav__link">
         
   
   
@@ -585,7 +700,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/enterprise-mirrors/" class="md-nav__link">
+      <a href="../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -613,7 +728,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/publishing/" class="md-nav__link">
+      <a href="../publishing/" class="md-nav__link">
         
   
   
@@ -710,7 +825,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/architecture/" class="md-nav__link">
+      <a href="../architecture/" class="md-nav__link">
         
   
   
@@ -738,7 +853,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/serving/" class="md-nav__link">
+      <a href="../serving/" class="md-nav__link">
         
   
   
@@ -823,7 +938,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0001-first-party-semantic-models/" class="md-nav__link">
+      <a href="../adr/0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -851,7 +966,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -879,7 +994,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+      <a href="../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
         
   
   
@@ -955,7 +1070,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="/sutura/main/api/" class="md-nav__link ">
+            <a href="../api/" class="md-nav__link ">
               
   
   
@@ -999,7 +1114,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-domain/" class="md-nav__link">
+      <a href="../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1027,7 +1142,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1055,7 +1170,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-semantic/" class="md-nav__link">
+      <a href="../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1083,7 +1198,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-sql/" class="md-nav__link">
+      <a href="../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1111,7 +1226,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1139,7 +1254,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1167,7 +1282,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-app/" class="md-nav__link">
+      <a href="../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1195,7 +1310,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-config/" class="md-nav__link">
+      <a href="../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1223,7 +1338,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-runtime/" class="md-nav__link">
+      <a href="../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1251,7 +1366,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-http/" class="md-nav__link">
+      <a href="../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -1294,7 +1409,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/changelog/" class="md-nav__link">
+      <a href="../changelog/" class="md-nav__link">
         
   
   
@@ -1331,6 +1446,71 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-each-section-comes-from" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where each section comes from
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-it-deliberately-does-not-say" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it deliberately does not say
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Configuration
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#catalog-prose-is-untrusted-content" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Catalog prose is untrusted content
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-consumer-that-exists-and-the-one-that-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The consumer that exists, and the one that does not
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1343,8 +1523,201 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="the-agent-prompt">The agent prompt<a class="headerlink" href="#the-agent-prompt" title="Permanent link">&para;</a></h1>
+<p>An agent that has not been told what this surface is will treat it as a database. It looks for a
+field to put SQL in, finds none, sends a metric name it remembers from somewhere else, gets a
+refusal, reads the refusal as a transport failure, and retries. Every step there is a reasonable
+thing for a general-purpose agent to do, and every one of them is the behaviour the types in
+<a href="../concepts/">Concepts</a> are arranged to prevent. The types stop the <em>damage</em>. They cannot stop the
+loop.</p>
+<p><code>sutura prompt</code> renders the document that can.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sutura<span class="w"> </span>prompt<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>&gt;<span class="w"> </span>agent-prompt.md
+</span></code></pre></div>
+<p>The output is markdown, on standard output, meant to be pasted or piped into an agent's system
+prompt. Nothing about it is hand-written: every section is derived from the tool surface, from the
+pinned bundle, or from a file an operator named.</p>
+<h2 id="where-each-section-comes-from">Where each section comes from<a class="headerlink" href="#where-each-section-comes-from" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Derived from</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>What this is</td>
+<td>Fixed text. Two facts: the set of answerable questions is finite and listed, and a question outside it is declined rather than approximated</td>
+</tr>
+<tr>
+<td>What to do for every question</td>
+<td><strong>The tool list.</strong> The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not</td>
+</tr>
+<tr>
+<td>A refusal is an answer, not an error</td>
+<td>Every <code>RefusalReason</code> variant, with what it means and what to change. The most load-bearing section in the document</td>
+</tr>
+<tr>
+<td>The bounds a question is held to</td>
+<td><code>MAX_DIMENSIONS</code>, <code>MAX_RANGE_DAYS</code> and <code>MAX_ROWS</code>, read from the code rather than typed</td>
+</tr>
+<tr>
+<td>What this surface has no field for</td>
+<td>Fixed text, and deliberately short - see below</td>
+</tr>
+<tr>
+<td>The operations you have</td>
+<td><strong>The tool list</strong>, rendered from the same slice the workflow was composed from</td>
+</tr>
+<tr>
+<td>The metrics this deployment defines</td>
+<td><strong>The pinned bundle.</strong> Name, grains, dimensions, permitted values, and the catalog author's own prose</td>
+</tr>
+<tr>
+<td>Provenance</td>
+<td>Fixed text: quote the version and digest with every number</td>
+</tr>
+<tr>
+<td>Instructions from this deployment's operator</td>
+<td><code>prompt.instructions_file</code>, when one is configured. Omitted entirely when none is</td>
+</tr>
+</tbody>
+</table>
+<p>Two of those are derived from a list rather than written down, and that is the point. A prompt that
+names an operation a deployment does not mount costs the agent the turns it spends discovering the
+absence; a prompt that lists a metric the bundle does not define costs it a refusal. Neither can
+happen here, because there is nowhere for either to come from.</p>
+<p>The refusal section has a mechanism of its own. The mapping from a <code>RefusalReason</code> variant to its
+guidance is a total match in <code>sutura-app</code>'s test module, so <strong>a refusal variant added to the domain
+does not compile until somebody has written what an agent should do about it.</strong> What that does not
+force is the list of instances the assertion walks, so the set equality it checks is a second net
+rather than the first.</p>
+<h2 id="what-it-deliberately-does-not-say">What it deliberately does not say<a class="headerlink" href="#what-it-deliberately-does-not-say" title="Permanent link">&para;</a></h2>
+<p><strong>Nothing about composing SQL.</strong> The reference implementation this design is modelled on spends most
+of its length teaching an agent to write SQL against semantic model names, to avoid raw database
+tables, and to dry-plan a complex statement before running it. None of that transfers. A question
+here names a metric, a grain, a bounded period, up to four dimensions and equality filters over
+declared values, and there is no field for anything else - so the guidance would teach an agent to
+attempt something the surface refuses by construction. What replaces it is one short section saying
+the field does not exist and that there is no way to widen it. A long section about what is absent
+would hand an agent a long list of things to try.</p>
+<p><strong>No column, table, model or measure expression.</strong> The prompt renders exactly what
+<code>GET /v1/catalog</code> renders and not one field more. A caller needs a metric's name, prose, grains,
+dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
+column name in an agent's context is a name it will eventually try to use. This is asserted rather
+than intended: a test renders a bundle whose model, table and column names appear in no prose and
+checks that none of them reaches the output.</p>
+<p><strong>Nothing about identity.</strong> There is none. The bearer token authenticates the <em>deployment</em>, not the
+caller - see <a href="../serving/">Serving over HTTP</a> - and a prompt that described per-caller scoping would
+describe a control that does not exist.</p>
+<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
+<p>Two keys, in the same layered tree as everything else: embedded defaults, then <code>base.yaml</code>, then
+<code>&lt;environment&gt;.yaml</code>, then one environment variable per key.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>What it does</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>prompt.catalog_prose</code></td>
+<td><code>quoted</code></td>
+<td><code>quoted</code> includes each metric's own prose, with <code>&gt;</code> at the start of every line and the trust boundary named above the block. <code>omitted</code> leaves it out, and the document then says the descriptions exist and were not included</td>
+</tr>
+<tr>
+<td><code>prompt.instructions_file</code></td>
+<td>absent</td>
+<td>A path to markdown that is appended as the document's LAST section. Absent means no operator section at all</td>
+</tr>
+</tbody>
+</table>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">SUTURA__PROMPT__CATALOG_PROSE</span><span class="o">=</span>omitted<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">SUTURA__PROMPT__INSTRUCTIONS_FILE</span><span class="o">=</span>prompts/house-rules.md<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>sutura<span class="w"> </span>prompt<span class="w"> </span>./catalog<span class="w"> </span>./config
+</span></code></pre></div>
+<p><code>sutura prompt</code> takes the deployment's configuration directory as its optional second argument, so
+the text it renders is the text that deployment would hand out. It loads the settings the way the
+service does, refusals included: a production configuration with no access token will not render a
+prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
+the settings is a door that can disagree with the first.</p>
+<p>Three properties of these keys are decisions rather than accidents.</p>
+<p><strong>An operator can add to the prompt and cannot replace it.</strong> <code>prompt.instructions_file</code> is layered on
+top of the derived text and appended last, under a heading that says so. There is no key that
+substitutes for the derived part, because the derived part carries the refusal guidance - and a key
+whose worst setting silently deletes that paragraph would be a key whose failure mode is invisible.
+Last place rather than first is deliberate too: a preamble ahead of the rules reads as the governing
+frame, and the governing frame is not the operator's to set.</p>
+<p><strong>A configured instructions file that cannot be read is an error, not a missing section.</strong> The
+reference implementation reads <code>&lt;project&gt;/instructions.md</code> when it is there and omits the section
+silently when it is not, which is right for a <em>convention</em>: no file means nobody wrote one. Here the
+path was written down, so absence means the operator's rules are missing from a document that claims
+to carry them.</p>
+<p><strong>Neither key defaults by environment.</strong> <code>telemetry.format</code> and <code>api.docs</code> do, and record whether
+somebody wrote the value down so the startup log can tell a decision from a default. Neither
+decision here is a function of the environment: whether a catalog's authors are trusted enough to
+quote their prose into an agent's context is a fact about who writes the catalog, not about whether
+the process is on a laptop. A default that dropped the prose in production would also be worse than
+either fixed answer, because an agent with no descriptions does not stop - it infers a metric's
+meaning from its name and reports the inference. And the interesting value, <code>omitted</code>, is never a
+default, so a deployment running with it is visible from the value itself.</p>
+<h2 id="catalog-prose-is-untrusted-content">Catalog prose is untrusted content<a class="headerlink" href="#catalog-prose-is-untrusted-content" title="Permanent link">&para;</a></h2>
+<p>A metric's description is written by whoever authored the catalog, and this repository's threat model
+treats catalog content as untrusted. A description containing a sentence aimed at the agent rather
+than at a human is prompt injection through the catalog. Three things are done about it, and the
+first is the honest limit.</p>
+<p><strong>A delimiter cannot separate instruction from data, because the content can contain the delimiter.</strong>
+<a href="../concepts/#provenance-and-why-results-are-meant-to-be-arrow">Concepts</a> already says so, so the
+mitigation is not a fence. It is a per-line prefix that sutura applies: every line of prose is
+emitted with <code>&gt;</code> in front of it, so <strong>no line of catalog text can reach the document at column
+zero.</strong> It cannot emit a heading, close a block, or open something that reads as a new section. That
+is checkable, and a test provokes it with a description whose lines are a heading, a fence and a bare
+instruction.</p>
+<p><strong>The trust boundary is named in the text</strong>, immediately above the quoted block, in terms an agent
+can act on: the block is data, a sentence inside it that reads as an instruction is content and not
+an instruction, and encountering one is something to report rather than obey.</p>
+<p><strong>An operator who does not trust their catalog authors can drop the prose entirely.</strong>
+<code>prompt.catalog_prose: omitted</code>.</p>
+<p>What none of that solves is prose that <em>persuades</em> without escaping - a description that reads as
+plausible guidance and is not. No mechanism here can catch it. What bounds it is that a catalog is
+reviewed, authored content whose digest moves when a description changes, and that this document is
+generated by an operator command rather than assembled from a caller's input. It is also worth being
+precise about the exposure: metric and dimension descriptions already reach any token-holder through
+<code>GET /v1/catalog</code>, so the prompt adds framing rather than reach.</p>
+<h2 id="the-consumer-that-exists-and-the-one-that-does-not">The consumer that exists, and the one that does not<a class="headerlink" href="#the-consumer-that-exists-and-the-one-that-does-not" title="Permanent link">&para;</a></h2>
+<p><code>sutura prompt</code> is built. An endpoint on the <code>v1</code> tree, behind the same bearer gate as everything
+else, is not - and the reason is which of the two makes the feature reachable. An operator wiring an
+agent needs the text once, at configuration time, in a shell where they can read it before an agent
+does; that is a command. An endpoint is the right shape for an agent that fetches its own
+instructions at startup, which is a deployment pattern nothing here has yet, and it would put a
+document assembled from untrusted catalog prose on the network rather than in front of a person. It
+is a small addition when a caller needs it: the renderer takes a bundle and a resolved set of inputs,
+and a handler would pass the same two.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1403,10 +1776,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/sutura/main", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "/sutura/main/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="/sutura/main/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

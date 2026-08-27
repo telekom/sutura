@@ -6,29 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="Why sutura generates a metric's SQL from a model it can read, instead of only splicing a statement authored elsewhere.">
       
       
       
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0001-first-party-semantic-models/">
       
+      
+        <link rel="prev" href="../../serving/">
+      
+      
+        <link rel="next" href="../0002-a-closed-vocabulary-for-measures/">
       
       
         
       
       
-      <link rel="icon" href="/sutura/main/assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura</title>
+        <title>First-party semantic models - sutura</title>
       
     
     
-      <link rel="stylesheet" href="/sutura/main/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/sutura/main/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/sutura/main/css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("/sutura/main",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -67,6 +73,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#first-party-semantic-models" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -83,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/sutura/main/." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -102,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              First-party semantic models
             
           </span>
         </div>
@@ -230,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/sutura/main/." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -259,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -348,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -376,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -404,7 +415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -432,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -529,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -557,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -585,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -613,7 +624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -645,8 +656,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -667,11 +680,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -692,7 +705,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -710,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -738,7 +751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -763,8 +776,10 @@
                 
   
   
+    
   
   
+  
     
     
       
@@ -780,11 +795,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
         
           
           <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
@@ -805,7 +820,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -820,10 +835,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/sutura/main/adr/0001-first-party-semantic-models/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -839,6 +881,98 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-model-may-not-contain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a model may not contain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -851,7 +985,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -879,7 +1013,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
         
   
   
@@ -955,7 +1089,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="/sutura/main/api/" class="md-nav__link ">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -999,7 +1133,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-domain/" class="md-nav__link">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1027,7 +1161,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1055,7 +1189,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-semantic/" class="md-nav__link">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1083,7 +1217,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-sql/" class="md-nav__link">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1111,7 +1245,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1139,7 +1273,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1167,7 +1301,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-app/" class="md-nav__link">
+      <a href="../../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1195,7 +1329,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-config/" class="md-nav__link">
+      <a href="../../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1223,7 +1357,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-runtime/" class="md-nav__link">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1251,7 +1385,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-http/" class="md-nav__link">
+      <a href="../../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -1294,7 +1428,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -1331,6 +1465,88 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-model-may-not-contain" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a model may not contain
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1343,8 +1559,159 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="first-party-semantic-models">First-party semantic models<a class="headerlink" href="#first-party-semantic-models" title="Permanent link">&para;</a></h1>
+<p>Status: accepted. It supersedes nothing; it adds a second way for a definition to arrive.</p>
+<p><strong>Amended.</strong> The measure vocabulary described below - one aggregate over one declared column - was
+widened by <a href="../0002-a-closed-vocabulary-for-measures/">a closed vocabulary for measures</a>, which adds
+a conditional count, a ratio of two aggregates, and filters that belong to a metric's definition.
+Nothing in the argument here changes, because the argument is about free-text SQL rather than about
+arity: read the constraint in <a href="#what-a-model-may-not-contain">what a model may not contain</a> as the
+ban on expressions it is, and not as the one-aggregate limit it also happened to be.</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p><a href="../../architecture/">Architecture</a> describes one path from a question to a number: a metric's SQL is
+authored in a semantic layer outside this repository, arrives as text with a digest, and is spliced
+into a generated wrapper byte for byte without being parsed. That path exists because re-emitting
+somebody else's statement substitutes our reading of it for theirs, and the digest would not move.</p>
+<p>The path has a precondition that is easy to miss: <strong>something upstream has to have rendered the
+statement.</strong> Where a build-time semantic layer already emits dialect-correct SQL per metric, taking
+it as given is strictly better than re-deriving it. Where there is no such upstream, on a laptop, over
+a single Parquet file, on a first run against a new warehouse, the precondition is simply absent.
+There is no statement to splice, and the design as written has nothing to say about that case.</p>
+<p>That is not a small corner. It is the case a person is in when they first try this.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p><strong>A catalog may declare a model, and sutura will generate the whole statement from it.</strong></p>
+<p>A model names a physical table, its columns, and its relationships to other models. A metric names a
+model, an aggregate over one of its columns, the grains it supports, the dimensions it may be broken
+down by, and its time column. From those, <code>sutura-semantic</code> generates the entire statement:
+projection, grouping, the bounded date predicate, the join for a single-hop dimension, and quoting
+and placeholders per dialect. Nothing is spliced, because nothing arrived as text.</p>
+<p>The invariant this repository actually cares about is unchanged, and gets easier to hold:</p>
+<blockquote>
+<p>We never re-parse SQL we did not generate.</p>
+</blockquote>
+<p>When we generate all of it, there is no foreign SQL on the query path to re-parse. The rule holds by
+construction rather than by discipline.</p>
+<h3 id="what-a-model-may-not-contain">What a model may not contain<a class="headerlink" href="#what-a-model-may-not-contain" title="Permanent link">&para;</a></h3>
+<p><strong>No free-text SQL expression, anywhere.</strong> A measure is an aggregate from a closed set over a named
+column, not the string <code>sum(amount)</code>. A relationship is a pair of columns and a join type, not the
+string <code>orders.customer_id = customers.id</code>. A dimension is a column, optionally reached through one
+declared relationship.</p>
+<p>This is the load-bearing half of the decision, and it is where this design departs from the
+modelling languages it otherwise resembles. Those carry SQL fragments as strings and parse them
+downstream. A string field is an escape hatch, and an escape hatch on the query path is the thing
+being defended against: it turns "the catalog describes the data" into "the catalog can say
+anything", and every check downstream then has to reason about text somebody wrote.</p>
+<p>The cost is real and worth stating. <code>sum(price * quantity)</code> cannot be expressed, and neither can a
+window function or a three-table join. Those are the cases the spliced-statement path exists for:
+where a definition is genuinely more than a model can say, it should be authored where the
+expressiveness lives and arrive certified. <strong>The two paths are for two different situations, and
+neither is a degraded version of the other.</strong></p>
+<p>Adding an expression field later is an architecture decision, not a feature. It would need its own
+entry here, and the question it has to answer is not whether the expression is parsed but what
+happens the first time one arrives that we cannot parse.</p>
+<h2 id="what-does-not-change">What does not change<a class="headerlink" href="#what-does-not-change" title="Permanent link">&para;</a></h2>
+<p>Every other guarantee is untouched, and each still has the same mechanism behind it:</p>
+<table>
+<thead>
+<tr>
+<th>Guarantee</th>
+<th>Still held by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Definitions are pinned and hashed, so a catalog edit cannot change what a question means between two invocations</td>
+<td>The digest is taken over the canonical form of the parsed definitions. It moves on any semantic edit, and it travels with the answer</td>
+</tr>
+<tr>
+<td>A catalog cannot see who is asking</td>
+<td><code>SemanticCatalog::load</code> takes no request context, so there is nothing to branch on</td>
+</tr>
+<tr>
+<td>An unvalidated bundle is never served</td>
+<td>The service accepts only <code>Validated&lt;PinnedDefinitions&gt;</code>, and the anchor check is its only constructor</td>
+</tr>
+<tr>
+<td>A definition that has stopped computing its own number fails readiness</td>
+<td>The anchor test re-executes each metric and compares against the number its author declared</td>
+</tr>
+<tr>
+<td>Refusal is a result, not an error</td>
+<td><code>ToolOutcome::Refusal { reason }</code>, with a test per variant</td>
+</tr>
+<tr>
+<td>No SQL, table, predicate or row id on the tool surface</td>
+<td><code>Query</code> has no field for one. This decision changes what a <em>catalog</em> may say, and nothing about what a <em>caller</em> may say</td>
+</tr>
+<tr>
+<td>A plan resolves to exactly one data system</td>
+<td>The plan stage gathers the source of every model the statement would read - the metric's own, and each one reached through a join - into a set, and refuses <code>PlanSpansTwoSources</code> unless exactly one name is in it</td>
+</tr>
+<tr>
+<td>No result cache</td>
+<td>Nothing added one</td>
+</tr>
+</tbody>
+</table>
+<p>One new guarantee arrives with the generator, and it is mechanical rather than argued: <strong>no value
+from a question reaches the statement as text.</strong> Every one becomes a bind parameter, and a golden
+test asserts that no literal from the question appears in the generated SQL. Before this decision the
+claim was structural, because there was no generator. Now it is a check that can fail.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The catalog on disk is now a source of definitions rather than only a carrier of them. Reviewing a
+  catalog change is reviewing what will execute, which is a heavier kind of review than approving a
+  text passthrough, and it belongs in the same pull request as any other change to behaviour.</li>
+<li>The generated SQL is a reviewable artifact. Goldens are regenerated and read as a diff, never
+  typed, because a hand-written expectation is an assertion about what we wish the generator did.</li>
+<li>Dialect differences become ours. Placeholder syntax, identifier quoting and date truncation differ
+  per data system, and the generator owns all three. It must own placeholder style <em>explicitly</em>: the
+  dialect layer we build on renders a placeholder the same way regardless of target, so relying on it
+  would silently emit the wrong syntax for anything but the first dialect we shipped.</li>
+<li>We do not translate between dialects. A transpile is a parse followed by a re-emit, and it does not
+  reliably repair the differences that matter. A measured example is date truncation, where argument
+  order differs between two dialects and translation left it unchanged, producing output that is not
+  valid in the target. The generator renders into the target dialect from a plan, and the ban is a
+  lint rather than a paragraph.</li>
+<li>The spliced-statement path stays documented and unbuilt. The dialect layer has a verbatim
+  passthrough node whose generator appends the text unchanged and which no dialect pass rewrites, so
+  the splice remains implementable exactly as <a href="../../architecture/">Architecture</a> describes it.</li>
+</ul>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong>Only splice, and require an upstream renderer.</strong> Correct where one exists, and no help at all
+otherwise. It makes the first thing a new user tries the hardest thing to set up, and it puts the
+whole design behind a dependency a laptop does not have.</p>
+<p><strong>Only generate, and delete the splice.</strong> Tempting, because one path is simpler than two. Rejected:
+where a definition has already been certified upstream, re-deriving it is exactly the substitution of
+our reading for the author's that the splice exists to prevent. Deleting it would trade a real
+guarantee for tidiness.</p>
+<p><strong>Generate from free-text expressions, as the reference modelling languages do.</strong> More expressive,
+and it moves a parser onto the query path, where a parse failure is a runtime refusal instead of a
+review comment. The closed set of aggregates covers the metrics a model can honestly describe, and
+the ones it cannot belong on the other path.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1403,10 +1770,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/sutura/main", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "/sutura/main/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="/sutura/main/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

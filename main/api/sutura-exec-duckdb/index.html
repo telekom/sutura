@@ -10,25 +10,31 @@
       
       
       
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-exec-duckdb/">
       
+      
+        <link rel="prev" href="../sutura-exec-datafusion/">
+      
+      
+        <link rel="next" href="../sutura-app/">
       
       
         
       
       
-      <link rel="icon" href="/sutura/main/assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura</title>
+        <title>sutura-exec-duckdb - sutura</title>
       
     
     
-      <link rel="stylesheet" href="/sutura/main/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/sutura/main/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/sutura/main/css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("/sutura/main",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -67,6 +73,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#sutura-exec-duckdb" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -83,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/sutura/main/." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -102,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              sutura-exec-duckdb
             
           </span>
         </div>
@@ -230,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/sutura/main/." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -259,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -348,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -376,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -404,7 +415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -432,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -529,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -557,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -585,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -613,7 +624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -645,8 +656,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -667,11 +680,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -692,7 +705,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -710,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -738,7 +751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -823,7 +836,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0001-first-party-semantic-models/" class="md-nav__link">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -851,7 +864,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -879,7 +892,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
         
   
   
@@ -912,6 +925,8 @@
                 
   
   
+    
+  
   
   
     
@@ -947,15 +962,15 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="/sutura/main/api/" class="md-nav__link ">
+            <a href="../" class="md-nav__link ">
               
   
   
@@ -979,7 +994,7 @@
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -999,7 +1014,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-domain/" class="md-nav__link">
+      <a href="../sutura-domain/" class="md-nav__link">
         
   
   
@@ -1027,7 +1042,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1055,7 +1070,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-semantic/" class="md-nav__link">
+      <a href="../sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1083,7 +1098,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-sql/" class="md-nav__link">
+      <a href="../sutura-sql/" class="md-nav__link">
         
   
   
@@ -1111,7 +1126,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1136,10 +1151,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-duckdb/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1155,6 +1197,104 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-duckdberror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DuckDbError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DuckDbError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-duckdbwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DuckDbWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DuckDbWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1167,7 +1307,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-app/" class="md-nav__link">
+      <a href="../sutura-app/" class="md-nav__link">
         
   
   
@@ -1195,7 +1335,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-config/" class="md-nav__link">
+      <a href="../sutura-config/" class="md-nav__link">
         
   
   
@@ -1223,7 +1363,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-runtime/" class="md-nav__link">
+      <a href="../sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1251,7 +1391,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-http/" class="md-nav__link">
+      <a href="../sutura-http/" class="md-nav__link">
         
   
   
@@ -1294,7 +1434,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -1331,6 +1471,94 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#enum-duckdberror" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        enum DuckDbError
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="enum DuckDbError">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#variants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Variants
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#struct-duckdbwarehouse" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        struct DuckDbWarehouse
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="struct DuckDbWarehouse">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#methods" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Methods
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#implements_1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Implements
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1343,8 +1571,88 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-exec-duckdb">sutura-exec-duckdb<a class="headerlink" href="#sutura-exec-duckdb" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-exec-duckdb</code>, rendered from rustdoc JSON.</p>
+<p>A <code>Warehouse</code> adapter over <code>DuckDB</code>, for local development and single-file work.</p>
+<p><code>DuckDB</code> is the case where the data is a file and there is no server to authenticate against, so
+the single-player credential is the process's own access. That is stated rather than hidden: this
+adapter is not a stand-in for a data system with grants, and it is the one place in the design
+where "run as the calling subject" is trivially satisfied because there is nobody else to be.</p>
+<p>Two things this adapter deliberately does not offer:</p>
+<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes a
+<code>GeneratedQuery</code>, which carries its parameters separately, and there is no method that takes a
+string. A development affordance that ran a statement somebody typed would be the shortest path
+around every check upstream of here.</p>
+<p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
+although this adapter has no row-level security to leak through, adding a cache here would be the
+place the habit started.</p>
+<h2 id="enum-duckdberror"><code>enum DuckDbError</code><a class="headerlink" href="#enum-duckdberror" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DuckDbError</span>
+</span></code></pre></div>
+<p>Why this data system could not answer.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Open</code></li>
+<li><code>Prepare</code></li>
+<li><code>Execute</code></li>
+<li><code>UnsupportedType</code> - A column came back as a type this adapter does not map.</li>
+<li><code>NotFinite</code> - A floating-point column came back as a value that is not a number.</li>
+<li><code>NotADate</code> - A day number came back that is not a date this build can represent.</li>
+<li><code>Shape</code></li>
+<li><code>Render</code> - The plan could not be rendered as SQL.</li>
+<li><code>Attach</code></li>
+</ul>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="struct-duckdbwarehouse"><code>struct DuckDbWarehouse</code><a class="headerlink" href="#struct-duckdbwarehouse" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DuckDbWarehouse</span>
+</span></code></pre></div>
+<p>A <code>DuckDB</code> database, behind the <code>Warehouse</code> port.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">attach_csv</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Exposes a CSV file as a table.</p>
+<p>A narrow, typed affordance instead of a general "run this SQL" method, which is what a local
+adapter usually grows and what would make every check upstream of here optional. The table
+name is a <code>TableName</code>, so it cannot carry a quote; the path is a string, so it is escaped
+the only way a SQL string literal can be, by doubling every quote.</p>
+<p><code>read_csv_auto</code> and not a bind parameter, because a table function's argument is part of the
+statement's shape rather than a value and <code>DuckDB</code> will not bind one there.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_memory</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Opens a database that exists only for this process.</p>
+<p>What the golden suite uses: a fixture that is built from a committed CSV every run cannot
+drift from the CSV, and a database file in the repository would be a binary nobody reviews.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">open</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DuckDbError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Opens a database file.</p>
+<h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Warehouse</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1403,10 +1711,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/sutura/main", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "/sutura/main/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="/sutura/main/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

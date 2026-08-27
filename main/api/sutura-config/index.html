@@ -1,0 +1,2624 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/api/sutura-config/">
+      
+      
+        <link rel="prev" href="../sutura-app/">
+      
+      
+        <link rel="next" href="../sutura-runtime/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-config - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-config" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-config
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_4" id="__nav_4_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-config">sutura-config<a class="headerlink" href="#sutura-config" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-config</code>, rendered from rustdoc JSON.</p>
+<p>The service's configuration: layered sources in, one typed tree out, and a refusal instead of
+a permissive default.</p>
+<h1 id="what-a-caller-does">What a caller does<a class="headerlink" href="#what-a-caller-does" title="Permanent link">&para;</a></h1>
+<p>Read the environment, then load. Two steps rather than one, because the environment decides
+which file is layered and which defaults apply, so it has to be known first.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>use sutura_config::{Environment, Settings, Sources};
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a>// A test or an example supplies the environment directly; the binary reads it from the
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>// process with `sutura_config::environment_from_process`.
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a>let settings = Settings::load(&amp;Sources::defaults(Environment::Development))?;
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a>assert!(settings.server().bind().is_loopback());
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a># Ok::&lt;(), sutura_config::SettingsError&gt;(())
+</span></code></pre></div>
+<h1 id="precedence">Precedence<a class="headerlink" href="#precedence" title="Permanent link">&para;</a></h1>
+<p>Later beats earlier:</p>
+<ol>
+<li>the defaults embedded in this crate (<code>Settings</code> can always be built from them alone);</li>
+<li><code>&lt;dir&gt;/base.yaml</code>, if a directory was given and the file is there;</li>
+<li><code>&lt;dir&gt;/&lt;environment&gt;.yaml</code>, likewise;</li>
+<li>environment variables - <code>SUTURA__SERVER__PORT</code> sets <code>server.port</code>.</li>
+</ol>
+<p>The environment itself is chosen by <code>SUTURA_ENVIRONMENT</code> and by nothing else. It is
+deliberately <em>not</em> a configuration key: it selects which file is layered, so a file that could
+change it would be self-referential. Both <code>environment:</code> in a file and <code>SUTURA__ENVIRONMENT</code> in
+the shell are therefore unknown-field errors rather than settings that quietly do nothing.</p>
+<p>Every layer is checked with <code>deny_unknown_fields</code>, at every depth. A misspelled key is an error
+naming the key, not an override that silently did not happen.</p>
+<h1 id="there-is-no-per-caller-identity-and-this-crate-says-so-out-loud">There is no per-caller identity, and this crate says so out loud<a class="headerlink" href="#there-is-no-per-caller-identity-and-this-crate-says-so-out-loud" title="Permanent link">&para;</a></h1>
+<p>sutura has no request context, no credential broker and no way for a caller's identity to reach
+the query path. <code>AGENTS.md</code> records "every query runs as the calling principal" as an
+aspiration that is <strong>not mechanised</strong>, and <code>examples/multi-player/README.md</code> explains why
+single-player makes it trivially true and worth nothing.</p>
+<p>That is a property of the runtime, so it is a property of every deployment this crate
+configures. An <a href="security::AccessToken"><code>AccessToken</code></a> authenticates <em>the deployment</em>: a caller
+who presents it proves they hold a secret an operator configured, and nothing more. It does not
+say which caller, it cannot be scoped to a subset of the catalog, it does not reach the data
+system, and every query still runs with whatever access the process already had.
+<a href="security::SecuritySettings::describes_identity"><code>SecuritySettings::describes_identity</code></a> is the
+function that answers this, it always answers <code>false</code>, and the startup log prints that answer
+on every boot so an operator cannot deploy this believing otherwise.</p>
+<p>Rate limiting is not authentication either - see <code>limits</code> for what it does and does not buy.</p>
+<h1 id="what-refuses-to-start">What refuses to start<a class="headerlink" href="#what-refuses-to-start" title="Permanent link">&para;</a></h1>
+<p><code>NotFitToServe</code> is the whole list, and each variant is a refusal rather than a warning. A
+warning is read by whoever is looking at the log in the format the collector was configured
+for; a process that does not start is read by everybody.</p>
+<ul>
+<li>A bind address other hosts can reach with <code>security.tls_termination: none</code>. In <em>every</em>
+  environment, including a laptop. <strong>The bind itself is not refused</strong> - an ingress controller or
+  a sidecar terminating TLS in front of a plaintext pod-local listener is the normal
+  arrangement - what is refused is not saying which of those it is, because that is what decides
+  how far the bearer token travels in cleartext.</li>
+<li>No <code>security.access_token</code>, in production or on a non-loopback bind.</li>
+<li><code>rate_limit.enabled: false</code> in production.</li>
+<li><code>rate_limit.client_address: forwarded</code> with an empty <code>rate_limit.trusted_proxies</code>, or a
+  non-empty list that nothing reads.</li>
+<li><code>security.tls_termination: in-process</code> without a certificate and key, or in a binary built
+  without the <code>tls</code> feature; or a certificate and key no declaration would ever read.</li>
+<li><code>server.port: 0</code> in production.</li>
+</ul>
+<p>The checks read the <em>loaded</em> values, not any one file, because the variable layer is applied
+last: a check against <code>production.yaml</code> would be checking something the process is not running
+on.</p>
+<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_9"><code>use None</code><a class="headerlink" href="#use-none_9" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_10"><code>use None</code><a class="headerlink" href="#use-none_10" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_11"><code>use None</code><a class="headerlink" href="#use-none_11" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_12"><code>use None</code><a class="headerlink" href="#use-none_12" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_13"><code>use None</code><a class="headerlink" href="#use-none_13" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_14"><code>use None</code><a class="headerlink" href="#use-none_14" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_15"><code>use None</code><a class="headerlink" href="#use-none_15" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_16"><code>use None</code><a class="headerlink" href="#use-none_16" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_17"><code>use None</code><a class="headerlink" href="#use-none_17" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_18"><code>use None</code><a class="headerlink" href="#use-none_18" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_19"><code>use None</code><a class="headerlink" href="#use-none_19" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_20"><code>use None</code><a class="headerlink" href="#use-none_20" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_21"><code>use None</code><a class="headerlink" href="#use-none_21" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_22"><code>use None</code><a class="headerlink" href="#use-none_22" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_23"><code>use None</code><a class="headerlink" href="#use-none_23" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_24"><code>use None</code><a class="headerlink" href="#use-none_24" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_25"><code>use None</code><a class="headerlink" href="#use-none_25" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_26"><code>use None</code><a class="headerlink" href="#use-none_26" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_27"><code>use None</code><a class="headerlink" href="#use-none_27" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_28"><code>use None</code><a class="headerlink" href="#use-none_28" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_29"><code>use None</code><a class="headerlink" href="#use-none_29" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_30"><code>use None</code><a class="headerlink" href="#use-none_30" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_31"><code>use None</code><a class="headerlink" href="#use-none_31" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_32"><code>use None</code><a class="headerlink" href="#use-none_32" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_33"><code>use None</code><a class="headerlink" href="#use-none_33" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_34"><code>use None</code><a class="headerlink" href="#use-none_34" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_35"><code>use None</code><a class="headerlink" href="#use-none_35" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_36"><code>use None</code><a class="headerlink" href="#use-none_36" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_37"><code>use None</code><a class="headerlink" href="#use-none_37" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_38"><code>use None</code><a class="headerlink" href="#use-none_38" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_39"><code>use None</code><a class="headerlink" href="#use-none_39" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_40"><code>use None</code><a class="headerlink" href="#use-none_40" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_41"><code>use None</code><a class="headerlink" href="#use-none_41" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_42"><code>use None</code><a class="headerlink" href="#use-none_42" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_43"><code>use None</code><a class="headerlink" href="#use-none_43" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_44"><code>use None</code><a class="headerlink" href="#use-none_44" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_45"><code>use None</code><a class="headerlink" href="#use-none_45" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_46"><code>use None</code><a class="headerlink" href="#use-none_46" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_47"><code>use None</code><a class="headerlink" href="#use-none_47" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_48"><code>use None</code><a class="headerlink" href="#use-none_48" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_49"><code>use None</code><a class="headerlink" href="#use-none_49" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_50"><code>use None</code><a class="headerlink" href="#use-none_50" title="Permanent link">&para;</a></h2>
+<h2 id="module-api">Module <code>api</code><a class="headerlink" href="#module-api" title="Permanent link">&para;</a></h2>
+<p>Whether the generated documentation is served, and why the default differs by environment.</p>
+<p>The <code>OpenAPI</code> document and the browser UI over it are generated from the handlers, so they are
+always <em>correct</em>; the question is whether an unauthenticated caller should be handed a map of
+the surface. On a laptop the answer is obviously yes - it is how the surface is explored at
+all. In production it is a decision, and the safer default is the one that has to be turned
+on rather than the one that has to be remembered.</p>
+<p>It is a default and not a refusal. Serving an interface description is a legitimate choice for
+a deployment behind a gateway that already authenticates, and refusing to start over it would
+be this crate overruling an operator on something that leaks no data. What it does instead is
+log the decision, at a level that shows up.</p>
+<h3 id="struct-apisettings"><code>struct ApiSettings</code><a class="headerlink" href="#struct-apisettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ApiSettings</span>
+</span></code></pre></div>
+<p>Whether the generated documentation surface is served.</p>
+<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">docs_default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>The default for an environment: everywhere but production.</p>
+<p>A total match rather than a comparison, so a fourth environment has to state its own
+answer instead of inheriting whichever branch it happens to fall into.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">docs_enabled</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">docs_were_explicit</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">docs_enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="n">docs_were_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-catalog">Module <code>catalog</code><a class="headerlink" href="#module-catalog" title="Permanent link">&para;</a></h2>
+<p>Which catalog the service serves, and where the files it reads live.</p>
+<p>Two directories rather than one, because they are owned by different people. The catalog is
+authored and reviewed - it is the definitions somebody certified - and the data directory is
+wherever the files the engine reads happen to be mounted. Conflating them would make a
+deployment that moved its data look like a catalog change, which is the one thing a pinned
+bundle exists to make visible.</p>
+<h3 id="struct-catalogsettings"><code>struct CatalogSettings</code><a class="headerlink" href="#struct-catalogsettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogSettings</span>
+</span></code></pre></div>
+<p>Where the definitions and the data are, and what the resulting bundle is called.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">dir</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">data_dir</span><span class="p">:</span><span class="w"> </span><span class="nc">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="nc">DefinitionVersion</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidCatalogSettings</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the two directories and the version label.</p>
+<p>The version arrives already parsed, because what identifies a snapshot of a directory is
+a commit id or a build number and only the caller has it. Existence of the directories is
+deliberately <em>not</em> checked here: this type is the configuration, and a directory that
+disappears between reading the configuration and loading the catalog would make an
+existence check here a claim that goes stale immediately. The load is what fails.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">version</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DefinitionVersion</span>
+</span></code></pre></div>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidcatalogsettings"><code>enum InvalidCatalogSettings</code><a class="headerlink" href="#enum-invalidcatalogsettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidCatalogSettings</span>
+</span></code></pre></div>
+<p>Why a catalog configuration is not usable.</p>
+<h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>EmptyPath</code> - A path was empty, which resolves to the process working directory - a different directory on every host, and never the one the operator meant.</li>
+</ul>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h2 id="module-environment">Module <code>environment</code><a class="headerlink" href="#module-environment" title="Permanent link">&para;</a></h2>
+<p>Which deployment this process believes it is.</p>
+<p>One value, read before anything else, that decides three things which must not be decided
+separately: which configuration file is layered on top of the defaults, whether the log is
+machine-readable or human-readable, and how strict the startup refusals are. Separate
+switches for those would let a deployment be production for logging and development for
+safety, which is exactly the combination nobody would choose on purpose.</p>
+<p>Deliberately three values and not a free string. A typo in an environment name is otherwise
+the most expensive kind of configuration bug there is: it silently selects the permissive
+branch of every decision above, and the log line saying so is in the format nobody is
+collecting.</p>
+<h3 id="enum-environment"><code>enum Environment</code><a class="headerlink" href="#enum-environment" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Environment</span>
+</span></code></pre></div>
+<p>A deployment kind.</p>
+<p>Ordered from most permissive to least, which is also the order the refusals in
+<code>crate::Settings</code> tighten in.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Development</code> - A developer's machine. Human-readable logs, loopback only, no token required.</li>
+<li><code>Test</code> - An automated test. Same posture as development, and named separately so a test can assert on it without pretending to be a laptop.</li>
+<li><code>Production</code> - A deployment serving somebody. Machine-readable logs, and every refusal in <code>crate::Settings::parse</code> applies.</li>
+</ul>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The canonical spelling, which is also the file stem this environment layers.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_production</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is this the environment the strict refusals apply to?</p>
+<p>A method rather than <code>== Environment::Production</code> at each call site: there are five
+refusals keyed off it, and a fourth variant added later has to answer this question once.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownEnvironment</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads an environment name.</p>
+<p>Case-insensitive and trimmed, because this arrives from a shell variable and
+<code>SUTURA_ENVIRONMENT=Production</code> with a trailing space is not a different deployment.
+Nothing else is forgiven: <code>prod</code> is not accepted, because an abbreviation somebody has to
+guess is a spelling this type exists to remove.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
+<h3 id="struct-unknownenvironment"><code>struct UnknownEnvironment</code><a class="headerlink" href="#struct-unknownenvironment" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownEnvironment</span>
+</span></code></pre></div>
+<p>The string was not one of the three.</p>
+<p>Carries what it found, because the whole point of the type is that a typo fails loudly, and
+a failure that does not quote the typo makes the operator guess which of the three spellings
+they got wrong.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">found</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h2 id="module-limits">Module <code>limits</code><a class="headerlink" href="#module-limits" title="Permanent link">&para;</a></h2>
+<p>How many requests a caller gets, and the two tiers that answer differently.</p>
+<p><strong>Rate limiting is not authentication.</strong> It bounds how fast something can be done, not who
+may do it, and on a surface with no per-caller identity - see <code>crate::security</code> - the key
+it counts against is a network address rather than a principal. A shared egress address is
+therefore one bucket for everybody behind it, and a caller with many addresses has many
+buckets. Both of those are properties of the mechanism, not bugs in the configuration, and
+neither is repaired by tightening the numbers.</p>
+<p>What it does buy is real: it turns an unbounded loop against a data system into a bounded
+one, and a question here is an aggregate over up to ten years of history, so the cost of one
+request is not small.</p>
+<p><strong>The switch follows the environment, and the refusal does not.</strong> <code>rate_limit.enabled</code> has no
+fixed default: it is off in development and test and on in production, the same shape
+<code>telemetry.format</code> and <code>api.docs</code> already have here. That is a convenience in one direction only.
+An explicit <code>false</code> in production is still a refusal to start - see
+<code>crate::Settings::refusals</code> - because a default nobody had to write down and a control an
+operator switched off are different facts, and the second one has to be visible.</p>
+<p><strong>Which address the bucket is keyed on is a configuration decision, and it has to be.</strong> The
+peer address is unforgeable and is the proxy's for every request behind an ingress controller,
+which is one bucket for the whole internet; a forwarded header is per-caller and is a value any
+caller can write. <code>crate::proxy</code> is where that trade lives, and the refusal that keeps the
+header from being believed without a named hop is in <code>crate::Settings::refusals</code>.</p>
+<p>Two tiers, because the two surfaces have different shapes. The <em>probe</em> tier covers what a
+caller may poll - liveness, and the generated <code>OpenAPI</code> document - and is tight, because nothing
+there changes between two requests. The <em>api</em> tier covers the versioned API, where a legitimate
+caller asks several questions in a row.</p>
+<p>The names avoid the word that would be natural for the first tier, and not for a style reason:
+<code>cargo xtask check-boundaries</code> flags a field whose name <em>begins</em> with <code>pub</code> as a public field,
+because its scan is line-oriented and tests <code>starts_with("pub")</code>. A field called <code>public</code> is
+therefore a gate failure on correct code. Renaming here is the cheap side of that trade, and the
+names are more precise anyway - the first tier is not the unauthenticated one, since the
+interface description sits behind the access token when one is configured.</p>
+<h3 id="struct-quota"><code>struct Quota</code><a class="headerlink" href="#struct-quota" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Quota</span>
+</span></code></pre></div>
+<p>A sustained rate and the burst allowed above it.</p>
+<p>Both non-zero: a quota of zero requests per second is a closed door, which is what
+<code>enabled: false</code> says properly, and a zero burst is a limiter that rejects the first request
+of every idle period.</p>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">burst</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU32</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">per_second</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">,</span><span class="w"> </span><span class="n">burst</span><span class="p">:</span><span class="w"> </span><span class="kt">u32</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidQuota</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a tier.</p>
+<p><code>name</code> is the configuration key this tier came from, so the error says which of the two
+tiers is wrong rather than that one of them is.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">per_second</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">NonZeroU32</span>
+</span></code></pre></div>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidquota"><code>enum InvalidQuota</code><a class="headerlink" href="#enum-invalidquota" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidQuota</span>
+</span></code></pre></div>
+<p>Why a pair of numbers is not a quota.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Zero</code> - One of the two was zero.</li>
+<li><code>BurstBelowRate</code> - The burst is below the sustained rate, which is a limiter that cannot sustain its own rate: the bucket refills faster than it can hold.</li>
+</ul>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-ratelimitsettings"><code>struct RateLimitSettings</code><a class="headerlink" href="#struct-ratelimitsettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RateLimitSettings</span>
+</span></code></pre></div>
+<p>Both tiers, the switch, and what a bucket is keyed on.</p>
+<p>The switch is separate from the numbers on purpose. A deployment that turns limiting off is
+making a decision, and it should be one word in a file rather than a quota set so high it
+never fires - which reads as a configured limit and is not one.</p>
+<p><strong>The switch itself has no fixed default; it follows <code>crate::Environment</code>.</strong> Off on a laptop,
+because a limiter that fires while somebody is iterating is a bug report about sutura that is
+really a bug report about the tier; on in production, because that is the deployment an
+unbounded caller costs something. The same shape as <code>telemetry.format</code> and <code>api.docs</code>, including
+the recorded flag - see <code>Self::enabled_default_for</code>.</p>
+<p><strong>Not <code>Copy</code>, and that is the trusted-proxy list.</strong> It is a <code>Vec</code>, so this group is cloned
+rather than copied and the accessors borrow. Every call site is inside the assembled router,
+once, at startup.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">api</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Quota</span>
+</span></code></pre></div>
+<p>The tier for the versioned API.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">client_address</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ClientAddressSource</span>
+</span></code></pre></div>
+<p>Where the address a bucket is keyed on comes from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enabled</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enabled_default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>The default for an environment: on in production, off everywhere else.</p>
+<p><strong>A default and not a refusal in one direction, and a refusal in the other.</strong> Nothing here
+stops a developer switching the limiter on, and nothing here decides production: an explicit
+<code>enabled: false</code> in production is refused by
+<code>crate::Settings::refusals</code> regardless of what this function
+would have returned. The two must not be conflated - default-off in development is a
+convenience, and silently-off in production is how a deployment loses a control nobody
+noticed it had.</p>
+<p>A total match rather than a comparison, so a fourth environment has to state its own answer
+instead of inheriting whichever branch it happens to fall into.</p>
+<p><code>crate::Environment::Test</code> is grouped with development, and that is an argument rather than
+a convenience. A test that exercises the limiter cannot rely on this value anyway: asserting
+a refusal needs a quota small enough to exhaust in two requests, so such a test writes
+<code>rate_limit.enabled</code> and a tier down together - which is what
+<code>sutura-http</code>'s harness already does. So defaulting on here would buy no coverage, and would
+charge every unrelated test in the suite a limiter it never asked for, at a tier
+(<code>probe_burst: 5</code>) that a loop over fixtures can exhaust. A limiter nothing exercises is
+untested code; the answer to that is a test that names the switch, not a default that fires
+during somebody else's assertion.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enabled_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Did an operator write the switch down, or did the environment decide it?</p>
+<p>For the startup log, which says which arm was taken and whether anybody chose it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">enabled</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="n">enabled_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">,</span><span class="w"> </span><span class="n">probe</span><span class="p">:</span><span class="w"> </span><span class="nc">Quota</span><span class="p">,</span><span class="w"> </span><span class="n">api</span><span class="p">:</span><span class="w"> </span><span class="nc">Quota</span><span class="p">,</span><span class="w"> </span><span class="n">client_address</span><span class="p">:</span><span class="w"> </span><span class="nc">ClientAddressSource</span><span class="p">,</span><span class="w"> </span><span class="n">trusted_proxies</span><span class="p">:</span><span class="w"> </span><span class="nc">TrustedProxies</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">probe</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Quota</span>
+</span></code></pre></div>
+<p>The tier for what an unauthenticated caller can reach.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trusted_proxies</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TrustedProxies</span>
+</span></code></pre></div>
+<p>The hops whose forwarded header is believed.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-prompt">Module <code>prompt</code><a class="headerlink" href="#module-prompt" title="Permanent link">&para;</a></h2>
+<p>What goes into the agent-facing system prompt that this deployment hands out.</p>
+<p>Two keys, and each one is read by something: <code>sutura_app::prompt::render</code> is the consumer, and
+<code>sutura prompt</code> is the command that reaches it. That is a requirement rather than a remark - this
+crate has shipped a group of keys that were parsed, range-checked, refused on a bad value and
+consumed by nothing, and it was a finding. A key nobody reads reads as a control that is in
+place.</p>
+<h1 id="why-an-operator-can-add-to-the-prompt-and-cannot-replace-it">Why an operator can add to the prompt and cannot replace it<a class="headerlink" href="#why-an-operator-can-add-to-the-prompt-and-cannot-replace-it" title="Permanent link">&para;</a></h1>
+<p><code>PromptSettings::instructions_file</code> is layered <em>on top of</em> the derived text and appended as its
+last section. There is deliberately no key that substitutes for the derived part.</p>
+<p>The derived part carries the refusal guidance, which is the one thing an agent talking to this
+surface most needs and least often has: a refusal arrives as a successful result, and an agent
+that reads it as an outage retries until something works - which is precisely the behaviour the
+refusal exists to prevent. A key whose worst setting silently deletes that paragraph would be a
+key whose failure mode is invisible, and this crate's whole shape is arranged against those. If
+wholesale replacement is ever wanted it should arrive as its own named key with its own argument,
+not as an omission from this one.</p>
+<h1 id="why-there-is-no-environment-derived-default-here">Why there is no environment-derived default here<a class="headerlink" href="#why-there-is-no-environment-derived-default-here" title="Permanent link">&para;</a></h1>
+<p><a href="crate::api::ApiSettings"><code>ApiSettings</code></a> and <a href="crate::telemetry::LogFormat"><code>LogFormat</code></a> default by
+<a href="crate::Environment"><code>Environment</code></a> and record whether an operator wrote the value down, so the
+startup log can tell "somebody chose this" from "nobody did". Neither key here does, and the
+reason is that neither decision is a function of the environment.</p>
+<p>Whether a catalog's authors are trusted enough to quote their prose into an agent's context is a
+fact about who writes the catalog, not about whether the process is on a laptop. A default that
+dropped the prose in production would be worse than either fixed answer: an agent with no
+descriptions does not stop, it infers a metric's meaning from its name and reports the inference.
+And the interesting value - <code>CatalogProse::Omitted</code> - is never a default, so a deployment
+running with it is visible from the value itself. That is the case an explicitness flag exists to
+make legible, and here the value already is.</p>
+<h1 id="why-a-configured-instructions-file-that-is-missing-is-not-tolerated">Why a configured instructions file that is missing is not tolerated<a class="headerlink" href="#why-a-configured-instructions-file-that-is-missing-is-not-tolerated" title="Permanent link">&para;</a></h1>
+<p>The reference implementation this prompt is modelled on reads <code>&lt;project&gt;/instructions.md</code> when it
+is there and silently omits the section when it is not, which is right for a <em>convention</em>: no
+file means nobody wrote one. Here it is a <em>configured path</em>, so absence means the operator wrote
+a path down and the file behind it is not there - and quietly serving a prompt without the
+operator's rules in it would be the failure this crate refuses everywhere else. Existence is not
+checked at parse time, for the reason <a href="crate::catalog::CatalogSettings"><code>CatalogSettings</code></a> does
+not check its directories: a check here is a claim that is already stale by the time the file is
+read. The read is what fails, loudly, at the composition root.</p>
+<h3 id="enum-catalogprose"><code>enum CatalogProse</code><a class="headerlink" href="#enum-catalogprose" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">CatalogProse</span>
+</span></code></pre></div>
+<p>Whether the catalog's own prose is quoted into the prompt.</p>
+<p>The word an operator writes. The type that does the work is
+<code>sutura_app::prompt::CatalogProse</code>, and the split is the one
+<a href="crate::telemetry::LogFilter"><code>LogFilter</code></a> already uses: this crate parses what was written down,
+and the crate that acts on it owns the type that acts.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Quoted</code> - Quoted in, with <code>&gt;</code> at the start of every line and the trust boundary named above the block. The default.</li>
+<li><code>Omitted</code> - Left out. For a deployment whose catalog authors are not the people who decide what its agents are told.</li>
+</ul>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_quoted</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownCatalogProse</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the word.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknowncatalogprose"><code>struct UnknownCatalogProse</code><a class="headerlink" href="#struct-unknowncatalogprose" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownCatalogProse</span>
+</span></code></pre></div>
+<p>The word was neither spelling.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-instructionsfile"><code>struct InstructionsFile</code><a class="headerlink" href="#struct-instructionsfile" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">InstructionsFile</span>
+</span></code></pre></div>
+<p>Where the operator's own prompt text lives.</p>
+<p>A newtype rather than a <code>PathBuf</code> so the one thing that can be wrong about it is wrong in one
+place. The field is private and <code>Self::parse</code> is the only way in.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidPromptSettings</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the path.</p>
+<p>Existence is deliberately not checked - see this module's documentation. The read at the
+composition root is what fails when a configured file is not there, and it fails loudly
+rather than omitting the section.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidpromptsettings"><code>enum InvalidPromptSettings</code><a class="headerlink" href="#enum-invalidpromptsettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidPromptSettings</span>
+</span></code></pre></div>
+<p>Why the prompt configuration is not usable.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>EmptyPath</code> - The path was present and empty.</li>
+</ul>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-promptsettings"><code>struct PromptSettings</code><a class="headerlink" href="#struct-promptsettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PromptSettings</span>
+</span></code></pre></div>
+<p>Everything that goes into the prompt beyond the pinned bundle and the tool list.</p>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">catalog_prose</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">CatalogProse</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">instructions_file</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">InstructionsFile</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The operator's own text, if a path was configured.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">instructions_file</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">InstructionsFile</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">catalog_prose</span><span class="p">:</span><span class="w"> </span><span class="nc">CatalogProse</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Assembles the group from parts that have each already been parsed.</p>
+<p>Infallible, like the other groups here: there is no cross-field rule inside it. <code>omitted</code>
+prose with no operator text is a coherent deployment - it says the metric names and the rules
+and nothing about meaning - so it is a choice rather than a refusal.</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-proxy">Module <code>proxy</code><a class="headerlink" href="#module-proxy" title="Permanent link">&para;</a></h2>
+<p>Which address a request is counted against, and who is allowed to say what it is.</p>
+<h1 id="the-problem-this-module-exists-for">The problem this module exists for<a class="headerlink" href="#the-problem-this-module-exists-for" title="Permanent link">&para;</a></h1>
+<p>A rate limiter needs a key, and on a surface with no per-caller identity - see
+<code>crate::security</code> - the only key available is a network address. There are two ways to learn
+one and they fail in opposite directions.</p>
+<p>The <strong>peer address</strong> is the far end of the TCP connection. It cannot be forged by a caller,
+and behind a reverse proxy or an ingress controller it is the <em>proxy's</em> address for every
+request that has ever arrived - so every caller on the internet shares one bucket. Either one
+abusive caller limits everybody, or the quota is set high enough to be no limit at all.</p>
+<p>A <strong>forwarded header</strong> carries the address the proxy saw. It is the right answer behind a
+proxy and it is a value any caller can write, so on a service that is <em>not</em> behind one it
+makes every bucket the caller's to choose - which is worse than one shared bucket, because it
+is a limiter that reports a configured limit and bounds nothing.</p>
+<p>Neither is correct on its own. What is correct is a header read <strong>only from a peer the
+operator named</strong>, which is what <code>TrustedProxies</code> is: an explicit list, empty by default, and
+<code>ClientAddressSource::Forwarded</code> refuses to start without one rather than trusting a
+spoofable header because a key was left at its default.</p>
+<h1 id="which-entry-of-the-header-is-the-caller">Which entry of the header is the caller<a class="headerlink" href="#which-entry-of-the-header-is-the-caller" title="Permanent link">&para;</a></h1>
+<p><code>X-Forwarded-For</code> is appended to, hop by hop, so it reads left to right as oldest to newest.
+Everything to the left of what our own trusted proxy wrote is a value the caller supplied, and
+a caller who writes <code>X-Forwarded-For: 10.0.0.1</code> gets that value read as their address by
+anything that takes the leftmost entry.</p>
+<p>So the walk is from the <strong>right</strong>: skip the entries that are addresses of trusted proxies, and
+the first entry that is not one is the client. If every entry is a trusted proxy, or the list
+runs out, or an entry is not an address at all, the peer address is used - it is the one value
+in the request nobody but the network can choose.</p>
+<h3 id="struct-cidr"><code>struct Cidr</code><a class="headerlink" href="#struct-cidr" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Cidr</span>
+</span></code></pre></div>
+<p>An address or a block of them, as an operator writes it.</p>
+<p><code>10.0.0.0/8</code> or a bare <code>10.0.0.7</code>, in either address family. A bare address is a block whose
+prefix covers every bit, so there is one shape to match against rather than two.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contains</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">address</span><span class="p">:</span><span class="w"> </span><span class="nc">IpAddr</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is <code>address</code> inside this block?</p>
+<p>Mixed families never match: a v4 block does not contain a v6 address, and the canonical
+form applied on both sides is what keeps a v4 peer arriving over a dual-stack socket from
+being one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidTrustedProxy</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads one entry.</p>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidtrustedproxy"><code>enum InvalidTrustedProxy</code><a class="headerlink" href="#enum-invalidtrustedproxy" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidTrustedProxy</span>
+</span></code></pre></div>
+<p>Why a string is not an address block.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotAnAddress</code> - The part before the slash was not an <code>IPv4</code> or <code>IPv6</code> literal.</li>
+<li><code>PrefixNotANumber</code> - The part after the slash was not a number.</li>
+<li><code>PrefixTooLong</code> - The prefix is longer than the address family has bits.</li>
+</ul>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-trustedproxies"><code>struct TrustedProxies</code><a class="headerlink" href="#struct-trustedproxies" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TrustedProxies</span>
+</span></code></pre></div>
+<p>The peers whose forwarded header this service will believe.</p>
+<p><strong>Empty by default, and the emptiness is the safe posture rather than an unset value.</strong> With
+nothing in the list the peer address is the key, which is correct for a service with no proxy
+in front. It becomes non-empty only when an operator names the hop.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Did the operator name any hop at all?</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">len</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many blocks are trusted, for the startup log.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">entries</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">S</span><span class="p">])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidTrustedProxy</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the configured list.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trusts</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">address</span><span class="p">:</span><span class="w"> </span><span class="nc">IpAddr</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is <code>address</code> one of the hops the operator named?</p>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-clientaddresssource"><code>enum ClientAddressSource</code><a class="headerlink" href="#enum-clientaddresssource" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ClientAddressSource</span>
+</span></code></pre></div>
+<p>Where the address a request is counted against comes from.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Peer</code> - The far end of the connection. Unforgeable, and one bucket for everything behind a proxy.</li>
+<li><code>Forwarded</code> - <code>X-Forwarded-For</code>, read only from a peer in <code>TrustedProxies</code>, falling back to the peer address for anything else.</li>
+</ul>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The spelling, for the startup log.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownClientAddressSource</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the configured value.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reads_a_header</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does this source read a caller-supplied header?</p>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknownclientaddresssource"><code>struct UnknownClientAddressSource</code><a class="headerlink" href="#struct-unknownclientaddresssource" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownClientAddressSource</span>
+</span></code></pre></div>
+<p>The configured value did not name a source.</p>
+<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h2 id="module-runtime">Module <code>runtime</code><a class="headerlink" href="#module-runtime" title="Permanent link">&para;</a></h2>
+<p>How much work may be in flight at once, how wide the engine runs, and how long stopping may
+take.</p>
+<h1 id="why-this-is-its-own-group-and-not-four-more-server-keys">Why this is its own group and not four more <code>server</code> keys<a class="headerlink" href="#why-this-is-its-own-group-and-not-four-more-server-keys" title="Permanent link">&para;</a></h1>
+<p>Because it bounds a different thing from anything in <code>crate::server</code>. Those keys are about one
+request: where it arrives, how big it may be, how long the caller waits for a reply. These are
+about the <em>process</em>: how many questions execute at once, how wide the engine that executes them
+is, and what the budget for winding down is.</p>
+<p>The distinction matters most for the timeout. <code>server.request_timeout_seconds</code> is a deadline on
+the <strong>reply</strong>, not a bound on the <strong>work</strong>. When it expires the caller is answered <code>408</code> and the
+handler future is dropped - and a started <code>tokio::task::spawn_blocking</code> task cannot be aborted,
+so the question keeps running. Without something else in the picture, a caller asking questions
+that cost more than the timeout gets a fast turnaround while the deployment keeps the whole
+cost, and in-flight work accumulates at the rate limit with nothing shedding it. The blocking
+pool defaults to 512 threads with an unbounded queue, so that backlog is bounded by memory.</p>
+<p><code>QueryConcurrency</code> is the bound on the work. It is the number of questions that may be
+<em>executing</em>, and the permit is held by the blocking task rather than by the handler future - so
+a timed-out request does not hand its slot back until the work it started actually finishes.
+That is what makes the backlog a number somebody chose.</p>
+<p><code>AdmissionTimeout</code> stops the queue in front of that bound from being a second unbounded thing.
+A question that cannot get a slot inside it is refused rather than left waiting, and a refused
+waiter costs a dropped future rather than a thread.</p>
+<p><code>EngineWorkers</code> is not a bound at all - it is a width. The in-process engine drives its own
+runtime and blocks on it, so a single-threaded one is a contention point every concurrent
+question shares. See <code>sutura_exec_datafusion::DataFusionWarehouse</code>.</p>
+<p><code>ShutdownGrace</code> is the budget for stopping, and it covers the whole of stopping rather than
+the connection drain alone.</p>
+<p>Every type here has the shape of <code>crate::server::RequestTimeout</code>, which is the pattern this
+crate already had: a private field, one <code>parse</code> that is the only constructor, a ceiling the type
+declares, and a zero refused rather than read as <code>no limit</code>. They share
+<code>InvalidBound</code> rather than growing a second error, so a bad value here lands in the same
+<code>SettingsError</code> variant a bad server bound does.</p>
+<h3 id="struct-queryconcurrency"><code>struct QueryConcurrency</code><a class="headerlink" href="#struct-queryconcurrency" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QueryConcurrency</span>
+</span></code></pre></div>
+<p>How many questions may be executing at once.</p>
+<p>Not how many may be <em>in flight</em>: a request waiting for a slot, parsing a body or writing a
+response is not counted. This is the number of questions holding a blocking-pool thread and a
+data system, which is the resource that runs out.</p>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">count</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a concurrency bound.</p>
+<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-admissiontimeout"><code>struct AdmissionTimeout</code><a class="headerlink" href="#struct-admissiontimeout" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AdmissionTimeout</span>
+</span></code></pre></div>
+<p>How long a question may wait for one of those slots.</p>
+<p>Bounded because the alternative is a queue nothing empties. Shorter than the request timeout by
+default, on purpose: a caller who has waited five seconds for a slot is better served by a
+<code>503</code> they can retry than by a <code>408</code> twenty-five seconds later that says the same thing less
+clearly.</p>
+<h4 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a wait in whole seconds.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<h4 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-engineworkers"><code>struct EngineWorkers</code><a class="headerlink" href="#struct-engineworkers" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">EngineWorkers</span>
+</span></code></pre></div>
+<p>How many threads the in-process engine's own runtime gets.</p>
+<p>Resolved to a number at load time rather than kept as "whatever the machine has", so the value
+in the startup log is the value in effect. An absent key follows
+<code>std::thread::available_parallelism</code>; a present one wins, which is what a container with a CPU
+quota needs - <code>available_parallelism</code> reports what the kernel exposes, and on most container
+runtimes that is the host's core count rather than the cgroup's share.</p>
+<h4 id="methods_14">Methods<a class="headerlink" href="#methods_14" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">configured</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">usize</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a worker count, or resolves the absent one.</p>
+<p>Not a <code>const fn</code>, unlike its neighbours, because the absent case asks the operating system
+how many threads this machine can run at once. A machine that will not answer is treated as
+one, which is the behaviour this adapter had before the key existed rather than a failure to
+start.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">was_chosen</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Did an operator write this number, or did the machine?</p>
+<p>For the startup log, and for the same reason <code>api.docs</code> records it: an operator reading
+<code>engine_worker_threads = 8</code> needs to know whether that was their decision.</p>
+<h4 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-shutdowngrace"><code>struct ShutdownGrace</code><a class="headerlink" href="#struct-shutdowngrace" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ShutdownGrace</span>
+</span></code></pre></div>
+<p>How long stopping may take, once stopping has been asked for.</p>
+<p>Chosen against the deadline on the other side rather than as a round number. An orchestrator
+sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+process still running when that expires is killed mid-answer, so whatever it would have done on
+the way out does not happen. Fifteen seconds leaves room for the exit itself.</p>
+<p>It bounds the <em>whole</em> of stopping and not the connection drain alone. The drain gets the budget
+first; what is left of it is what the runtime will wait for a blocking task it cannot cancel.
+See <code>sutura_runtime::Shutdown::remaining_grace</code>.</p>
+<h4 id="methods_15">Methods<a class="headerlink" href="#methods_15" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a grace period in whole seconds.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<h4 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-runtimesettings"><code>struct RuntimeSettings</code><a class="headerlink" href="#struct-runtimesettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-74-1"><a id="__codelineno-74-1" name="__codelineno-74-1" href="#__codelineno-74-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RuntimeSettings</span>
+</span></code></pre></div>
+<p>Everything about how much runs at once and how the process stops.</p>
+<h4 id="methods_16">Methods<a class="headerlink" href="#methods_16" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-75-1"><a id="__codelineno-75-1" name="__codelineno-75-1" href="#__codelineno-75-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">admission_timeout</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">AdmissionTimeout</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-76-1"><a id="__codelineno-76-1" name="__codelineno-76-1" href="#__codelineno-76-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">engine_workers</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">EngineWorkers</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-77-1"><a id="__codelineno-77-1" name="__codelineno-77-1" href="#__codelineno-77-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_concurrent_queries</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">QueryConcurrency</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-78-1"><a id="__codelineno-78-1" name="__codelineno-78-1" href="#__codelineno-78-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">max_concurrent_queries</span><span class="p">:</span><span class="w"> </span><span class="nc">QueryConcurrency</span><span class="p">,</span><span class="w"> </span><span class="n">admission_timeout</span><span class="p">:</span><span class="w"> </span><span class="nc">AdmissionTimeout</span><span class="p">,</span><span class="w"> </span><span class="n">engine_workers</span><span class="p">:</span><span class="w"> </span><span class="nc">EngineWorkers</span><span class="p">,</span><span class="w"> </span><span class="n">shutdown_grace</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownGrace</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Assembles the group from parts that have each already been parsed.</p>
+<p>Infallible, like <code>crate::server::ServerSettings::new</code> and for the same reason: there is no
+cross-field rule inside this group. The one relationship worth knowing - that an admission
+timeout above the request timeout is never reached - spans two groups and is documented on
+<code>AdmissionTimeout::MAX_SECONDS</code> rather than refused.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-79-1"><a id="__codelineno-79-1" name="__codelineno-79-1" href="#__codelineno-79-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">shutdown_grace</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownGrace</span>
+</span></code></pre></div>
+<h4 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-security">Module <code>security</code><a class="headerlink" href="#module-security" title="Permanent link">&para;</a></h2>
+<p>The access control this service has, and the honest name for what it is not.</p>
+<p><strong>There is no per-caller identity in sutura today, and nothing here invents one.</strong> No request
+context reaches the query path, no credential is minted per request, and the <code>CredentialBroker</code>
+port that would do it is deliberately absent because a port arrives with its adapter.
+<code>examples/multi-player/README.md</code> is where that gap is written down for a reader.</p>
+<p>So what an <code>AccessToken</code> does is narrower than authentication, and the narrowness is the
+point of this module documentation: a presented token proves the caller holds a secret the
+deployment was configured with. It proves nothing about <em>which</em> caller, it cannot be scoped,
+it cannot be revoked for one party without revoking it for all of them, and it does not reach
+the data system - every query still runs with whatever access the process already had.</p>
+<p>It is worth having anyway, because the alternative on a non-loopback interface is an
+unauthenticated way to read whatever the process can read. It is not worth mistaking for
+identity, which is why <code>SecuritySettings::describes_identity</code> exists as an associated function
+that always answers the same thing: the startup log prints it, so an operator cannot deploy this
+believing otherwise.</p>
+<h3 id="struct-accesstoken"><code>struct AccessToken</code><a class="headerlink" href="#struct-accesstoken" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-80-1"><a id="__codelineno-80-1" name="__codelineno-80-1" href="#__codelineno-80-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AccessToken</span>
+</span></code></pre></div>
+<p>A pre-shared secret a caller presents to reach the service.</p>
+<p>Held as a <code>Secret</code>, so the whole settings tree can be written to the startup log with
+<code>Debug</code> and the token cannot come out with it.</p>
+<p><strong>Not comparable with <code>==</code>, and that is inherited rather than reimplemented.</strong> <code>Secret</code>
+implements no <code>PartialEq</code> on purpose: a derived comparison on credential material returns on
+the first differing byte, which is a timing oracle at whatever call site adds it. The
+comparison lives here instead, once, as <code>AccessToken::matches_in_constant_time</code>.</p>
+<h4 id="methods_17">Methods<a class="headerlink" href="#methods_17" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-81-1"><a id="__codelineno-81-1" name="__codelineno-81-1" href="#__codelineno-81-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">matches_in_constant_time</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">presented</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does <code>presented</code> equal the configured token?</p>
+<p>Named for the property rather than for the operation, because the property is the only
+reason this function exists rather than a <code>==</code>.</p>
+<p><strong>Both sides are hashed first, and that is not ceremony.</strong> <code>subtle</code> compares equal-length
+byte slices without branching, which removes the early-return oracle - but comparing the
+raw strings would still have to decide what to do about differing lengths, and every
+answer to that leaks the length before it leaks anything else. Reducing both sides to a
+fixed 32 bytes removes the question: every comparison is over the same number of bytes
+whatever arrived.</p>
+<p>What this still does not do: it is not a password hash. There is no salt and no work
+factor, because the input is a high-entropy secret an operator generated rather than
+something a person chose, and nothing here is stored for an attacker to find offline.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-82-1"><a id="__codelineno-82-1" name="__codelineno-82-1" href="#__codelineno-82-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidAccessToken</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a configured token.</p>
+<p><strong>Parses the wire grammar, not merely a length.</strong> The type is named for a value that
+arrives in an <code>Authorization</code> header, so what it accepts is what such a header can carry:
+see <code>Self::wire_grammar</code> and <code>InvalidAccessToken::NotRepresentableOnTheWire</code>.</p>
+<h4 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="enum-invalidaccesstoken"><code>enum InvalidAccessToken</code><a class="headerlink" href="#enum-invalidaccesstoken" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-83-1"><a id="__codelineno-83-1" name="__codelineno-83-1" href="#__codelineno-83-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidAccessToken</span>
+</span></code></pre></div>
+<p>Why a string is not usable as an access token.</p>
+<h4 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>TooShort</code> - Shorter than <code>AccessToken::MIN_LENGTH</code>.</li>
+<li><code>Untrimmed</code> - Whitespace at either end, which is almost always a copy-paste artefact and would otherwise make every request fail for a reason nobody can see in a log.</li>
+<li><code>NotRepresentableOnTheWire</code> - A character no <code>Authorization</code> header could carry to us.</li>
+</ul>
+<h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-tlstermination"><code>enum TlsTermination</code><a class="headerlink" href="#enum-tlstermination" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-84-1"><a id="__codelineno-84-1" name="__codelineno-84-1" href="#__codelineno-84-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TlsTermination</span>
+</span></code></pre></div>
+<p>Where TLS is terminated for this deployment.</p>
+<p><strong>A declaration, not a control.</strong> Nothing here encrypts anything except
+<code>Self::InProcess</code>; the other three name a terminator that lives somewhere else, and the point
+of writing it down is that the <em>cleartext hop</em> it implies is then a stated fact rather than an
+assumption. The bearer token crosses that hop in the clear, and how far the hop reaches is the
+whole difference between the three:</p>
+<table>
+<thead>
+<tr>
+<th>Declared</th>
+<th>What terminates TLS</th>
+<th>What the token crosses in cleartext</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>none</code></td>
+<td>nothing</td>
+<td>the whole path from the caller. Only sane on loopback</td>
+</tr>
+<tr>
+<td><code>sidecar</code></td>
+<td>a proxy in this pod</td>
+<td>a loopback hop inside the pod</td>
+</tr>
+<tr>
+<td><code>ingress</code></td>
+<td>an ingress controller or gateway</td>
+<td>the pod network, from that hop to this process</td>
+</tr>
+<tr>
+<td><code>in-process</code></td>
+<td>this process</td>
+<td>nothing - the connection ends here</td>
+</tr>
+</tbody>
+</table>
+<p>So <code>ingress</code> is not a weaker <code>sidecar</code>: it is the same posture with a longer cleartext segment,
+and whether that segment is acceptable is a question about the cluster network - a mesh with
+mutual TLS between pods answers it differently from a flat one. This type does not pretend to
+know, and a startup log that said "TLS enabled" would be pretending.</p>
+<h4 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>None</code> - Nothing terminates TLS. Plaintext from the caller to here.</li>
+<li><code>Sidecar</code> - A terminator inside this pod or on this host, reached over loopback.</li>
+<li><code>Ingress</code> - An ingress controller or gateway. The hop from it to this process crosses the pod network.</li>
+<li><code>InProcess</code> - This process. Requires the <code>tls</code> feature and a certificate and key.</li>
+</ul>
+<h4 id="methods_18">Methods<a class="headerlink" href="#methods_18" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-85-1"><a id="__codelineno-85-1" name="__codelineno-85-1" href="#__codelineno-85-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The spelling, for the startup log.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-86-1"><a id="__codelineno-86-1" name="__codelineno-86-1" href="#__codelineno-86-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cleartext_hop</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The cleartext hop this declaration implies, as a sentence for the startup log.</p>
+<p>A function rather than a comment for the same reason
+<code>SecuritySettings::describes_identity</code> is one: the log, the documentation and this type
+read the same value, so none of them can drift into claiming end-to-end encryption.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-87-1"><a id="__codelineno-87-1" name="__codelineno-87-1" href="#__codelineno-87-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_declared</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Was anything said at all?</p>
+<p><code>Self::None</code> is the default, so "not declared" and "declared as nothing" are the same
+value - which is why the refusal for a non-loopback bind is keyed on this rather than on an
+<code>Option</code>. An operator who means plaintext on loopback writes nothing and gets it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-88-1"><a id="__codelineno-88-1" name="__codelineno-88-1" href="#__codelineno-88-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownTlsTermination</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the configured value.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-89-1"><a id="__codelineno-89-1" name="__codelineno-89-1" href="#__codelineno-89-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">terminates_here</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does this process hold the TLS connection itself?</p>
+<h4 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknowntlstermination"><code>struct UnknownTlsTermination</code><a class="headerlink" href="#struct-unknowntlstermination" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-90-1"><a id="__codelineno-90-1" name="__codelineno-90-1" href="#__codelineno-90-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownTlsTermination</span>
+</span></code></pre></div>
+<p>The configured value did not name a place TLS is terminated.</p>
+<h4 id="implements_26">Implements<a class="headerlink" href="#implements_26" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-securitysettings"><code>struct SecuritySettings</code><a class="headerlink" href="#struct-securitysettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-91-1"><a id="__codelineno-91-1" name="__codelineno-91-1" href="#__codelineno-91-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SecuritySettings</span>
+</span></code></pre></div>
+<p>The access posture, and the declaration that goes with a non-loopback bind.</p>
+<p>Two fields rather than one, because they answer different questions and collapsing them was
+the tempting mistake: a token says <em>who may reach this</em>, and the declaration says <em>what, if
+anything, encrypts the path it travels</em>. A deployment that sets a token but binds the wildcard
+with nothing in front has answered only the first.</p>
+<p><strong>The declaration replaced a boolean, and that is the point of it.</strong> The boolean it replaced -
+<code>expose_beyond_loopback</code> - recorded that somebody meant to publish the service and said nothing
+about what protects the token in flight, so a wildcard bind with no terminator anywhere read
+exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
+agreeing that off-host is intended.</p>
+<h4 id="methods_19">Methods<a class="headerlink" href="#methods_19" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-92-1"><a id="__codelineno-92-1" name="__codelineno-92-1" href="#__codelineno-92-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">access_token</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">AccessToken</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The configured token, if there is one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-93-1"><a id="__codelineno-93-1" name="__codelineno-93-1" href="#__codelineno-93-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">describes_identity</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does anything here establish who the caller is?</p>
+<p>Always <code>false</code>, and it is a function rather than a comment so the startup log and the
+documentation read the same value. When a <code>CredentialBroker</code> and a request context exist,
+this stops being a constant and the log line changes with it; until then a deployment is
+told, on every boot, that the token authenticates the deployment and not the caller.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-94-1"><a id="__codelineno-94-1" name="__codelineno-94-1" href="#__codelineno-94-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">access_token</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">AccessToken</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="nc">TlsTermination</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-95-1"><a id="__codelineno-95-1" name="__codelineno-95-1" href="#__codelineno-95-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls_termination</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TlsTermination</span>
+</span></code></pre></div>
+<p>Where the operator said TLS is terminated.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-96-1"><a id="__codelineno-96-1" name="__codelineno-96-1" href="#__codelineno-96-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">token_state</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Whether a token is configured, as a word for the startup log.</p>
+<p>A method and not a <code>Debug</code> of the option, so the log line cannot become the token by
+somebody changing the field type later.</p>
+<h4 id="implements_27">Implements<a class="headerlink" href="#implements_27" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
+<h2 id="module-server">Module <code>server</code><a class="headerlink" href="#module-server" title="Permanent link">&para;</a></h2>
+<p>Where the service listens, and the two bounds every request is held to.</p>
+<p>The interesting type here is <code>BindAddress</code>, and it is interesting for a security reason
+rather than an ergonomic one. This service has no per-caller identity - see the module
+documentation on <code>crate</code> - so the interface it listens on is the whole of its perimeter.
+Making the bind an IP address rather than a string is what lets
+<code>BindAddress::is_loopback</code> be a fact the startup refusals can read, instead of a substring
+test somebody has to remember to write.</p>
+<h3 id="struct-bindaddress"><code>struct BindAddress</code><a class="headerlink" href="#struct-bindaddress" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-97-1"><a id="__codelineno-97-1" name="__codelineno-97-1" href="#__codelineno-97-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BindAddress</span>
+</span></code></pre></div>
+<p>The socket the service listens on.</p>
+<p>An <code>IpAddr</code> and a port, never a hostname. A hostname is refused rather than resolved: a name
+resolves to whatever the resolver says today, which may be a public interface tomorrow, and
+a perimeter that moves when DNS moves is not a perimeter. The operator writes the interface
+they mean.</p>
+<h4 id="methods_20">Methods<a class="headerlink" href="#methods_20" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-98-1"><a id="__codelineno-98-1" name="__codelineno-98-1" href="#__codelineno-98-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_loopback</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is this address reachable only from this host?</p>
+<p>The question the production refusals are keyed on. The two wildcard addresses answer
+<code>false</code>, which is the answer that matters: the wildcard is the bind that reaches every
+interface, and it is the one an operator reaches for without meaning to publish anything.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-99-1"><a id="__codelineno-99-1" name="__codelineno-99-1" href="#__codelineno-99-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBindAddress</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a host and port.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-100-1"><a id="__codelineno-100-1" name="__codelineno-100-1" href="#__codelineno-100-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The port, so a caller can report the one it actually got.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-101-1"><a id="__codelineno-101-1" name="__codelineno-101-1" href="#__codelineno-101-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">socket</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SocketAddr</span>
+</span></code></pre></div>
+<p>The address, for whatever binds the socket.</p>
+<h4 id="implements_28">Implements<a class="headerlink" href="#implements_28" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidbindaddress"><code>enum InvalidBindAddress</code><a class="headerlink" href="#enum-invalidbindaddress" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-102-1"><a id="__codelineno-102-1" name="__codelineno-102-1" href="#__codelineno-102-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBindAddress</span>
+</span></code></pre></div>
+<p>Why a host and port are not an address to listen on.</p>
+<h4 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotAnIpAddress</code> - The host was not an <code>IPv4</code> or <code>IPv6</code> literal.</li>
+</ul>
+<h4 id="implements_29">Implements<a class="headerlink" href="#implements_29" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-requesttimeout"><code>struct RequestTimeout</code><a class="headerlink" href="#struct-requesttimeout" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-103-1"><a id="__codelineno-103-1" name="__codelineno-103-1" href="#__codelineno-103-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RequestTimeout</span>
+</span></code></pre></div>
+<p>How long one request may take before the service gives up on it.</p>
+<p>Bounded at both ends. Zero is a service that answers nothing, and an hour is a connection
+held open long enough that a handful of them are the outage: a question here is one
+aggregate over a bounded range, so a minute is already generous and five is the ceiling.</p>
+<h4 id="methods_21">Methods<a class="headerlink" href="#methods_21" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-104-1"><a id="__codelineno-104-1" name="__codelineno-104-1" href="#__codelineno-104-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-105-1"><a id="__codelineno-105-1" name="__codelineno-105-1" href="#__codelineno-105-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a timeout in whole seconds.</p>
+<p>Seconds and not a duration string: sub-second precision is meaningless for a bound this
+coarse, and a parser for a suffixed number is a second grammar for a single value.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-106-1"><a id="__codelineno-106-1" name="__codelineno-106-1" href="#__codelineno-106-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<h4 id="implements_30">Implements<a class="headerlink" href="#implements_30" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-bodylimit"><code>struct BodyLimit</code><a class="headerlink" href="#struct-bodylimit" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-107-1"><a id="__codelineno-107-1" name="__codelineno-107-1" href="#__codelineno-107-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BodyLimit</span>
+</span></code></pre></div>
+<p>The largest request body the service will read.</p>
+<p>A modelled question is a metric name, a grain, two dates and at most four dimensions, which
+is a few hundred bytes. The bound exists because a body limit is the cheapest availability
+control there is, and because the default in most stacks is whatever arrives.</p>
+<h4 id="methods_22">Methods<a class="headerlink" href="#methods_22" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-108-1"><a id="__codelineno-108-1" name="__codelineno-108-1" href="#__codelineno-108-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-109-1"><a id="__codelineno-109-1" name="__codelineno-109-1" href="#__codelineno-109-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a body limit in bytes.</p>
+<h4 id="implements_31">Implements<a class="headerlink" href="#implements_31" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-shutdowngrace_1"><code>struct ShutdownGrace</code><a class="headerlink" href="#struct-shutdowngrace_1" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-110-1"><a id="__codelineno-110-1" name="__codelineno-110-1" href="#__codelineno-110-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ShutdownGrace</span>
+</span></code></pre></div>
+<p>How long stopping may take, once stopping has been asked for.</p>
+<p>Chosen against the deadline on the other side rather than as a round number. An orchestrator
+sends a termination signal and starts a kill timer - the usual window is thirty seconds - and a
+process still running when that expires is killed mid-answer, so whatever it would have done on
+the way out does not happen. Fifteen seconds leaves room for the exit itself.</p>
+<p>It bounds the <em>whole</em> of stopping and not the connection drain alone: the drain gets the budget
+first, and what is left of it is what the runtime will wait for a blocking task it cannot
+cancel. See <code>sutura_runtime::Shutdown::remaining_grace</code>.</p>
+<p>Zero is refused for the reason every bound in this module is. A zero grace period means "drop
+every in-flight answer immediately", which is a decision somebody would write differently.</p>
+<h4 id="implements_32">Implements<a class="headerlink" href="#implements_32" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidbound"><code>enum InvalidBound</code><a class="headerlink" href="#enum-invalidbound" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-111-1"><a id="__codelineno-111-1" name="__codelineno-111-1" href="#__codelineno-111-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBound</span>
+</span></code></pre></div>
+<p>Why a bound is not a bound.</p>
+<h4 id="variants_10">Variants<a class="headerlink" href="#variants_10" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Zero</code> - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.</li>
+<li><code>TooLarge</code> - Above the ceiling this type declares.</li>
+</ul>
+<h4 id="implements_33">Implements<a class="headerlink" href="#implements_33" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-tlsmaterial"><code>struct TlsMaterial</code><a class="headerlink" href="#struct-tlsmaterial" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-112-1"><a id="__codelineno-112-1" name="__codelineno-112-1" href="#__codelineno-112-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsMaterial</span>
+</span></code></pre></div>
+<p>A certificate chain and the private key that goes with it, as paths.</p>
+<p><strong>Paths and nothing more, and the split is deliberate.</strong> This crate holds no framework and
+reads no files: it parses the <em>pair</em> - both halves or neither - and stops there. Whether the
+files are readable, whether they are PEM at all, and whether the key matches the certificate
+are questions only the TLS implementation can answer, so they are answered once, in
+<code>sutura_http::tls</code>, before the socket is bound. Two checks in two crates would be two messages
+for one mistake, and the weaker one would be the reassuring one.</p>
+<h4 id="methods_23">Methods<a class="headerlink" href="#methods_23" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-113-1"><a id="__codelineno-113-1" name="__codelineno-113-1" href="#__codelineno-113-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The certificate chain, in PEM.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-114-1"><a id="__codelineno-114-1" name="__codelineno-114-1" href="#__codelineno-114-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The private key, in PEM.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-115-1"><a id="__codelineno-115-1" name="__codelineno-115-1" href="#__codelineno-115-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">Option</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidTlsMaterial</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the pair, or nothing.</p>
+<p><code>None</code> for both is "no in-process TLS", which is the default and is not an error.</p>
+<h4 id="implements_34">Implements<a class="headerlink" href="#implements_34" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidtlsmaterial"><code>enum InvalidTlsMaterial</code><a class="headerlink" href="#enum-invalidtlsmaterial" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-116-1"><a id="__codelineno-116-1" name="__codelineno-116-1" href="#__codelineno-116-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidTlsMaterial</span>
+</span></code></pre></div>
+<p>Why a pair of paths is not usable TLS material.</p>
+<h4 id="variants_11">Variants<a class="headerlink" href="#variants_11" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>OnlyOneHalf</code> - One half was given and the other was not.</li>
+<li><code>EmptyPath</code> - A path was given as an empty string, which is not a path.</li>
+</ul>
+<h4 id="implements_35">Implements<a class="headerlink" href="#implements_35" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-serversettings"><code>struct ServerSettings</code><a class="headerlink" href="#struct-serversettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-117-1"><a id="__codelineno-117-1" name="__codelineno-117-1" href="#__codelineno-117-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServerSettings</span>
+</span></code></pre></div>
+<p>Everything about the socket, the two per-request bounds, and the TLS material if there is any.</p>
+<p><strong>Not <code>Copy</code>, and that is the TLS paths.</strong> Every accessor borrows or returns a <code>Copy</code> value, and
+the group itself is read once, at assembly time.</p>
+<h4 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-118-1"><a id="__codelineno-118-1" name="__codelineno-118-1" href="#__codelineno-118-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BindAddress</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-119-1"><a id="__codelineno-119-1" name="__codelineno-119-1" href="#__codelineno-119-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BodyLimit</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-120-1"><a id="__codelineno-120-1" name="__codelineno-120-1" href="#__codelineno-120-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">bind</span><span class="p">:</span><span class="w"> </span><span class="nc">BindAddress</span><span class="p">,</span><span class="w"> </span><span class="n">request_timeout</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestTimeout</span><span class="p">,</span><span class="w"> </span><span class="n">max_body</span><span class="p">:</span><span class="w"> </span><span class="nc">BodyLimit</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Assembles the group from parts that have each already been parsed.</p>
+<p>Infallible, and that is the shape the newtypes buy: there is no cross-field rule inside
+this group, so once every part exists the group exists. The cross-field rules - the ones
+that pair a bind address with an environment, a token and a TLS declaration - live in
+<code>crate::Settings::parse</code>, because they need the other groups to decide.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-121-1"><a id="__codelineno-121-1" name="__codelineno-121-1" href="#__codelineno-121-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">request_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RequestTimeout</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-122-1"><a id="__codelineno-122-1" name="__codelineno-122-1" href="#__codelineno-122-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The certificate and key this process would terminate TLS with, if any were configured.</p>
+<h4 id="implements_36">Implements<a class="headerlink" href="#implements_36" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-telemetry">Module <code>telemetry</code><a class="headerlink" href="#module-telemetry" title="Permanent link">&para;</a></h2>
+<p>What the log looks like, and who is meant to read it.</p>
+<p>One decision with two right answers, which is why it is a type rather than a flag. In
+production a log line is read by a collector: it has to be one JSON object per line, with the
+span context attached, so a query can find every line belonging to one request. On a laptop
+the same line is read by a person compiling every thirty seconds, and a JSON object per line
+is unreadable there.</p>
+<p>The default therefore follows <code>crate::Environment</code> and nothing else, so the two cannot be
+set inconsistently by omission. An explicit value overrides it - a developer debugging what
+the collector will actually receive needs that - and the startup log says which of the two
+happened.</p>
+<h3 id="enum-logformat"><code>enum LogFormat</code><a class="headerlink" href="#enum-logformat" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-123-1"><a id="__codelineno-123-1" name="__codelineno-123-1" href="#__codelineno-123-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LogFormat</span>
+</span></code></pre></div>
+<p>How a log line is rendered.</p>
+<h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Bunyan</code> - One JSON object per line, in the bunyan schema. What a collector ingests.</li>
+<li><code>Pretty</code> - Indented, coloured, and meant for a terminal.</li>
+</ul>
+<h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-124-1"><a id="__codelineno-124-1" name="__codelineno-124-1" href="#__codelineno-124-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-125-1"><a id="__codelineno-125-1" name="__codelineno-125-1" href="#__codelineno-125-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The format an environment gets when the configuration does not say.</p>
+<p><strong>This is the split, in one function.</strong> Production is machine-readable and everything else
+is human-readable, and it is expressed as a total match rather than an <code>if</code> so a fourth
+environment cannot inherit an answer nobody chose for it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-126-1"><a id="__codelineno-126-1" name="__codelineno-126-1" href="#__codelineno-126-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownLogFormat</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a format name.</p>
+<h4 id="implements_37">Implements<a class="headerlink" href="#implements_37" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="struct-unknownlogformat"><code>struct UnknownLogFormat</code><a class="headerlink" href="#struct-unknownlogformat" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-127-1"><a id="__codelineno-127-1" name="__codelineno-127-1" href="#__codelineno-127-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownLogFormat</span>
+</span></code></pre></div>
+<p>The string was neither format.</p>
+<h4 id="implements_38">Implements<a class="headerlink" href="#implements_38" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-logfilter"><code>struct LogFilter</code><a class="headerlink" href="#struct-logfilter" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-128-1"><a id="__codelineno-128-1" name="__codelineno-128-1" href="#__codelineno-128-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LogFilter</span>
+</span></code></pre></div>
+<p>A tracing filter directive, as written for <code>RUST_LOG</code>.</p>
+<p>Kept as text here and turned into a real filter by whatever installs the subscriber, because
+the type that parses one lives in <code>tracing-subscriber</code> and this crate holds no framework. What
+<em>is</em> checked here is that it is not empty and not a smuggled second line: an empty filter
+silently means "no directives", which is a service that logs at the default level while its
+configuration says otherwise.</p>
+<h4 id="methods_26">Methods<a class="headerlink" href="#methods_26" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-129-1"><a id="__codelineno-129-1" name="__codelineno-129-1" href="#__codelineno-129-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-130-1"><a id="__codelineno-130-1" name="__codelineno-130-1" href="#__codelineno-130-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidLogFilter</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a filter directive.</p>
+<h4 id="implements_39">Implements<a class="headerlink" href="#implements_39" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidlogfilter"><code>enum InvalidLogFilter</code><a class="headerlink" href="#enum-invalidlogfilter" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-131-1"><a id="__codelineno-131-1" name="__codelineno-131-1" href="#__codelineno-131-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidLogFilter</span>
+</span></code></pre></div>
+<p>Why a string is not a filter directive.</p>
+<h4 id="variants_13">Variants<a class="headerlink" href="#variants_13" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Empty</code> - Empty, or only whitespace.</li>
+<li><code>ControlCharacter</code> - A control character, which in practice is a newline pasted in with the value. A newline in a filter is a log line an attacker can forge if the value ever reaches the log itself.</li>
+</ul>
+<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-servicename"><code>struct ServiceName</code><a class="headerlink" href="#struct-servicename" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-132-1"><a id="__codelineno-132-1" name="__codelineno-132-1" href="#__codelineno-132-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServiceName</span>
+</span></code></pre></div>
+<p>The name every log line is attributed to.</p>
+<p>A separate type because it is the field a collector groups by, so an empty or whitespace one
+makes every line from this deployment unattributable.</p>
+<h4 id="methods_27">Methods<a class="headerlink" href="#methods_27" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-133-1"><a id="__codelineno-133-1" name="__codelineno-133-1" href="#__codelineno-133-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-134-1"><a id="__codelineno-134-1" name="__codelineno-134-1" href="#__codelineno-134-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidServiceName</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a service name.</p>
+<p>Narrow on purpose: a name with a space or a quote in it has to be escaped by every
+consumer, and the one that forgets produces a log line that does not parse.</p>
+<h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidservicename"><code>enum InvalidServiceName</code><a class="headerlink" href="#enum-invalidservicename" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidServiceName</span>
+</span></code></pre></div>
+<p>Why a string is not a service name.</p>
+<h4 id="variants_14">Variants<a class="headerlink" href="#variants_14" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Empty</code></li>
+<li><code>NotAnIdentifier</code></li>
+</ul>
+<h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-telemetrysettings"><code>struct TelemetrySettings</code><a class="headerlink" href="#struct-telemetrysettings" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TelemetrySettings</span>
+</span></code></pre></div>
+<p>Everything about the log.</p>
+<h4 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-137-1"><a id="__codelineno-137-1" name="__codelineno-137-1" href="#__codelineno-137-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filter</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LogFilter</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-138-1"><a id="__codelineno-138-1" name="__codelineno-138-1" href="#__codelineno-138-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LogFormat</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-139-1"><a id="__codelineno-139-1" name="__codelineno-139-1" href="#__codelineno-139-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-140-1"><a id="__codelineno-140-1" name="__codelineno-140-1" href="#__codelineno-140-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="nc">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFilter</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFormat</span><span class="p">,</span><span class="w"> </span><span class="n">format_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-141-1"><a id="__codelineno-141-1" name="__codelineno-141-1" href="#__codelineno-141-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service_name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceName</span>
+</span></code></pre></div>
+<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

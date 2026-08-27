@@ -6,29 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="Why the local execution path adopts DataFusion and generates no SQL at all, why the execution port now carries a plan instead of a statement, and why federation is still later.">
       
       
       
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0003-datafusion-for-local-execution/">
       
+      
+        <link rel="prev" href="../0002-a-closed-vocabulary-for-measures/">
+      
+      
+        <link rel="next" href="../../api/">
       
       
         
       
       
-      <link rel="icon" href="/sutura/main/assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura</title>
+        <title>DataFusion for local execution - sutura</title>
       
     
     
-      <link rel="stylesheet" href="/sutura/main/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/sutura/main/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/sutura/main/css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("/sutura/main",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -67,6 +73,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#datafusion-for-local-execution" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -83,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/sutura/main/." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -102,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              DataFusion for local execution
             
           </span>
         </div>
@@ -230,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/sutura/main/." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -259,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -348,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -376,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -404,7 +415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -432,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -529,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -557,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -585,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -613,7 +624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -645,8 +656,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -667,11 +680,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -692,7 +705,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -710,7 +723,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -738,7 +751,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -763,8 +776,10 @@
                 
   
   
+    
   
   
+  
     
     
       
@@ -780,11 +795,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_3" checked>
         
           
           <label class="md-nav__link" for="__nav_4_3" id="__nav_4_3_label" tabindex="0">
@@ -805,7 +820,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_3_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_3">
             <span class="md-nav__icon md-icon"></span>
             
@@ -823,7 +838,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0001-first-party-semantic-models/" class="md-nav__link">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -851,7 +866,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -876,10 +891,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/sutura/main/adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -895,6 +937,109 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-made-it-possible-the-port-carries-a-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What made it possible: the port carries a plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-this-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this costs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -955,7 +1100,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="/sutura/main/api/" class="md-nav__link ">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -999,7 +1144,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-domain/" class="md-nav__link">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1027,7 +1172,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1055,7 +1200,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-semantic/" class="md-nav__link">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1083,7 +1228,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-sql/" class="md-nav__link">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1111,7 +1256,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1139,7 +1284,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1167,7 +1312,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-app/" class="md-nav__link">
+      <a href="../../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1195,7 +1340,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-config/" class="md-nav__link">
+      <a href="../../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1223,7 +1368,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-runtime/" class="md-nav__link">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1251,7 +1396,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-http/" class="md-nav__link">
+      <a href="../../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -1294,7 +1439,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -1331,6 +1476,99 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#context" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Context
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-made-it-possible-the-port-carries-a-plan" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What made it possible: the port carries a plan
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-this-costs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this costs
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-does-not-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What does not change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1343,8 +1581,195 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="datafusion-for-local-execution">DataFusion for local execution<a class="headerlink" href="#datafusion-for-local-execution" title="Permanent link">&para;</a></h1>
+<p>Status: accepted. It adds an execution adapter and changes what the execution port carries. It
+supersedes nothing: the dialect layer keeps the job of rendering SQL for a remote data system, and
+federation is still later rather than now.</p>
+<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
+<p>The local path is the one a person is on the first time they try this: a file on the same machine, no
+server, no login. <a href="../0001-first-party-semantic-models/">The first-party models decision</a> is why that
+path exists at all, and the generator is what makes it work, producing the whole statement from a
+model in the dialect of whatever will run it.</p>
+<p>Building that generator against a local file produced one kind of bug over and over, and every one of
+them was a <em>SQL-generation</em> bug rather than a bug about what a metric means:</p>
+<ul>
+<li><code>DATE_TRUNC</code> over a date returned a <code>TIMESTAMP</code>, so the period column came back as a type the
+  adapter refused.</li>
+<li><code>GROUP BY</code> emitted <code>x AS y</code> when it was handed an aliased projection, which is not a grouping key.</li>
+<li>Aliases were emitted unquoted, because the dialect layer's force-quote flag does not cover them.</li>
+<li>Placeholders rendered as <code>?</code> for every dialect, including the one that needs <code>$1</code>.</li>
+</ul>
+<p>Not one of those is about semantics. They are all about turning a plan into text correctly for a
+target, and on this path the target is a process on the same machine as the caller. Which raises the
+question this decision answers: why is there any text?</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p><strong>DataFusion is THE execution engine.</strong> Not a second one beside <code>DuckDB</code>: the intended end state is one
+cohesive engine, DataFusion for execution and <code>polyglot-sql</code> for rendering SQL when a query is pushed
+down to a remote data system, taking concepts from the projects already surveyed in
+<a href="../../architecture/#where-the-parts-come-from">Architecture</a> - a semantic layer that compiles to a
+plan, and a federation layer that decides where a subplan runs. Federation is explicitly later.</p>
+<p><strong><code>DuckDB</code>'s role changes accordingly, and it is worth being precise rather than polite about it.</strong> It
+is not a peer engine to be maintained in parallel; two engines to keep in step is a cost, not a
+feature. It is a <strong>data source</strong> - a place data already lives, that somebody wants queried - and its
+driver is a development dependency rather than something the binary ships. What it earns its keep for
+today is that it is the only thing in the repository that EXECUTES the SQL we render: the engine
+never produces a statement, so without a real SQL engine somewhere in the loop the whole rendering
+half of the compiler would be vouched for by parsing alone, which is weaker than it sounds. One plan
+computed locally and pushed down as SQL, rows compared, is a cheap regression net for one bug class -
+a statement that is valid SQL with different semantics. It caught two real disagreements the first
+time it ran, both shallow: column labels and row order.
+The argument that carries this is not that DataFusion is fast, or good. It is that <strong>for local
+execution DataFusion generates no SQL at all.</strong> You build a logical plan and execute it over Arrow.
+Every bug in the list above is a bug an adapter that never renders SQL <em>cannot have</em> - not one it is
+less likely to have. That is a whole class of defect removed from the path that actually runs, which
+is a different and better claim than a performance one.</p>
+<h3 id="what-made-it-possible-the-port-carries-a-plan">What made it possible: the port carries a plan<a class="headerlink" href="#what-made-it-possible-the-port-carries-a-plan" title="Permanent link">&para;</a></h3>
+<p>This is the part worth reading twice, because it is the actual change and the engine is the
+consequence of it.</p>
+<p><code>Warehouse</code> used to take a rendered statement. That signature quietly asserted <strong>that every data
+system speaks SQL</strong>, and one does not: an in-process engine executes a logical plan over Arrow and
+never sees a string. So the port takes a <code>QueryPlan</code>, and <em>how</em> to execute it is the adapter's own
+business - render a statement and send it, or build a plan of its own.</p>
+<p>The plan therefore moved into <code>sutura-domain</code>, because a port speaks domain types, and a port naming
+a compiler type would invert the direction
+<a href="../../architecture/#hexagonal-by-construction">the layout exists to keep</a>. <code>QueryPlan</code> and
+<code>Warehouse</code> there are the primary statement of this, and their module documentation says it at the
+length it deserves.</p>
+<p>Two smaller properties fall out, and they are what makes two adapters comparable at all:</p>
+<ul>
+<li>A plan still holds no SQL, and its serialized form is what a golden snapshot pins. What we decided
+  shows up as a reviewable diff rather than as a different number.</li>
+<li>The result labels are defined once, on the plan. An adapter that builds an Arrow schema and an
+  adapter that renders a projection cannot disagree about what the columns are called, because
+  neither of them decides.</li>
+</ul>
+<h3 id="what-this-costs">What this costs<a class="headerlink" href="#what-this-costs" title="Permanent link">&para;</a></h3>
+<p>Stated plainly, because the weight is real and a reader deciding whether to keep this should see it.</p>
+<p><strong>It is the heaviest thing in the repository.</strong> <code>Cargo.lock</code> held 206 packages before this adapter,
+and a bare <code>datafusion</code> measured at roughly 281, so one adapter adds about a third again as many
+packages as everything else in the workspace resolved to put together. It brings arrow and tokio with
+it.</p>
+<p><strong>It lives in an adapter crate only.</strong> The dependency-boundary check holds <code>sutura-domain</code> to serde,
+thiserror and the proc-macro chain their derives need, over the whole transitive tree, and that does
+not change: <code>datafusion</code>, <code>arrow</code> and <code>tokio</code> are three of the names it exists to fail on. So the
+domain still compiles nothing heavy, and its test suite is still the inner loop.</p>
+<p><strong>DataFusion's own SQL unparser has known dialect defects</strong>, <code>DATE_TRUNC</code> argument order and
+identifier quoting among them. That is not an argument against using it for local execution, where it
+emits no SQL. It is precisely why rendering for a remote data system stays with the dialect layer
+rather than moving to DataFusion. The reference implementation of this shape says the same thing from
+the other side: wren-core is DataFusion-based, and a prior investigation found its dialect
+correctness actually living downstream in Python rather than in its Rust core. Adopting DataFusion
+therefore buys an execution engine and not a dialect layer, and planning as though it bought both
+would be planning on somebody else's Python.</p>
+<p><strong>There is real version skew between DataFusion and <code>datafusion-federation</code>.</strong> One more reason
+federation is later, on top of the reason that already governed it: federation is a second identity
+to satisfy, and
+<a href="../../architecture/#the-engine-and-the-data-systems-behind-a-port">a plan that cannot run as one subject in both places</a>
+is refused rather than run partly as somebody else.</p>
+<h2 id="what-does-not-change">What does not change<a class="headerlink" href="#what-does-not-change" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Guarantee</th>
+<th>Still held by</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>A plan resolves to exactly one data system</td>
+<td>The plan stage's source set, which refuses <code>PlanSpansTwoSources</code> unless exactly one name is in it. A second data system reachable from one process is not federation and does not become it by being convenient</td>
+</tr>
+<tr>
+<td>We never re-parse SQL we did not generate</td>
+<td>Stronger here rather than weaker: an adapter that emits no SQL has none to re-parse, and the dialect layer's <code>transpile</code> feature is still not compiled, so a call to it does not build</td>
+</tr>
+<tr>
+<td>No value from a question reaches the statement as text</td>
+<td>For an adapter that renders, <code>GeneratedQuery</code> keeps the statement and the parameters in separate fields with no constructor that merges them. For an adapter that renders nothing there is no text for a value to reach at all: the plan carries typed parameters and each predicate names the one it binds by index</td>
+</tr>
+<tr>
+<td>The domain acquires no framework dependency</td>
+<td>The dependency-boundary check, over the whole transitive tree, unchanged. The plan moving into the domain moved a type, not a dependency: <code>QueryPlan</code> names no engine</td>
+</tr>
+<tr>
+<td>No result cache</td>
+<td>Nothing here adds one. Materializing into Arrow is a thing this class of engine is good at, and it is the half of the neighbouring project we decline - see below</td>
+</tr>
+<tr>
+<td>Refusal is a result, not an error</td>
+<td>Unchanged. An adapter's failure is its own typed error; a question that may not be asked is still refused before an adapter is reached</td>
+</tr>
+<tr>
+<td>Every generated statement is well formed in the dialect it was generated for</td>
+<td>Unchanged for the adapters that generate one: the goldens parse each statement with its target dialect, parse only, never re-emitting. Narrower than "the data system accepts it", and deliberately so - the dialect layer's parser is not gated on the dialect for every construct, so acceptance is vouched for by execution rather than by parsing. For an adapter that generates nothing there is no statement to parse, and what stands in its place is the differential test below: the same plan executed locally and pushed down as SQL, rows compared</td>
+</tr>
+<tr>
+<td>Every query runs as the calling principal</td>
+<td>Not held on this path, and this decision does not change that either way. A local file has no login, so there is nobody else to be, and <code>CredentialBroker</code> is still absent</td>
+</tr>
+</tbody>
+</table>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The local path stops being where dialect bugs are found, and that is a loss as well as a gain.</strong>
+  Executing against a local file was the cheapest way to exercise the generator end to end. With the
+  local path no longer rendering SQL, the goldens carry that weight alone: they are what parse every
+  statement in its target dialect, and they are now the only thing that does before a real remote
+  data system is in the picture.</li>
+<li><strong>One plan, answered both ways, rows compared.</strong> Built, as
+  <code>crates/sutura-app/tests/differential.rs</code>: the same question over the same files, once executed
+  locally over Arrow by the engine and once rendered as SQL and pushed down to a data source. Worth
+  reading for what it does <em>not</em> claim - its own module doc calls it a cheap regression net rather
+  than a proof of correctness, because the two sides are not two implementations of one thing. What
+  it covers is the one class of bug nothing else here catches: a rendered statement that is valid
+  SQL with different semantics - a truncated date coming back as a timestamp, an integer division
+  silently truncating, a week starting on the wrong day. It caught two real disagreements the first
+  time it ran, both shallow: the column labels, and the row order.</li>
+<li><strong>The port is synchronous, so the adapter owns its runtime.</strong> DataFusion's execution is async and
+  tokio arrives with it; <code>Warehouse::execute</code> is a plain function, so the adapter blocks internally.
+  That keeps tokio out of the domain and out of the service, at the price of an adapter that has to
+  be careful about being called from inside somebody else's runtime.</li>
+<li><strong>Unlike DuckDB, it links no C library.</strong> So it does not constrain the musl artifacts the way
+  <code>libduckdb</code> does, and it needs no feature to sit behind: it is a plain dependency of <code>sutura-cli</code>
+  and ships in every artifact. <code>DuckDB</code> went the other way and is a <strong>development</strong> dependency, of
+  <code>sutura-app</code>'s test suite - present to prove the SQL we render actually runs, not to be linked
+  into an artifact that has no musl <code>libduckdb</code> to link against.</li>
+</ul>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong>Keep the hand-written generator and DuckDB only.</strong> The least new weight by a wide margin, and the
+option that needs no defence on size. Rejected because it leaves dialect correctness for local
+execution as our burden, and that is exactly where the bugs were: four of them in one sitting, none
+of them about what a metric means. An engine that needs no dialect removes the burden instead of
+making us better at carrying it.</p>
+<p><strong>Adopt Spice as well.</strong> Rust, Apache-2.0, DataFusion-based, and its federation and connector layer
+is the most exercised implementation of the stage we want next, which makes this genuinely
+attractive. The acceleration half we cannot take, and not as a matter of configuration: a
+materialized copy is read under whoever refreshed it, so under row-level security it is a cross-user
+leak with a refresh schedule. Its front door is also SQL, where ours has no field for one. So it
+stays a reference for the federation stage rather than becoming a dependency.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -1403,10 +1828,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/sutura/main", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "/sutura/main/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="/sutura/main/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>
