@@ -11,9 +11,15 @@
 # and turning it on afterwards is what makes the already-published versions visible.
 #
 # This is also the workflow that covers what `ci.yml` deliberately ignores. `ci.yml` skips a
-# prose-only change entirely - `paths-ignore` on `**/*.md`, `docs/**`, LICENSE and NOTICE - so
+# PROSE-only change entirely - `**/*.md`, `docs/**`, LICENSE and NOTICE, minus the catalogs - so
 # those paths trigger THIS workflow instead, and it runs the structural gates as well as the
-# build. A markdown edit is therefore checked by the cheap workflow rather than by none.
+# build. A prose edit is therefore checked by the cheap workflow rather than by none.
+#
+# The two filters are COMPLEMENTS and are meant to stay that way. The semantic catalogs are
+# markdown documents but they are not prose - a metric's `measure:` decides generated SQL - so
+# `ci.yml` re-includes them and the `!**/catalog/**/*.md` pair below takes them back out here.
+# Exactly one workflow starts for any given edit, which is what makes "checked by the cheaper
+# workflow" a statement about this repository rather than a hope.
 #
 # Two jobs, split by what they are allowed to do rather than by what they compute. `verify` runs
 # on a pull request with a read-only token; `publish` runs only from `main` or a `v*` tag and is
@@ -27,12 +33,25 @@ name: docs
 on:
   push:
     branches: [main]
-    # A `v*` tag publishes that release's own directory. Path filters are NOT evaluated for tag
-    # pushes - documented GitHub behaviour - so `paths` below narrows branch pushes only and a
-    # tag always builds, which is what a release needs.
+    # A `v*` tag publishes that release's own directory. "Path filters are not evaluated for
+    # pushes of tags" - documented GitHub behaviour - so `paths` below narrows branch pushes only
+    # and a tag always builds, which is what a release needs.
     tags: ["v*"]
     paths:
       - "**/*.md"
+      # THE SEMANTIC CATALOGS ARE MARKDOWN AND ARE NOT PROSE. `ci.yml` re-includes them so that a
+      # metric's `measure:` is judged by the Rust gates it changes; excluding them here is what
+      # keeps the two filters complements instead of both starting for the same edit. Nothing is
+      # lost by it: `docs_dir` is `docs/`, the only snippet includes are CHANGELOG.md and
+      # CONTRIBUTING.md, so no catalog document reaches the site - and the structural gates a
+      # catalog edit does need are the ones `ci.yml` runs unconditionally. If a catalog document
+      # is ever `--8<--` included into a page, this pair has to come back out.
+      #
+      # Ordered before `docs/**`, so a page that happens to live under a `catalog/` directory
+      # inside docs/ is still this workflow's: the later positive wins there, exactly as the
+      # later `!docs/**` wins in `ci.yml`.
+      - "!**/catalog/**/*.md"
+      - "!**/fixtures/**/*.md"
       - "docs/**"
       - "mkdocs.yml"
       - "LICENSE"
@@ -41,6 +60,8 @@ on:
   pull_request:
     paths:
       - "**/*.md"
+      - "!**/catalog/**/*.md"
+      - "!**/fixtures/**/*.md"
       - "docs/**"
       - "mkdocs.yml"
       - "LICENSE"

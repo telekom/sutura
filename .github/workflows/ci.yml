@@ -10,31 +10,76 @@
 name: ci
 
 # Prose-only changes do not start a run at all. `classify` inside the job can skip work but
-# not the runner, the Nix install or the cache restore; `paths-ignore` skips those too.
+# not the runner, the Nix install or the cache restore; a path filter skips those too.
 #
 # What still runs for those paths: docs.yml, which builds the book and runs the text and
-# documentation gates. Nothing about a markdown edit goes unchecked - it is checked by the
+# documentation gates. Nothing about a PROSE edit goes unchecked - it is checked by the
 # cheaper workflow.
 #
 # `.json` and `.toml` are NOT ignored, so a change to skill-router.json or a manifest brings
 # the full chain back.
+#
+# NOT EVERY MARKDOWN FILE IS PROSE, and that is why this is `paths` and no longer
+# `paths-ignore: ["**/*.md", ...]`. A SEMANTIC CATALOG IS A DIRECTORY OF MARKDOWN DOCUMENTS -
+# `crates/sutura-app/tests/fixtures/catalog/**` and `examples/single-player/catalog/**` - and a
+# metric's `measure:` decides what SQL we generate. Under the old filter, editing one changed
+# the generator's output, started nothing but docs.yml, which runs no tests, and reported green.
+# The golden suites read both of those directories, so the tests that would have caught it were
+# already written and simply never ran.
+#
+# `paths` with `!` rather than `paths-ignore` plus exceptions, because the two cannot be
+# combined: "You cannot use both the `paths` and `paths-ignore` filters for the same event in a
+# workflow." The `!` form needs something to subtract from - "If you define a path with the `!`
+# character, you must also define at least one path without the `!` character" - and the leading
+# `**` is that something: it "matches all files and directories in the repository and is the
+# default when no paths filter is used", so the list starts from exactly what no filter at all
+# would have matched - the dot directories `.github/` and `.cargo/` included.
+#
+# THE LIST IS ORDERED, NOT GROUPED, AND THE ORDER IS THE MECHANISM. GitHub walks the patterns
+# top to bottom and the LAST match decides: "A matching negative pattern (prefixed with `!`)
+# after a positive match will exclude the path. A matching positive pattern after a negative
+# match will include the path again." So it reads as one sentence - everything, minus prose,
+# plus the catalogs back, minus everything under docs/ - and re-sorting it changes what runs.
+#
+# The catalogs come back by WHAT THEY ARE, a `catalog/` or `fixtures/` directory, rather than by
+# which crate or example holds them, so moving one between `crates/` and `examples/` cannot
+# quietly drop it out of CI. A markdown fixture introduced somewhere else would need a line
+# here; `xtask/src/changes.rs` carries the same note on the classifier side, which is the second
+# gate a catalog edit has to get past.
+#
+# `!docs/**` is LAST deliberately, and it is the one exclusion that must win outright: a page
+# under docs/ has its own workflow and must never start this 120-minute one, not even if
+# somebody writes `docs/.../catalog/x.md`.
+#
+# A path filter matches the event's CHANGED FILES and the workflow runs if at least one of them
+# survives the list, so a commit touching a README and a metric runs - the metric is the reason
+# CI exists.
 #
 # If CI is ever made a required check, add a skip-equivalent job here: a required check that
 # never runs blocks the merge.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "LICENSE"
-      - "NOTICE"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "**/catalog/**/*.md"
+      - "**/fixtures/**/*.md"
+      - "!docs/**"
+  # The same list twice, and it has to stay the same list. A filter that let a path start a run
+  # on `main` but not on the pull request that introduced it would report the merge green and
+  # then fail immediately after it.
   pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "LICENSE"
-      - "NOTICE"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "**/catalog/**/*.md"
+      - "**/fixtures/**/*.md"
+      - "!docs/**"
 
 permissions:
   contents: read

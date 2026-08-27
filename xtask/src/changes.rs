@@ -39,9 +39,22 @@ const AREAS: &[Area] = &[
     Area {
         // The code, the manifests, the lint config and the compiler pin: anything that can
         // change what `cargo` produces or what it rejects.
+        //
+        // `examples/**` is here because THE TESTS READ IT. `checks.nextest` runs against the
+        // unfiltered tree precisely so those fixtures are visible, and
+        // `crates/sutura-cli/tests/example.rs` reads all of `examples/single-player` - its catalog,
+        // its questions AND the numbers its README prints, which is the point of that suite. The
+        // catalog is a directory of markdown documents whose `measure:` decides what SQL we
+        // generate, so without this pattern `DOCS_ONLY` below swallows a changed measure and every
+        // Rust gate is skipped over it. Same shape as `docs/api/**` in the `api` area, and the
+        // same reason an area match is tested before `DOCS_ONLY`.
+        //
+        // `ci.yml`'s path filter re-includes the same documents, and BOTH gates have to agree: the
+        // filter decides whether a runner starts, this decides whether the tests run once it has.
         name: "rust",
         patterns: &[
             "crates/**",
+            "examples/**",
             "xtask/**",
             "Cargo.toml",
             "Cargo.lock",
@@ -599,6 +612,18 @@ mod tests {
         // every page stale while changing no doc comment at all.
         let r = classify(&paths(&["Cargo.toml"]));
         assert!(r.needs("api"), "the page carries the version: {:?}", r.reasons);
+    }
+
+    #[test]
+    fn an_example_catalog_document_needs_the_rust_gates() {
+        // A catalog is a directory of MARKDOWN documents and a metric's `measure:` decides the
+        // SQL we generate, so this is not prose. Without `examples/**` on the `rust` area
+        // `DOCS_ONLY` swallows it and the golden suite that reads the directory never runs.
+        // `ci.yml` re-includes the same file in its path filter; both have to agree, or the
+        // workflow starts and then skips every Rust step anyway.
+        let r = classify(&paths(&["examples/single-player/catalog/metrics/churn_rate.md"]));
+        assert!(r.needs("rust"), "a catalog document is not prose: {:?}", r.reasons);
+        assert!(r.docs_only.is_empty(), "it must not be classified as docs-only");
     }
 
     #[test]
