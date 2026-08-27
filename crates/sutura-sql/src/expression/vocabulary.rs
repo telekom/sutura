@@ -25,7 +25,7 @@
 //! should have been allowed. That is a load failure naming the function, at the moment the catalog is
 //! read, which is the failure this repository prefers over a name reaching a data system unchecked.
 
-use super::Construct;
+use super::refusal::Construct;
 
 /// A generic function call is emitted verbatim into every target, so its name is checked rather
 /// than trusted. These are the date and time names, refused for the reason

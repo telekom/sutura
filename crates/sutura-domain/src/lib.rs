@@ -37,6 +37,11 @@
 //! - [`warehouse`] is the execution port. It speaks in plans, so an adapter that executes without
 //!   generating any SQL is a first-class implementation of it rather than a special case.
 //! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes.
+//!
+//! One module is private, and it is the only one: `text` holds the set of invisible and
+//! direction-changing code points that a phrase, a note body, a version label and an authored SQL
+//! fragment all refuse. It exists because that set was written down twice, in two files, and the two
+//! had already drifted.
 
 pub mod calendar;
 pub mod catalog;
@@ -49,4 +54,5 @@ pub mod model;
 pub mod pinned;
 pub mod plan;
 pub mod query;
+mod text;
 pub mod warehouse;

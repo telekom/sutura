@@ -222,7 +222,7 @@ where
     // truncated result is a wrong total under a certified name, with provenance attached and nothing
     // saying it is partial. Refused, because "this question is too wide to certify" is an answer the
     // caller can act on and a silent partial one is not.
-    if rows.rows().len() > usize::try_from(plan.max_rows()).unwrap_or(usize::MAX) {
+    if exceeds_row_cap(rows.rows().len(), plan.max_rows()) {
         return Ok(ToolOutcome::Refusal {
             reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
         });
@@ -231,6 +231,31 @@ where
         provenance: pinned.provenance(),
         rows,
     })
+}
+
+/// Whether a result set came back with more rows than its plan capped it at.
+///
+/// **A governance control, so the direction it fails in is the whole of what this function is for.**
+/// The comparison used to be written inline as
+/// `rows.len() > usize::try_from(plan.max_rows()).unwrap_or(usize::MAX)`, which reads as a cap and
+/// is a cap being lifted: a conversion that came back `Err` produced `usize::MAX`, and no result set
+/// is longer than that, so the one refusal that stops a TRUNCATED total from being certified would
+/// have been skipped. Unreachable on any target with 32-bit pointers or wider, and still the wrong
+/// direction to have written down.
+///
+/// It compares in `u64` instead, where the plan's `u32` cap widens with `From` and cannot fail at
+/// all. The count still needs a conversion, because neither direction between these two types is
+/// infallible - `From<usize> for u64` does not exist, since a target with pointers wider than 64
+/// bits would lose a count, and `From<u32> for usize` does not either, since a 16-bit target could
+/// not hold the cap. What changed is which way the unreachable case falls: a count that does not fit
+/// a `u64` is a count larger than any `u32` cap, so `u64::MAX` here is not a fallback that guesses,
+/// it is the answer. The control refuses rather than opening.
+///
+/// Named rather than inline so the boundary is testable without a data system: the case that decides
+/// a certification is one row over the cap, and reaching it through [`answer`] means fabricating ten
+/// thousand rows through a validated bundle.
+fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
+    u64::try_from(returned).unwrap_or(u64::MAX) > u64::from(max_rows)
 }
 
 /// Re-executes every declared anchor and reports what each produced.
@@ -393,10 +418,11 @@ mod tests {
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, NotValidated};
-    use sutura_domain::plan::QueryPlan;
+    use sutura_domain::plan::{MAX_ROWS, QueryPlan};
 
     use super::{
-        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouse, verify_anchors, verify_and_validate,
+        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouse, exceeds_row_cap, verify_anchors,
+        verify_and_validate,
     };
 
     fn metric() -> MetricName {
@@ -534,5 +560,36 @@ mod tests {
             panic!("a failed anchor check is a not-executed verdict, not {error:?}");
         };
         assert_eq!(metric, &self::metric());
+    }
+
+    #[test]
+    fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {
+        // The plan asks a data system for one row MORE than it will certify, so a result carrying
+        // more than the cap is a result that was cut short - a wrong total under a certified name.
+        // The boundary is the whole control: exactly the cap answers, one row over refuses.
+        assert_eq!(MAX_ROWS, 10_000, "the boundary below is written in terms of the cap");
+        assert!(!exceeds_row_cap(0, MAX_ROWS), "an empty result is not a truncated one");
+        assert!(!exceeds_row_cap(9_999, MAX_ROWS), "under the cap answers");
+        assert!(!exceeds_row_cap(10_000, MAX_ROWS), "exactly the cap answers");
+        assert!(exceeds_row_cap(10_001, MAX_ROWS), "one row over the cap is a truncated total");
+        // THE DIRECTION THIS FUNCTION EXISTS FOR. The comparison used to narrow the CAP to a
+        // `usize` with `unwrap_or(usize::MAX)`, so a conversion that failed meant no cap at all and
+        // the largest result set there is would have been certified as complete. A count that
+        // cannot be carried is a count over every cap, and this asserts it refuses.
+        assert!(
+            exceeds_row_cap(usize::MAX, MAX_ROWS),
+            "the largest count there is exceeds any cap"
+        );
+        assert!(
+            exceeds_row_cap(usize::MAX, u32::MAX),
+            "including against the widest cap a plan could carry"
+        );
+        // And a zero cap is a cap, not an absence: `QueryPlan::new` always sets `MAX_ROWS`, and this
+        // function is not allowed to read a small number as permission.
+        assert!(exceeds_row_cap(1, 0), "one row over a cap of zero is over the cap");
+        assert!(!exceeds_row_cap(0, 0), "no rows is not over a cap of none");
+        // The other end, so the comparison is not narrowing by accident: a cap no result could reach
+        // admits an ordinary result.
+        assert!(!exceeds_row_cap(1, u32::MAX), "one row is not over four billion");
     }
 }

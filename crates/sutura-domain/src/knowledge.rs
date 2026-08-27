@@ -122,6 +122,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::{DimensionName, MetricName, identifier_newtype};
+use crate::text::{first_invisible, is_invisible};
 
 // Two splits rather than one file, because `cargo xtask max-lines` fails at a thousand lines under
 // `crates/` and cannot be exempted. The seams are real ones: `note` holds the four records, `check`
@@ -153,36 +154,16 @@ pub const MAX_NOTE_LINES: usize = 200;
 /// The most authored text a whole [`Knowledge`] may carry, in bytes.
 pub const MAX_KNOWLEDGE_BYTES: usize = 32 * 1024;
 
-/// The code points a reader cannot see, and that a phrase or a note body carries no meaning by
-/// holding.
-///
-/// The default-ignorable ranges that matter here: the zero-width and directional marks
-/// `U+200B..=U+200F`, the bidi embedding and override controls `U+202A..=U+202E`, the bidi isolates
-/// `U+2066..=U+2069`, and `U+FEFF`. None of them draws anything, and several of them REORDER what is
-/// drawn around them - so two phrases that differ only in one of these are one phrase to whoever
-/// reads the rendered prompt, and a body made of them renders as blank space under a heading.
-///
-/// Not the whole Unicode `Default_Ignorable_Code_Point` property, which needs a table this crate has
-/// no dependency for. The cost is stated rather than hidden: `U+200C` and `U+200D` are inside the
-/// first range and carry meaning in Persian, in several Indic scripts and inside an emoji sequence,
-/// so a phrase needing one cannot be written here. That is the price of a glossary whose two entries
-/// cannot look identical to a reader, and it is one line to revisit.
-const fn is_default_ignorable(character: char) -> bool {
-    matches!(
-        character,
-        '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2066}'..='\u{2069}' | '\u{feff}'
-    )
-}
-
 /// Does this text carry anything a reader would see?
 ///
 /// A character reaches the rendered document when `sutura_app::prompt::quote` keeps it - a newline, a
 /// tab, or anything that is not a control character - and it draws something when it is neither
-/// whitespace nor a default ignorable. The zero-width half is the interesting one: those are not
-/// control characters, so the renderer keeps them, and they draw nothing.
+/// whitespace nor one of the invisible code points [`crate::text`] names. The invisible half is the
+/// interesting one: those are not control characters, so the renderer keeps them, and they draw
+/// nothing.
 fn carries_prose(raw: &str) -> bool {
     raw.chars()
-        .any(|character| !character.is_control() && !character.is_whitespace() && !is_default_ignorable(character))
+        .any(|character| !character.is_control() && !character.is_whitespace() && !is_invisible(character))
 }
 
 /// One line of text with its invisible characters removed and every run of whitespace as one space.
@@ -194,7 +175,7 @@ fn collapse_spacing(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     let mut pending = false;
     for character in raw.chars() {
-        if is_default_ignorable(character) {
+        if is_invisible(character) {
             continue;
         }
         if character.is_whitespace() {
@@ -239,8 +220,10 @@ pub(super) fn phrase_identity(phrase: &Phrase) -> String {
 ///
 /// **What it NORMALISES is the other half, and it is there so that two phrases a reader cannot tell
 /// apart cannot both exist.** Runs of whitespace collapse to one space and the invisible code points
-/// [`is_default_ignorable`] names are dropped, so "monthly  revenue" and "monthly revenue" are one
-/// value and a zero-width space inside "mrr" is not a second spelling of it. Case is deliberately
+/// `crate::text::is_invisible` names are dropped, so "monthly  revenue" and "monthly revenue" are one
+/// value, and neither a zero-width space nor a soft hyphen inside "mrr" is a second spelling of it -
+/// the second of those is the one that was getting through, because the set here used to be a
+/// narrower copy of the set authored SQL is held to. Case is deliberately
 /// NOT folded here - it is meaning, and the prompt renders the spelling an author chose - which is
 /// why identity is [`phrase_identity`] and not this type's `Eq`.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
@@ -341,6 +324,16 @@ impl core::fmt::Display for Phrase {
 /// the renderer, which is the one place that knows what it is rendering into - so the emptiness check
 /// is made on what the renderer will keep and a body that would draw nothing is refused rather than
 /// rendered as a heading over blank space.
+///
+/// **What does NOT survive parsing is an invisible or direction-changing code point, and unlike a
+/// [`Phrase`] a body is not normalised** - it is refused, naming the character. The two types differ
+/// because what they are is different: a phrase is a key, so two spellings that read as one word have
+/// to become one value, and a body is prose a person reviewed, so silently editing it would make the
+/// rendered document differ from the text the definition digest certifies. This is the same argument
+/// [`crate::expression::InvalidFragment::InvisibleCharacter`] makes for authored SQL, at the one
+/// remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
+/// `status = 'active'` in every terminal and every diff, saying something else, under a digest taken
+/// over text nobody read - CVE-2021-42574 with the fragment replaced by a paragraph.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "String")]
 pub struct NoteBody(String);
@@ -354,6 +347,18 @@ pub enum InvalidNoteBody {
     /// the empty string.
     #[error("a note body must not be empty")]
     Empty,
+    /// One of them, mixed into prose. **Separate from [`Self::Empty`], because a body made ENTIRELY
+    /// of these characters was already refused and a body with one in the middle of a sentence was
+    /// not** - and the second is the dangerous one: the first renders as a blank heading somebody
+    /// notices, the second renders as a paragraph that reads correctly and is not what it says.
+    ///
+    /// It is a second refusal beside the emptiness check rather than a widening of it for the reason
+    /// [`crate::expression::InvalidFragment::InvisibleCharacter`] gives: `char::is_control` is false
+    /// for every one of these - general category `Cf`, not `Cc` - so nothing that tests for a control
+    /// character can see one. The code is reported because an author cannot find the character by
+    /// looking at the file.
+    #[error("a note body may not contain the invisible or direction-changing character {code:#06x}")]
+    InvisibleCharacter { code: u32 },
     /// Over [`MAX_NOTE_BODY_BYTES`]. The document does not load; it is not shortened.
     #[error("a note body may be at most {limit} bytes, this one has {len}")]
     TooLong { len: usize, limit: usize },
@@ -373,11 +378,20 @@ impl NoteBody {
         let trimmed = raw.as_ref().trim();
         // Emptiness is decided on what a READER will see, not on what the file holds.
         // `sutura_app::prompt::quote` drops every control character other than a newline or a tab,
-        // and a default-ignorable code point draws nothing at all - so a body of bell characters, of
+        // and an invisible code point draws nothing at all - so a body of bell characters, of
         // zero-width spaces, or of one byte-order mark used to pass this check and then render as a
         // heading over empty space, which is the exact state the check exists to make unreachable.
         if !carries_prose(trimmed) {
             return Err(InvalidNoteBody::Empty);
+        }
+        // Second, and in this order deliberately: a body made of nothing but these characters is
+        // EMPTY, which is the more accurate thing to tell its author, and a body with one mixed into
+        // a sentence is the defect this refusal exists for. Reversing the two would report a blank
+        // note as a hidden character.
+        if let Some(offending) = first_invisible(trimmed) {
+            return Err(InvalidNoteBody::InvisibleCharacter {
+                code: u32::from(offending),
+            });
         }
         if trimmed.len() > MAX_NOTE_BODY_BYTES {
             return Err(InvalidNoteBody::TooLong {

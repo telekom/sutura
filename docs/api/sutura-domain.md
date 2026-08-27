@@ -47,6 +47,11 @@ types it speaks in:
   generating any SQL is a first-class implementation of it rather than a special case.
 - `definitions` and `identity` hold the digest and the credential-shaped newtypes.
 
+One module is private, and it is the only one: `text` holds the set of invisible and
+direction-changing code points that a phrase, a note body, a version label and an authored SQL
+fragment all refuse. It exists because that set was written down twice, in two files, and the two
+had already drifted.
+
 ## Module `calendar`
 
 Dates, and the bounded range a question has to carry.
@@ -899,9 +904,22 @@ pub fn portable() -> Self
 
 The word resolution falls back to, and the only word it falls back to.
 
+**The one constructor in this module that writes the private field without going through
+`Self::parse`**, which is the shape a newtype is supposed to make impossible - and it is
+written down here rather than left as an oddity a reader has to notice. It cannot go through
+`parse`, because `parse` is fallible and this is not: the alternatives are an `unwrap`, which
+the workspace denies outright, or an `Err` arm that would write the same field by another
+route and prove nothing.
+
+So the two agreeing is pinned by a test instead of by the type - see
+`portable_is_the_word_parse_would_have_produced`. What that test catches is the reachable
+mistake: a future tightening of `parse` - a shorter length bound, a narrower character set -
+that would refuse `portable` while this constructor kept minting it, leaving a value in a map
+key position that no catalog file could ever have written.
+
 #### Implements
 
-`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+`Clone`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
 
 ### `enum InvalidAuthoredSql`
 
@@ -1265,8 +1283,10 @@ enough to be a sentence.
 
 **What it NORMALISES is the other half, and it is there so that two phrases a reader cannot tell
 apart cannot both exist.** Runs of whitespace collapse to one space and the invisible code points
-`is_default_ignorable` names are dropped, so "monthly  revenue" and "monthly revenue" are one
-value and a zero-width space inside "mrr" is not a second spelling of it. Case is deliberately
+`crate::text::is_invisible` names are dropped, so "monthly  revenue" and "monthly revenue" are one
+value, and neither a zero-width space nor a soft hyphen inside "mrr" is a second spelling of it -
+the second of those is the one that was getting through, because the set here used to be a
+narrower copy of the set authored SQL is held to. Case is deliberately
 NOT folded here - it is meaning, and the prompt renders the spelling an author chose - which is
 why identity is `phrase_identity` and not this type's `Eq`.
 
@@ -1325,6 +1345,16 @@ the renderer, which is the one place that knows what it is rendering into - so t
 is made on what the renderer will keep and a body that would draw nothing is refused rather than
 rendered as a heading over blank space.
 
+**What does NOT survive parsing is an invisible or direction-changing code point, and unlike a
+`Phrase` a body is not normalised** - it is refused, naming the character. The two types differ
+because what they are is different: a phrase is a key, so two spellings that read as one word have
+to become one value, and a body is prose a person reviewed, so silently editing it would make the
+rendered document differ from the text the definition digest certifies. This is the same argument
+`crate::expression::InvalidFragment::InvisibleCharacter` makes for authored SQL, at the one
+remaining channel that carried reviewed prose into an agent's context verbatim: a body reading
+`status = 'active'` in every terminal and every diff, saying something else, under a digest taken
+over text nobody read - CVE-2021-42574 with the fragment replaced by a paragraph.
+
 #### Methods
 
 ```rust
@@ -1356,6 +1386,7 @@ Why a note body was rejected.
 #### Variants
 
 - `Empty` - Nothing a reader would see. A note with no body is a claim with no reason attached, and the prompt would render a heading over empty space - so this covers whitespace, control characters the renderer drops, and the zero-width code points that draw nothing, as well as the empty string.
+- `InvisibleCharacter` - One of them, mixed into prose. **Separate from `Self::Empty`, because a body made ENTIRELY of these characters was already refused and a body with one in the middle of a sentence was not** - and the second is the dangerous one: the first renders as a blank heading somebody notices, the second renders as a paragraph that reads correctly and is not what it says.
 - `TooLong` - Over `MAX_NOTE_BODY_BYTES`. The document does not load; it is not shortened.
 - `TooManyLines` - Over `MAX_NOTE_LINES`. Separate from the byte cap because four thousand newlines are four thousand lines of a rendered prompt and eight kilobytes of nothing.
 
@@ -2342,6 +2373,7 @@ Why a version label was rejected.
 
 - `Empty` - Empty or whitespace-only. An unversioned snapshot must not be able to claim it is one.
 - `ControlCharacter` - Holds a control character. This is the one that matters: provenance is written to an audit sink line by line, so a newline here appends a record nobody wrote.
+- `InvisibleCharacter` - Holds an invisible or direction-changing code point. **The second half of the reason the variant above exists**, and it was missing: `char::is_control` is false for every one of these (general category `Cf`, not `Cc`), so the check that refuses a newline could not see a right-to-left override, and a version label carrying one passed.
 - `TooLong`
 
 #### Implements

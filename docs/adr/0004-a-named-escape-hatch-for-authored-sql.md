@@ -5,10 +5,58 @@ description: Why a metric may carry a SQL expression somebody wrote, why it is a
 
 # A named escape hatch for authored SQL
 
-Status: accepted. It amends
+Status: accepted, and **built but not wired.** It amends
 [the closed vocabulary decision](0002-a-closed-vocabulary-for-measures.md), whose *Alternatives
 considered* rejected exactly this, and it does not supersede it: the closed vocabulary stays closed,
 and this record is about what sits **beside** it and how it is kept visible.
+
+## What is built, and what is not
+
+Read this before the rest, because the rest is written in the present tense about a path that has no
+caller.
+
+`sutura_domain::expression` and `sutura_sql::expression` are complete and tested. **Nothing reaches
+them.** `catalog::Metric` holds a `Measure` and not a `Computation`; a metric document has no
+`authored_sql` key; `sutura_sql::expression::compile` has no production caller. So no catalog can
+express an authored metric, and every guard below is exercised by its own tests and by nothing that
+reads a file. `AGENTS.md`'s *Built And Not Wired* section says the same thing from the other side, and
+the three rows that used to state this as enforced were deleted from its Invariants table.
+
+Two things are in the way, and only the first is wiring.
+
+**A refusal in the composition root cannot be made structural today.** The *Consequences* below say a
+build that renders no SQL must refuse a catalog that carries authored SQL. The strong form of that -
+make it unrepresentable, by having the authored variant carry a value only `compile` can produce - is
+not available:
+
+- The witness cannot live in `sutura-domain`. It would have to be keyed by dialect, and the domain
+  deliberately does not own the list of data systems this build renders for - `DialectTag`'s own
+  documentation gives the reason, and it is the same reason `Measure` does not restate the aggregates.
+  A domain-side witness would also have a public constructor, which every crate that depends on the
+  domain can call, so it would witness nothing.
+- The witness cannot live in `sutura-sql` and still be held by a servable bundle, because the bundle
+  is a domain type and `sutura-serve` may not reach `sutura-sql`. `ALLOWED_IN_DOMAIN` is an allowlist
+  over the domain's whole transitive tree and `polyglot-sql` is not on it, so the edge fails
+  `cargo xtask check-boundaries` outright; and that gate's own record says it walks the
+  whole-workspace resolve graph including edges feature unification turns on, so a Cargo feature does
+  not buy an exception either.
+- The strongest remaining form is a hidden constructor in the domain plus a gate asserting it is
+  called from exactly one file. That is a mechanism, and it is deliberately not taken: it is the same
+  class as a `disallowed-methods` entry - a text rule about a call site, which this repository has
+  already had read as enforcement while resolving to nothing - and it would not change the refusal in
+  the composition root from a runtime one, because the loader would still have to be handed a
+  compiler and still have to refuse when it was not.
+
+What remains available is a refusal inside the one function that loads a catalog, which no caller can
+skip because there is no other path - a placement, not a type. That is a weaker guarantee than the
+rest of this record relies on, and it is stated here rather than implied.
+
+**No shipped binary could execute an authored expression even with the load path wired.**
+`sutura-exec-datafusion` is the engine, builds a logical plan over Arrow and compiles no `sql`
+feature, so `Computation::measure()` returning `None` is a refusal there and not an execution path.
+`sutura-exec-duckdb` renders through `sutura-sql` and pushes down, and it is a dev-dependency that no
+binary links. So wiring the load alone would move the refusal from load time to query time. Which
+composition root gets an execution path for authored SQL is a decision this record does not make.
 
 ## Context
 
@@ -283,11 +331,38 @@ the same argument this file already makes for asking the serialization rather th
 swallowed by the tokenizer and nothing left in the tree to record that it was there. That is the same
 family as the dropped clause below - the one this record calls the worse of the two - reached through
 the tokenizer rather than the parser, which is why the question is asked of the TEXT: by the time
-there is an AST, the evidence is gone. Comparing the count of `/*` against the count of `*/` FAILS
-CLOSED on one input, and that is accepted rather than worked around: a string literal holding an
-unbalanced delimiter, `SUM(CASE WHEN status = '/*' THEN mrr_eur END)`, is refused too. A measure has
-no reason to compare a column against a comment delimiter, and the alternative is a second tokenizer
-in a file whose whole point is not to have one.
+there is an AST, the evidence is gone.
+
+The first form of that question was a count of `/*` against a count of `*/`, and this record used to
+say it FAILED CLOSED. **That was wrong: it failed OPEN, and the correction is the second finding
+rather than a rewording of the first.** A `*/` inside a string literal balances a later unterminated
+`/*`, so the counts agreed and the fragment was accepted with its tail gone. Measured in this build:
+
+```text
+SUM(CASE WHEN status = '*/' THEN mrr_eur END) /* SUM(customer_key) is what runs
+  -> ACCEPTED, rendered for every target as
+     SUM(CASE WHEN "fact_subscription"."status" = '*/' THEN "fact_subscription"."mrr_eur" END)
+```
+
+Nothing else could have caught it, and not by luck: the trailing text is in no node, so the
+seven-name comment question cannot see it, and the whole statement and the projection render
+identically, so the dropped-clause guard cannot either. `'a*/b'` does the same with the delimiter
+buried mid-word.
+
+The question is now **presence** - any `/*`, any `*/`, any `--`, anywhere in the text - and presence
+is chosen over the two narrower fixes because it needs no agreement with anybody. A string-literal
+skip would have to end a literal exactly where the authoring dialect's tokenizer ends one, and DuckDB
+has dollar-quoting and escape-string forms, so `SUM(mrr_eur) || $$'$$ /* tail` is a literal holding a
+quote followed by an unterminated comment to the tokenizer and a literal that never closes to a
+one-state scanner: the delimiter is hidden again, by a construct the scanner has not been taught. That
+is the second tokenizer this module exists not to have. A comment delimiter the tokenizer can see must
+appear in the bytes, so refusing the three digraphs refuses every comment, terminated or not, wherever
+the tokenizer thinks it begins.
+
+The cost is the same class of false positive the count already had, one digraph wider: a string
+literal holding `/*`, `*/` or `--` is refused. Accepted for the reason it was accepted before - a
+measure has no reason to compare a column against a comment delimiter, and none of the three has any
+other meaning in SQL, `--` between two operands being a comment too.
 
 ### Two holes the four shape guards do not close
 
@@ -319,7 +394,11 @@ measure has no reason to carry prose that the document around it can hold instea
   where the compile lives, and the network binary does not link it. That is not a gap to paper over:
   a build that cannot validate authored SQL must refuse a catalog that carries it, rather than serve
   the metric unvalidated. The composition root is what must call the compile, and a `Computation`
-  that has not been through it is unvalidated by construction.
+  that has not been through it is unvalidated. **"By construction" is what this sentence used to say
+  and it is not available** - see [*What is built, and what is not*](#what-is-built-and-what-is-not)
+  for why a witness type cannot be placed anywhere the bundle can hold it, and for the weaker
+  placement that is available instead. No such refusal is written today, because no catalog can
+  express an authored metric today.
 - The engine adapter cannot execute an authored expression at all. It builds a logical plan over
   Arrow and its `sql` feature is deliberately not compiled. So `Computation::measure()` returning
   `None` has to be a refusal there, naming the metric - never a skipped metric and never a

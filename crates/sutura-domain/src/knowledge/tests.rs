@@ -258,6 +258,30 @@ fn a_phrase_is_normalised_so_that_two_of_them_cannot_look_identical() {
         Phrase::parse(format!("{zero_width}{zero_width}")).unwrap_err(),
         InvalidPhrase::Empty
     );
+    // FINDING. Every code point in the shared set, at both ends of every range, normalises AWAY -
+    // so a phrase holding one is the phrase without it and cannot be a second entry in any index
+    // keyed on `phrase_identity`. The set this type used to use was a narrower copy of the one
+    // authored SQL is held to, and `U+00AD`, `U+2060..2064` and `U+FFF9..FFFB` survived it: a soft
+    // hyphen draws nothing until a line breaks at it and a word joiner draws nothing ever, so
+    // `mrr` and `m<soft hyphen>rr` were two keys for one word a reader sees.
+    for code in [
+        0x00AD_u32, 0x200B, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x2069, 0xFEFF, 0xFFF9, 0xFFFB,
+    ] {
+        let offending = char::from_u32(code).expect("a listed code point is a character");
+        assert_eq!(phrase(&format!("m{offending}rr")).as_str(), "mrr", "{code:#06x}");
+        assert_eq!(
+            super::phrase_identity(&phrase(&format!("m{offending}rr"))),
+            super::phrase_identity(&phrase("mrr")),
+            "{code:#06x}"
+        );
+    }
+    // And the neighbour of each bound is KEPT, so the normalisation is the set written down rather
+    // than a sweep that would silently edit a phrase somebody wrote on purpose.
+    for code in [0x00AC_u32, 0x00AE, 0x2010, 0x2065, 0x206A, 0xFEFE, 0xFF00, 0xFFFC] {
+        let benign = char::from_u32(code).expect("a listed code point is a character");
+        let written = format!("m{benign}rr");
+        assert_eq!(phrase(&written).as_str(), written, "{code:#06x}");
+    }
     // Case is NOT folded here: it is meaning, and the prompt renders the spelling an author chose.
     // What folds case is `phrase_identity`, which is what every index in this module is keyed on -
     // so "MRR" and "mrr" are one phrase for the purpose of noticing that two documents disagree and
@@ -314,6 +338,63 @@ fn a_note_body_is_refused_over_the_cap_rather_than_cut_to_fit() {
     );
     let kept = NoteBody::parse("  Two lines.\nBoth of them.  ").expect("a body is a body");
     assert_eq!(kept.as_str(), "Two lines.\nBoth of them.");
+}
+
+#[test]
+fn a_note_body_with_an_invisible_character_mixed_into_prose_is_refused() {
+    // FINDING. The check this file already had covered a body made ENTIRELY of these characters -
+    // that one is `Empty`, and still is. What it did not cover, and what a note body is actually FOR,
+    // is one of them in the middle of a sentence: the body reads as `status = 'active'` in every
+    // terminal, every diff and every pull request, says something else, and reaches an agent's
+    // context under a digest taken over text nobody read. Trojan Source, CVE-2021-42574, with the
+    // authored SQL fragment replaced by the paragraph next to it.
+    let right_to_left_override = char::from_u32(0x202e).expect("U+202E is a character");
+    assert_eq!(
+        NoteBody::parse(format!(
+            "Counts rows where status = '{right_to_left_override}evitca', which is the certified rule."
+        )),
+        Err(InvalidNoteBody::InvisibleCharacter { code: 0x202E })
+    );
+    // The narrower set this type used to be held to did not include the soft hyphen, and a soft
+    // hyphen draws nothing until a line happens to break at it.
+    let soft_hyphen = char::from_u32(0x00ad).expect("U+00AD is a character");
+    assert_eq!(
+        NoteBody::parse(format!("Excludes the m{soft_hyphen}rr of cancelled subscriptions.")),
+        Err(InvalidNoteBody::InvisibleCharacter { code: 0x00AD })
+    );
+    // Both ends of every range, in prose, so a typo in one of the bounds fails here.
+    for code in [
+        0x00AD_u32, 0x200B, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x2069, 0xFEFF, 0xFFF9, 0xFFFB,
+    ] {
+        let offending = char::from_u32(code).expect("a listed code point is a character");
+        assert_eq!(
+            NoteBody::parse(format!("Revenue{offending} recognised monthly.")),
+            Err(InvalidNoteBody::InvisibleCharacter { code }),
+            "{code:#06x}"
+        );
+    }
+    // And the neighbour of each bound loads, so this is the set written down rather than a sweep
+    // that would refuse a reviewed paragraph for a character that draws.
+    for code in [
+        0x00AC_u32, 0x00AE, 0x200A, 0x2010, 0x2029, 0x202F, 0x205F, 0x2065, 0x206A, 0xFEFE, 0xFF00, 0xFFFC,
+    ] {
+        let benign = char::from_u32(code).expect("a listed code point is a character");
+        let body = format!("Revenue{benign} recognised monthly.");
+        assert_eq!(
+            NoteBody::parse(&body)
+                .expect("a body of ordinary characters is a body")
+                .as_str(),
+            body,
+            "{code:#06x}"
+        );
+    }
+    // Emptiness still wins over this refusal, and the order is the point: a body of nothing but
+    // these characters is best described as the blank note it is.
+    let zero_width = char::from_u32(0x200b).expect("U+200B is a character");
+    assert_eq!(
+        NoteBody::parse(format!("{zero_width}{zero_width}")),
+        Err(InvalidNoteBody::Empty)
+    );
 }
 
 /// Deserialize without a format crate: the boundary gate allowlists none for this crate, and this

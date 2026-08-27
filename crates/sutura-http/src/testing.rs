@@ -14,10 +14,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model};
+use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
+use sutura_domain::model::{
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::QueryPlan;
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
@@ -266,6 +268,9 @@ pub(crate) fn fake_warehouse() -> FakeWarehouse {
 pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
+    // The SAME `Arc` on both sides, which is the whole point of the pair: the switch a test holds
+    // and the flag the adapter reads have to be one cell. Building them separately compiles, and
+    // then nothing is ever held - caught by the `408` test, which answered `200`.
     let held = Arc::new(AtomicBool::new(false));
     (
         FakeWarehouse {
@@ -275,4 +280,115 @@ pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
         },
         Held(held),
     )
+}
+
+/// A warehouse over one prepared result, never held.
+///
+/// The three fixtures below differ only in the source they claim and the rows they hand back, so
+/// they share this rather than each restating the struct. `held` starts cleared, which is the state
+/// every one of them wants: holding is for the timeout and admission tests, which use
+/// [`warehouse_that_can_be_held`].
+fn answering(source: SourceName, result: RowSet) -> FakeWarehouse {
+    FakeWarehouse {
+        source,
+        result,
+        held: Arc::new(AtomicBool::new(false)),
+    }
+}
+
+/// A warehouse claiming to be a data system this process did not open.
+///
+/// For `SourceUnavailable`: `sutura_app::answer` compares the plan's source against the adapter's
+/// own and refuses when they differ, which is what catches a bundle pointed at one data system being
+/// answered from another. A fake claiming to be somewhere else is the whole instrument - no real
+/// adapter can be asked to lie about its own name, and none should be able to.
+///
+/// Pair it with [`unanchored_bundle`]: `LocalService::start` re-executes every anchor, and an anchor
+/// against this adapter would be refused, so an anchored bundle would fail readiness rather than
+/// reaching the request path this exists to exercise.
+pub(crate) fn warehouse_pretending_to_be(name: &str) -> FakeWarehouse {
+    let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+        .expect("a one-cell result is a result set");
+    answering(SourceName::parse(name).expect("a test source is a source"), result)
+}
+
+/// A warehouse whose one answer carries one row more than the plan's row cap.
+///
+/// For `ResultTooLarge`, which is decided AFTER a data system has answered - so unlike every other
+/// refusal it cannot be provoked by a question alone, and the honest instrument is a fake that
+/// decides its own row count. One row past the cap and not a hundred, because that is the boundary:
+/// the plan asks for `max_rows + 1`, so a result of exactly the cap is answerable and one more is
+/// the smallest thing that is not.
+pub(crate) fn warehouse_that_answers_past_the_row_cap() -> FakeWarehouse {
+    let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize on every target this builds for");
+    // The same cell in every row: what is under test is the COUNT, which is the only thing
+    // `sutura_app::answer` compares against the cap, and distinct values would suggest otherwise.
+    let rows: Vec<Vec<Value>> = vec![vec![Value::Integer(1)]; cap.saturating_add(1)];
+    let result = RowSet::new(vec![String::from("revenue")], rows).expect("a one-column result is a result set");
+    answering(source(), result)
+}
+
+/// A bundle whose two models sit on two data systems, so one question spans both.
+///
+/// For `PlanSpansTwoSources`. Not reachable from the single-model [`bundle`] above and it cannot be:
+/// the refusal needs a catalog whose models are on different data systems, and making that the
+/// default fixture would make every other test in this crate span two.
+///
+/// **Unanchored, deliberately.** An anchor is asked with no dimensions, so it would resolve to the
+/// metric's own model and validate - but the point of this fixture is what happens on the request
+/// path, and [`unanchored_bundle`] already documents why a bundle with no anchor is only ever for
+/// that. `ManyToOne` is the join, because `Definitions::assemble` refuses a dimension reached
+/// through a relationship whose declared cardinality may duplicate rows.
+pub(crate) fn two_source_bundle() -> PinnedDefinitions {
+    let orders = Model::new(
+        ModelName::parse("orders").expect("a test model is a model"),
+        source(),
+        TableName::parse("orders").expect("a test table is a table"),
+        BTreeSet::from([column("amount_cents"), column("order_date"), column("customer_id")]),
+        String::from("Orders, one row per order."),
+    );
+    let customers = Model::new(
+        ModelName::parse("customers").expect("a test model is a model"),
+        SourceName::parse("elsewhere").expect("a test source is a source"),
+        TableName::parse("customers").expect("a test table is a table"),
+        BTreeSet::from([column("customer_id"), column("region")]),
+        String::from("Customers, one row per customer."),
+    );
+    let joined = Relationship::new(
+        RelationshipName::parse("order_customer").expect("a test relationship is a relationship"),
+        ModelName::parse("orders").expect("a test model is a model"),
+        column("customer_id"),
+        ModelName::parse("customers").expect("a test model is a model"),
+        column("customer_id"),
+        JoinType::ManyToOne,
+    );
+    let region = Dimension::new(
+        DimensionName::parse("region").expect("a test dimension is a dimension"),
+        column("region"),
+        Some(RelationshipName::parse("order_customer").expect("a test relationship is a relationship")),
+        None,
+        String::from("Sales region, from the customer."),
+    );
+    let revenue = Metric::new(
+        metric_name(),
+        ModelName::parse("orders").expect("a test model is a model"),
+        Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+        Vec::new(),
+        column("order_date"),
+        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeMap::from([(
+            DimensionName::parse("region").expect("a test dimension is a dimension"),
+            region,
+        )]),
+        None,
+        String::from("Revenue, in minor units."),
+    );
+    let definitions =
+        Definitions::assemble(vec![orders, customers], vec![joined], vec![revenue]).expect("the test bundle is consistent");
+    PinnedDefinitions::pin(
+        DefinitionVersion::parse("test-1").expect("a test version is a version"),
+        definitions,
+        Knowledge::none(),
+    )
+    .expect("the test definitions hash")
 }

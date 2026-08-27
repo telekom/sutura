@@ -19,9 +19,14 @@ catalog directory or opens a data system. The one place either port is touched i
 
 # The three properties a reader should check first
 
-**A refusal is a `200`.** `POST /v1/query` answers `200` with `outcome: refusal` when a question
-is one the caller may not have. An error status would invite a client library to retry, and
-retrying a governance decision until it succeeds is the behaviour the refusal exists to prevent.
+**A refusal says so three ways.** `POST /v1/query` answers a question the caller may not have
+with an explicit status - `403`, `404`, `409`, `413`, `422` or `503` depending on why - plus the
+stable `code` and the sentence it has always carried in `outcome: refusal`. It was a `200`, on the
+argument that an error status invites a client library to retry; the retry premise does not
+survive checking, and a `200` made a governance refusal indistinguishable from an answer to
+anything reading a status alone. `wire::refusal` holds the mapping, the citations and the reason
+for each status. The domain invariant is untouched: `ToolOutcome::Refusal` is still a result and
+not an `Err`.
 
 **There is no per-caller identity.** No request context reaches the query path, no credential is
 minted per request, and the `CredentialBroker` port that would do it is deliberately absent
@@ -529,13 +534,26 @@ that currently rests on.
 The one body every failure comes back as, and the one thing that turns a failure into a
 response.
 
-# A refusal is not in here
+# A refusal is not in here, and the reason is not the status any more
 
-Worth stating first, because it is the distinction the whole surface turns on. A *refusal* - the
-caller asked something they may not have - is a `200` carrying
-`crate::wire::OutcomeBody::Refusal`. A *failure* is everything else: a body that is not a
-question, a missing credential, a limit reached, a data system that did not answer. Only
-failures reach this module.
+Worth stating first, because it is the distinction the whole surface turns on and the obvious
+shorthand for it has stopped working. A *refusal* - the caller asked something they may not have -
+now carries an error status too, from `crate::wire::refusal`. A *failure* is everything else: a
+body that is not a question, a missing credential, a limit reached, a data system that did not
+answer. Only failures reach this module.
+
+So the two are no longer told apart by `2xx` against `4xx`. What tells them apart is the **body**,
+and that is the deliberate choice rather than a leftover: a refusal keeps
+`crate::wire::OutcomeBody::Refusal` with its `outcome` discriminator, and a failure keeps
+`ProblemBody`. `outcome` is the one-field test for which arrived, which matters most exactly
+where a status is shared - `503` is `unavailable` or `at_capacity` from here, and
+`source_unavailable` from there; `413` is a request body over the limit from here, and an answer
+over the row cap from there.
+
+**A refusal is not routed through `Failure`, and must not be.** `Failure` is what an `Err`
+becomes, and `ToolOutcome::Refusal` is a domain *result*: a `Failure::Refused` variant would put a
+governance outcome into the error enum and make the type system agree with the mistake this design
+exists to prevent. `docs/adr/0005` is the record.
 
 # What a failure body may say
 
@@ -1286,11 +1304,15 @@ pub enum OutcomeBody
 
 What a question produced.
 
-**Both variants come back with `200`, and that is the contract rather than an oversight.** A
-refusal is a *result*: the caller asked something they may not have, and the answer is no. An
-error status would invite a client library to retry it, and retrying a governance decision until
-it succeeds is precisely the behaviour the refusal exists to prevent. The `outcome` field is
-what a caller branches on.
+**The two variants come back with different statuses**, and the `outcome` discriminator is what a
+caller branches on within one of them. An answer is a `200`. A refusal is a `403`, `404`, `409`,
+`413`, `422` or `503` depending on why - `refusal` holds the mapping and the reasoning, and
+`Outcome` is what pairs the two.
+
+It used to be `200` for both, on the grounds that an error status invites a client library to
+retry. That was checked and does not hold; more to the point, a `200` made a governance refusal
+indistinguishable from an answer to every reader that sees a status and not a body. The body
+below is unchanged: same `outcome` tag, same `reason` object, one field added inside it.
 
 #### Variants
 
@@ -1325,14 +1347,17 @@ pub struct RefusalBody
 
 Why a question was refused.
 
-A stable `code` per refusal, plus a sentence. The code is what a caller branches on; the
-sentence is for a person.
+A stable `code` per refusal, the status it came back as, and a sentence. The code is what a
+caller branches on; the sentence is for a person; the status is repeated here for the same reason
+`crate::problem::ProblemBody` repeats it - a client that logged only the body still has it.
+Which status each refusal gets, and why, is in `refusal`.
 
-**Nothing here echoes a value the caller sent.** The domain's refusal variants already stop
-short of that - a rejected filter value names the dimension and not the value, on purpose,
-because reflecting caller text into a message that reaches a log, a UI and an agent's context is
-how a rejected value becomes somebody else's input. The identifiers that *are* echoed are parsed
-newtypes over a bounded character set, and the numbers are derived from parsed dates.
+**Nothing here echoes a value the caller sent.** The domain's refusal variants already stop short
+of that - a rejected filter value names the dimension and not the value, on purpose, because
+reflecting caller text into a message that reaches a log, a UI and an agent's context is how a
+rejected value becomes somebody else's input. The identifiers that *are* echoed are parsed
+newtypes over a bounded character set, and the numbers are derived from parsed dates or are this
+service's own limits.
 
 #### Methods
 
@@ -1342,9 +1367,57 @@ pub const fn code(&self) -> &'static str
 
 The code, for a test that asserts on the contract rather than on the prose.
 
+```rust
+pub fn detail(&self) -> &str
+```
+
+The sentence. A test asserts it is not empty; nothing asserts its wording.
+
+```rust
+pub const fn status(&self) -> u16
+```
+
+The status, as the body carries it.
+
 #### Implements
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
+
+### `struct Outcome`
+
+```rust
+pub struct Outcome
+```
+
+An outcome, and the status the transport says it with.
+
+**The one conversion from a `ToolOutcome` to a response**, and it is one rather than two
+because the status and the body are the same decision. An answer is a `200`; a refusal is the
+status `refusal::refused` gives it, which is never a `2xx` - see that module for the whole
+argument and for why this file used to claim the opposite.
+
+The *type* invariant is untouched by that. `ToolOutcome::Refusal` is still a domain result and
+not an `Err`: it arrives here through `Ok`, this handler cannot get one by mistake, and nothing
+on the way turned it into a `crate::problem::Failure`. What changed is only what the transport
+says about it.
+
+#### Methods
+
+```rust
+pub const fn body(&self) -> &OutcomeBody
+```
+
+The body, for a test that asserts on the JSON rather than on the response.
+
+```rust
+pub const fn status(&self) -> axum::http::StatusCode
+```
+
+The status this outcome comes back as.
+
+#### Implements
+
+`Debug`, `IntoResponse`
 
 ### `struct CatalogBody`
 

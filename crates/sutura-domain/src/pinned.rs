@@ -35,6 +35,7 @@ use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
+use crate::text::first_invisible;
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
 /// it cannot be used to smuggle a paragraph into an audit record.
@@ -60,6 +61,23 @@ pub enum InvalidVersion {
     /// sink line by line, so a newline here appends a record nobody wrote.
     #[error("a definition version must not contain control characters: {value:?}")]
     ControlCharacter { value: String },
+    /// Holds an invisible or direction-changing code point. **The second half of the reason the
+    /// variant above exists**, and it was missing: `char::is_control` is false for every one of
+    /// these (general category `Cf`, not `Cc`), so the check that refuses a newline could not see a
+    /// right-to-left override, and a version label carrying one passed.
+    ///
+    /// That matters here for exactly the reason the control-character refusal states. A version
+    /// travels in [`Provenance`], and provenance is written to an audit sink line by line, echoed
+    /// into the body of an answer, and printed by the compile command - so a label that renders as
+    /// `v2.1` in every one of those places and is a different string is a provenance record that
+    /// cannot be matched against the bundle it names. The digest is what makes an answer checkable;
+    /// two labels a reader cannot tell apart is the one way to make the version half of it useless.
+    ///
+    /// The code is reported rather than the value, which is the opposite of the variant above: a
+    /// label whose only defect is a character that draws nothing would print as though it were
+    /// correct, so the message names the character instead.
+    #[error("a definition version must not contain the invisible or direction-changing character {code:#06x}")]
+    InvisibleCharacter { code: u32 },
     #[error("a definition version may be at most {limit} characters, {value:?} has {len}")]
     TooLong { value: String, len: usize, limit: usize },
 }
@@ -73,6 +91,14 @@ impl DefinitionVersion {
         if trimmed.chars().any(char::is_control) {
             return Err(InvalidVersion::ControlCharacter {
                 value: String::from(trimmed),
+            });
+        }
+        // Beside the control-character check rather than folded into it, because it is a second
+        // character class the first one provably cannot see. `crate::text` owns the set, so this
+        // refusal and the one an authored SQL fragment gets are the same refusal.
+        if let Some(offending) = first_invisible(trimmed) {
+            return Err(InvalidVersion::InvisibleCharacter {
+                code: u32::from(offending),
             });
         }
         if trimmed.chars().count() > MAX_VERSION_LEN {
@@ -599,6 +625,46 @@ mod tests {
                 limit: MAX_VERSION_LEN,
             }
         );
+    }
+
+    #[test]
+    fn a_version_label_may_not_carry_an_invisible_character() {
+        // The bug this prevents, and the reason the newline check above was not enough: a version is
+        // echoed into an audit record, into the body of an answer and into the compile command's
+        // output, and `char::is_control` is FALSE for every one of these code points. A label with a
+        // right-to-left override in it printed as though it were an ordinary one, in all three
+        // places, and the provenance a reader copied out could not be matched against the bundle it
+        // named.
+        assert_eq!(
+            DefinitionVersion::parse("v2.1\u{202E}"),
+            Err(InvalidVersion::InvisibleCharacter { code: 0x202E })
+        );
+        // Both ends of every range, so a typo in one of the bounds fails here.
+        for code in [
+            0x00AD_u32, 0x200B, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x2069, 0xFEFF, 0xFFF9, 0xFFFB,
+        ] {
+            let offending = char::from_u32(code).expect("a listed code point is a character");
+            assert_eq!(
+                DefinitionVersion::parse(format!("v1{offending}2")),
+                Err(InvalidVersion::InvisibleCharacter { code }),
+                "{code:#06x}"
+            );
+        }
+        // And the neighbour of each bound is NOT refused, so this is the set written down rather
+        // than a sweep that would reject a label somebody has to be able to write.
+        for code in [
+            0x00AC_u32, 0x00AE, 0x200A, 0x2010, 0x2029, 0x202F, 0x205F, 0x2065, 0x206A, 0xFEFE, 0xFF00, 0xFFFC,
+        ] {
+            let benign = char::from_u32(code).expect("a listed code point is a character");
+            let label = format!("v1{benign}2");
+            assert_eq!(
+                DefinitionVersion::parse(&label)
+                    .expect("a label with an ordinary character is a label")
+                    .as_str(),
+                label,
+                "{code:#06x}"
+            );
+        }
     }
 
     #[test]

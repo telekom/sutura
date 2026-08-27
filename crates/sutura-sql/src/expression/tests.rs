@@ -10,8 +10,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
 use sutura_domain::model::{ColumnName, TableName};
 
+use super::refusal::{Construct, ExpressionError, Shape};
 use super::vocabulary::{ALLOWED_FUNCTION_NAMES, Called};
-use super::{Construct, ExpressionError, Shape, compile, embed};
+use super::{compile, embed};
 use crate::dialect::{ALL, Dialect};
 
 /// The columns every fragment in this file is checked against.
@@ -126,6 +127,12 @@ fn empty_whitespace_and_comment_only_input_is_refused_and_does_not_panic() {
     for raw in ["", " ", "   ", "\t", "\n"] {
         assert!(SqlFragment::parse(raw).is_err(), "{raw:?} is not a fragment");
     }
+    // Comment-only input is now refused by the TEXT question - `holds_comment_delimiter` - so it
+    // never reaches the parser at all, which is one guard earlier than the wrapper's projection
+    // count. Asserted as the comment refusal rather than as `ManyExpressions` because that is what
+    // it now is: the presence check that closed the balanced-count bypass also made the empty token
+    // list unreachable from a comment, and a test claiming the later guard fired would be claiming
+    // coverage of a path nothing takes.
     for raw in ["-- nothing here", "/* nothing here */", "/*a*/ -- b"] {
         let fragment = SqlFragment::parse(raw).expect("a comment is text, so it reaches the compile");
         let err = compile(
@@ -137,14 +144,25 @@ fn empty_whitespace_and_comment_only_input_is_refused_and_does_not_panic() {
         assert!(
             matches!(
                 err,
-                ExpressionError::NotOneExpression {
-                    shape: Shape::ManyExpressions,
+                ExpressionError::Refused {
+                    construct: Construct::Comment,
                     ..
                 }
             ),
             "{raw:?}: {err}"
         );
     }
+    // The wrapper's projection count is still the backstop for an input that tokenizes to nothing
+    // for a reason that is not a comment, and this is the one the parser sees: a bare `;` is one
+    // statement in the authoring dialect and its projection list is empty.
+    let fragment = SqlFragment::parse(";").expect("a semicolon is text");
+    let err = compile(
+        &AuthoredSql::new(BTreeMap::from([(DialectTag::portable(), fragment)])).expect("one fragment"),
+        &table(),
+        &columns(),
+    )
+    .expect_err("a semicolon is not an expression");
+    assert!(matches!(err, ExpressionError::NotOneExpression { .. }), "{err}");
 }
 
 #[test]
@@ -168,6 +186,14 @@ fn a_fragment_that_escapes_its_own_parentheses_is_refused_naming_a_position() {
             Err(ExpressionError::NotOneExpression { shape, .. }) => {
                 assert_eq!(shape, Shape::ManyStatements, "{raw:?}");
             }
+            // The first case carries a trailing `--`, which the text question now refuses before the
+            // parser is reached. Kept in this list rather than trimmed, because the input is the one
+            // that was measured against ClickHouse's parser and the claim being made is that it does
+            // not get through - not which guard stops it.
+            Err(ExpressionError::Refused {
+                construct: Construct::Comment,
+                ..
+            }) => assert!(raw.contains("--"), "{raw:?} was refused as a comment and holds no delimiter"),
             Err(other) => panic!("{raw:?}: unexpected refusal {other}"),
             Ok(_) => panic!("{raw:?} was ACCEPTED"),
         }
@@ -309,7 +335,7 @@ fn a_function_name_outside_the_allowed_set_is_refused_and_the_refusal_names_it()
         match portable(raw) {
             Err(ExpressionError::UnknownFunction { tag, name: found }) => {
                 assert_eq!(found, name, "{raw:?}");
-                assert_eq!(tag, "portable", "{raw:?}");
+                assert_eq!(tag.as_str(), "portable", "{raw:?}");
             }
             other => panic!("{raw:?}: expected an unknown function, got {other:?}"),
         }
@@ -442,7 +468,7 @@ fn a_fragment_that_nests_deeper_than_the_checks_walk_is_refused_rather_than_endi
         );
         match portable(&raw) {
             Err(ExpressionError::TooDeep { tag, depth, limit }) => {
-                assert_eq!(tag, "portable");
+                assert_eq!(tag.as_str(), "portable");
                 assert_eq!(limit, super::MAX_DEPTH);
                 assert!(depth > limit, "{depth} is not deeper than {limit}");
             }
@@ -488,7 +514,7 @@ fn a_column_the_qualification_rewrite_did_not_reach_is_refused() {
     ] {
         match portable(raw) {
             Err(ExpressionError::NotQualified { tag, column, table }) => {
-                assert_eq!(tag, "portable", "{raw:?}");
+                assert_eq!(tag.as_str(), "portable", "{raw:?}");
                 assert!(
                     columns().iter().any(|declared| declared.as_str() == column),
                     "{raw:?}: {column} is not one of the model's columns"
@@ -550,9 +576,42 @@ fn an_unterminated_comment_is_refused_rather_than_discarding_the_rest_of_the_fra
     );
     assert_eq!(refusal("SUM(mrr_eur) */"), Construct::Comment);
     // The fail-closed caveat, asserted so that it is a decision on the record rather than a surprise
-    // in a year: counting delimiters cannot tell a comment from a string literal holding one, so a
-    // measure comparing a column against `/*` is refused too. A measure has no reason to.
+    // in a year: the text question cannot tell a comment from a string literal holding one, so a
+    // measure comparing a column against a comment delimiter is refused too. A measure has no
+    // reason to, and none of the three digraphs has any other meaning in SQL.
     assert_eq!(refusal("SUM(CASE WHEN status = '/*' THEN mrr_eur END)"), Construct::Comment);
+    assert_eq!(refusal("SUM(CASE WHEN status = '*/' THEN mrr_eur END)"), Construct::Comment);
+    assert_eq!(refusal("SUM(CASE WHEN status = '--' THEN mrr_eur END)"), Construct::Comment);
+}
+
+#[test]
+fn a_string_literal_holding_a_closing_delimiter_no_longer_balances_an_unterminated_comment() {
+    // The refusal above used to COUNT `/*` against `*/` over the raw text, and the count failed
+    // OPEN. A `*/` inside a string literal balances a later unterminated `/*`, so the counts agreed
+    // and the fragment was accepted with everything after the `/*` gone - which is the exact defect
+    // the refusal exists to close, reached from the other side.
+    //
+    // Reproduced against the count before the fix, in this crate's own test harness:
+    //
+    //   SUM(CASE WHEN status = '*/' THEN mrr_eur END) /* SUM(customer_key) is what runs
+    //     -> ACCEPTED, rendered for DuckDB as
+    //        SUM(CASE WHEN "fact_subscription"."status" = '*/' THEN "fact_subscription"."mrr_eur" END)
+    //
+    // Nothing else could have caught it, and that is not luck: the trailing text is not in the tree,
+    // so `carries_comment` cannot see it, and the whole statement and the projection render
+    // identically, so `Shape::CarriedClause` cannot either. The tokenizer is where the evidence went.
+    for raw in [
+        "SUM(CASE WHEN status = '*/' THEN mrr_eur END) /* SUM(customer_key) is what runs",
+        "SUM(CASE WHEN status = 'a*/b' THEN mrr_eur END) /* buried mid-word",
+        "SUM(CASE WHEN status = '*/' THEN mrr_eur END) /* two */ /* and one open",
+        // The same shape with the digraphs the other way round, which the count also passed.
+        "SUM(CASE WHEN status = '/*' THEN mrr_eur END) */",
+    ] {
+        assert_eq!(refusal(raw), Construct::Comment, "{raw:?}");
+    }
+    // And the ordinary fragment beside them still compiles, so the fix is a refusal of comment
+    // delimiters and not of string literals.
+    portable("SUM(CASE WHEN status = 'active' THEN mrr_eur END)").expect("a string literal with no delimiter compiles");
 }
 
 #[test]
@@ -651,13 +710,25 @@ fn a_dialect_word_that_is_not_one_fails_the_load_rather_than_being_never_chosen(
     )
     .expect_err("postgresql is not a dialect this build renders for");
     match err {
-        ExpressionError::UnknownDialect { tag, choices, .. } => {
-            assert_eq!(tag, "postgresql");
-            assert!(choices.contains("postgres"), "{choices}");
-            assert!(choices.contains("clickhouse"), "{choices}");
+        ExpressionError::UnknownDialect {
+            ref tag, ref choices, ..
+        } => {
+            // The typed fields, not the prose. `choices` is the LIST this build renders for, so a
+            // caller offering "did you mean" has the words rather than a sentence to split.
+            assert_eq!(tag.as_str(), "postgresql");
+            assert_eq!(choices, &ALL.to_vec());
+            assert!(choices.contains(&Dialect::Postgres), "{choices:?}");
+            assert!(choices.contains(&Dialect::ClickHouse), "{choices:?}");
         }
-        other => panic!("expected an unknown dialect, got {other}"),
+        ref other => panic!("expected an unknown dialect, got {other}"),
     }
+    // And the sentence still reads, because the join is in the format rather than at the
+    // construction site. The quoting is deliberate here and nowhere else in this enum: a tag
+    // differing from a real one by a trailing space is what this refusal is most often about.
+    let message = err.to_string();
+    assert!(message.starts_with("\"postgresql\" is not a data system"), "{message}");
+    assert!(message.contains("duckdb, postgres, clickhouse"), "{message}");
+    assert!(message.contains("or portable"), "{message}");
 }
 
 #[test]
@@ -698,13 +769,21 @@ fn a_dialect_with_no_variant_and_no_portable_fragment_is_refused_not_guessed() {
     .expect_err("nothing was authored for duckdb or postgres");
     match err {
         ExpressionError::NoFragment {
-            dialect, authored_for, ..
+            dialect,
+            ref authored_for,
+            ..
         } => {
             assert!(!matches!(dialect, Dialect::ClickHouse), "{dialect} was authored for");
-            assert_eq!(authored_for, "clickhouse");
+            // The words a catalog wrote, as words. Recovering this from the message used to mean
+            // splitting on ", " between two other clauses, which is a contract nothing checks.
+            assert_eq!(
+                authored_for.iter().map(DialectTag::as_str).collect::<Vec<&str>>(),
+                ["clickhouse"]
+            );
         }
-        other => panic!("expected a missing fragment, got {other}"),
+        ref other => panic!("expected a missing fragment, got {other}"),
     }
+    assert!(err.to_string().contains("authored for clickhouse, and none"), "{err}");
 }
 
 #[test]
@@ -722,11 +801,14 @@ fn every_variant_is_checked_even_the_ones_a_dialect_would_never_read() {
     )
     .expect_err("the clickhouse variant carries a FILTER");
     match err {
-        ExpressionError::Refused { tag, construct } => {
-            assert_eq!(tag, "clickhouse");
+        ExpressionError::Refused { ref tag, construct } => {
+            // Which VARIANT was refused is the useful half here, and it is a `DialectTag` rather
+            // than a `String` for the reason every construction site already held one.
+            assert_eq!(tag.as_str(), "clickhouse");
+            assert!(!tag.is_portable());
             assert_eq!(construct, Construct::AggregateFilter);
         }
-        other => panic!("expected a refusal, got {other}"),
+        ref other => panic!("expected a refusal, got {other}"),
     }
 }
 

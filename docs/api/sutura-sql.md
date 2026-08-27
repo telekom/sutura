@@ -224,119 +224,6 @@ is compiled into this build, so nothing here can tell. That is precisely what th
 variants of `AuthoredSql` are for: the author names the dialect and takes the claim, and a
 dialect with neither an exact fragment nor a `portable` one is refused rather than guessed at.
 
-### `enum Construct`
-
-```rust
-pub enum Construct
-```
-
-A construct an authored fragment may not contain, and why.
-
-Every variant is a refusal a compile can produce, and the reason is carried with it rather than
-left in a design document: a refusal that names a construct without saying why sends an author to
-read this file.
-
-#### Variants
-
-- `Query` - A `SELECT`, a subquery, a set operation.
-- `TableReference` - A named table.
-- `SchemaStatement` - A schema or data statement inside an expression.
-- `Star` - `*`, either as a node or as `COUNT(*)`'s flag.
-- `BindParameter` - `?` or `$1`.
-- `Opaque` - A node the generator emits with no handling at all.
-- `QualifiedColumn` - `t.column`.
-- `QualifiedFunctionName` - A function name with a schema on it.
-- `DateTimeFunction` - Anything that reads a date or a time.
-- `UnknownFunction` - A called function whose name is not in the allowlist.
-- `AggregateFilter` - `FILTER (WHERE ..)` on an aggregate.
-- `Comment` - A comment inside the fragment.
-- `RowConstructor` - A row constructor, which is also how `COUNT(DISTINCT a, b)` parses.
-- `UnguardedDivision` - `/` whose divisor is not a `NULLIF`.
-- `IntegerDivision` - `//`, or any integer division node.
-- `IsTrue` - `x IS TRUE`, `x IS FALSE`, `x IS <expr>`.
-- `NotAggregated` - A fragment that aggregates nothing.
-
-#### Methods
-
-```rust
-pub const fn as_str(self) -> &'static str
-```
-
-The name a refusal prints.
-
-```rust
-pub const fn why(self) -> &'static str
-```
-
-Why it is refused. One sentence, and it is the whole value of the refusal.
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
-
-### `enum Shape`
-
-```rust
-pub enum Shape
-```
-
-Which of the four shape guards a fragment failed.
-
-Named individually because each one is a different mistake: two projections is a comma somebody
-meant as an argument separator, a `FROM` is a whole query pasted into a measure, and an alias is
-a habit from writing `SELECT` lists. "Not one expression" would send all three to read a grammar.
-
-#### Variants
-
-- `ManyStatements` - More than one statement: a `;` in the fragment.
-- `NotASelect` - The wrapper did not come back as a `SELECT`. A set operation is the reachable case: `SUM(x) UNION SELECT 1` parses as a `Union`, not as a projection.
-- `ManyExpressions` - Not exactly one projected expression.
-- `CarriedFrom` - A `FROM` clause.
-- `CarriedAlias` - An `AS name`.
-- `CarriedClause` - Any other clause on the wrapper's `SELECT`, which taking the projection would DISCARD.
-
-#### Methods
-
-```rust
-pub const fn as_str(self) -> &'static str
-```
-
-#### Implements
-
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
-
-### `enum ExpressionError`
-
-```rust
-pub enum ExpressionError
-```
-
-Why an authored expression could not be compiled.
-
-**All of these are load failures.** A catalog that produces one does not serve; there is no
-degraded mode in which the metric is skipped and the rest is answered, because a metric that is
-present in a bundle and unanswerable is a metric an agent will ask about.
-
-#### Variants
-
-- `UnknownDialect` - A dialect word that is not one this build renders for. Refused rather than ignored: a `postgresql:` beside a `portable:` would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.
-- `NoFragment` - No exact fragment and no `portable` one. The refusal wren's importer does not have.
-- `Unparsable`
-- `NotOneExpression`
-- `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
-- `Refused`
-- `UnknownColumn`
-- `UnknownFunction` - A called function that is not one of the names a measure may call.
-- `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `parse`.
-- `NotQualified` - A column the qualification rewrite did not reach. See `require_qualified`.
-- `Qualify`
-- `Render`
-- `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.
-
-#### Implements
-
-`Debug`, `Display`, `Error`
-
 ### `struct Rendering`
 
 ```rust
@@ -400,7 +287,7 @@ Every rendering, for a snapshot a reviewer reads.
 ### `fn compile`
 
 ```rust
-pub fn compile(authored: &sutura_domain::expression::AuthoredSql, table: &sutura_domain::model::TableName, columns: &std::collections::BTreeSet<sutura_domain::model::ColumnName>) -> Result<CompiledExpression, ExpressionError>
+pub fn compile(authored: &sutura_domain::expression::AuthoredSql, table: &sutura_domain::model::TableName, columns: &std::collections::BTreeSet<sutura_domain::model::ColumnName>) -> Result<CompiledExpression, crate::expression::refusal::ExpressionError>
 ```
 
 Compiles an authored expression for every dialect this build renders for.
@@ -430,6 +317,150 @@ would be re-parsing our own output for nothing.
 Wrapped in a `Paren`. `Raw` reports `is_statement()`, carries no precedence and has no children,
 so an unparenthesised one placed under an operator would bind by text rather than by structure.
 The parentheses cost two characters and make the embedding position-independent.
+
+### Module `refusal`
+
+What a refusal says and what it carries: `refusal::Construct`, `refusal::Shape` and
+`refusal::ExpressionError`.
+
+Public, and a module rather than a `pub use` here, for two reasons that happen to agree.
+`cargo xtask max-lines` caps a file under `crates/` at a thousand lines and cannot exempt
+anything, and this file was at the cap; and the refusal vocabulary is the half of the compile a
+reader consults rather than follows, so it reads better as its own page than as the first third
+of this one. `crate::ExpressionError` and `crate::Construct` still name the same types, from the
+crate root, which is the path everything outside this crate uses.
+What a refusal from the compile says, and what it carries: the construct it found, the shape
+guard it failed, and the error itself.
+
+Its own module for two reasons. The plain one is size: `expression.rs` is a thousand-line file by
+the gate that measures it, and the refusal vocabulary is the half of it a reader consults rather
+than follows.
+
+The one worth stating is that this is where the shape rule lives. **Every field here is the value
+and never prose about it.** The dialect word is a `DialectTag`, which is what every construction
+site already holds; the two refusals that name a *set* carry the set. The joins below are how a
+message reads and not what it is - a caller wanting the sentence has `Display`, and a caller
+wanting the list has the list, where before it had to split a message on `", "`.
+
+#### `enum Construct`
+
+```rust
+pub enum Construct
+```
+
+A construct an authored fragment may not contain, and why.
+
+Every variant is a refusal a compile can produce, and the reason is carried with it rather than
+left in a design document: a refusal that names a construct without saying why sends an author to
+read this file.
+
+##### Variants
+
+- `Query` - A `SELECT`, a subquery, a set operation.
+- `TableReference` - A named table.
+- `SchemaStatement` - A schema or data statement inside an expression.
+- `Star` - `*`, either as a node or as `COUNT(*)`'s flag.
+- `BindParameter` - `?` or `$1`.
+- `Opaque` - A node the generator emits with no handling at all.
+- `QualifiedColumn` - `t.column`.
+- `QualifiedFunctionName` - A function name with a schema on it.
+- `DateTimeFunction` - Anything that reads a date or a time.
+- `UnknownFunction` - A called function whose name is not in the allowlist.
+- `AggregateFilter` - `FILTER (WHERE ..)` on an aggregate.
+- `Comment` - A comment inside the fragment.
+- `RowConstructor` - A row constructor, which is also how `COUNT(DISTINCT a, b)` parses.
+- `UnguardedDivision` - `/` whose divisor is not a `NULLIF`.
+- `IntegerDivision` - `//`, or any integer division node.
+- `IsTrue` - `x IS TRUE`, `x IS FALSE`, `x IS <expr>`.
+- `NotAggregated` - A fragment that aggregates nothing.
+
+##### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The name a refusal prints.
+
+```rust
+pub const fn why(self) -> &'static str
+```
+
+Why it is refused. One sentence, and it is the whole value of the refusal.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `enum Shape`
+
+```rust
+pub enum Shape
+```
+
+Which of the four shape guards a fragment failed.
+
+Named individually because each one is a different mistake: two projections is a comma somebody
+meant as an argument separator, a `FROM` is a whole query pasted into a measure, and an alias is
+a habit from writing `SELECT` lists. "Not one expression" would send all three to read a grammar.
+
+##### Variants
+
+- `ManyStatements` - More than one statement: a `;` in the fragment.
+- `NotASelect` - The wrapper did not come back as a `SELECT`. A set operation is the reachable case: `SUM(x) UNION SELECT 1` parses as a `Union`, not as a projection.
+- `ManyExpressions` - Not exactly one projected expression.
+- `CarriedFrom` - A `FROM` clause.
+- `CarriedAlias` - An `AS name`.
+- `CarriedClause` - Any other clause on the wrapper's `SELECT`, which taking the projection would DISCARD.
+
+##### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum ExpressionError`
+
+```rust
+pub enum ExpressionError
+```
+
+Why an authored expression could not be compiled.
+
+**All of these are load failures.** A catalog that produces one does not serve; there is no
+degraded mode in which the metric is skipped and the rest is answered, because a metric that is
+present in a bundle and unanswerable is a metric an agent will ask about.
+
+**Every field is the value, never prose about it**, and that is this enum's one shape rule. The
+dialect word a refusal is about is a `DialectTag` and not a `String`, because that is what every
+construction site already holds; the two refusals that name a *set* carry the set rather than a
+sentence built from it. A caller that wants the sentence gets it from `Display`, and a caller that
+wants the list has it - where before, recovering "which dialects was this authored for" meant
+splitting a message on `", "`, which is a contract nothing checks and a format edit breaks.
+
+##### Variants
+
+- `UnknownDialect` - A dialect word that is not one this build renders for. Refused rather than ignored: a `postgresql:` beside a `portable:` would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.
+- `NoFragment` - No exact fragment and no `portable` one. The refusal wren's importer does not have.
+- `Unparsable`
+- `NotOneExpression`
+- `Unrenderable` - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a `Shape`, because a `Shape` carries no cause and this one has one worth keeping.
+- `Refused`
+- `UnknownColumn`
+- `UnknownFunction` - A called function that is not one of the names a measure may call.
+- `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.
+- `NotQualified` - A column the qualification rewrite did not reach. See `super::require_qualified`, in the parent module.
+- `Qualify`
+- `Render`
+- `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
 
 ## Module `generate`
 

@@ -86,6 +86,21 @@ pub enum DuckDbError {
         #[source]
         cause: MalformedRowSet,
     },
+    /// The driver handed back a result set with no statement behind it, so there are no column
+    /// labels to read.
+    ///
+    /// **An error rather than an empty projection, and the empty projection was the bug.** This was
+    /// `unwrap_or_default()`, which turns a missing schema into a zero-column result - and a
+    /// `RowSet` with no columns and N rows is a shape [`RowSet::new`] ACCEPTS, because every row
+    /// then has no cells either and the thing is rectangular. So a question would have been answered
+    /// with a result set that had silently lost its projection, under a certified name and with
+    /// provenance attached. Refusal beats degradation on a shape check: nothing downstream can tell
+    /// "this metric has no columns" from "this driver told us nothing".
+    ///
+    /// No `#[source]`, because there is nothing to preserve: the handle is an `Option` and the
+    /// absent case carries no cause. That is the whole of what the driver said.
+    #[error("the result set came back without the statement that produced it, so it has no columns")]
+    NoSchema,
     /// The plan could not be rendered as SQL.
     ///
     /// This adapter speaks SQL, so it asks the compiler to render the plan for its own dialect. An
@@ -292,7 +307,14 @@ impl DuckDbWarehouse {
             .query(refs.as_slice())
             .map_err(|cause| DuckDbError::Execute { cause })?;
         // Owned, so the immutable borrow of `rows` ends before the loop needs it mutably.
-        let columns: Vec<String> = rows.as_ref().map(duckdb::Statement::column_names).unwrap_or_default();
+        //
+        // Refused when the handle is absent rather than defaulted to no columns - see
+        // [`DuckDbError::NoSchema`] for why an empty projection is a shape `RowSet::new` accepts and
+        // therefore the one degradation nothing downstream could notice.
+        let Some(statement) = rows.as_ref() else {
+            return Err(DuckDbError::NoSchema);
+        };
+        let columns: Vec<String> = statement.column_names();
         let width = columns.len();
         let mut out: Vec<Vec<Value>> = Vec::new();
         while let Some(row) = rows.next().map_err(|cause| DuckDbError::Execute { cause })? {
@@ -360,7 +382,8 @@ mod tests {
     use super::{DuckDbError, DuckDbWarehouse, Real};
     use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
     use sutura_domain::calendar::Date;
-    use sutura_domain::warehouse::Value;
+    use sutura_domain::model::SourceName;
+    use sutura_domain::warehouse::{GeneratedQuery, RowSet, Value};
 
     fn real(value: f64) -> Real {
         Real::parse(value).expect("a test literal is finite")
@@ -374,6 +397,10 @@ mod tests {
 
     fn day(iso: &str) -> Date {
         Date::parse(iso).expect("a test date is a date")
+    }
+
+    fn source() -> SourceName {
+        SourceName::parse("local").expect("a test source is a source")
     }
 
     #[test]
@@ -508,5 +535,45 @@ mod tests {
                 "{error:?}"
             );
         }
+    }
+
+    #[test]
+    fn the_column_labels_come_from_the_statement_that_answered() {
+        // The half of the schema read that is reachable, and the reason the labels are taken from
+        // the executed statement at all: a projection is what an answer is read by. `run` is
+        // exercised directly with a literal statement, because the labels have to be right before
+        // any plan is involved.
+        let warehouse = DuckDbWarehouse::in_memory(source()).expect("an in-memory database opens");
+        let query = GeneratedQuery::new(source(), String::from("SELECT 1 AS period, 'north' AS region"), Vec::new());
+        let rows = warehouse.run(&query).expect("a literal select answers");
+        assert_eq!(rows.columns(), ["period", "region"]);
+        assert_eq!(rows.rows().len(), 1);
+    }
+
+    #[test]
+    fn a_result_set_with_no_statement_behind_it_is_refused_rather_than_answered_with_no_columns() {
+        // THE DEGRADATION THIS VARIANT REPLACED. The column labels were read as
+        // `rows.as_ref().map(Statement::column_names).unwrap_or_default()`, so an absent handle
+        // produced an empty projection - and this is why nothing downstream would have caught it: a
+        // `RowSet` with no columns and N rows is REJECTED BY NOTHING, because every row has no cells
+        // either and the result is rectangular.
+        let degraded = RowSet::new(Vec::new(), vec![Vec::new(), Vec::new()])
+            .expect("no columns and no cells per row is rectangular, which is what made the default silent");
+        assert!(degraded.columns().is_empty());
+        assert_eq!(degraded.rows().len(), 2, "two rows of nothing, and a valid result set");
+        // So the shape has to be refused where it arises. Constructed rather than provoked: the
+        // handle is present for every statement this adapter runs - the test above is that path -
+        // and a driver that stopped handing one over is exactly the change that must not turn into
+        // an answer. The message names what is missing, because "no columns" on its own reads as a
+        // fact about the metric rather than about the driver.
+        let error = DuckDbError::NoSchema;
+        assert_eq!(
+            error.to_string(),
+            "the result set came back without the statement that produced it, so it has no columns"
+        );
+        assert!(
+            core::error::Error::source(&error).is_none(),
+            "an absent handle carries no cause, and inventing one would be worse than saying so"
+        );
     }
 }

@@ -117,15 +117,12 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | A catalog edit cannot change what executes | Definitions arrive as `PinnedDefinitions` with a digest over their canonical form; the digest travels with the answer |
 | A result cannot be separated from what defined it | `PinnedDefinitions::pin` computes the digest from the definitions it stores - no digest parameter, no hasher parameter. `ToolOutcome::Answer` carries `Provenance` with no constructor that omits it |
 | An unvalidated bundle is never served | `sutura_app::verify_and_validate` is the only constructor of `Validated`, lives in a private module, and takes the `Warehouse`. Two `compile_fail` doctests, each with a compiling twin |
-| We never TRANSLATE SQL, and the one thing we parse is parsed at load | The dialect layer's `transpile` feature is not compiled, so a call to it does not build. NOT a lint for that: an unresolvable path in `disallowed-methods` is silently ignored by clippy, verified, so such an entry would read as enforcement and do nothing. The single exception to "we do not parse" is `sutura_sql::expression`, at catalog-compile time - see the three rows above. `transpile` stays uncompiled because its default `unsupported_level: Warn` returns `Ok(sql)` and discards the diagnostic, and `Raise` errors on every non-count aggregate targeting ClickHouse while staying silent on the four real breakages |
+| We never TRANSLATE SQL, and the one thing we parse is parsed at load | The dialect layer's `transpile` feature is not compiled, so a call to it does not build. NOT a lint for that: an unresolvable path in `disallowed-methods` is silently ignored by clippy, verified, so such an entry would read as enforcement and do nothing. The single exception to "we do not parse" is `sutura_sql::expression`, and that module has no caller - see *Built And Not Wired* below, which is why it is not a row here. `transpile` stays uncompiled because its default `unsupported_level: Warn` returns `Ok(sql)` and discards the diagnostic, and `Raise` errors on every non-count aggregate targeting ClickHouse while staying silent on the four real breakages |
 | No value from a question reaches the statement as text | Every value becomes a bind parameter; `GeneratedQuery` keeps statement and parameters in separate fields with no merging constructor. A golden asserts no question literal appears in its statement |
 | No identifier reaches the statement unquoted | Forced quoting for identifiers and aliases; a golden asserts it over the corpus with quoted spans stripped first |
 | Every generated statement is well formed SQL, and parses under its target dialect | The golden suite parses each statement with the dialect it was generated for. **Narrower than "the data system accepts it":** the dialect layer's parser is not gated per dialect for every construct. Acceptance is vouched for by the anchors and by `differential.rs`, which runs a real DuckDB. Postgres and ClickHouse are rendered and parse-checked, nothing more |
 | Adding a metadata provider or a data system is a registration, not a test edit | The golden corpus, the refusal corpus and the anchor check are a matrix over `tests/adapters`. One registry entry adds a catalog or a data system |
 | The measure vocabulary is closed, and holds no SQL expression | `Measure` is two shapes over a `Term` of two terms, `RequiredFilter` four operators, `deny_unknown_fields` at every depth. There is no `expression:` field and no `Option<String>` anywhere on it. A new shape is a domain variant plus a plan variant plus a generator arm plus a golden |
-| SQL a catalog wrote is a SEPARATE named shape, never a field on the closed one | `Computation` is two variants - `measure:` and `authored_sql:` - and writing both is `InvalidComputation::Both`. `Computation::kind()` is how an operator lists which metrics use the hatch, so it cannot be invisible. `docs/adr/0004` is the decision, and the hatch is a **provider capability**: a provider with no authored SQL produces `Computation::Measure` for every metric and is complete, not degraded |
-| A catalog-authored fragment is parsed at LOAD, once, for every dialect | `sutura_sql::expression::compile` renders one string per entry in `dialect::ALL` and re-parses each in its own target; a failure is a load failure naming the dialect, the construct or the line and column. Nothing parses on the query path: `expression::embed` inserts the compiled string verbatim. **A `Computation::AuthoredSql` that has not been through `compile` is unvalidated** - the composition root is what must not skip it, and a build that links no SQL generator must refuse such a catalog rather than serve it |
-| A fragment cannot reach past the metric's own model, and cannot use a construct that translates wrong | `Construct`, checked over the parsed AST: subquery, table reference, star, bind placeholder, schema statement, unhandled node, qualified column, unknown column, no aggregate - plus the four measured defects (`FILTER (WHERE ..)`, multi-argument `DISTINCT`, any date/time function, a bare `/` between aggregates) and `IS TRUE`. Nothing upstream errors on any of the four. The four shape guards alone are NOT a boundary: a scalar subquery passes all of them |
 | The panicking fragment API cannot be called | `clippy.toml` bans `polyglot_sql::parser::Parser::new` and `::parse_expressions`, both **verified to resolve** by writing the call and watching clippy reject it. They panic on an empty token list, which is what empty, whitespace-only and comment-only input tokenize to - an abort reachable from a catalog file |
 | A definitional filter is always applied | `required_filters` compile into every plan for the metric, marked `PredicateOrigin::Definition`. A caller has no field that could name or remove one |
 | A join cannot silently change a measure | `Definitions::assemble` refuses a dimension reached through a relationship whose *declared* cardinality may duplicate rows, and a reconciliation test checks grouped rows against the ungrouped total. **Catalog cardinality is a trusted precondition:** nothing checks the declaration against the data, and an anchor cannot see it because an anchor is asked with no dimensions |
@@ -156,6 +153,42 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | Note prose is bounded, and refused at load rather than cut at render | `NoteBody::parse` caps bytes and lines and refuses a body that would render as nothing; `MAX_KNOWLEDGE_BYTES` caps the aggregate, so N conforming notes cannot do what one oversized note cannot; `Phrase::parse` bounds one line and normalises it, so two phrases a reader cannot tell apart cannot both load. Nothing anywhere shortens a body |
 | A worked example is a question this surface would accept | `Knowledge::assemble` checks each example's `Query` against the metric, its grains, its dimensions and its allowlists, and against `MAX_RANGE_DAYS` and `MAX_DIMENSIONS` read from `sutura_domain::query`. The prompt tells an agent an example is a question this deployment answers, and a bundle carrying one it would decline does not load |
 | The knowledge declaration is under the definition digest | `PinnedDefinitions::pin` hashes the `Knowledge` alongside the definitions, the `KnowledgeCapabilities` included. A deployment that quietly stopped declaring `not_defined` has changed what its prompt claims, and provenance that did not move would certify the old claim |
+
+### Built And Not Wired
+
+**Nothing in this section is an invariant, and none of it may be cited as one.** It is here because
+the code it describes exists, is tested, and has no caller from any binary - and because three rows
+of the table above used to state it as enforced. Those rows were **deleted rather than moved**, which
+is the rule at the head of that table applied to itself: a row that loses its mechanism gets deleted,
+and a row that never had one is the same case. What is below is a description of unbuilt wiring, in a
+section a reader cannot mistake for the table.
+
+`sutura_domain::expression` and `sutura_sql::expression` are the catalog-authored SQL hatch that
+[`docs/adr/0004`](docs/adr/0004-a-named-escape-hatch-for-authored-sql.md) decides. Both are complete
+and neither is reachable: `catalog::Metric` holds a `Measure` and not a `Computation`, `MetricDoc` has
+no `authored_sql` key, and `sutura_sql::expression::compile` has no production caller - it cannot have
+one today, because `sutura-catalog-local` does not depend on `sutura-sql`, and `sutura-serve` links no
+SQL generator at all.
+
+Every gate passes over it, and that is the lesson worth carrying rather than the feature: `unused-deps`
+and `check-boundaries` read manifests, `max-lines` reads files, `check-guidance` reads prose, and the
+missing thing here is a **call** - which is the same shape as a `disallowed-methods` entry that reads
+as enforcement while resolving to nothing.
+
+| Claim | What is built | What is missing before it could be a row above |
+| --- | --- | --- |
+| SQL a catalog wrote is a separate named shape, never a field on the closed one | `Computation`'s two variants, `InvalidComputation::Both` for a document that writes both, `Computation::kind()` for listing which metrics use the hatch | A `Metric` that holds a `Computation` and a `MetricDoc` that can write `authored_sql`. Until then `kind()` is an accessor on a value nothing constructs, and the claim is true only because the shape is unreachable |
+| A catalog-authored fragment is parsed at LOAD, once, for every dialect | `compile` renders one string per entry in `dialect::ALL` and re-parses each in its own target; `embed` inserts the compiled string verbatim, so nothing parses on the query path | A composition root that calls it. `sutura-cli` links `sutura-sql` and could; `sutura-serve` does not - its own manifest omits it, and `FORBIDDEN_EDGES` keeps it out of `sutura-semantic`'s tree so it cannot arrive transitively through `sutura-app` - so `sutura-serve` would have to **refuse** an authored metric rather than serve it |
+| A fragment cannot reach past the metric's own model, and cannot use a construct that translates wrong | `Construct` over the parsed AST, the four shape guards plus the rendering comparison behind them, the qualification postcondition, and an allowlist of callable function names | The same call site. The checks are exercised by their own suite and by nothing that reads a file |
+
+The gap that is not wiring, and the reason finishing the load path would not finish the feature:
+**no shipped binary could execute an authored expression even with the load path in place.**
+`sutura-exec-datafusion` is the engine and generates no SQL, so `Computation::measure()` returning
+`None` has to be a refusal there; `sutura-exec-duckdb` renders through `sutura-sql` and is a
+dev-dependency. Wiring the load alone would move the refusal from load time to query time rather than
+deliver an answer, and which composition root gets an execution path for authored SQL is an
+architecture decision. `docs/adr/0004` records the state and the two things that would have to be
+decided.
 
 ## Changing The Query Path Or The Tool Surface
 

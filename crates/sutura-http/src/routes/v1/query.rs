@@ -1,15 +1,33 @@
 //! Asking one certified question.
 //!
-//! # A refusal is a `200`
+//! # A refusal says so in the status, the code and the sentence
 //!
-//! The single most important thing about this handler. `ToolOutcome::Refusal` is a *result*: the
-//! caller asked something they may not have, and the answer is no. It comes back with `200` and an
-//! `outcome` of `refusal`, because a `4xx` invites a client library to retry - and retrying a
-//! governance decision until it succeeds is exactly the behaviour the refusal exists to prevent.
+//! The single most important thing about this handler, and it is the opposite of what this comment
+//! said until now. `ToolOutcome::Refusal` is still a *result* and not an `Err` - that invariant is
+//! the domain's and is untouched - but a caller is told about it three ways: an explicit status, the
+//! stable `code` in the body, and a sentence that says what to do. `crate::wire::refusal` holds the
+//! mapping, one exhaustive match, with the reason for each status written beside it.
 //!
-//! The statuses in this handler's documented responses are therefore all about things that are *not*
-//! refusals: a body that is not a question, a missing credential, a limit, a data system that did
-//! not answer.
+//! **The old argument was that a `4xx` invites a client library to retry, and that retrying a
+//! governance decision until it succeeds is what the refusal exists to prevent.** The second half is
+//! true. The first half is not, and it is checkable rather than arguable: no mainstream client
+//! retries a `4xx` by default. `urllib3.util.Retry` - what `requests` mounts - documents
+//! `status_forcelist` as "By default, this is disabled with `None`", so no status is retried at all
+//! until somebody names one. `reqwest` 0.13's `retry` module documents its default as "to only retry
+//! requests where an error or low-level protocol NACK is encountered that is known to be safe to
+//! retry" - a transport condition, not a status. `axios` retries nothing on its own, and
+//! `axios-retry` defaults to "a network error or a 5xx error on an idempotent request". Go's
+//! `net/http` reference documents no status-driven retry anywhere. The statuses that *are* retried by
+//! convention are `429` and `408`, and no refusal maps to either. `422` - where four of them land -
+//! is documented the other way round: "Clients that receive a `422` response should expect that
+//! repeating the request without modification will fail with the same error."
+//!
+//! **What the `200` actually cost is what nobody priced.** A refusal answered `200` is
+//! indistinguishable from an answer to everything that reads a status and not a body: an ingress
+//! log, a dashboard, an error-rate alert, a client's `raise_for_status()`, a generated client whose
+//! success branch is `2xx`. A deployment refusing every question read as perfectly healthy. So the
+//! statuses in this handler's documented responses are now about both kinds of thing - a refusal,
+//! and the failures that are not one - and each entry says which codes reach it.
 //!
 //! # Why the call goes onto the blocking pool
 //!
@@ -63,7 +81,7 @@ use sutura_runtime::AtCapacity;
 use crate::problem::Failure;
 use crate::state::ServiceState;
 use crate::surface::SurfaceFailure;
-use crate::wire::{OutcomeBody, QuestionBody};
+use crate::wire::{Outcome, OutcomeBody, QuestionBody};
 
 /// The tag this route is grouped under in the generated document.
 const TAG: &str = "query";
@@ -77,25 +95,71 @@ const TAG: &str = "query";
     responses(
         (
             status = 200,
-            description = "The outcome. `outcome: answer` carries rows and the provenance of the \
-                           definitions that produced them; `outcome: refusal` carries a code and a \
-                           sentence. A refusal is a RESULT and not an error - retrying it will not \
-                           change the answer.",
+            description = "ANSWERED. Carries rows and the provenance of the definitions that \
+                           produced them. This is the only status that means the question was \
+                           answered: a refusal is a 4xx or a 5xx, listed below and carrying \
+                           `outcome: refusal`.",
             body = OutcomeBody
         ),
         (status = 400, description = "The body is not a modelled question. The detail names the field.", body = crate::problem::ProblemBody),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
+        (
+            status = 403,
+            description = "REFUSED - `outcome: refusal`. The catalog does not permit this of this \
+                           metric. `code` says which: `dimension_not_permitted` (the metric \
+                           declares no such dimension), `dimension_not_filterable` (it can be \
+                           grouped by and not filtered on), `dimension_value_not_allowed` (the \
+                           value is outside the declared allowlist - the value itself is never \
+                           echoed back). NOT a statement about your credential: no token widens a \
+                           metric's dimension set.",
+            body = OutcomeBody
+        ),
+        (
+            status = 404,
+            description = "REFUSED - `outcome: refusal`, `code: metric_unknown`. This catalog \
+                           snapshot defines no metric of that name. `GET /v1/catalog` lists the \
+                           ones it does.",
+            body = OutcomeBody
+        ),
         (status = 408, description = "The request exceeded this service's time bound.", body = crate::problem::ProblemBody),
-        (status = 413, description = "The body is larger than this service will read.", body = crate::problem::ProblemBody),
+        (
+            status = 409,
+            description = "REFUSED - `outcome: refusal`, `code: plan_spans_two_sources`. The \
+                           question is answerable in principle and this deployment will not span \
+                           two data systems: a second one is a second identity to satisfy.",
+            body = OutcomeBody
+        ),
+        (
+            status = 413,
+            description = "TWO THINGS, and `code` is what tells them apart. `too_large`: the \
+                           REQUEST body is larger than this service will read - that body is the \
+                           failure shape. `result_too_large`: the ANSWER exceeded the row cap and \
+                           was NOT truncated to fit - that body is `outcome: refusal`, and the \
+                           detail names the cap and what to narrow.",
+            body = OutcomeBody
+        ),
+        (
+            status = 422,
+            description = "REFUSED - `outcome: refusal`. The question is well formed and out of \
+                           bounds. `code` says which bound: `time_range_too_long`, \
+                           `too_many_dimensions`, `duplicate_dimension`, or `grain_not_supported` \
+                           (the metric exists; that grain is not defined for it). Repeating the \
+                           request unchanged will fail the same way; the detail carries the limit.",
+            body = OutcomeBody
+        ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,
-            description = "Worth retrying, and `code` says which of two things happened. \
+            description = "Worth retrying, and `code` says which of three things happened. \
                            `unavailable`: the data system did not answer. `at_capacity`: every \
                            execution slot was taken for the whole admission window, so this \
                            question was shed rather than queued - that response carries a \
-                           `Retry-After` in seconds.",
+                           `Retry-After` in seconds. `source_unavailable`: REFUSED - \
+                           `outcome: refusal` - the data system the plan names could not be \
+                           reached as the calling subject. No `Retry-After` on the other two: \
+                           nothing here knows when a data system comes back, and a guessed number \
+                           would be a promise.",
             body = crate::problem::ProblemBody
         ),
     )
@@ -107,7 +171,7 @@ const TAG: &str = "query";
 pub(crate) async fn ask(
     State(state): State<ServiceState>,
     body: Result<Json<QuestionBody>, JsonRejection>,
-) -> Result<Json<OutcomeBody>, Failure> {
+) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
     let query = Query::try_from(body).map_err(|cause| Failure::NotAQuestion {
         detail: describe(&cause),
@@ -149,8 +213,11 @@ pub(crate) async fn ask(
             return Err(Failure::Internal);
         }
     };
-    report(&outcome);
-    Ok(Json(OutcomeBody::from(&outcome)))
+    // Converted before it is logged, so the line carries the status the caller was actually given
+    // rather than a status this function restated. One decision, one place: `wire::refusal`.
+    let response = Outcome::from(&outcome);
+    report(&outcome, response.status());
+    Ok(response)
 }
 
 /// Why the body did not become a `QuestionBody`.
@@ -219,6 +286,10 @@ fn failed(failure: &SurfaceFailure) -> Failure {
 
 /// One line per outcome, so a refusal is as visible in the log as an answer.
 ///
+/// The status is a field on both lines and it comes from the response rather than from a second
+/// decision here: an operator correlating this log with an ingress log needs the two to agree, and
+/// the way to guarantee that is to log the number that was sent.
+///
 /// `AGENTS.md` records "every call is attributable, refusals included" as an invariant enforced by
 /// an audit sink, and there is no audit sink: nothing here records a principal chain, because there
 /// is no principal to record. This is a log line, and it is named for what it is.
@@ -226,17 +297,19 @@ fn failed(failure: &SurfaceFailure) -> Failure {
     clippy::cognitive_complexity,
     reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
 )]
-fn report(outcome: &ToolOutcome) {
+fn report(outcome: &ToolOutcome, status: axum::http::StatusCode) {
     match *outcome {
         ToolOutcome::Answer {
             ref provenance,
             ref rows,
         } => tracing::info!(
+            status = status.as_u16(),
             rows = rows.rows().len(),
             definition_version = %provenance.version(),
             "answered"
         ),
         ToolOutcome::Refusal { ref reason } => tracing::info!(
+            status = status.as_u16(),
             // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
             // rejected filter value is not in it.
             reason = ?reason,

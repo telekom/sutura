@@ -516,6 +516,15 @@ fn two_glossary_entries_that_a_reader_cannot_tell_apart_do_not_load() {
     for (first, second) in [
         ("MRR", "mrr"),
         ("mrr", "m\u{200b}rr"),
+        // The three ranges the narrower copy of this set was missing, and the reason it mattered:
+        // a soft hyphen draws only where a line breaks, a word joiner draws nowhere, and an
+        // interlinear annotation anchor hides one run of text behind another - so each of these was a
+        // second glossary entry for a word a reader sees exactly once, and `AmbiguousPhrase`,
+        // `DuplicateAbsence`, `TermIsItsOwnSynonym` and `PhraseBothDefinedAndNot` all missed the
+        // pair, because every one of them is keyed on `phrase_identity`.
+        ("mrr", "m\u{00ad}rr"),
+        ("mrr", "m\u{2060}rr"),
+        ("mrr", "m\u{fff9}rr"),
         ("monthly revenue", "monthly  revenue"),
     ] {
         let input = KnowledgeInput::new(
@@ -567,6 +576,15 @@ fn a_body_that_renders_as_nothing_is_not_a_body() {
             "{raw:?} carries no prose, so it is not a note body"
         );
     }
+    // FINDING, and the half the three cases above missed: every one of them is a body made ENTIRELY
+    // of such characters, which renders as a blank heading somebody notices. One mixed into prose
+    // renders as a paragraph that reads correctly and is not what it says, and that is the one an
+    // agent acts on. `a_note_body_with_an_invisible_character_mixed_into_prose_is_refused` walks
+    // every range; this is the case that names why the file has the test.
+    assert!(
+        NoteBody::parse("Counts rows where status = '\u{202e}evitca'.").is_err(),
+        "a body whose rendered text is not its own text is not a note body"
+    );
 }
 
 // ------------------------------------------------------- one test per refusal the fixes added ---

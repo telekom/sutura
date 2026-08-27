@@ -347,7 +347,13 @@ fn the_prompt_says_a_refusal_is_a_result_and_says_not_to_retry_it() {
     let text = rendered(Tool::ALL, CatalogProse::Quoted, None);
     assert!(text.contains("A refusal is an answer, not an error"));
     assert!(text.contains("Do not retry a refused question unchanged"));
-    assert!(text.contains("SUCCESSFUL call whose outcome is `refusal`"));
+    assert!(text.contains("arrives with an error status rather than a success one"));
+    // And the claim that had to go. A refusal is still a *result* at the tool surface, and over
+    // HTTP it now carries an error status rather than a 200 - see
+    // `docs/adr/0005-a-refusal-carries-a-status.md` - so a document telling an agent the call
+    // SUCCEEDED would set it up to be surprised by the status and to read the surprise as a
+    // transport fault.
+    assert!(!text.contains("SUCCESSFUL call"));
 }
 
 #[test]

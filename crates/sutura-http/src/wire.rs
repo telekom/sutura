@@ -23,8 +23,15 @@
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{DimensionName, Grain, MetricName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
-use sutura_domain::query::{Filter, Query, RefusalReason, ToolOutcome};
+use sutura_domain::query::{Filter, Query, ToolOutcome};
 use sutura_domain::warehouse::RowSet;
+
+/// Which status a refusal comes back as. Its own file because that is eleven judgements with a
+/// reason each, and they belong beside one another rather than scattered through this one.
+///
+/// [`RefusalBody`] stays here, with the other wire shapes, because it is part of the published
+/// interface description; only the decision moved.
+mod refusal;
 
 /// A question, as it arrives.
 #[derive(Debug, serde::Deserialize, utoipa::ToSchema)]
@@ -156,11 +163,15 @@ fn range_of(body: &RangeBody) -> Result<TimeRange, MalformedQuestion> {
 
 /// What a question produced.
 ///
-/// **Both variants come back with `200`, and that is the contract rather than an oversight.** A
-/// refusal is a *result*: the caller asked something they may not have, and the answer is no. An
-/// error status would invite a client library to retry it, and retrying a governance decision until
-/// it succeeds is precisely the behaviour the refusal exists to prevent. The `outcome` field is
-/// what a caller branches on.
+/// **The two variants come back with different statuses**, and the `outcome` discriminator is what a
+/// caller branches on within one of them. An answer is a `200`. A refusal is a `403`, `404`, `409`,
+/// `413`, `422` or `503` depending on why - [`refusal`] holds the mapping and the reasoning, and
+/// [`Outcome`] is what pairs the two.
+///
+/// It used to be `200` for both, on the grounds that an error status invites a client library to
+/// retry. That was checked and does not hold; more to the point, a `200` made a governance refusal
+/// indistinguishable from an answer to every reader that sees a status and not a body. The body
+/// below is unchanged: same `outcome` tag, same `reason` object, one field added inside it.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 #[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum OutcomeBody {
@@ -192,18 +203,24 @@ pub struct ProvenanceBody {
 
 /// Why a question was refused.
 ///
-/// A stable `code` per refusal, plus a sentence. The code is what a caller branches on; the
-/// sentence is for a person.
+/// A stable `code` per refusal, the status it came back as, and a sentence. The code is what a
+/// caller branches on; the sentence is for a person; the status is repeated here for the same reason
+/// [`crate::problem::ProblemBody`] repeats it - a client that logged only the body still has it.
+/// Which status each refusal gets, and why, is in [`refusal`].
 ///
-/// **Nothing here echoes a value the caller sent.** The domain's refusal variants already stop
-/// short of that - a rejected filter value names the dimension and not the value, on purpose,
-/// because reflecting caller text into a message that reaches a log, a UI and an agent's context is
-/// how a rejected value becomes somebody else's input. The identifiers that *are* echoed are parsed
-/// newtypes over a bounded character set, and the numbers are derived from parsed dates.
+/// **Nothing here echoes a value the caller sent.** The domain's refusal variants already stop short
+/// of that - a rejected filter value names the dimension and not the value, on purpose, because
+/// reflecting caller text into a message that reaches a log, a UI and an agent's context is how a
+/// rejected value becomes somebody else's input. The identifiers that *are* echoed are parsed
+/// newtypes over a bounded character set, and the numbers are derived from parsed dates or are this
+/// service's own limits.
 #[derive(Debug, serde::Serialize, utoipa::ToSchema)]
 pub struct RefusalBody {
     #[schema(example = "metric_unknown")]
     code: &'static str,
+    /// The HTTP status this refusal came back as, repeated in the body.
+    #[schema(example = 404)]
+    status: u16,
     detail: String,
 }
 
@@ -213,88 +230,84 @@ impl RefusalBody {
     pub const fn code(&self) -> &'static str {
         self.code
     }
+
+    /// The status, as the body carries it.
+    #[inline]
+    pub const fn status(&self) -> u16 {
+        self.status
+    }
+
+    /// The sentence. A test asserts it is not empty; nothing asserts its wording.
+    #[inline]
+    pub fn detail(&self) -> &str {
+        &self.detail
+    }
 }
 
-/// The wire form of a refusal.
+/// An outcome, and the status the transport says it with.
 ///
-/// **The match is exhaustive with no wildcard arm, deliberately.** A refusal variant added to the
-/// domain fails to compile here until it is given a code and a sentence, which is what stops a new
-/// governance outcome from reaching a caller as an unnamed one.
-fn refusal_body(reason: &RefusalReason) -> RefusalBody {
-    let (code, detail) = match *reason {
-        RefusalReason::MetricUnknown { ref metric } => {
-            ("metric_unknown", format!("this catalog defines no metric called `{metric}`"))
-        }
-        RefusalReason::GrainNotSupported { ref metric, grain } => {
-            ("grain_not_supported", format!("`{metric}` is not defined at `{grain}` grain"))
-        }
-        RefusalReason::DimensionNotPermitted {
-            ref metric,
-            ref dimension,
-        } => (
-            "dimension_not_permitted",
-            format!("`{metric}` does not declare a dimension called `{dimension}`"),
-        ),
-        RefusalReason::DimensionNotFilterable {
-            ref metric,
-            ref dimension,
-        } => (
-            "dimension_not_filterable",
-            format!("`{dimension}` can be grouped by on `{metric}` but not filtered on"),
-        ),
-        RefusalReason::DimensionValueNotAllowed {
-            ref metric,
-            ref dimension,
-        } => (
-            "dimension_value_not_allowed",
-            // The value is deliberately absent. See the type documentation.
-            format!("that value is not one `{metric}` declares for `{dimension}`"),
-        ),
-        RefusalReason::DuplicateDimension { ref dimension } => {
-            ("duplicate_dimension", format!("`{dimension}` appears more than once"))
-        }
-        RefusalReason::TooManyDimensions { requested, limit } => (
-            "too_many_dimensions",
-            format!("{requested} group-by keys were asked for and the maximum is {limit}"),
-        ),
-        RefusalReason::TimeRangeTooLong { days, limit } => (
-            "time_range_too_long",
-            format!("the period spans {days} days and the maximum is {limit}"),
-        ),
-        // No row count in the sentence, because there is none to give: the plan asks for one row
-        // past the cap and stops, so what is known is "more than this". Narrowing is the caller's
-        // move, and the sentence says which two things they can narrow.
-        RefusalReason::ResultTooLarge { limit } => (
-            "result_too_large",
-            format!("this question answers with more than {limit} rows; narrow the period or group by fewer dimensions"),
-        ),
-        RefusalReason::PlanSpansTwoSources { sources } => (
-            "plan_spans_two_sources",
-            format!("answering this would read from {sources} data systems, and a plan runs against one"),
-        ),
-        RefusalReason::SourceUnavailable { ref source } => (
-            "source_unavailable",
-            format!("`{source}` could not be reached as the calling subject"),
-        ),
-    };
-    RefusalBody { code, detail }
+/// **The one conversion from a [`ToolOutcome`] to a response**, and it is one rather than two
+/// because the status and the body are the same decision. An answer is a `200`; a refusal is the
+/// status [`refusal::refused`] gives it, which is never a `2xx` - see that module for the whole
+/// argument and for why this file used to claim the opposite.
+///
+/// The *type* invariant is untouched by that. `ToolOutcome::Refusal` is still a domain result and
+/// not an `Err`: it arrives here through `Ok`, this handler cannot get one by mistake, and nothing
+/// on the way turned it into a [`crate::problem::Failure`]. What changed is only what the transport
+/// says about it.
+#[derive(Debug)]
+pub struct Outcome {
+    status: axum::http::StatusCode,
+    body: OutcomeBody,
 }
 
-impl From<&ToolOutcome> for OutcomeBody {
+impl Outcome {
+    /// The status this outcome comes back as.
+    #[inline]
+    pub const fn status(&self) -> axum::http::StatusCode {
+        self.status
+    }
+
+    /// The body, for a test that asserts on the JSON rather than on the response.
+    #[inline]
+    pub const fn body(&self) -> &OutcomeBody {
+        &self.body
+    }
+}
+
+impl From<&ToolOutcome> for Outcome {
     fn from(outcome: &ToolOutcome) -> Self {
         match *outcome {
             ToolOutcome::Answer {
                 ref provenance,
                 ref rows,
-            } => Self::Answer {
-                provenance: provenance_body(provenance),
-                columns: rows.columns().to_vec(),
-                rows: render(rows),
+            } => Self {
+                status: axum::http::StatusCode::OK,
+                body: OutcomeBody::Answer {
+                    provenance: provenance_body(provenance),
+                    columns: rows.columns().to_vec(),
+                    rows: render(rows),
+                },
             },
-            ToolOutcome::Refusal { ref reason } => Self::Refusal {
-                reason: refusal_body(reason),
-            },
+            ToolOutcome::Refusal { ref reason } => {
+                let (status, reason) = refusal::refused(reason);
+                Self {
+                    status,
+                    body: OutcomeBody::Refusal { reason },
+                }
+            }
         }
+    }
+}
+
+impl axum::response::IntoResponse for Outcome {
+    /// The status and the body, and no headers of its own.
+    ///
+    /// No `Retry-After`, on any refusal. See [`refusal::refused`]: the rule this surface already had
+    /// is a number that is already known or no header, and nothing here knows when a data system
+    /// comes back.
+    fn into_response(self) -> axum::response::Response {
+        (self.status, axum::Json(self.body)).into_response()
     }
 }
 
@@ -392,7 +405,7 @@ mod tests {
     use sutura_domain::model::{DimensionName, Grain, MetricName};
     use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 
-    use super::{CatalogBody, MalformedQuestion, OutcomeBody, QuestionBody, refusal_body};
+    use super::{CatalogBody, MalformedQuestion, Outcome, QuestionBody};
 
     /// The deserialized body. Separate from [`parse`] so the `Result` that test asserts on is the
     /// conversion's, not the JSON parser's - the two failures are different tests.
@@ -467,32 +480,39 @@ mod tests {
     }
 
     #[test]
-    fn a_rejected_filter_value_is_not_echoed_into_the_response() {
-        // The domain refuses to carry the value in its refusal reason, and this is the assertion
-        // that the wire shape does not put it back: a rejected value reflected into a response
-        // reaches a log, a UI and an agent's context.
-        let reason = RefusalReason::DimensionValueNotAllowed {
-            metric: MetricName::parse("revenue").expect("a name"),
-            dimension: DimensionName::parse("region").expect("a name"),
-        };
-        let body = refusal_body(&reason);
-        assert_eq!(body.code(), "dimension_value_not_allowed");
-        let rendered = serde_json::to_string(&body).expect("the refusal serializes");
-        assert!(rendered.contains("region"), "{rendered}");
-        assert!(!rendered.contains("north"), "{rendered}");
+    fn a_refusal_keeps_its_envelope_and_gains_a_status() {
+        // **The compatibility assertion for the status change.** The body a caller already parses is
+        // unchanged - same `outcome` tag, same `reason` object, same `code`, same numbers in the
+        // sentence - and what is new is the status beside it and repeated inside it. Asserted on the
+        // JSON rather than on the Rust value, because the JSON is the contract.
+        let outcome = Outcome::from(&ToolOutcome::Refusal {
+            reason: RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
+        });
+        assert_eq!(outcome.status(), axum::http::StatusCode::UNPROCESSABLE_ENTITY);
+        let rendered = serde_json::to_string(outcome.body()).expect("the outcome serializes");
+        assert!(rendered.contains(r#""outcome":"refusal""#), "{rendered}");
+        assert!(rendered.contains(r#""code":"time_range_too_long""#), "{rendered}");
+        assert!(rendered.contains(r#""status":422"#), "{rendered}");
+        assert!(rendered.contains("9000"), "{rendered}");
     }
 
     #[test]
-    fn a_refusal_serializes_with_an_outcome_discriminator_and_a_code() {
-        // What a caller branches on. Asserted on the JSON rather than on the Rust value, because
-        // the JSON is the contract.
-        let outcome = ToolOutcome::Refusal {
-            reason: RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-        };
-        let rendered = serde_json::to_string(&OutcomeBody::from(&outcome)).expect("the outcome serializes");
-        assert!(rendered.contains(r#""outcome":"refusal""#), "{rendered}");
-        assert!(rendered.contains(r#""code":"time_range_too_long""#), "{rendered}");
-        assert!(rendered.contains("9000"), "{rendered}");
+    fn an_answer_is_the_only_outcome_that_comes_back_as_a_success() {
+        // The other half, so the change above is not a test that would pass with everything refused.
+        // An answer keeps `200` and keeps its provenance.
+        let rows = sutura_domain::warehouse::RowSet::new(
+            vec![String::from("revenue")],
+            vec![vec![sutura_domain::warehouse::Value::Integer(197_122)]],
+        )
+        .expect("a one-cell result is a result set");
+        let outcome = Outcome::from(&ToolOutcome::Answer {
+            provenance: crate::testing::bundle().provenance(),
+            rows,
+        });
+        assert_eq!(outcome.status(), axum::http::StatusCode::OK);
+        let rendered = serde_json::to_string(outcome.body()).expect("the outcome serializes");
+        assert!(rendered.contains(r#""outcome":"answer""#), "{rendered}");
+        assert!(rendered.contains(r#""definition_version":"test-1""#), "{rendered}");
     }
 
     #[test]

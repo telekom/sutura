@@ -528,6 +528,19 @@ impl Knowledge {
             absences,
             examples,
         };
+        // **Last, and on the ASSEMBLED value rather than on the input, deliberately.** The reviewed
+        // alternative is to sum the input's bytes before the four indices are built, which would
+        // refuse an oversized bundle a little earlier. It is not free: what this cap bounds is the
+        // size of one rendered prompt, and the only value that gets rendered is the one below - so
+        // measuring the input instead would measure a different thing, equal to this one only for as
+        // long as indexing never drops a note. That property holds today, and it holds because four
+        // separate duplicate checks refuse rather than overwrite; it is not a property of the code
+        // shape, and nothing would fail if a fifth index were written the other way. Keeping the
+        // subject of the cap and the artefact that is served the same value costs one traversal of
+        // data that is already wholly in memory - `KnowledgeInput` owns its `Vec`s, so nothing is
+        // being read or allocated at this point that the caller has not already read and allocated.
+        // The order also decides which refusal an author sees for a bundle that is both oversized and
+        // inconsistent, and the inconsistency is the one that names a note and a metric to go and fix.
         let bytes = assembled.authored_bytes();
         if bytes > MAX_KNOWLEDGE_BYTES {
             return Err(InconsistentKnowledge::KnowledgeTooLarge {

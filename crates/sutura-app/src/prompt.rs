@@ -241,7 +241,9 @@ impl<'a> PromptInputs<'a> {
 /// every entry either says what to change or says outright that there is nothing to change and the
 /// answer is to stop.
 struct Guide {
-    /// The `reason` a caller sees on the wire.
+    /// The reason as the tool surface names it, which is the domain variant's own name. The HTTP body
+    /// carries the same reason as its `code`, in lower case with underscores, and [`REFUSAL_INTRO`]
+    /// tells the agent so rather than leaving it to guess that `metric_unknown` is this.
     reason: &'static str,
     /// What happened, in the caller's terms.
     meaning: &'static str,
@@ -464,8 +466,9 @@ fn workflow(inputs: &PromptInputs<'_>) -> String {
          value exactly.",
     ));
     steps.push(String::from(
-        "Call `query`. Read the outcome: an answer, or a refusal. **A refusal is a successful \
-         result, not an error** - the next section is how to read one.",
+        "Call `query`. Read the outcome: an answer, or a refusal. **A refusal is a governed \
+         answer to be read and acted on, not a transport failure to retry** - the next section is \
+         how to read one.",
     ));
     steps.push(String::from(
         "Report the number together with the definition version and digest that came back with it, \
@@ -497,15 +500,20 @@ fn refusals() -> String {
 }
 
 const REFUSAL_INTRO: &str = "\
-A declined question comes back as a SUCCESSFUL call whose outcome is `refusal`, carrying a typed
-reason. It is not a timeout, not an outage, and not a malformed request. The transport worked and
-the service answered.
+A declined question was ANSWERED, not dropped: the service read it, applied the definitions, and the
+answer is no. The outcome is `refusal`, carrying a typed reason and one sentence saying what to
+change. It is not a timeout, not an outage, and not a malformed request.
 
-**Do not retry a refused question unchanged.** Retrying is the behaviour a refusal exists to
-prevent: the answer is the same every time, and a loop that keeps asking is a loop that consumes the
-deployment's budget to learn nothing. Either change the question in the specific way the reason
-names, or tell the user what was declined and why. Never report a refusal to a user as a failure of
-the system, and never describe it as a temporary problem.
+**Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
+transport problem and not a reason to try again. The reason is what to act on: the body repeats it
+as a machine-readable `code`, the name below in lower case with underscores, so `MetricUnknown` is
+`metric_unknown`. The status only says which class of no it is.
+
+**Do not retry a refused question unchanged.** Repeating the same question will not change the
+answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn
+nothing. Either change the question in the specific way the reason names, or tell the user what was
+declined and why. Never report a refusal to a user as a failure of the system, and never describe it
+as a temporary problem.
 
 A refusal never echoes your own text back. `DimensionValueNotAllowed` names the dimension and stops
 there, so treat the lists in this document as the authority on what a value may be.";
@@ -776,6 +784,24 @@ fn wrap(prefix: &str, text: &str, indent: &str) -> String {
 /// Control characters are dropped rather than escaped, `\r\n` included, because a carriage return or
 /// an escape sequence in a description is either an accident or an attempt to move the cursor, and
 /// neither is content worth preserving. Tabs survive.
+///
+/// **What it does NOT drop is an invisible or direction-changing code point, and that is a decision
+/// made at the parsers rather than here.** The rule in this repository is *refuse at load, never
+/// alter at render*: a render that quietly removed a character would make this document differ from
+/// the text the definition digest certifies, and would do so with nothing downstream able to tell.
+/// `char::is_control` is false for every one of those code points - general category `Cf`, not `Cc` -
+/// so the filter above sees none of them, deliberately. What reaches here, and where each channel is
+/// checked:
+///
+/// * a glossary entry's, a caveat's, an absence's and an example's body, through
+///   [`knowledge::caveats_about`] and `push_body` - all four are a
+///   `sutura_domain::knowledge::NoteBody`, which refuses these code points at parse and is the only
+///   way a body can be constructed;
+/// * a metric's description, at the one call site below - and this one is a plain `String` on
+///   `sutura_domain::catalog::Metric`, built from a document body with no character check anywhere on
+///   the path. **So this channel is not yet parsed**, and the guard it needs is a refusal at that
+///   type's boundary, not a filter here. Until it has one, a metric description is the remaining way
+///   text whose rendering differs from its content reaches this document.
 ///
 /// **There is deliberately no length cap.** A cap that truncated a description would make this
 /// document say something the author did not write, about a definition whose digest certifies the

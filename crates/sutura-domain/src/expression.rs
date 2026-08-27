@@ -244,6 +244,19 @@ impl DialectTag {
     }
 
     /// The word resolution falls back to, and the only word it falls back to.
+    ///
+    /// **The one constructor in this module that writes the private field without going through
+    /// [`Self::parse`]**, which is the shape a newtype is supposed to make impossible - and it is
+    /// written down here rather than left as an oddity a reader has to notice. It cannot go through
+    /// `parse`, because `parse` is fallible and this is not: the alternatives are an `unwrap`, which
+    /// the workspace denies outright, or an `Err` arm that would write the same field by another
+    /// route and prove nothing.
+    ///
+    /// So the two agreeing is pinned by a test instead of by the type - see
+    /// `portable_is_the_word_parse_would_have_produced`. What that test catches is the reachable
+    /// mistake: a future tightening of `parse` - a shorter length bound, a narrower character set -
+    /// that would refuse `portable` while this constructor kept minting it, leaving a value in a map
+    /// key position that no catalog file could ever have written.
     pub fn portable() -> Self {
         Self(String::from(Self::PORTABLE))
     }
@@ -264,6 +277,17 @@ impl TryFrom<String> for DialectTag {
 
     fn try_from(raw: String) -> Result<Self, Self::Error> {
         Self::parse(raw)
+    }
+}
+
+/// The word itself, so a refusal can name the dialect a fragment was authored for.
+///
+/// Worth having rather than `{:?}` at each site: eleven refusals in `sutura_sql::expression` carry a
+/// tag, and `DialectTag("duckdb")` is the derived `Debug` those would otherwise print into a message
+/// an operator reads.
+impl core::fmt::Display for DialectTag {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 
@@ -601,6 +625,30 @@ mod tests {
                 offending: '-',
             })
         );
+    }
+
+    #[test]
+    fn portable_is_the_word_parse_would_have_produced() {
+        // `DialectTag::portable` is the one constructor in this module that writes the private field
+        // without going through `parse`, and it is the only newtype here that does. It cannot go
+        // through it - `parse` is fallible and this is not - so what would otherwise be the type's
+        // job is this assertion's.
+        //
+        // The reachable mistake it catches is a future tightening of `parse`: a shorter length
+        // bound, or a character set that no longer holds every letter in the word. `portable` would
+        // then be a value no catalog file could write, still being minted here and still being used
+        // as the fallback key `resolve` looks up.
+        assert_eq!(DialectTag::parse(DialectTag::PORTABLE), Ok(DialectTag::portable()));
+        assert_eq!(DialectTag::portable().as_str(), DialectTag::PORTABLE);
+        assert!(DialectTag::portable().is_portable());
+        // And the same word through the only path a catalog file takes.
+        let deserialized: DialectTag =
+            serde_json::from_str("\"portable\"").expect("the reserved word is one a document can write");
+        assert_eq!(deserialized, DialectTag::portable());
+        // `Display` is the word and not the derived `Debug`, which is what eleven refusals in
+        // `sutura_sql::expression` interpolate.
+        assert_eq!(DialectTag::portable().to_string(), "portable");
+        assert_eq!(tag("clickhouse").to_string(), "clickhouse");
     }
 
     #[test]

@@ -156,6 +156,7 @@ nav:
       - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
       - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
       - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
+      - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

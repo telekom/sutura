@@ -48,5 +48,6 @@ pub mod expression;
 pub mod generate;
 
 pub use crate::dialect::{Dialect, PlaceholderStyle};
-pub use crate::expression::{CompiledExpression, Construct, ExpressionError, Rendering, compile};
+pub use crate::expression::refusal::{Construct, ExpressionError};
+pub use crate::expression::{CompiledExpression, Rendering, compile};
 pub use crate::generate::{GenerateError, generate};
