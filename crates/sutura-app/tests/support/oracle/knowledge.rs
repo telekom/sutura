@@ -39,7 +39,7 @@
 
 use std::collections::BTreeSet;
 
-use sutura_domain::catalog::Definitions;
+use sutura_domain::catalog::{Definitions, DimensionValue};
 use sutura_domain::knowledge::{
     Absence, Capability, Caveat, Example, GlossaryEntry, Knowledge, KnowledgeCapabilities, KnowledgeInput, NoteBody, NoteName,
     Phrase, Referent,
@@ -98,7 +98,7 @@ fn about_value(raw: &str, name: &str, value: &str) -> Referent {
     Referent::Value {
         metric: metric(raw),
         dimension: dimension(name),
-        value: String::from(value),
+        value: DimensionValue::parse(value).expect("a corpus value is a value"),
     }
 }
 
@@ -316,8 +316,14 @@ fn examples() -> Vec<Example> {
                 june(),
                 Vec::new(),
                 vec![
-                    Filter::new(dimension("segment"), String::from("business")),
-                    Filter::new(dimension("region"), String::from("north")),
+                    Filter::new(
+                        dimension("segment"),
+                        DimensionValue::parse("business").expect("a corpus value is a value"),
+                    ),
+                    Filter::new(
+                        dimension("region"),
+                        DimensionValue::parse("north").expect("a corpus value is a value"),
+                    ),
                 ],
             ),
         ),

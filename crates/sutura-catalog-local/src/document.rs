@@ -18,7 +18,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -135,7 +135,7 @@ pub struct ModelDoc {
 }
 
 impl ModelDoc {
-    pub fn into_domain(self, description: String) -> Model {
+    pub fn into_domain(self, description: Description) -> Model {
         Model::new(self.name, self.source, self.table, self.columns, description)
     }
 }
@@ -191,9 +191,9 @@ pub struct DimensionDoc {
     via: Option<RelationshipName>,
     /// The values a filter may use. Absent means "group by this, do not filter on it".
     #[serde(default)]
-    values: Option<BTreeSet<String>>,
+    values: Option<BTreeSet<DimensionValue>>,
     #[serde(default)]
-    description: String,
+    description: Description,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -280,7 +280,7 @@ pub enum InvalidMetricDocument {
 }
 
 impl MetricDoc {
-    pub fn into_domain(self, description: String) -> Result<Metric, InvalidMetricDocument> {
+    pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
         let mut dimensions: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
         for doc in self.dimensions {
             let dimension = Dimension::new(doc.name.clone(), doc.column, doc.via, doc.values, doc.description);
@@ -307,12 +307,16 @@ impl MetricDoc {
 
 #[cfg(test)]
 mod tests {
-    use super::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+    use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
     fn metric_doc(yaml: &str) -> Result<MetricDoc, serde_norway::Error> {
         serde_norway::from_str(yaml)
+    }
+
+    fn description(raw: &str) -> Description {
+        Description::parse(raw).expect("a test description is a description")
     }
 
     fn column(raw: &str) -> ColumnName {
@@ -346,7 +350,7 @@ grains: [month]
     fn a_minimal_metric_document_parses() {
         let doc = metric_doc(MINIMAL_METRIC).expect("a minimal metric is a metric");
         let metric = doc
-            .into_domain(String::from("Net revenue."))
+            .into_domain(description("Net revenue."))
             .expect("no dimensions cannot be duplicated");
         assert_eq!(metric.name(), &MetricName::parse("revenue").expect("a name"));
         assert_eq!(metric.measure(), &Measure::Simple(aggregated(Aggregate::Sum, "amount_cents")));
@@ -410,7 +414,7 @@ colums: [amount_cents]
         let yaml = metric_measuring("  simple: { count_if: churned_in_month }\n");
         let metric = metric_doc(&yaml)
             .expect("count_if is a term")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -433,7 +437,7 @@ colums: [amount_cents]
         ));
         let metric = metric_doc(&yaml)
             .expect("a ratio is a measure shape")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -459,7 +463,7 @@ colums: [amount_cents]
         ));
         let metric = metric_doc(&yaml)
             .expect("a conditional count is a term like any other")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -553,7 +557,7 @@ colums: [amount_cents]
         for (word, expected) in [("yields_null", ZeroDenominator::Null), ("fails", ZeroDenominator::Fail)] {
             let metric = metric_doc(&ratio(word))
                 .expect("both words are words")
-                .into_domain(String::new())
+                .into_domain(Description::default())
                 .expect("no dimensions to duplicate");
             assert_eq!(
                 metric.measure(),
@@ -595,7 +599,7 @@ colums: [amount_cents]
         );
         let metric = metric_doc(&format!("{MINIMAL_METRIC}{filters}"))
             .expect("all four operators are operators")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         let expected = vec![
             RequiredFilter::Equals {
@@ -634,7 +638,7 @@ colums: [amount_cents]
         // downstream would eventually treat as a hint.
         let metric = metric_doc(MINIMAL_METRIC)
             .expect("a minimal metric is a metric")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert!(metric.required_filters().is_empty());
     }
@@ -649,7 +653,7 @@ colums: [amount_cents]
         );
         let doc = metric_doc(&yaml).expect("two list entries are valid YAML");
         assert_eq!(
-            doc.into_domain(String::new()).unwrap_err(),
+            doc.into_domain(Description::default()).unwrap_err(),
             InvalidMetricDocument::DuplicateDimension {
                 metric: MetricName::parse("revenue").expect("a name"),
                 dimension: DimensionName::parse("region").expect("a name"),
@@ -666,7 +670,7 @@ colums: [amount_cents]
                 format!("{MINIMAL_METRIC}anchor:\n  range: {{ start: 2026-06-01, end: 2026-07-01 }}\n  value: {literal}\n");
             let metric = metric_doc(&yaml)
                 .expect("both spellings parse")
-                .into_domain(String::new())
+                .into_domain(Description::default())
                 .expect("no dimensions to duplicate");
             let anchor = metric.anchor().expect("the document declared one");
             assert_eq!(anchor.value(), "197122");

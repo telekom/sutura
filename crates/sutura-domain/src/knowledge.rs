@@ -121,6 +121,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, MetricName, identifier_newtype};
 use crate::text::{first_invisible, is_invisible};
 
@@ -481,10 +482,17 @@ pub enum Referent {
     /// declare `segment` over the same column and still not permit the same questions about it.
     Dimension { metric: MetricName, dimension: DimensionName },
     /// One declared value of one dimension of one metric.
+    ///
+    /// A [`DimensionValue`] rather than a `String`, and it is the same type a dimension declares its
+    /// allowlist with, because `bundle` checks one against the other: a referent whose value could
+    /// not have been declared is a document fault, and the type is what makes the two sides of that
+    /// check the same thing. It also closes a channel that carried unparsed catalog text -
+    /// `sutura_app::prompt` interpolates this value into the scope line of a caveat, which is the one
+    /// rendering in that document whose continuation lines start at column zero.
     Value {
         metric: MetricName,
         dimension: DimensionName,
-        value: String,
+        value: DimensionValue,
     },
 }
 
@@ -508,7 +516,7 @@ impl Referent {
 
     /// The value, when this referent names one.
     #[inline]
-    pub fn value(&self) -> Option<&str> {
+    pub const fn value(&self) -> Option<&DimensionValue> {
         match *self {
             Self::Metric { .. } | Self::Dimension { .. } => None,
             Self::Value { ref value, .. } => Some(value),
@@ -523,7 +531,7 @@ impl Referent {
     fn authored_bytes(&self) -> usize {
         self.dimension()
             .map_or(0, |d| d.as_str().len())
-            .saturating_add(self.value().unwrap_or_default().len())
+            .saturating_add(self.value().map_or(0, |value| value.as_str().len()))
             .saturating_add(self.metric().as_str().len())
     }
 }
@@ -540,7 +548,7 @@ struct ReferentRepr {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     dimension: Option<DimensionName>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    value: Option<String>,
+    value: Option<DimensionValue>,
 }
 
 /// Why a referent was rejected.
@@ -550,8 +558,8 @@ struct ReferentRepr {
 /// anything this enum could produce for it.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidReferent {
-    #[error("a value belongs to a dimension: `value: {value:?}` on metric {metric} has no `dimension` beside it")]
-    ValueWithoutDimension { metric: MetricName, value: String },
+    #[error("a value belongs to a dimension: `value: {value}` on metric {metric} has no `dimension` beside it")]
+    ValueWithoutDimension { metric: MetricName, value: DimensionValue },
 }
 
 impl TryFrom<ReferentRepr> for Referent {

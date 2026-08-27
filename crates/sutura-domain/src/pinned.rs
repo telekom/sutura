@@ -538,7 +538,7 @@ mod tests {
         PinnedDefinitions,
     };
     use crate::calendar::{Date, TimeRange};
-    use crate::catalog::{Anchor, Definitions, Metric, Model};
+    use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
     use crate::definitions::DefinitionDigest;
     use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
     use crate::measure::{AggregatedColumn, Measure, Term};
@@ -561,7 +561,7 @@ mod tests {
             SourceName::parse("local").expect("a test source is a source"),
             TableName::parse("orders").expect("a test table is a table"),
             BTreeSet::from([column("amount_cents"), column("order_date")]),
-            String::new(),
+            Description::default(),
         );
         let metric = Metric::new(
             metric_name("revenue"),
@@ -572,7 +572,7 @@ mod tests {
             BTreeSet::from([Grain::Month]),
             BTreeMap::new(),
             anchor,
-            String::new(),
+            Description::default(),
         );
         Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")
     }

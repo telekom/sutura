@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
@@ -34,6 +34,14 @@ pub(crate) fn source() -> SourceName {
 
 pub(crate) fn metric_name() -> MetricName {
     MetricName::parse("revenue").expect("a test metric is a metric")
+}
+
+fn description(raw: &str) -> Description {
+    Description::parse(raw).expect("a test description is a description")
+}
+
+fn declared_value(raw: &str) -> DimensionValue {
+    DimensionValue::parse(raw).expect("a test value is a value")
 }
 
 fn column(raw: &str) -> ColumnName {
@@ -74,14 +82,14 @@ fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
         source(),
         TableName::parse("orders").expect("a test table is a table"),
         BTreeSet::from([column("amount_cents"), column("order_date"), column("region")]),
-        String::from("Orders, one row per order."),
+        description("Orders, one row per order."),
     );
     let region = Dimension::new(
         DimensionName::parse("region").expect("a test dimension is a dimension"),
         column("region"),
         None,
-        Some(BTreeSet::from([String::from("north"), String::from("south")])),
-        String::from("Sales region."),
+        Some(BTreeSet::from([declared_value("north"), declared_value("south")])),
+        description("Sales region."),
     );
     let revenue = Metric::new(
         metric_name(),
@@ -95,7 +103,7 @@ fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
             region,
         )]),
         anchor,
-        String::from("Revenue, in minor units."),
+        description("Revenue, in minor units."),
     );
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
@@ -345,14 +353,14 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
         source(),
         TableName::parse("orders").expect("a test table is a table"),
         BTreeSet::from([column("amount_cents"), column("order_date"), column("customer_id")]),
-        String::from("Orders, one row per order."),
+        description("Orders, one row per order."),
     );
     let customers = Model::new(
         ModelName::parse("customers").expect("a test model is a model"),
         SourceName::parse("elsewhere").expect("a test source is a source"),
         TableName::parse("customers").expect("a test table is a table"),
         BTreeSet::from([column("customer_id"), column("region")]),
-        String::from("Customers, one row per customer."),
+        description("Customers, one row per customer."),
     );
     let joined = Relationship::new(
         RelationshipName::parse("order_customer").expect("a test relationship is a relationship"),
@@ -367,7 +375,7 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
         column("region"),
         Some(RelationshipName::parse("order_customer").expect("a test relationship is a relationship")),
         None,
-        String::from("Sales region, from the customer."),
+        description("Sales region, from the customer."),
     );
     let revenue = Metric::new(
         metric_name(),
@@ -381,7 +389,7 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
             region,
         )]),
         None,
-        String::from("Revenue, in minor units."),
+        description("Revenue, in minor units."),
     );
     let definitions =
         Definitions::assemble(vec![orders, customers], vec![joined], vec![revenue]).expect("the test bundle is consistent");

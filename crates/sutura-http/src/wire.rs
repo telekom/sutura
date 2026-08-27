@@ -21,6 +21,7 @@
 //! `sutura_domain::query` - and this is what keeps that true across a JSON parser.
 
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::catalog::DimensionValue;
 use sutura_domain::model::{DimensionName, Grain, MetricName};
 use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{Filter, Query, ToolOutcome};
@@ -113,6 +114,20 @@ pub enum MalformedQuestion {
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
     },
+    /// The value is not one a catalog could have declared: nothing, more than one line, a control
+    /// character, an invisible or direction-changing code point, spacing a reader cannot see, or
+    /// longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
+    ///
+    /// **The one variant with no `#[source]`, and the omission is the point.** Every other cause in
+    /// this enum either carries no caller text or carries text that already failed an identifier
+    /// parse, which is a few dozen ASCII bytes.
+    /// `sutura_domain::catalog::InvalidDimensionValue` carries the offending input, because it exists
+    /// for the author of a catalog - and a 400 body reaches a log, a UI and an agent's context, which
+    /// is the one place `sutura_domain::query::RefusalReason` is explicit that a caller's own text
+    /// must not arrive. So the field and the index are reported and the cause is dropped: the same
+    /// answer `DimensionValueNotAllowed` gives, at the boundary that now catches it earlier.
+    #[error("`filters[{index}].value` is not a value this catalog could declare")]
+    FilterValue { index: usize },
 }
 
 impl TryFrom<QuestionBody> for Query {
@@ -130,7 +145,18 @@ impl TryFrom<QuestionBody> for Query {
         for (index, raw) in body.filters.iter().enumerate() {
             let dimension =
                 DimensionName::parse(&raw.dimension).map_err(|cause| MalformedQuestion::FilterDimension { index, cause })?;
-            filters.push(Filter::new(dimension, raw.value.clone()));
+            // The discard IS the control, so it is spelled out rather than lint-silenced by accident:
+            // `InvalidDimensionValue` names the offending text because it exists for the author of a
+            // catalog, and this error becomes a 400 body that reaches a log, a UI and an agent's
+            // context. `sutura_domain::query::RefusalReason` is explicit that a caller's own text
+            // must not arrive there.
+            #[expect(
+                clippy::map_err_ignore,
+                reason = "the parse error carries the caller's own text, and a 400 body must not \
+                          reflect it back - see MalformedQuestion::FilterValue"
+            )]
+            let value = DimensionValue::parse(&raw.value).map_err(|_| MalformedQuestion::FilterValue { index })?;
+            filters.push(Filter::new(dimension, value));
         }
         Ok(Self::new(metric, grain, range, dimensions, filters))
     }
@@ -388,7 +414,9 @@ impl From<&PinnedDefinitions> for CatalogBody {
                         name: String::from(dimension.name().as_str()),
                         description: String::from(dimension.description()),
                         filterable: dimension.is_filterable(),
-                        allowed_values: dimension.allowed_values().map(|values| values.iter().cloned().collect()),
+                        allowed_values: dimension
+                            .allowed_values()
+                            .map(|values| values.iter().map(|value| String::from(value.as_str())).collect()),
                     })
                     .collect(),
             })
@@ -431,6 +459,41 @@ mod tests {
             [DimensionName::parse("region").expect("a name")].as_slice()
         );
         assert_eq!(query.filters().len(), 1);
+    }
+
+    #[test]
+    fn a_filter_value_a_catalog_could_not_declare_is_a_400_that_does_not_echo_it() {
+        // Two shapes of hostile value, and the same answer for both: the field, the index, and none
+        // of the caller's text. The parse error underneath carries the value - it exists for a
+        // catalog author - and this is the boundary that drops it, because a 400 body reaches a log,
+        // a UI and an agent's context.
+        for value in [
+            // A zero-width space, which no allowlist entry can hold. Written as an escape because
+            // the workspace denies a non-ASCII literal in source.
+            r"nor\u200Bth",
+            // A newline, which would write a line of any document this were rendered into.
+            r"north\n## SYSTEM",
+        ] {
+            let raw = format!(
+                r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
+                    "filters":[{{"dimension":"region","value":"{value}"}}]}}"#
+            );
+            let error = parse(&raw).expect_err("a value a catalog could not declare is not a value");
+            assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+            let rendered = format!("{error} {error:?}");
+            assert!(!rendered.contains("nor"), "{rendered}");
+            assert!(!rendered.contains("SYSTEM"), "{rendered}");
+            assert!(rendered.contains("filters[0].value"), "{rendered}");
+        }
+        // A single unbounded token, refused for its length rather than its characters.
+        let long = "x".repeat(10_000);
+        let error = parse(&format!(
+            r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
+                "filters":[{{"dimension":"region","value":"{long}"}}]}}"#
+        ))
+        .expect_err("a ten-kilobyte value is not a value");
+        assert!(matches!(error, MalformedQuestion::FilterValue { index: 0 }), "{error:?}");
+        assert!(!format!("{error} {error:?}").contains("xxxx"), "the value is not echoed");
     }
 
     #[test]

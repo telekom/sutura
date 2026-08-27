@@ -16,7 +16,7 @@ use super::{
     Phrase, Referent,
 };
 use crate::calendar::{Date, TimeRange};
-use crate::catalog::{Definitions, Dimension, Metric, Model};
+use crate::catalog::{Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
     Aggregate, ColumnName, DimensionName, Grain, InvalidIdentifier, MetricName, ModelName, SourceName, TableName,
@@ -39,6 +39,10 @@ pub(super) fn dimension_name(raw: &str) -> DimensionName {
 
 pub(super) fn note_name(raw: &str) -> NoteName {
     NoteName::parse(raw).expect("a test note name is a name")
+}
+
+pub(super) fn declared_value(raw: &str) -> DimensionValue {
+    DimensionValue::parse(raw).expect("a test value is a value")
 }
 
 pub(super) fn phrase(raw: &str) -> Phrase {
@@ -69,21 +73,21 @@ pub(super) fn definitions() -> Definitions {
             column("segment"),
             column("product_name"),
         ]),
-        String::new(),
+        Description::default(),
     );
     let segment = Dimension::new(
         dimension_name("segment"),
         column("segment"),
         None,
-        Some(BTreeSet::from([String::from("business"), String::from("consumer")])),
-        String::new(),
+        Some(BTreeSet::from([declared_value("business"), declared_value("consumer")])),
+        Description::default(),
     );
     let product_name = Dimension::new(
         dimension_name("product_name"),
         column("product_name"),
         None,
         None,
-        String::new(),
+        Description::default(),
     );
     let revenue = Metric::new(
         metric_name("recurring_revenue"),
@@ -97,7 +101,7 @@ pub(super) fn definitions() -> Definitions {
             (dimension_name("product_name"), product_name),
         ]),
         None,
-        String::new(),
+        Description::default(),
     );
     let minutes = Metric::new(
         metric_name("voice_minutes"),
@@ -108,7 +112,7 @@ pub(super) fn definitions() -> Definitions {
         BTreeSet::from([Grain::Day, Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
     Definitions::assemble(vec![model], vec![], vec![revenue, minutes]).expect("the test bundle is consistent")
 }
@@ -455,11 +459,11 @@ fn a_referent_names_a_metric_and_never_a_column() {
     let value = Referent::Value {
         metric: metric_name("recurring_revenue"),
         dimension: dimension_name("segment"),
-        value: String::from("business"),
+        value: declared_value("business"),
     };
     assert_eq!(value.metric(), &metric_name("recurring_revenue"));
     assert_eq!(value.dimension(), Some(&dimension_name("segment")));
-    assert_eq!(value.value(), Some("business"));
+    assert_eq!(value.value(), Some(&declared_value("business")));
     assert_eq!(revenue().dimension(), None);
     assert_eq!(revenue().value(), None);
 }
@@ -477,7 +481,7 @@ fn repr(metric: &str, dimension: Option<&str>, value: Option<&str>) -> super::Re
     super::ReferentRepr {
         metric: metric_name(metric),
         dimension: dimension.map(dimension_name),
-        value: value.map(String::from),
+        value: value.map(declared_value),
     }
 }
 
@@ -502,7 +506,7 @@ fn a_referent_is_the_three_fields_it_has_written_and_no_others() {
         Referent::Value {
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("business"),
+            value: declared_value("business"),
         }
     );
 }
@@ -517,7 +521,7 @@ fn a_value_with_no_dimension_is_not_a_referent() {
         error,
         InvalidReferent::ValueWithoutDimension {
             metric: metric_name("recurring_revenue"),
-            value: String::from("business"),
+            value: declared_value("business"),
         }
     );
     assert!(error.to_string().contains("dimension"), "{error}");
@@ -537,7 +541,7 @@ fn a_referent_serializes_as_what_a_catalog_wrote() {
         Referent::Value {
             metric: metric_name("recurring_revenue"),
             dimension: dimension_name("segment"),
-            value: String::from("business"),
+            value: declared_value("business"),
         },
     ] {
         let written = super::ReferentRepr::from(referent.clone());
@@ -710,7 +714,7 @@ fn a_caveat_is_found_by_the_metric_it_is_about_however_it_is_scoped() {
             vec![Referent::Value {
                 metric: metric_name("recurring_revenue"),
                 dimension: dimension_name("segment"),
-                value: String::from("business"),
+                value: declared_value("business"),
             }],
         ),
         caveat(

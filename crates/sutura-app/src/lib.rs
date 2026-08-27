@@ -413,7 +413,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
 
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Anchor, Definitions, Metric, Model};
+    use sutura_domain::catalog::{Anchor, Definitions, Description, Metric, Model};
     use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
@@ -441,7 +441,7 @@ mod tests {
             source(),
             TableName::parse("orders").expect("a test table is a table"),
             BTreeSet::from([column("amount_cents"), column("order_date")]),
-            String::new(),
+            Description::default(),
         );
         let range = TimeRange::new(
             Date::parse("2026-06-01").expect("a test date is a date"),
@@ -457,7 +457,7 @@ mod tests {
             BTreeSet::from([Grain::Month]),
             BTreeMap::new(),
             Some(Anchor::new(range, String::from("197122"))),
-            String::new(),
+            Description::default(),
         );
         let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
         // The real hasher, from the catalog adapter that owns the canonical form. `pin` applies it to

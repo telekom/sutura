@@ -310,7 +310,7 @@ pub const fn name(&self) -> &ModelName
 ```
 
 ```rust
-pub const fn new(name: ModelName, source: SourceName, table: TableName, columns: BTreeSet<ColumnName>, description: String) -> Self
+pub const fn new(name: ModelName, source: SourceName, table: TableName, columns: BTreeSet<ColumnName>, description: Description) -> Self
 ```
 
 ```rust
@@ -389,10 +389,19 @@ that can represent it, not with a loop here.
 filtered: a filter needs an allowlist, because the alternative is comparing against a value the
 caller supplied, and the pinned bundle is the only thing entitled to say which values exist.
 
+**Every entry is a `DimensionValue`, and how many there may be is
+`MAX_VALUES_PER_DIMENSION`.** Both are new, and both close the same hole: this was
+`Option<BTreeSet<String>>` read straight out of a YAML document, and `sutura_app::prompt`
+interpolates the whole list into the line of an agent-facing document that tells an agent what it
+may filter on. A value with an invisible code point in it made that line read as something other
+than what it said; an unbounded count made it as long as an author liked. The character rule is
+the type's and the count rule is `Definitions::assemble`'s, because a count is not a fact about
+one value.
+
 #### Methods
 
 ```rust
-pub const fn allowed_values(&self) -> Option<&BTreeSet<String>>
+pub const fn allowed_values(&self) -> Option<&BTreeSet<DimensionValue>>
 ```
 
 ```rust
@@ -418,17 +427,22 @@ pub const fn name(&self) -> &DimensionName
 ```
 
 ```rust
-pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<BTreeSet<String>>, description: String) -> Self
+pub const fn new(name: DimensionName, column: ColumnName, via: Option<RelationshipName>, allowed_values: Option<BTreeSet<DimensionValue>>, description: Description) -> Self
 ```
 
 ```rust
-pub fn permits(&self, value: &str) -> bool
+pub fn permits(&self, value: &DimensionValue) -> bool
 ```
 
 Is `value` one the bundle declares?
 
 A dimension with no allowlist answers `false` for everything, which is the safe direction:
 the caller gets `DimensionNotFilterable` rather than a query.
+
+Takes a `DimensionValue` rather than a `&str`, so the two sides of the comparison are the
+same type: a caller's value is parsed by `DimensionValue::parse` at the wire boundary the way
+their metric name is parsed by [`MetricName::parse`](crate::model::MetricName::parse), and text
+that could not have been declared never reaches this comparison to be found absent from it.
 
 ```rust
 pub const fn via(&self) -> Option<&RelationshipName>
@@ -511,7 +525,7 @@ pub const fn name(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: String) -> Self
+pub const fn new(name: MetricName, model: ModelName, measure: Measure, required_filters: Vec<RequiredFilter>, time_column: ColumnName, grains: BTreeSet<Grain>, dimensions: BTreeMap<DimensionName, Dimension>, anchor: Option<Anchor>, description: Description) -> Self
 ```
 
 ```rust
@@ -616,12 +630,27 @@ system error rather than as a refusal.
 - `RelationshipNotFromMetricModel`
 - `JoinWouldDuplicateRows`
 - `EmptyAllowlist`
+- `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
 - `DimensionShadowsTimeBucket`
 - `DimensionShadowsMeasure`
 
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ### `constant TIME_BUCKET_LABEL`
 
@@ -631,6 +660,33 @@ It lives here rather than in the compiler because it is part of the result schem
 contract, and because `Definitions::assemble` has to know it: a dimension by this name would
 produce two columns with one label, and a caller reading a result by name would get whichever
 the data system listed first.
+
+### `constant MAX_VALUES_PER_DIMENSION`
+
+The most values one dimension may declare.
+
+**Measured before it was chosen, and it is the count that was missing rather than the length.**
+The largest allowlist in this repository's example catalog is `region`, with five values, and the
+next largest is `product_family` with four. Nothing here declares more than five, and the
+question this bound answers is what a REVIEWED allowlist can plausibly be: 64 is twelve times the
+largest one written here and four times the sixteen German federal states, which is the largest
+enumeration a person writes out by hand in one line of a document. A dimension needing two
+hundred country codes is not an allowlist somebody read; it is a lookup table, and it wants a
+mechanism that does not put every entry into an agent's prompt.
+
+Argued the way `crate::query::MAX_RANGE_DAYS` is argued, including about what it does not bound.
+**The number that matters is the product of this and `MAX_DIMENSION_VALUE_CHARS`**, because
+`sutura_app::prompt` lists every declared value of a dimension on one line of the document an
+agent reads: 64 values of 64 characters is 4 KiB, the same order as
+`crate::knowledge::MAX_NOTE_BODY_BYTES`, so one dimension's value list is bounded by about what
+one note body is. Per-value caps alone let N conforming values do what one oversized value cannot,
+which is the same argument `crate::knowledge::MAX_KNOWLEDGE_BYTES` makes for notes.
+
+What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
+dimensions a metric declares or how many metrics a catalog holds, so the size of the whole
+rendered document is still a function of how much a catalog says. Those are the same shape of hole
+and want the same kind of fix; this is the one the review named, and the honest statement of what
+holds is better than a bound nobody measured.
 
 ## Module `definitions`
 
@@ -1494,7 +1550,7 @@ pub const fn metric(&self) -> &MetricName
 The metric every referent is scoped to.
 
 ```rust
-pub fn value(&self) -> Option<&str>
+pub const fn value(&self) -> Option<&DimensionValue>
 ```
 
 The value, when this referent names one.
@@ -3152,9 +3208,36 @@ pub struct Filter
 
 One equality filter: a dimension, and a value the pinned bundle declares.
 
-The value is a `String` here and a bind parameter by the time it reaches a statement. It is
-checked against the metric's allowlist first, so the parameterisation is the second line of
+The value is a `DimensionValue` here and a bind parameter by the time it reaches a statement. It
+is checked against the metric's allowlist first, so the parameterisation is the second line of
 defence rather than the only one.
+
+# Why a caller's value is parsed by the type a catalog author's value is parsed by
+
+It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
+request side wanted it too. It does, for four reasons, and the last one is the decisive one:
+
+* **It refuses nothing a request could have been answered.** The two are compared for equality
+  against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
+  that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
+  refusal into a `400` naming the field and loses no answerable question.
+* **The precedent is already here and is older than this type.** A caller's `metric` and
+  `dimension` arrive as text and are parsed by `MetricName` and `DimensionName` - the same
+  types the catalog loader uses, at the same boundary, by the same constructor. A value being the
+  one field held to a laxer rule was the asymmetry, not the fix.
+* **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
+  used to be compared against the allowlist and refused, having been read, cloned into
+  `Self::literals` and rendered into whatever an audit sink keeps.
+* **A second character rule is a rule nothing compares against the first.** `crate::text` exists
+  because one such rule was written down twice and the copies drifted. A request-side value type
+  with its own idea of what a value may hold would be that mistake, deliberately, in a place where
+  one side of the comparison is content and the other is a caller.
+
+**What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
+and reports `filters[i].value` without the parse error underneath it, because
+[`InvalidDimensionValue`](crate::catalog::InvalidDimensionValue) carries the offending input and
+`RefusalReason`'s own rule is that caller-supplied text is never reflected into a message that
+reaches a log, a UI and an agent's context.
 
 #### Methods
 
@@ -3163,11 +3246,11 @@ pub const fn dimension(&self) -> &DimensionName
 ```
 
 ```rust
-pub const fn new(dimension: DimensionName, value: String) -> Self
+pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self
 ```
 
 ```rust
-pub fn value(&self) -> &str
+pub const fn value(&self) -> &DimensionValue
 ```
 
 #### Implements

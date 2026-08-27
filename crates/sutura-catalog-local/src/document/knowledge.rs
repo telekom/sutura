@@ -137,6 +137,7 @@ impl ExampleDoc {
 #[cfg(test)]
 mod tests {
     use super::{CaveatDoc, DocumentKind, ExampleDoc, GlossaryDoc, NotDefinedDoc};
+    use sutura_domain::catalog::DimensionValue;
     use sutura_domain::knowledge::{Capability, KnowledgeCapabilities, NoteBody, Phrase, Referent};
     use sutura_domain::model::{DimensionName, Grain, MetricName};
 
@@ -201,7 +202,7 @@ question:
             &Referent::Value {
                 metric: metric("recurring_revenue"),
                 dimension: DimensionName::parse("segment").expect("a name"),
-                value: String::from("business"),
+                value: DimensionValue::parse("business").expect("a test value is a value"),
             }
         );
 

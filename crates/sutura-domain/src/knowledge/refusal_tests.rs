@@ -14,8 +14,8 @@
 
 use super::bundle::identifier_shape;
 use super::tests::{
-    absence, accepts, caveat, dimension_name, example, glossary_entry, june, metric_name, note_name, only_absences, only_caveats,
-    only_examples, only_glossary, phrase, question, refuses, revenue,
+    absence, accepts, caveat, declared_value, dimension_name, example, glossary_entry, june, metric_name, note_name,
+    only_absences, only_caveats, only_examples, only_glossary, phrase, question, refuses, revenue,
 };
 use super::{
     Capability, Caveat, InconsistentKnowledge, KnowledgeCapabilities, KnowledgeInput, MAX_KNOWLEDGE_BYTES, MAX_NOTE_BODY_BYTES,
@@ -73,7 +73,7 @@ fn a_glossary_entry_naming_a_value_the_allowlist_does_not_carry_does_not_load() 
             Referent::Value {
                 metric: metric_name("recurring_revenue"),
                 dimension: dimension_name("segment"),
-                value: String::from("b2b"),
+                value: declared_value("b2b"),
             },
         )])),
         InconsistentKnowledge::GlossaryValueNotAllowed {
@@ -96,7 +96,7 @@ fn a_glossary_entry_naming_a_value_of_an_unfilterable_dimension_does_not_load() 
             Referent::Value {
                 metric: metric_name("recurring_revenue"),
                 dimension: dimension_name("product_name"),
-                value: String::from("Tariff L"),
+                value: declared_value("Tariff L"),
             },
         )])),
         InconsistentKnowledge::GlossaryValueNotAllowed {
@@ -189,7 +189,7 @@ fn a_caveat_about_a_value_the_allowlist_does_not_carry_does_not_load() {
             vec![Referent::Value {
                 metric: metric_name("recurring_revenue"),
                 dimension: dimension_name("segment"),
-                value: String::from("wholesale"),
+                value: declared_value("wholesale"),
             }],
         )])),
         InconsistentKnowledge::CaveatValueNotAllowed {
@@ -348,7 +348,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             question(
                 Grain::Month,
                 Vec::new(),
-                vec![Filter::new(dimension_name("segment"), String::from("b2b"))],
+                vec![Filter::new(dimension_name("segment"), declared_value("b2b"))],
             ),
         )])),
         InconsistentKnowledge::ExampleValueNotAllowed {
@@ -366,7 +366,7 @@ fn an_example_filtering_on_a_value_the_allowlist_does_not_carry_does_not_load() 
             question(
                 Grain::Month,
                 Vec::new(),
-                vec![Filter::new(dimension_name("product_name"), String::from("Tariff L"))],
+                vec![Filter::new(dimension_name("product_name"), declared_value("Tariff L"))],
             ),
         )])),
         InconsistentKnowledge::ExampleValueNotAllowed {
@@ -398,7 +398,7 @@ fn a_well_formed_example_loads_with_its_question_intact() {
         question(
             Grain::Month,
             vec![dimension_name("segment")],
-            vec![Filter::new(dimension_name("segment"), String::from("business"))],
+            vec![Filter::new(dimension_name("segment"), declared_value("business"))],
         ),
     )]));
     let note = knowledge

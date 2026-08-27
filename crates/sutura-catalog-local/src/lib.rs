@@ -26,7 +26,9 @@ pub mod frontmatter;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+};
 use sutura_domain::definitions::NotDigestible;
 use sutura_domain::knowledge::{
     Absence, Caveat, Example, GlossaryEntry, InconsistentKnowledge, InvalidNoteBody, Knowledge, KnowledgeCapabilities,
@@ -111,6 +113,21 @@ pub enum LocalCatalogError {
         path: PathBuf,
         #[source]
         cause: InvalidMetricDocument,
+    },
+    /// The prose of a definition document is not a usable description.
+    ///
+    /// **The variant that did not exist, and its absence was the hole.** A model's and a metric's
+    /// prose used to reach [`sutura_domain::catalog`] as `String::from(split.body())` - no character
+    /// check, no length check, nothing - while the prose of a note beside it went through
+    /// [`NoteBody`]. So the one channel that carried reviewed prose into an agent's context without a
+    /// parse was the definitional one, which is the prose an agent is most likely to act on. It is a
+    /// separate variant from [`Self::NoteBody`] for the same reason that one is separate from
+    /// [`Self::Frontmatter`]: the remedy is a different part of a different file.
+    #[error("the prose of {path} is not a usable description")]
+    Description {
+        path: PathBuf,
+        #[source]
+        cause: InvalidDescription,
     },
     /// The prose of a knowledge document is not a usable note body: nothing at all, or more of it
     /// than a note may carry.
@@ -356,8 +373,21 @@ impl Collected {
     }
 
     /// A document that decides what executes.
+    ///
+    /// The body becomes a [`Description`] before anything else, which is what
+    /// [`Self::absorb_note`] already did with a [`NoteBody`] - and the symmetry is the fix. Both
+    /// halves of a catalog carry authored prose into the same rendered prompt, and only one of them
+    /// used to be parsed.
+    ///
+    /// It is parsed for a relationship document too, whose prose this adapter then discards -
+    /// [`Relationship`] has no description field. Deliberately: the rule a reviewed definition
+    /// document is held to should not depend on which of its fields the current domain types happen
+    /// to read, and the day a relationship grows a description the check is already where it belongs.
     fn absorb_definition(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
-        let description = String::from(split.body());
+        let description = Description::parse(split.body()).map_err(|cause| LocalCatalogError::Description {
+            path: PathBuf::from(path),
+            cause,
+        })?;
         match kind {
             DocumentKind::Model => {
                 let doc: ModelDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;

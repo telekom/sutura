@@ -46,7 +46,7 @@ mod knowledge;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
-use sutura_domain::catalog::{Anchor, Definitions, Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
@@ -69,8 +69,12 @@ fn column(raw: &str) -> ColumnName {
     ColumnName::parse(raw).expect("a corpus column is a column")
 }
 
-fn values(raw: &[&str]) -> BTreeSet<String> {
-    raw.iter().map(|v| String::from(*v)).collect()
+fn declared_value(raw: &str) -> DimensionValue {
+    DimensionValue::parse(raw).expect("a corpus value is a value")
+}
+
+fn values(raw: &[&str]) -> BTreeSet<DimensionValue> {
+    raw.iter().map(|v| declared_value(v)).collect()
 }
 
 fn june() -> TimeRange {
@@ -88,7 +92,7 @@ fn dimension(name: &str, col: &str, via: Option<&str>, allowed: Option<&[&str]>)
         column(col),
         via.map(|v| RelationshipName::parse(v).expect("a corpus relationship is a relationship")),
         allowed.map(values),
-        String::new(),
+        Description::default(),
     );
     (name, dimension)
 }
@@ -186,7 +190,7 @@ fn tables() -> ModelsAndJoins {
             column("churned_in_month"),
             column("contract_term"),
         ]),
-        String::new(),
+        Description::default(),
     );
     let customers = Model::new(
         ModelName::parse("customers").expect("a name"),
@@ -198,14 +202,14 @@ fn tables() -> ModelsAndJoins {
             column("segment"),
             column("region"),
         ]),
-        String::new(),
+        Description::default(),
     );
     let products = Model::new(
         ModelName::parse("products").expect("a name"),
         source(),
         TableName::parse("dim_product").expect("a name"),
         BTreeSet::from([column("product_key"), column("product_name"), column("product_family")]),
-        String::new(),
+        Description::default(),
     );
     let daily_usage = Model::new(
         ModelName::parse("daily_usage").expect("a name"),
@@ -217,7 +221,7 @@ fn tables() -> ModelsAndJoins {
             column("data_gb"),
             column("voice_min"),
         ]),
-        String::new(),
+        Description::default(),
     );
     // Many subscription-months to one of each. The cardinality is declared rather than inferred
     // because it decides whether a join may change a measure: many-to-one cannot duplicate a
@@ -279,7 +283,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
         Some(Anchor::new(june(), String::from("62"))),
-        String::new(),
+        Description::default(),
     );
     // "How many subscription-months the period billed." A count of ROWS and not of subscriptions:
     // the same column as `subscription_base` under a different aggregate, and the same number over
@@ -299,7 +303,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         BTreeMap::from([segment(), region(), product_family(), contract_term()]),
         Some(Anchor::new(june(), String::from("62"))),
-        String::new(),
+        Description::default(),
     );
     // "Outgoing voice minutes." One aggregate over one column, no definitional filter, no join, no
     // ratio. No anchor, for the reason `data_per_subscription` gives: a sum of decimals is a float,
@@ -313,7 +317,7 @@ fn metrics_the_original_vocabulary_could_express() -> Vec<Metric> {
         BTreeSet::from([Grain::Day, Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
 
     vec![subscription_base, subscription_months_billed, voice_minutes]
@@ -357,7 +361,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         BTreeMap::from([segment(), region(), product_family(), product_name(), contract_term()]),
         Some(Anchor::new(june(), String::from("202121"))),
-        String::new(),
+        Description::default(),
     );
     // "How many subscriptions were active at the end of the month." `subscription_base` with one
     // predicate added, counting the key distinctly rather than counting rows. **The two anchors are
@@ -378,7 +382,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
         Some(Anchor::new(june(), String::from("59"))),
-        String::new(),
+        Description::default(),
     );
     // "What the average active subscription was worth in the month, in minor units." The mean of a
     // COLUMN, which is a different definition from every ratio here: it averages subscription-MONTHS,
@@ -397,7 +401,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
     // "How many subscriptions terminated inside the month." `count_if` and not a count of the
     // column, and the difference is a wrong number that raises no error: `count(churned_in_month)`
@@ -415,7 +419,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
         Some(Anchor::new(june(), String::from("3"))),
-        String::new(),
+        Description::default(),
     );
     vec![
         recurring_revenue,
@@ -458,7 +462,7 @@ fn the_ratios() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         segment_region_and_family(),
         Some(Anchor::new(june(), String::from("0.04838709677419355"))),
-        String::new(),
+        Description::default(),
     );
     // "Data volume per subscription, in gigabytes." A ratio with no definitional filter, which is the
     // other half of what `required_filters` is for: this one means what it measures over every row in
@@ -480,7 +484,7 @@ fn the_ratios() -> Vec<Metric> {
         BTreeSet::from([Grain::Day, Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
     // "Recurring revenue per customer, in minor units, over active subscriptions." Per CUSTOMER and
     // not per subscription, which is the whole reason it is a ratio rather than an `avg`: a customer
@@ -503,7 +507,7 @@ fn the_ratios() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         BTreeMap::from([segment()]),
         None,
-        String::new(),
+        Description::default(),
     );
     // "How much recurring revenue the month carried for each subscription it lost, in minor units."
     // **The mirror of `churn_rate`**: there a conditional count is the NUMERATOR of a ratio, here it
@@ -537,7 +541,7 @@ fn the_ratios() -> Vec<Metric> {
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
 
     vec![
@@ -582,7 +586,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 model.source().clone(),
                 model.table().clone(),
                 model.columns().clone(),
-                String::new(),
+                Description::default(),
             )
         })
         .collect();
@@ -601,7 +605,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                             d.column().clone(),
                             d.via().cloned(),
                             d.allowed_values().cloned(),
-                            String::new(),
+                            Description::default(),
                         ),
                     )
                 })
@@ -615,7 +619,7 @@ fn without_descriptions(definitions: &Definitions) -> Definitions {
                 metric.grains().clone(),
                 dimensions,
                 metric.anchor().cloned(),
-                String::new(),
+                Description::default(),
             )
         })
         .collect();
@@ -700,14 +704,14 @@ impl SemanticCatalog for TwoSourceCatalog {
                 column("customer_key"),
                 column("mrr_cents"),
             ]),
-            String::new(),
+            Description::default(),
         );
         let customers = Model::new(
             ModelName::parse("customers").expect("a name"),
             SourceName::parse("elsewhere").expect("a name"),
             TableName::parse("dim_customer").expect("a name"),
             BTreeSet::from([column("customer_key"), column("region")]),
-            String::new(),
+            Description::default(),
         );
         let joins = vec![Relationship::new(
             RelationshipName::parse("subscription_customer").expect("a name"),
@@ -726,7 +730,7 @@ impl SemanticCatalog for TwoSourceCatalog {
             BTreeSet::from([Grain::Month]),
             BTreeMap::from([dimension("region", "region", Some("subscription_customer"), None)]),
             None,
-            String::new(),
+            Description::default(),
         );
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");

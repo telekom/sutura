@@ -236,7 +236,7 @@ metrics:
         allowed_values:
           - annual
           - monthly
-        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned.\n"
+        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned."
       product_family:
         name: product_family
         column: product_family
@@ -252,7 +252,7 @@ metrics:
         column: product_name
         via: subscription_product
         allowed_values: ~
-        description: "Declared without a value list, so it can be grouped by and not filtered on.\n"
+        description: "Declared without a value list, so it can be grouped by and not filtered on."
       region:
         name: region
         column: region
@@ -407,7 +407,7 @@ metrics:
         allowed_values:
           - annual
           - monthly
-        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned.\n"
+        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned."
       product_family:
         name: product_family
         column: product_family

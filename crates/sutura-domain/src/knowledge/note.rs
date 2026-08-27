@@ -226,12 +226,13 @@ impl Example {
 /// The authored bytes of one worked question: every name and value of it that reaches the prompt.
 fn question_bytes(question: &Query) -> usize {
     let dimensions = sum_bytes(question.dimensions().iter().map(|name| name.as_str().len()));
-    let filters = sum_bytes(
-        question
-            .filters()
-            .iter()
-            .map(|filter| filter.dimension().as_str().len().saturating_add(filter.value().len())),
-    );
+    let filters = sum_bytes(question.filters().iter().map(|filter| {
+        filter
+            .dimension()
+            .as_str()
+            .len()
+            .saturating_add(filter.value().as_str().len())
+    }));
     question
         .metric()
         .as_str()

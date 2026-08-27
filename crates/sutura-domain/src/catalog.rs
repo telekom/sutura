@@ -11,6 +11,19 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+// Two files rather than one, because `cargo xtask max-lines` fails at a thousand lines under
+// `crates/` and cannot be exempted. `authored` holds the character-level parse of the two fields
+// in this module that are prose rather than structure; this file holds the declarations and the
+// cross-reference checks. The names stay where they were - a caller still writes
+// `sutura_domain::catalog::DimensionValue` - because the module is the unit of API and the files are
+// not.
+mod authored;
+
+pub use authored::{
+    Description, DimensionValue, InvalidDescription, InvalidDimensionValue, MAX_DESCRIPTION_BYTES, MAX_DESCRIPTION_LINES,
+    MAX_DIMENSION_VALUE_CHARS,
+};
+
 use crate::calendar::TimeRange;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
@@ -22,6 +35,32 @@ use crate::model::{ColumnName, DimensionName, Grain, JoinType, MetricName, Model
 /// produce two columns with one label, and a caller reading a result by name would get whichever
 /// the data system listed first.
 pub const TIME_BUCKET_LABEL: &str = "period";
+
+/// The most values one dimension may declare.
+///
+/// **Measured before it was chosen, and it is the count that was missing rather than the length.**
+/// The largest allowlist in this repository's example catalog is `region`, with five values, and the
+/// next largest is `product_family` with four. Nothing here declares more than five, and the
+/// question this bound answers is what a REVIEWED allowlist can plausibly be: 64 is twelve times the
+/// largest one written here and four times the sixteen German federal states, which is the largest
+/// enumeration a person writes out by hand in one line of a document. A dimension needing two
+/// hundred country codes is not an allowlist somebody read; it is a lookup table, and it wants a
+/// mechanism that does not put every entry into an agent's prompt.
+///
+/// Argued the way [`crate::query::MAX_RANGE_DAYS`] is argued, including about what it does not bound.
+/// **The number that matters is the product of this and [`MAX_DIMENSION_VALUE_CHARS`]**, because
+/// `sutura_app::prompt` lists every declared value of a dimension on one line of the document an
+/// agent reads: 64 values of 64 characters is 4 KiB, the same order as
+/// [`crate::knowledge::MAX_NOTE_BODY_BYTES`], so one dimension's value list is bounded by about what
+/// one note body is. Per-value caps alone let N conforming values do what one oversized value cannot,
+/// which is the same argument [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] makes for notes.
+///
+/// What it does not bound, said plainly. It bounds ONE dimension: nothing here caps how many
+/// dimensions a metric declares or how many metrics a catalog holds, so the size of the whole
+/// rendered document is still a function of how much a catalog says. Those are the same shape of hole
+/// and want the same kind of fix; this is the one the review named, and the honest statement of what
+/// holds is better than a bound nobody measured.
+pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 
 /// One physical table, and what the catalog knows about it.
 ///
@@ -35,7 +74,7 @@ pub struct Model {
     source: SourceName,
     table: TableName,
     columns: BTreeSet<ColumnName>,
-    description: String,
+    description: Description,
 }
 
 impl Model {
@@ -44,7 +83,7 @@ impl Model {
         source: SourceName,
         table: TableName,
         columns: BTreeSet<ColumnName>,
-        description: String,
+        description: Description,
     ) -> Self {
         Self {
             name,
@@ -77,7 +116,7 @@ impl Model {
 
     #[inline]
     pub fn description(&self) -> &str {
-        &self.description
+        self.description.as_str()
     }
 
     #[inline]
@@ -167,13 +206,22 @@ impl Relationship {
 /// `allowed_values` is what makes a dimension filterable. `None` means it can be grouped by and not
 /// filtered: a filter needs an allowlist, because the alternative is comparing against a value the
 /// caller supplied, and the pinned bundle is the only thing entitled to say which values exist.
+///
+/// **Every entry is a [`DimensionValue`], and how many there may be is
+/// [`MAX_VALUES_PER_DIMENSION`].** Both are new, and both close the same hole: this was
+/// `Option<BTreeSet<String>>` read straight out of a YAML document, and `sutura_app::prompt`
+/// interpolates the whole list into the line of an agent-facing document that tells an agent what it
+/// may filter on. A value with an invisible code point in it made that line read as something other
+/// than what it said; an unbounded count made it as long as an author liked. The character rule is
+/// the type's and the count rule is [`Definitions::assemble`]'s, because a count is not a fact about
+/// one value.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Dimension {
     name: DimensionName,
     column: ColumnName,
     via: Option<RelationshipName>,
-    allowed_values: Option<BTreeSet<String>>,
-    description: String,
+    allowed_values: Option<BTreeSet<DimensionValue>>,
+    description: Description,
 }
 
 impl Dimension {
@@ -181,8 +229,8 @@ impl Dimension {
         name: DimensionName,
         column: ColumnName,
         via: Option<RelationshipName>,
-        allowed_values: Option<BTreeSet<String>>,
-        description: String,
+        allowed_values: Option<BTreeSet<DimensionValue>>,
+        description: Description,
     ) -> Self {
         Self {
             name,
@@ -209,13 +257,13 @@ impl Dimension {
     }
 
     #[inline]
-    pub const fn allowed_values(&self) -> Option<&BTreeSet<String>> {
+    pub const fn allowed_values(&self) -> Option<&BTreeSet<DimensionValue>> {
         self.allowed_values.as_ref()
     }
 
     #[inline]
     pub fn description(&self) -> &str {
-        &self.description
+        self.description.as_str()
     }
 
     /// May this dimension be filtered on at all?
@@ -232,7 +280,12 @@ impl Dimension {
     ///
     /// A dimension with no allowlist answers `false` for everything, which is the safe direction:
     /// the caller gets `DimensionNotFilterable` rather than a query.
-    pub fn permits(&self, value: &str) -> bool {
+    ///
+    /// Takes a [`DimensionValue`] rather than a `&str`, so the two sides of the comparison are the
+    /// same type: a caller's value is parsed by [`DimensionValue::parse`] at the wire boundary the way
+    /// their metric name is parsed by [`MetricName::parse`](crate::model::MetricName::parse), and text
+    /// that could not have been declared never reaches this comparison to be found absent from it.
+    pub fn permits(&self, value: &DimensionValue) -> bool {
         self.allowed_values.as_ref().is_some_and(|values| values.contains(value))
     }
 }
@@ -279,7 +332,7 @@ pub struct Metric {
     grains: BTreeSet<Grain>,
     dimensions: BTreeMap<DimensionName, Dimension>,
     anchor: Option<Anchor>,
-    description: String,
+    description: Description,
 }
 
 impl Metric {
@@ -297,7 +350,7 @@ impl Metric {
         grains: BTreeSet<Grain>,
         dimensions: BTreeMap<DimensionName, Dimension>,
         anchor: Option<Anchor>,
-        description: String,
+        description: Description,
     ) -> Self {
         Self {
             name,
@@ -355,7 +408,7 @@ impl Metric {
 
     #[inline]
     pub fn description(&self) -> &str {
-        &self.description
+        self.description.as_str()
     }
 
     #[inline]
@@ -468,6 +521,19 @@ pub enum InconsistentDefinitions {
         "dimension {dimension} of metric {metric} declares an empty value allowlist, so it permits filtering and permits no value"
     )]
     EmptyAllowlist { metric: MetricName, dimension: DimensionName },
+    /// More declared values than [`MAX_VALUES_PER_DIMENSION`].
+    ///
+    /// Checked here rather than at [`DimensionValue::parse`], because a count is not a fact about one
+    /// value: each of ten thousand values can be inside every per-value bound and the list of them is
+    /// still the whole of one dimension's line in a rendered prompt. Same reason
+    /// [`crate::knowledge::MAX_KNOWLEDGE_BYTES`] is checked over a bundle rather than over a note.
+    #[error("dimension {dimension} of metric {metric} declares {count} values, and at most {limit} may be declared")]
+    TooManyValues {
+        metric: MetricName,
+        dimension: DimensionName,
+        count: usize,
+        limit: usize,
+    },
     #[error(
         "dimension {dimension} of metric {metric} is named {TIME_BUCKET_LABEL}, which is the label the time bucket is projected under"
     )]
@@ -630,6 +696,22 @@ impl Definitions {
             return Err(InconsistentDefinitions::EmptyAllowlist {
                 metric: metric.name.clone(),
                 dimension: dimension.name.clone(),
+            });
+        }
+        // The count, which no per-value parse can see. Read from the assembled set rather than from
+        // what the adapter handed over, so two adapters that spell the same allowlist differently -
+        // a list with a repeat in it, a mapping - are held to the same number of DISTINCT values.
+        if let Some(count) = dimension
+            .allowed_values
+            .as_ref()
+            .map(BTreeSet::len)
+            .filter(|count| *count > MAX_VALUES_PER_DIMENSION)
+        {
+            return Err(InconsistentDefinitions::TooManyValues {
+                metric: metric.name.clone(),
+                dimension: dimension.name.clone(),
+                count,
+                limit: MAX_VALUES_PER_DIMENSION,
             });
         }
 

@@ -67,6 +67,7 @@ finer split is a cheap change if a caller ever needs the branch.
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
+- `Description` - The prose of a definition document is not a usable description.
 - `NoteBody` - The prose of a knowledge document is not a usable note body: nothing at all, or more of it than a note may carry.
 - `Inconsistent`
 - `UncheckableKnowledge` - The notes do not hold together with the definitions they are about.
@@ -223,7 +224,7 @@ pub struct ModelDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self, description: String) -> Model
+pub fn into_domain(self, description: Description) -> Model
 ```
 
 #### Implements
@@ -294,7 +295,7 @@ pub struct MetricDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self, description: String) -> Result<Metric, InvalidMetricDocument>
+pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument>
 ```
 
 #### Implements

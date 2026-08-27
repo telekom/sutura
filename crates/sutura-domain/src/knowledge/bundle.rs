@@ -31,7 +31,7 @@ use super::{
     Absence, Absences, Capability, Caveat, Caveats, Example, Examples, Glossary, GlossaryEntry, KnowledgeCapabilities,
     MAX_KNOWLEDGE_BYTES, NoteName, Phrase, Referent, phrase_identity, sum_bytes,
 };
-use crate::catalog::Definitions;
+use crate::catalog::{Definitions, DimensionValue};
 use crate::model::{DimensionName, Grain, MetricName};
 use crate::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
 
@@ -310,8 +310,13 @@ enum Claim {
 /// otherwise appear.
 enum ReferentFault<'a> {
     UnknownMetric,
-    UnknownDimension { dimension: &'a DimensionName },
-    ValueNotAllowed { dimension: &'a DimensionName, value: &'a str },
+    UnknownDimension {
+        dimension: &'a DimensionName,
+    },
+    ValueNotAllowed {
+        dimension: &'a DimensionName,
+        value: &'a DimensionValue,
+    },
 }
 
 /// Does this referent name something the bundle declares?
@@ -385,7 +390,7 @@ fn declared_as(definitions: &Definitions, phrase: &Phrase) -> Option<Referent> {
     for (name, metric) in definitions.metrics() {
         for (dimension, declared) in metric.dimensions() {
             for value in declared.allowed_values().into_iter().flatten() {
-                if identifier_shape(value) == shape {
+                if identifier_shape(value.as_str()) == shape {
                     return Some(Referent::Value {
                         metric: name.clone(),
                         dimension: dimension.clone(),
@@ -733,7 +738,7 @@ impl Knowledge {
                     name,
                     metric: metric_name,
                     dimension: filter.dimension().clone(),
-                    value: String::from(filter.value()),
+                    value: String::from(filter.value().as_str()),
                 });
             }
         }
@@ -756,7 +761,7 @@ fn glossary_fault(fault: &ReferentFault<'_>, term: &Phrase, metric: &MetricName)
             term,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value),
+            value: String::from(value.as_str()),
         },
     }
 }
@@ -776,7 +781,7 @@ fn caveat_fault(fault: &ReferentFault<'_>, name: &NoteName, metric: &MetricName)
             name,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value),
+            value: String::from(value.as_str()),
         },
     }
 }
@@ -801,7 +806,7 @@ fn absence_fault(phrase: &Phrase, declared: &Referent) -> InconsistentKnowledge 
             phrase,
             metric,
             dimension: dimension.clone(),
-            value: String::from(value),
+            value: String::from(value.as_str()),
         },
     }
 }

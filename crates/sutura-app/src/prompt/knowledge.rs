@@ -305,10 +305,26 @@ pub(super) fn caveats_about(knowledge: &Knowledge, metric: &MetricName, prose: C
         };
         let ending = if body.is_empty() { '.' } else { ':' };
         lines.push(String::new());
+        // The indent is two spaces and NOT the empty string, and that is the fix for the one place
+        // in this document where catalog text could reach column zero.
+        //
+        // [`quote`](super::quote) promises that no sequence a catalog author writes reaches the
+        // output at column zero, and it keeps that promise by prefixing every line itself. `wrap`
+        // makes the same promise only when its `indent` is non-empty: it re-flows on
+        // `split_whitespace`, so an author's newline cannot survive, but the WORDS are re-emitted at
+        // whatever column the wrap boundary falls on - and with an empty indent that column is zero.
+        // This was the one call in this crate that passed author-controlled text with an empty
+        // indent: [`scope`] interpolates a declared dimension value, an author chooses the value, and
+        // with `WIDTH` at 100 they can choose one whose later words land at the start of a line. A
+        // line beginning `##` is a heading to every markdown reader whatever preceded it.
+        //
+        // Two spaces rather than four: markdown continues a paragraph at up to three spaces of
+        // indentation and starts an indented code block at four, so this keeps the rendering
+        // identical for every line that does not wrap while making the first column ours.
         lines.push(wrap(
             "",
             &format!("**Caveat `{}`** - {}{ending}", note.name(), scope(note, metric)),
-            "",
+            "  ",
         ));
         if !body.is_empty() {
             lines.push(body);
