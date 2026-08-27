@@ -1,0 +1,26 @@
+[package]
+name = "sutura-sql"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "Rendering: a QueryPlan becomes one statement in one dialect. What SQL-speaking adapters share."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# The dialect layer. Renders a statement AST into one target dialect: it is what knows that
+# `ClickHouse` spells `DATE_TRUNC` as `dateTrunc` and `SUM` as `sum`, which is not a difference
+# worth maintaining by hand. Confined to `generate.rs` so a pre-1.0 API change touches one file.
+#
+# **This crate exists so that this line is not in `sutura-semantic`'s manifest.** A build that
+# executes plans on the engine and renders nothing used to link a SQL generator through the core;
+# `cargo xtask check-boundaries` now fails if that edge comes back.
+polyglot-sql = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

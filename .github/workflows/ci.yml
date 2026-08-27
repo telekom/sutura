@@ -49,7 +49,13 @@ concurrency:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
+    # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
+    # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
+    # `magic-nix-cache` has anything to restore - spends most of an hour compiling before a
+    # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
+    # the cap has to survive the cold one that fills the cache for the rest.
+    timeout-minutes: 120
     # Published so the `cross` matrix below can gate on the same classification rather than
     # recomputing it. Recomputing would need the full history in five jobs and could disagree
     # with itself; one classification, one verdict.
@@ -61,6 +67,18 @@ jobs:
           # classify and the causality gate diff against the base commit.
           fetch-depth: 0
           persist-credentials: false
+
+      # BEFORE nix installs, because /nix/store is what fills. `ubuntu-latest` ships ~20 GB of
+      # SDKs this repository does not use against a 14 GB budget, and both `Doctests` and
+      # `Test causality` have died on `No space left on device` compiling a dependency closure
+      # that is legitimately one of the largest in the ecosystem.
+      #
+      # A local composite action so `docs`, `release` and the cross matrix can call the same
+      # thing. See `.github/actions/reclaim-disk` for why it is local and why it cannot affect
+      # the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
 
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
@@ -157,8 +175,14 @@ jobs:
           set -eu
           nix run .#zizmor -- .github/workflows
           nix run .#actionlint
-          # Every shell script we ship. `shellcheck` reads the file, so the glob is the list.
-          nix run .#shellcheck -- .claude/hooks/ponytail-session-start.sh
+          # Every shell script we ship, and now the glob really IS the list. It used to name one
+          # file under this comment, so `nix/run-gate.sh` - which decides whether the tests, the
+          # secret sweep, the supply-chain gate and the CRAP score run at all - was linted by
+          # nothing. An empty list would pass by checking nothing, so it is a failure.
+          mapfile -t scripts < <(find . -name '*.sh' -not -path './.git/*' -not -path './target/*' | sort)
+          printf 'shellcheck: %d script(s)\n' "${#scripts[@]}"
+          test "${#scripts[@]}" -gt 0
+          nix run .#shellcheck -- -x "${scripts[@]}"
 
       - name: Tests
         if: steps.classify.outputs.rust == 'true'
@@ -169,6 +193,34 @@ jobs:
       - name: Doctests
         if: steps.classify.outputs.rust == 'true'
         run: nix build .#checks.x86_64-linux.doctest -L
+
+      # CRAP: cyclomatic complexity weighted by the tests that cover it. Neither a complexity
+      # limit nor a coverage percentage catches the combination on its own, which is what makes it
+      # worth a step of its own.
+      #
+      # IN THIS JOB, blocking, and that is a cost decision with numbers behind it. Coverage is a
+      # SEPARATE PROFILE: `-C instrument-coverage` shares nothing with the artifacts the `Tests`
+      # step above just cached. Measured in the dev container on 16 cores, `--workspace` coverage
+      # spent over 80 CPU-minutes and 6m18 wall recompiling DataFusion, Arrow and DuckDB and never
+      # reached a single test. On this runner's four vCPUs that is twenty minutes and up, added to
+      # a job whose timeout was already raised from 60 to 120 because the tests alone killed it.
+      # That belongs nowhere in CI, let alone here.
+      #
+      # What runs instead is scoped to `sutura-domain`, whose dependency set is serde and
+      # thiserror. MEASURED in the sandbox: 10.2 s of instrumented compile, on top of the
+      # dependency derivation the Clippy and Tests steps above already build - the check shares
+      # `cargoArtifacts` with them, so no second one is created. At that price a blocking step in
+      # the job that already gates the branch is the right home; a scheduled or non-blocking job
+      # would let a regression merge and be noticed later, which for a metric about untested
+      # complexity is most of the value gone.
+      #
+      # The scope is one line in xtask/src/crap.rs, and docs/crap.md carries the measured cost of
+      # every wider option plus what this one does not see. `rust` rather than a narrower
+      # classification: the policy file, the pin and the manifests all change the verdict, and the
+      # commit hook is the thing that scopes by path.
+      - name: CRAP score
+        if: steps.classify.outputs.rust == 'true'
+        run: nix build .#checks.x86_64-linux.crap -L
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
       # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
@@ -260,7 +312,9 @@ jobs:
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
     if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/main'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
+    # same large closure again for its own triple, and none of them shares the host's artifacts.
+    timeout-minutes: 120
     permissions:
       contents: read
     strategy:
@@ -283,6 +337,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # Same reasoning as the `ci` job: the flag that would let flake.nix add its own

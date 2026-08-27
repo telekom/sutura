@@ -22,15 +22,65 @@ targets = [
 version = 2
 yanked = "deny"
 
+# ONE ignored advisory, scoped to one id, with the reason it is acceptable rather than the
+# observation that it is only a warning.
+#
+# RUSTSEC-2024-0436 is `paste` being UNMAINTAINED: archived by its author, no vulnerability
+# attached, and the advisory itself says "No safe upgrade is available". It reaches this workspace
+# as a transitive dependency of `utoipa-axum`, which is what makes the generated interface
+# description actually generated - `routes!` registers a handler in the router and in the
+# `OpenAPI` document from the same attribute, so a handler with no `#[utoipa::path]` fails to
+# compile. Dropping it means hand-listing every path in a derive, which is the second source of
+# truth that whole arrangement exists to remove.
+#
+# What is accepted: a macro helper that pastes identifiers together at compile time, is feature
+# complete for what it does, and is not present at runtime. What is NOT accepted: this is one
+# advisory id, not a category. The next unmaintained crate in the tree fails the audit, which is
+# the difference between this entry and setting `unmaintained` to something looser.
+ignore = [
+  { id = "RUSTSEC-2024-0436", reason = "`paste`, transitively via `utoipa-axum`: unmaintained, no vulnerability, no upgrade path, compile-time only" },
+]
+
 [licenses]
 version = 2
 # Permissive only. Anything copyleft is a deliberate decision, not a transitive surprise.
 #
-# Exactly the licences the current graph uses, and no more. It also allowed BSD-2-Clause,
-# BSD-3-Clause, ISC and Zlib, which nothing used - cargo-deny warned about all four on every
-# run. A licence allowed "just in case" is pre-approval for a dependency nobody has reviewed,
-# and four warnings a run is how people learn to skim the output.
-allow = ["Apache-2.0", "MIT", "Unicode-3.0"]
+# Exactly the licences the current graph uses, and no more - `unused-allowed-license` below makes an
+# entry nothing uses FAIL rather than warn, so this list cannot rot into pre-approval for a
+# dependency nobody has reviewed. Four entries were removed for that reason once; three of them are
+# back below, because the DuckDB adapter brought crates that use them. That is the difference.
+#
+# WHERE THE NEW ENTRIES COME FROM, and it is worth reading before adding to this list. Five of them
+# arrive under `libduckdb-sys`, whose build script DOWNLOADS a prebuilt libduckdb when nothing else
+# has supplied one - so it carries `ureq`, and `ureq` carries a whole TLS stack. `ureq` is not
+# optional, so no feature flag removes it from the graph.
+#
+# That downloader never runs here. `build.rs` checks `DUCKDB_LIB_DIR` before it considers
+# downloading, and `nix/duckdb.nix` sets it from the nixpkgs derivation. The check that this stays
+# true is not a promise: the Nix build sandbox has no network, so a build that fell through to the
+# download path fails loudly rather than quietly fetching a binary nobody pinned.
+allow = [
+  "Apache-2.0",
+  "MIT",
+  "Unicode-3.0",
+  # `foldhash` (hashbrown -> hashlink -> duckdb) and `zlib-rs` (flate2, in libduckdb-sys's build
+  # script). Permissive, OSI-approved, no copyleft, no attribution obligation beyond not
+  # misrepresenting the origin.
+  "Zlib",
+  # `ar_archive_writer`, a build-dependency of `psm` <- `stacker` <- `polyglot-sql`. `stacker` is
+  # kept on purpose: it is stack-growth protection for a recursive-descent parser, and dropping a
+  # safety feature to shorten this list would be the wrong trade. The exception is the one the Rust
+  # project itself ships under.
+  "Apache-2.0 WITH LLVM-exception",
+  # `subtle`, via the TLS stack described above.
+  "BSD-3-Clause",
+  # `rustls-webpki`, `untrusted`, and the ISC half of `ring`'s "Apache-2.0 AND ISC".
+  "ISC",
+  # `webpki-roots`, which is a data set of certificate authorities rather than code. CDLA-Permissive
+  # is the Linux Foundation's permissive data licence: no copyleft, and no obligation attaching to
+  # anything built with it.
+  "CDLA-Permissive-2.0",
+]
 
 # So it cannot rot back: an entry nothing uses FAILS rather than warns. Adding a licence then
 # happens at the moment a dependency needs it, which is where the decision belongs.

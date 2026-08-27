@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT "customers"."region_code" AS "region", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) AS "period", SUM("orders"."amount_cents") AS "revenue" FROM "orders" LEFT JOIN "customers" ON "orders"."customer_id" = "customers"."id" WHERE "orders"."order_date" >= $1 AND "orders"."order_date" < $2 GROUP BY "customers"."region_code", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) ORDER BY "customers"."region_code", CAST(DATE_TRUNC('month', "orders"."order_date") AS DATE) LIMIT 10001

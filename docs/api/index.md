@@ -5,10 +5,33 @@ description: The public Rust API, generated from rustdoc JSON and committed.
 
 # API reference
 
-The public Rust API, one page per library crate, **generated** from rustdoc JSON and committed.
-Today that is one crate, because one library crate exists.
+The public Rust API, one page per library crate, **generated** from rustdoc JSON and committed. The
+list is derived from `cargo metadata`, so a new library crate gets a page without anybody adding it
+here - and `cargo xtask check-api-docs` fails until that page is generated and committed.
 
-- [sutura-domain](sutura-domain.md) - the domain types
+The order below is the order a question travels in, which is also the dependency direction: every
+arrow points inward, at the domain.
+
+- [sutura-domain](sutura-domain.md) - the domain types and the port traits. Depends on nothing but
+  `serde` and `thiserror`, and a gate keeps it that way
+- [sutura-catalog-local](sutura-catalog-local.md) - a `SemanticCatalog` adapter over a directory of
+  markdown documents with YAML frontmatter
+- [sutura-semantic](sutura-semantic.md) - the compiler: resolve and plan. It renders nothing, and has
+  no SQL generator in its dependency tree
+- [sutura-sql](sutura-sql.md) - rendering: a plan becomes one statement in one dialect. Depended on
+  by the SQL adapters and by the CLI, and deliberately not by the compiler
+- [sutura-exec-datafusion](sutura-exec-datafusion.md) - THE engine. A `Warehouse` adapter that
+  executes a plan over Arrow and generates no SQL
+- [sutura-exec-duckdb](sutura-exec-duckdb.md) - a `Warehouse` adapter over DuckDB as a DATA SOURCE:
+  it renders the plan into DuckDB SQL and pushes it down. A development dependency, not shipped
+- [sutura-app](sutura-app.md) - the service, generic over the ports. Also the `Surface` driving port
+  and its one implementor, so a transport implements nothing another transport owns
+- [sutura-config](sutura-config.md) - the settings tree and the startup refusals. Holds no
+  framework: it decides what the service may do before anything is built
+- [sutura-runtime](sutura-runtime.md) - the process-global concerns a library must not install as a
+  side effect of being linked: the subscriber, the panic hook, the shutdown signal
+- [sutura-http](sutura-http.md) - transport only. It consumes the `Surface` port rather than
+  declaring it, so a second transport reaches for `sutura-app` and never for this crate
 
 ## These pages are generated
 

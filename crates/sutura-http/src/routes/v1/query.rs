@@ -1,0 +1,420 @@
+//! Asking one certified question.
+//!
+//! # A refusal is a `200`
+//!
+//! The single most important thing about this handler. `ToolOutcome::Refusal` is a *result*: the
+//! caller asked something they may not have, and the answer is no. It comes back with `200` and an
+//! `outcome` of `refusal`, because a `4xx` invites a client library to retry - and retrying a
+//! governance decision until it succeeds is exactly the behaviour the refusal exists to prevent.
+//!
+//! The statuses in this handler's documented responses are therefore all about things that are *not*
+//! refusals: a body that is not a question, a missing credential, a limit, a data system that did
+//! not answer.
+//!
+//! # Why the call goes onto the blocking pool
+//!
+//! `Warehouse` is a synchronous port, and the in-process engine behind it drives its own
+//! single-threaded runtime and blocks on it. Calling that from an `async` handler on a worker
+//! thread panics - a runtime cannot be entered from within a runtime - and the panic happens at
+//! collect time, deep inside the engine, which is a long way from the line that caused it.
+//! `spawn_blocking` is not an optimisation here; it is the only correct way to call this port.
+//!
+//! The current span is carried across, so the lines the engine emits belong to the same request as
+//! the lines this handler emits.
+//!
+//! # The slot, and exactly what it bounds
+//!
+//! **A slot is taken before the blocking task is spawned, and it is moved into that task.** Both
+//! halves matter, and the second is the one that is easy to get wrong.
+//!
+//! The request timeout is a deadline on the *reply*. When it expires the caller is answered `408`
+//! and this handler's future is dropped - and `tokio` documents that a started `spawn_blocking`
+//! task cannot be aborted and that runtime shutdown waits for one. So the question keeps running
+//! after the caller has been answered. Before the slot there was nothing bounding how many were
+//! doing that: the blocking pool defaults to 512 threads with an unbounded queue, so a caller
+//! asking questions that cost more than the timeout accumulated them at the rate limit and the only
+//! real bound was memory - which also defeats the bounded shutdown this service advertises.
+//!
+//! What the slot fixes is the *count*. What it does not fix, and cannot:
+//!
+//! * **It does not cancel anything.** The `Warehouse` port is synchronous and carries no
+//!   cancellation token, so a timed-out question runs to completion holding its slot. That is
+//!   precisely why the slot is moved into the blocking task rather than held by this future: a slot
+//!   released when the caller gives up would count *callers*, and the backlog would be unbounded
+//!   again with a number in front of it that looked like a limit. The honest statement is that the
+//!   backlog is now a number somebody chose instead of memory - not that a timeout cancels work.
+//! * **It is not per-caller.** One caller can fill every slot and shed everybody else. Nothing here
+//!   can tell two callers apart, because there is no identity to tell them apart by - see the crate
+//!   documentation. The rate limiter bounds an address's *rate*; this bounds the deployment's
+//!   *concurrency*.
+//! * **It does not bound how long one question takes.** A single question that runs for an hour
+//!   holds its slot for an hour, and no configuration here changes that.
+//!
+//! A panicking blocking task releases the slot by unwinding out of the closure, which is what
+//! happens under a test profile. The shipped profiles set `panic = "abort"`, so there the process is
+//! gone and the slot is moot.
+
+use axum::Json;
+use axum::extract::State;
+use axum::extract::rejection::JsonRejection;
+use sutura_domain::query::{Query, ToolOutcome};
+use sutura_runtime::AtCapacity;
+
+use crate::problem::Failure;
+use crate::state::ServiceState;
+use crate::surface::SurfaceFailure;
+use crate::wire::{OutcomeBody, QuestionBody};
+
+/// The tag this route is grouped under in the generated document.
+const TAG: &str = "query";
+
+/// Answers one modelled question, or says why it will not.
+#[utoipa::path(
+    post,
+    path = "/query",
+    tag = TAG,
+    request_body = QuestionBody,
+    responses(
+        (
+            status = 200,
+            description = "The outcome. `outcome: answer` carries rows and the provenance of the \
+                           definitions that produced them; `outcome: refusal` carries a code and a \
+                           sentence. A refusal is a RESULT and not an error - retrying it will not \
+                           change the answer.",
+            body = OutcomeBody
+        ),
+        (status = 400, description = "The body is not a modelled question. The detail names the field.", body = crate::problem::ProblemBody),
+        (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
+        (status = 408, description = "The request exceeded this service's time bound.", body = crate::problem::ProblemBody),
+        (status = 413, description = "The body is larger than this service will read.", body = crate::problem::ProblemBody),
+        (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
+        (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
+        (
+            status = 503,
+            description = "Worth retrying, and `code` says which of two things happened. \
+                           `unavailable`: the data system did not answer. `at_capacity`: every \
+                           execution slot was taken for the whole admission window, so this \
+                           question was shed rather than queued - that response carries a \
+                           `Retry-After` in seconds.",
+            body = crate::problem::ProblemBody
+        ),
+    )
+)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "the tracing macros expand into branches; the control flow is parse, ask, report"
+)]
+pub(crate) async fn ask(
+    State(state): State<ServiceState>,
+    body: Result<Json<QuestionBody>, JsonRejection>,
+) -> Result<Json<OutcomeBody>, Failure> {
+    let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
+    let query = Query::try_from(body).map_err(|cause| Failure::NotAQuestion {
+        detail: describe(&cause),
+    })?;
+
+    // What was asked, before it is answered. Deliberately not the filter values: a rejected or
+    // accepted value reflected into a log is a value that outlives the request, and the surface
+    // already refuses to echo one back to the caller.
+    tracing::info!(
+        metric = %query.metric(),
+        grain = %query.grain(),
+        dimensions = query.dimensions().len(),
+        filters = query.filters().len(),
+        "question received"
+    );
+
+    // Before the task is spawned, and not inside it: a slot acquired inside the blocking task would
+    // be a thread already taken while waiting for permission to take one.
+    let slot = state.admission().admit().await.map_err(|shed| refused(&shed))?;
+
+    let surface = state.surface();
+    let span = tracing::Span::current();
+    let joined = tokio::task::spawn_blocking(move || {
+        let answered = span.in_scope(|| surface.answer(&query));
+        // Explicitly, and here rather than at the top of the closure: the slot is released when the
+        // WORK finishes, which is what makes the bound a bound on execution. Dropping it earlier
+        // would let a second question start on top of this one.
+        drop(slot);
+        answered
+    })
+    .await;
+
+    let outcome = match joined {
+        Ok(answered) => answered.map_err(|failure| failed(&failure))?,
+        Err(cause) => {
+            // The blocking task panicked. The panic hook has already traced the payload and the
+            // location; this says which request it took down with it.
+            tracing::error!(error = %cause, "answering panicked");
+            return Err(Failure::Internal);
+        }
+    };
+    report(&outcome);
+    Ok(Json(OutcomeBody::from(&outcome)))
+}
+
+/// Why the body did not become a `QuestionBody`.
+///
+/// **Two outcomes from one rejection type, and the split was found by a test rather than by
+/// reading.** The body-limit layer causes the JSON extractor to reject with a length-limit error,
+/// which is a `JsonRejection` like a malformed body is - so mapping every rejection to `400` made a
+/// body over the bound indistinguishable from a body with a typo in it, and the documented `413`
+/// was a status nothing produced. Branching on the rejection's own status rather than on its
+/// variant keeps that true across an `axum` release that adds a variant.
+fn rejected(rejection: &JsonRejection) -> Failure {
+    if rejection.status() == axum::http::StatusCode::PAYLOAD_TOO_LARGE {
+        return Failure::TooLarge;
+    }
+    Failure::NotAQuestion {
+        // `body_text` and NOT the `#[source]` walk `describe` does. Each level of an `axum`
+        // rejection's chain restates the whole message, so walking it produced the same sentence
+        // three times in a row - observed in a response, not deduced. `body_text` is the one
+        // sentence the rejection is designed to hand a caller, and it names the offending key for
+        // an unknown field and the position for malformed JSON.
+        detail: rejection.body_text(),
+    }
+}
+
+/// Turns a shed question into the response, and says so once in the log.
+///
+/// `warn` and not `error`: shedding is the control working. It is also the line an operator sizes
+/// from, so it carries the bound and the window the caller waited - which the response body
+/// deliberately does not, because those numbers are this deployment's sizing.
+fn refused(shed: &AtCapacity) -> Failure {
+    tracing::warn!(
+        max_concurrent_queries = shed.bound(),
+        admission_timeout_seconds = shed.waited().as_secs(),
+        "shed a question: every execution slot was taken for the whole admission window"
+    );
+    Failure::AtCapacity {
+        retry_after_seconds: shed.waited().as_secs(),
+    }
+}
+
+/// Maps a failure to a status, and logs the part the caller must not be told.
+///
+/// The split is the point. A data system that did not answer is a `503` and worth retrying; our own
+/// bundle or generator being wrong is a `500` and is not. Neither response carries the message,
+/// because a driver's complaint names a table, a column or a file.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
+)]
+fn failed(failure: &SurfaceFailure) -> Failure {
+    // The chain is walked to text HERE, at the sink that writes it, and not inside the error. That
+    // is the whole of the difference between a failure that can be inspected and one that has
+    // already been turned into prose - see `crate::surface`.
+    let chain = crate::surface::cause_chain(failure);
+    match *failure {
+        SurfaceFailure::Warehouse { ref cause } => {
+            tracing::error!(error = %cause, chain = ?chain, "the data system did not answer");
+            Failure::Unavailable
+        }
+        SurfaceFailure::Compile { ref cause } => {
+            tracing::error!(error = %cause, chain = ?chain, "the pinned bundle did not compile this question");
+            Failure::Internal
+        }
+    }
+}
+
+/// One line per outcome, so a refusal is as visible in the log as an answer.
+///
+/// `AGENTS.md` records "every call is attributable, refusals included" as an invariant enforced by
+/// an audit sink, and there is no audit sink: nothing here records a principal chain, because there
+/// is no principal to record. This is a log line, and it is named for what it is.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
+)]
+fn report(outcome: &ToolOutcome) {
+    match *outcome {
+        ToolOutcome::Answer {
+            ref provenance,
+            ref rows,
+        } => tracing::info!(
+            rows = rows.rows().len(),
+            definition_version = %provenance.version(),
+            "answered"
+        ),
+        ToolOutcome::Refusal { ref reason } => tracing::info!(
+            // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
+            // rejected filter value is not in it.
+            reason = ?reason,
+            "refused"
+        ),
+    }
+}
+
+/// An error and its causes, on one line, for a caller.
+///
+/// `Display` on a `thiserror` enum prints the outermost message only, and for a malformed question
+/// the outer message is the field and the cause is what was wrong with it - so both halves are
+/// needed for the message to be actionable.
+fn describe(error: &dyn core::error::Error) -> String {
+    let mut out = error.to_string();
+    let mut cursor = error.source();
+    while let Some(cause) = cursor {
+        out.push_str(": ");
+        out.push_str(&cause.to_string());
+        cursor = cause.source();
+    }
+    out
+}
+
+/// What the admission bound does to a second question, through the assembled router.
+///
+/// Here rather than in `crate::harness` because the subject is this handler: the permit is acquired
+/// on this line, before the blocking task is spawned, and moved into it. Driven through the real
+/// router all the same, because a bound that a handler holds and a router does not install is the
+/// failure mode the whole change is about.
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+    use std::time::{Duration, Instant};
+
+    use axum::body::Body;
+    use axum::extract::ConnectInfo;
+    use axum::http::{Request, StatusCode};
+    use sutura_config::{Environment, Settings, Sources};
+    use tower::ServiceExt as _;
+
+    use crate::state::ServiceState;
+    use crate::surface::LocalService;
+    use crate::testing::{bundle, catalog_of, warehouse_that_can_be_held};
+
+    /// A well formed question the fake will answer.
+    const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
+
+    /// A router over a warehouse whose answers can be held, and the switch that holds them.
+    fn app(overlay: &str) -> (axum::Router, crate::testing::Held) {
+        let settings =
+            Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load");
+        let (engine, held) = warehouse_that_can_be_held();
+        let service = LocalService::start(&catalog_of(bundle()), engine).expect("the test bundle validates");
+        let router = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
+        (router, held)
+    }
+
+    /// One question, with the peer address `axum::serve` would have attached.
+    ///
+    /// Takes the router by value so the future borrows nothing and can be handed to `tokio::spawn`,
+    /// which is what every test here needs: the point is two questions in flight at once.
+    async fn ask_once(app: axum::Router) -> (StatusCode, String, Option<String>) {
+        let mut request = Request::builder()
+            .method("POST")
+            .uri("/v1/query")
+            .header("content-type", "application/json")
+            .body(Body::from(QUESTION))
+            .expect("the test request is well formed");
+        let peer: std::net::SocketAddr = "203.0.113.7:44444".parse().expect("a test peer address is an address");
+        request.extensions_mut().insert(ConnectInfo(peer));
+        let response = app.oneshot(request).await.expect("the router is infallible as a service");
+        let status = response.status();
+        let retry_after = response
+            .headers()
+            .get("retry-after")
+            .and_then(|value| value.to_str().ok())
+            .map(String::from);
+        let bytes = axum::body::to_bytes(response.into_body(), 1024 * 1024)
+            .await
+            .expect("the test response body is readable");
+        (status, String::from_utf8_lossy(&bytes).into_owned(), retry_after)
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_second_question_is_shed_rather_than_queued_when_the_bound_is_one() {
+        // **The finding this exists for.** The request timeout drops the handler future; it does not
+        // cancel a started `spawn_blocking` task, and `tokio` documents that such a task cannot be
+        // aborted. So before the permit there was nothing bounding how many questions were running:
+        // a caller could accumulate expensive ones that keep running after each `408`, exhaust the
+        // blocking pool, and defeat the bounded shutdown this service advertises.
+        //
+        // A bound of one and a held warehouse is the whole shape of it. The first question takes the
+        // only slot and does not return; the second must be SHED, and shed inside the admission
+        // window rather than left waiting for the request timeout.
+        let (app, held) = app(
+            "runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\nserver:\n  request_timeout_seconds: 30\n",
+        );
+        held.arm();
+        // Spawned first and given the runtime a turn, so the slot is actually taken before the
+        // second question asks for one. Without the yield this races the spawn.
+        let first = tokio::spawn(ask_once(app.clone()));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        let began = Instant::now();
+        let (status, body, retry_after) = ask_once(app.clone()).await;
+        let waited = began.elapsed();
+
+        // Released before the assertions, so a failing one does not also leave the blocking pool
+        // holding the runtime open for the fake's own cap.
+        held.release();
+        let _first = first.await;
+
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{body}");
+        assert!(
+            body.contains(r#""code":"at_capacity""#),
+            "the shed request did not carry the documented body: {body}"
+        );
+        assert!(body.contains(r#""status":503"#), "{body}");
+        assert_eq!(retry_after.as_deref(), Some("1"), "a shed request carries no Retry-After");
+        // The admission timeout is what bounded the wait, not the request timeout thirty times it.
+        assert!(waited >= Duration::from_secs(1), "shed before the window elapsed: {waited:?}");
+        assert!(
+            waited < Duration::from_secs(10),
+            "the wait was not bounded by the window: {waited:?}"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_slot_comes_back_when_the_work_finishes_rather_than_when_the_caller_gives_up() {
+        // The other half, and the reason the permit is moved INTO the blocking task. A slot released
+        // by the handler future would be handed back the moment a caller was answered `408`, while
+        // the question it started was still running - so the bound would count callers rather than
+        // work, and the backlog would be unbounded again with a number in front of it that looked
+        // like a limit.
+        //
+        // Asserted the only way it can be from outside: hold the first question, watch the second be
+        // shed, then release and watch a third be answered. A slot that never came back would shed
+        // the third too.
+        let (app, held) = app("runtime:\n  max_concurrent_queries: 1\n  admission_timeout_seconds: 1\n");
+        held.arm();
+        let first = tokio::spawn(ask_once(app.clone()));
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            ask_once(app.clone()).await.0,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "the bound was not in effect, so this proves nothing about the release"
+        );
+
+        held.release();
+        let (status, body, _) = first.await.expect("the first question's task ran");
+        assert_eq!(status, StatusCode::OK, "{body}");
+        let (status, body, _) = ask_once(app.clone()).await;
+        assert_eq!(status, StatusCode::OK, "the slot was never handed back: {body}");
+        assert!(body.contains(r#""outcome":"answer""#), "{body}");
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn the_configured_bound_is_the_number_of_questions_that_run_at_once() {
+        // A bound above one, so the assertion is about the NUMBER rather than about the existence of
+        // a permit set - the bug a bound of one cannot catch is an off-by-one that admits two.
+        // Three slots, three held questions, and the fourth is shed.
+        let (app, held) = app("runtime:\n  max_concurrent_queries: 3\n  admission_timeout_seconds: 1\n");
+        held.arm();
+        let mut running = Vec::new();
+        for _ in 0_u8..3 {
+            running.push(tokio::spawn(ask_once(app.clone())));
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let (status, body, _) = ask_once(app.clone()).await;
+        held.release();
+        for task in running {
+            let _answered = task.await;
+        }
+        assert_eq!(
+            status,
+            StatusCode::SERVICE_UNAVAILABLE,
+            "a fourth question got a slot: {body}"
+        );
+    }
+}

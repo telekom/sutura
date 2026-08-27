@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+channel	period	revenue
+Text(store)	Text(2026-06-01)	Integer(25072)
+Text(web)	Text(2026-06-01)	Integer(200000)

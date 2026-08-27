@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+DimensionNotPermitted:
+  metric: data_per_subscription
+  dimension: segment

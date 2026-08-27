@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/service.rs
+expression: err.to_string()
+---
+metric orders_placed was expected to produce 9, and produced 470022

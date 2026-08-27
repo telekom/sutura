@@ -70,6 +70,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -160,6 +164,10 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # As in `gates`: settings that matter are written here, not read out of flake.nix.
@@ -301,7 +309,7 @@ jobs:
     needs: [build]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     permissions:
       contents: write   # create the release, upload assets
       packages: write   # push to GHCR

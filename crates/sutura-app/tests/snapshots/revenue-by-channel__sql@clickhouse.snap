@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT "orders"."channel" AS "channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", sum("orders"."amount_cents") AS "revenue" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY "orders"."channel", CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10001

@@ -11,6 +11,21 @@ description = "Domain types today, port traits with the first adapter. No framew
 
 [dependencies]
 serde = { workspace = true }
+# The canonical form of a definition set, and its hash. **Both are here because the digest has to be
+# computed by code the domain trusts.** They used to live in the catalog adapter, with
+# `PinnedDefinitions::pin` taking the hashing function from whoever called it - which a review showed
+# leaves the hole the type existed to close: safe public code could pass `|_| Ok(elsewhere)` and pair
+# any digest with any definitions.
+#
+# The cost was measured rather than estimated, and the estimate it replaces was wrong. Twelve crates
+# transitively - `sha2` brings `cfg-if`, `cpufeatures`, `digest`, `block-buffer`, `crypto-common`,
+# `hybrid-array` and `typenum`; `serde_json` brings `itoa`, `memchr` and `zmij` - plus `libc`, which
+# `cpufeatures` declares for `aarch64-linux` only and which appears in the boundary gate's graph
+# because `cargo metadata` resolves every target. None is a framework, every one of them was already
+# compiled into the shipped binary through `sutura-catalog-local`, and no lockfile entry is new: this
+# moves an edge, not a dependency. `xtask/src/boundaries.rs` holds the same note beside the allowlist.
+serde_json = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

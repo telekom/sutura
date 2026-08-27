@@ -1,0 +1,13 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.params()
+---
+- Date:
+    year: 2026
+    month: 6
+    day: 1
+- Date:
+    year: 2026
+    month: 7
+    day: 1
+- Text: north

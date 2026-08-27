@@ -1,0 +1,77 @@
+[package]
+name = "sutura-http"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The HTTP surface. Transport only: it goes through the ports and decides nothing a question depends on."
+
+[features]
+# Does this build contain a TLS listener?
+#
+# DEFAULT-OFF, and that is the deployment model rather than caution. TLS is normally terminated by
+# an ingress controller or a sidecar, so plaintext on the pod network is the intended arrangement
+# and the shipped artifacts do not carry a TLS stack they would not use. In-process termination is
+# for the deployment where nothing terminates in front.
+#
+# It turns on `sutura-config`'s feature of the same name, which carries no dependency and exists
+# only so `Settings::refusals` can tell "the operator asked this process to terminate TLS" from
+# "this process can". Wiring it here is what makes the two impossible to disagree: a binary with
+# this feature has the listener AND reports that it has it.
+tls = ["dep:tokio-rustls", "sutura-config/tls"]
+
+[dependencies]
+# The service, behind the ports. This crate calls `answer` and `verify_and_validate` and nothing
+# else; every rule about what may be answered lives on the other side of that call.
+sutura-app = { workspace = true }
+sutura-config = { workspace = true }
+sutura-domain = { workspace = true }
+# For one value type - `Shutdown` - and not for anything this crate installs. `sutura-runtime` owns
+# the process-global setup and is called by the composition root; nothing here touches a subscriber,
+# a panic hook or a signal handler. The dependency exists so `serve` can arm its drain deadline
+# after shutdown is asked for, which needs to observe the signal twice.
+sutura-runtime = { workspace = true }
+axum = { workspace = true }
+# Directly, for `middleware::StateInformationMiddleware` in the limiter's type. It is part of the
+# signature because emitting the remaining-quota headers is a construction-time choice.
+governor = { workspace = true }
+serde = { workspace = true }
+# The interface description is serialized once at startup and served from a clone, and the wire
+# shapes are asserted on as JSON in the tests, because the JSON is the contract.
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# `net` for the listener, `time` for the drain deadline, `rt`/`macros` for the handlers, and
+# `sync` for what `Shutdown` is built on. See the amendment on the workspace entry: this ADDS to
+# the base set the engine asks for, and does not change what the CLI links.
+tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
+tower = { workspace = true }
+tower-http = { workspace = true }
+tower_governor = { workspace = true }
+# The TLS listener, and ONLY under the `tls` feature - `optional` is what makes the dependency
+# absent from the build rather than merely unused. See `src/tls.rs` for why the acceptor is driven
+# from a task instead of from `accept`, and the workspace manifest for the feature choices.
+tokio-rustls = { workspace = true, optional = true }
+tracing = { workspace = true }
+utoipa = { workspace = true }
+utoipa-axum = { workspace = true }
+utoipa-swagger-ui = { workspace = true }
+
+[dev-dependencies]
+# The TLS tests generate their certificates rather than carrying one. See the workspace entry: a
+# committed pair cannot express "this key does not match this certificate", which is the case the
+# reload path has to refuse.
+rcgen = { workspace = true }
+# The router tests drive the real router with `oneshot`, which needs a multi-threaded runtime
+# because a query handler moves its work onto the blocking pool.
+#
+# `io-util` is here and NOT in the dependency table above, which is the point of it being here: the
+# TLS test speaks HTTP over a real handshake by writing the bytes itself, and `write_all` and
+# `read_to_end` are extension traits from that feature. The server side needs none of it, so the
+# shipped graph does not get it.
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

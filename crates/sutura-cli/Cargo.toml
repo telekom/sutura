@@ -14,14 +14,39 @@ name = "sutura"
 path = "src/main.rs"
 
 [dependencies]
+sutura-app = { workspace = true }
+sutura-catalog-local = { workspace = true }
+# The settings tree, for `sutura prompt` alone. It is here so the prompt an operator pipes into an
+# agent's configuration is rendered from the SAME layered configuration the service would read -
+# `prompt.instructions_file` and `prompt.catalog_prose`, defaults then files then one variable per
+# key - rather than from a second set of flags that could disagree with it.
+sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
-
+sutura-semantic = { workspace = true }
+# Rendering, and this binary IS a SQL consumer: `sutura compile` exists to print the statement for a
+# dialect somebody named on the command line, without opening a data system at all. So the
+# generator is in this binary's tree deliberately and by a declared edge, which is the difference
+# from before - it used to arrive through `sutura-semantic`, unasked, in every consumer of the core.
+sutura-sql = { workspace = true }
+# THE engine, and not feature-gated, because a binary that cannot answer anything is not a binary
+# anybody wants. It is pure Rust, so it cross-compiles to musl - which is what forced the DuckDB
+# adapter to be default-off, and is exactly the constraint this does not have.
+sutura-exec-datafusion = { workspace = true }
+# A question arrives as a file a person wrote, so it is read the same way a catalog document is.
+serde_norway = { workspace = true }
 # The allocator, and Linux only. A target table rather than a plain dependency plus a `cfg`:
 # this way the C is never compiled - not even a build script - on a macOS or Windows laptop,
 # so the one platform we ship on is the only one that pays for it. `Cargo.lock` still records
 # it, because a lockfile is target-agnostic by design.
 [target.'cfg(target_os = "linux")'.dependencies]
 mimalloc = { workspace = true }
+
+[dev-dependencies]
+# `tests/example.rs` runs `examples/single-player` and pins what came out. Snapshots rather than
+# hand-written expectations, for the reason the rest of the repo uses them: a typed expectation
+# asserts what somebody wished the generator did. Every test in it runs in the default build: the
+# engine ships, so there is no longer a build in which the example cannot be executed.
+insta = { workspace = true }
 
 [lints]
 workspace = true

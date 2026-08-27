@@ -1,0 +1,414 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: pinned.definitions()
+---
+models:
+  customers:
+    name: customers
+    source: local
+    table: dim_customer
+    columns:
+      - customer_id
+      - customer_key
+      - region
+      - segment
+    description: "One row per customer, holding the attributes an answer may be grouped by and nothing\nelse. Nothing here is additive, so a join to it cannot change a measure.\n\n`customer_key` is what every fact carries and `customer_id` is the number a person\nwould quote. No metric groups by the business key: a result with one row per customer\nis a list of customers rather than a measure of anything, and `segment` and `region`\nare the two attributes that put a number in context instead of replacing it."
+  daily_usage:
+    name: daily_usage
+    source: local
+    table: fct_usage_daily
+    columns:
+      - data_gb
+      - subscription_key
+      - usage_date
+      - voice_min
+    description: "One row per subscription per day on which it used anything.\n\nIt carries `subscription_key` and no relationship reaches from here to the subscription\nsnapshot, which looks like an omission and is not. The snapshot has one row per\nsubscription per MONTH, so a join on `subscription_key` alone matches every month that\nsubscription existed and multiplies each day of usage by that count. The sum over those\nrows is a wrong number that raises no error anywhere.\n\nThe join that would be correct also constrains the snapshot month to the usage month,\nand a relationship here declares one column on each side. So the relationship is absent\nrather than declared wrongly, and every metric on this model groups by time and by\nnothing else. Usage per product family is a definition this catalog cannot yet express,\nand saying so is better than shipping a number that is quietly several times too large."
+  products:
+    name: products
+    source: local
+    table: dim_product
+    columns:
+      - product_family
+      - product_key
+      - product_name
+    description: "The tariff catalog: one row per sellable product.\n\nThere is no price column, and the absence is the point. A list price is not what a\nsubscription was billed, so a revenue metric that summed it would answer a question\nabout the price list under the name of a question about revenue. The billed figure sits\non the monthly snapshot, where whatever made it differ from the list price has already\nbeen applied."
+  subscriptions:
+    name: subscriptions
+    source: local
+    table: fct_subscription_monthly
+    columns:
+      - churned_in_month
+      - customer_key
+      - month
+      - mrr_cents
+      - product_key
+      - status
+      - subscription_key
+    description: "One row per subscription per month: what that subscription was worth in the month, and\nwhat state it was in at the end of it.\n\nA snapshot, not a log. `month` is the first day of the month being described, so every\nrow of a month carries the same date and a day grain would bucket them all onto the\nfirst. That is why no metric on this model declares one: the answer would be arithmetic\nthat looks like a daily series and is not.\n\nMoney is held in minor units so that a total is exact. A metric that summed a decimal\ncolumn would depend on how two languages happen to print the same bits, and an anchor\ncomparison over that is a test that fails for the wrong reason.\n\n`status` and `churned_in_month` describe the same event from two sides and both are\nhere on purpose. `status` is a state at the end of the month, which is what a revenue\ndefinition narrows on. `churned_in_month` is something that happened inside the month,\nwhich is what a churn count counts. In the general case neither follows from the other:\na subscription that terminates and is restored ends the month in a state that says\nnothing about the termination."
+relationships:
+  subscription_customer:
+    name: subscription_customer
+    origin_model: subscriptions
+    origin_column: customer_key
+    target_model: customers
+    target_column: customer_key
+    join_type: many_to_one
+  subscription_product:
+    name: subscription_product
+    origin_model: subscriptions
+    origin_column: product_key
+    target_model: products
+    target_column: product_key
+    join_type: many_to_one
+metrics:
+  active_subscriptions:
+    name: active_subscriptions
+    model: subscriptions
+    measure:
+      simple:
+        aggregate: count_distinct
+        column: subscription_key
+    required_filters:
+      - equals:
+          column: status
+          value: active
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via: subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: The kind of product rather than the individual tariff.
+      region:
+        name: region
+        column: region
+        via: subscription_customer
+        allowed_values:
+          - central
+          - east
+          - north
+          - south
+          - west
+        description: Where the customer is.
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: The commercial segment of the customer.
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "58"
+    description: "How many subscriptions were active at the end of the month.\n\nCounts the subscription key distinctly rather than counting rows. Over this catalog the\ntwo agree, because both relationships are many-to-one and neither can fan a row out; they\nwould stop agreeing the moment one could, and the one that keeps meaning \"subscriptions\"\nis the key.\n\nRead it beside `subscription_base`, which is this same count with the status filter taken\naway. The two carry different anchors over the same rows in the same month, and the only\nthing between them is one definitional predicate. That is what `required_filters` buys,\nshown as two numbers rather than asserted in a sentence."
+  churn_rate:
+    name: churn_rate
+    model: subscriptions
+    measure:
+      ratio:
+        numerator:
+          count_if: churned_in_month
+        denominator:
+          aggregate: count_distinct
+          column: subscription_key
+        zero_denominator: yields_null
+    required_filters: []
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via: subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: The kind of product rather than the individual tariff.
+      region:
+        name: region
+        column: region
+        via: subscription_customer
+        allowed_values:
+          - central
+          - east
+          - north
+          - south
+          - west
+        description: Where the customer is.
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: The commercial segment of the customer.
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "0.04918032786885246"
+    description: "What share of the month's subscriptions terminated inside it.\n\nThe metric this vocabulary could not express, and the reason it was changed. A rate is a\nconditional count over a distinct count, and while `count_if` was a measure *shape* it\ncould not be a *half* of a ratio: every ingredient was present and there was nowhere to\nwrite it. Read `subscriptions_churned.md` for what that cost, and this frontmatter for what\nit looks like now - the numerator is a term like any other.\n\nThe two halves are the two metrics that used to ship in its place. The numerator is\n`subscriptions_churned`, a conditional count and not `count(churned_in_month)`, which counts\nnon-null rows and would report the whole base as churn. The denominator is\n`subscription_base`, unfiltered, because a base that counted only the survivors would leave\nthe terminated subscriptions in the numerator and out of the denominator at once.\n\nNo status filter, for the reason `subscriptions_churned` gives: churn is an event inside the\nmonth rather than a state at the end of it, and narrowing on the surviving state would remove\nthe rows being counted.\n\n`zero_denominator: yields_null` because a month with no subscriptions at all has no churn\nshare. Zero would say every subscription survived, which is a claim about a month that had\nnone.\n\n## Why this one carries an anchor when the other ratios do not\n\nAn anchor is compared as rendered TEXT, at the metric's coarsest declared grain. That is what\nmakes a float-valued metric hard to anchor, and it is why the other two ratios here carry\nnone: a decimal that had to be converted to binary, or summed in an order nobody specified,\npins how a language prints an expansion rather than pinning a number.\n\nNeither of those reaches this metric, and the reason is arithmetic rather than nerve. Both\nhalves are counts, so both are exact integers in a double whatever order they were summed in,\nand the whole measure is therefore one division of two exactly-represented values - a single\nrounding, with nothing before it that an evaluation order could perturb. `data_per_subscription`\nis the case that is genuinely different: a sum of decimal gigabytes over a count, where two\nengines may legitimately differ in the last place.\n\nBoth halves are also separately certified, which is what makes the anchor readable rather than\nopaque: 3 under `subscriptions_churned` and 61 under `subscription_base`, over this same month.\nA reader checks `0.04918032786885246` against those two, and a run that produced different\ndigits would have done different arithmetic rather than different formatting.\n\nAnd it is the only anchor in this repository that re-executes a conditional count inside a\nratio, which is the shape the vocabulary was changed for. A shape nothing certifies is a shape\nthat merely compiles."
+  data_per_subscription:
+    name: data_per_subscription
+    model: daily_usage
+    measure:
+      ratio:
+        numerator:
+          aggregate: sum
+          column: data_gb
+        denominator:
+          aggregate: count_distinct
+          column: subscription_key
+        zero_denominator: yields_null
+    required_filters: []
+    time_column: usage_date
+    grains:
+      - day
+      - month
+    dimensions: {}
+    anchor: ~
+    description: "Data volume per subscription, in gigabytes.\n\nA ratio with no definitional filter, which is the other half of what `required_filters`\nis for: this metric means what it measures over every row in range, and there is no\npredicate a reader has to be warned about.\n\nThe denominator counts the subscriptions that appear in the range rather than every\nsubscription that existed during it. A day with no usage is a day with no row here, so\nthis is volume per subscription that used the network, not volume per subscriber. The\nsecond number needs the monthly snapshot, and `daily_usage` says why this catalog cannot\nyet join to it.\n\n`zero_denominator: yields_null` because a range holding no usage rows at all is a range\nwith no figure, not a range whose figure is zero.\n\nNo anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as\ntext pins how a language prints a binary expansion."
+  recurring_revenue:
+    name: recurring_revenue
+    model: subscriptions
+    measure:
+      simple:
+        aggregate: sum
+        column: mrr_cents
+    required_filters:
+      - equals:
+          column: status
+          value: active
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via: subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: The kind of product rather than the individual tariff.
+      product_name:
+        name: product_name
+        column: product_name
+        via: subscription_product
+        allowed_values: ~
+        description: "Declared without a value list, so it can be grouped by and not filtered on.\n"
+      region:
+        name: region
+        column: region
+        via: subscription_customer
+        allowed_values:
+          - central
+          - east
+          - north
+          - south
+          - west
+        description: Where the customer is.
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: "The commercial segment of the customer, reached through one declared relationship."
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "197122"
+    description: "Recurring revenue recognised in the month, in minor units, from active subscriptions\nonly.\n\nThe filter is part of the name. This metric does not mean \"revenue, which you may narrow\nto active if you remember to\": it means the active figure, and a statement that left the\npredicate out would return revenue including terminated subscriptions under a certified\nname. That is the failure arrived at by omission rather than by tampering, so the\npredicate is compiled into every question about this metric and a caller can neither see\nit nor turn it off.\n\n`status` is therefore not a dimension here. A dimension is something a caller may group\nby or filter on, and either would be a way to ask this metric for a number it does not\nmean.\n\nThe anchor is what this metric produced for June 2026 when it was certified. It is\nre-executed on every run and at startup, so a definition that has stopped meaning what it\nclaimed fails readiness rather than answering."
+  revenue_per_customer:
+    name: revenue_per_customer
+    model: subscriptions
+    measure:
+      ratio:
+        numerator:
+          aggregate: sum
+          column: mrr_cents
+        denominator:
+          aggregate: count_distinct
+          column: customer_key
+        zero_denominator: yields_null
+    required_filters:
+      - equals:
+          column: status
+          value: active
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: The commercial segment of the customer.
+    anchor: ~
+    description: "Recurring revenue per customer, in minor units, over active subscriptions.\n\nPer CUSTOMER and not per subscription, which is the whole reason this is a ratio rather\nthan an average. `avg(mrr_cents)` is the mean of a column: it averages whatever rows the\nstatement produced, and those rows are subscription-months. A customer holding three\nsubscriptions is one customer and three rows, so the two answers differ by however much\nthe base fans out, and only one of them is the number people mean by revenue per\ncustomer.\n\n`zero_denominator` is written out because a month with no active subscriptions has to mean\nsomething and both answers are defensible. Here it means null: a month with no customers\nis a month with no revenue per customer, which is a different statement from a month\nwhose figure is zero.\n\nCarries no anchor. A division is not exact in binary, so pinning one as text would pin a\nformatting decision rather than a number, and the sum it is built from is already\nanchored under `recurring_revenue`, which is where a drift would show up first."
+  subscription_base:
+    name: subscription_base
+    model: subscriptions
+    measure:
+      simple:
+        aggregate: count_distinct
+        column: subscription_key
+    required_filters: []
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via: subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: The kind of product rather than the individual tariff.
+      region:
+        name: region
+        column: region
+        via: subscription_customer
+        allowed_values:
+          - central
+          - east
+          - north
+          - south
+          - west
+        description: Where the customer is.
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: The commercial segment of the customer.
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "61"
+    description: "How many subscriptions the month held, whatever state they ended it in.\n\nUnfiltered on purpose, and that is the definition rather than an oversight: this is the\ndenominator a churn share is taken against, and a base that counted only the survivors\nwould leave the terminated subscriptions in the numerator and out of the denominator at\nthe same time.\n\nIt is `active_subscriptions` with one predicate removed. The two carry separate anchors\nfor exactly that reason. If a later edit dropped the predicate from the other one, the\ntwo definitions would silently become the same definition, and the anchor is what says\nso."
+  subscriptions_churned:
+    name: subscriptions_churned
+    model: subscriptions
+    measure:
+      simple:
+        count_if: churned_in_month
+    required_filters: []
+    time_column: month
+    grains:
+      - month
+    dimensions:
+      product_family:
+        name: product_family
+        column: product_family
+        via: subscription_product
+        allowed_values:
+          - convergent
+          - fixed_internet
+          - mobile
+          - tv
+        description: The kind of product rather than the individual tariff.
+      region:
+        name: region
+        column: region
+        via: subscription_customer
+        allowed_values:
+          - central
+          - east
+          - north
+          - south
+          - west
+        description: Where the customer is.
+      segment:
+        name: segment
+        column: segment
+        via: subscription_customer
+        allowed_values:
+          - business
+          - consumer
+          - wholesale
+        description: The commercial segment of the customer.
+    anchor:
+      range:
+        start:
+          year: 2026
+          month: 6
+          day: 1
+        end:
+          year: 2026
+          month: 7
+          day: 1
+      value: "3"
+    description: "How many subscriptions terminated inside the month.\n\n`count_if` rather than a count of the column, and the difference is a wrong number that\nraises no error: `count(churned_in_month)` counts the rows where the column is not null,\nwhich is every row, so it would report the whole base as churn. How the condition is\nspelled differs between data systems, which is the problem of the generator and exactly\nthe kind of thing that should not be in a catalog document.\n\nNo status filter, because churn is an event inside the month rather than a state at the\nend of it. Narrowing on the surviving state would remove the rows being counted.\n\nThis is the numerator of a rate and not the rate itself, which is a decision about the\nbusiness rather than a limit of the vocabulary. A count of terminations is the figure\nsomebody reconciles against a churn report; the share is `churn_rate`, declared beside it\nover the same numerator and `subscription_base`'s denominator. Both are certified, and the\none that answers \"how many\" is not the one that answers \"what fraction\".\n\nIt used to be a limit of the vocabulary, and the note that said so is worth keeping as a\nrecord of what changed. `count_if` was a measure *shape*, a sibling of `ratio` rather than\na term inside one, so a rate over a conditional count had every ingredient present and\nnowhere to write it. The fix was to make the extensible axis the term instead of the shape:\n`simple` and `ratio` are the two shapes, `aggregate` and `count_if` are the two terms, and\neither term is usable in either half of either shape."
+  voice_minutes:
+    name: voice_minutes
+    model: daily_usage
+    measure:
+      simple:
+        aggregate: sum
+        column: voice_min
+    required_filters: []
+    time_column: usage_date
+    grains:
+      - day
+      - month
+    dimensions: {}
+    anchor: ~
+    description: "Outgoing voice minutes.\n\nHere so the plainest shape in the vocabulary appears in the example unadorned: one\naggregate over one column, no definitional filter, no join, no ratio. Most certified\nmetrics look like this, and a catalog whose every entry needed a paragraph of\njustification would be a catalog nobody trusted.\n\nSame grains as `data_per_subscription`, and the same reason for carrying no anchor: a sum\nof decimals is a float, so an anchor written as text would pin a formatting decision\nrather than a number."

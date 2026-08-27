@@ -222,6 +222,14 @@ fn cargo_bin() -> String {
 fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
     let status = std::process::Command::new(cargo)
         .current_dir(root)
+        // The cranelift backend is INHERITED from the dev shell, and it cannot build this tree:
+        // `utoipa-swagger-ui`'s build script unzips its vendored asset bundle, and the CRC32 in
+        // `zip` uses `llvm.x86.pclmulqdq.256`, which cranelift does not implement - so the build
+        // script aborts with SIGABRT and this gate fails on a crate whose docs are fine. Removing
+        // the two variables rather than setting a backend leaves the profile at its default, which
+        // is what every other non-dev-shell caller of cargo already gets.
+        .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
+        .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
         .args(["--", "-Z", "unstable-options", "--output-format", "json"])
         .status()

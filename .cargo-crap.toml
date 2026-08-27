@@ -1,0 +1,80 @@
+# The CRAP gate's policy. Read by `cargo crap`, validated by `cargo xtask check-crap`.
+#
+# CRAP (Change Risk Anti-Patterns) is cyclomatic complexity weighted by how well the tests
+# cover it:
+#
+#     CRAP(f) = CC(f)^2 * (1 - coverage(f))^3 + CC(f)
+#
+# so a branchy function with tests scores near its CC, and the same function with no tests
+# scores an order of magnitude higher. It is the one metric that will not let "it is complex
+# but it is fine" and "it is untested but it is trivial" cancel each other out.
+#
+# WHY THE FILE IS HERE AND NOT IN THE GATE'S SOURCE: `cargo crap` reads it directly, so a
+# developer running the tool by hand gets the same policy CI applies, with no flag to remember.
+# `cargo xtask check-crap` is what stops it from rotting - see the rules it enforces below.
+
+# The line. A function above this fails the gate.
+#
+# 30 is the metric's conventional threshold and the tool's default, and it is chosen rather than
+# inherited: at CC 30 no amount of coverage keeps a function under 30, so the number doubles as
+# "no function here may be that big whatever its tests say". Below it, the trade is explicit -
+# CC 6 needs roughly 30% coverage to pass, CC 10 needs about 55%.
+#
+# THIS NUMBER IS THE RATCHET. There is no downloaded baseline: the Nix build sandbox has no
+# network and no `.git`, so a gate that fetched a `main` baseline could not run as a check at
+# all, and a committed JSON baseline is a generated file that needs a coverage run to refresh -
+# one more thing to keep honest. A single reviewed integer is the ratchet instead. Lowering it
+# is a diff; raising it is a diff somebody has to defend in review.
+#
+# What that gives up, stated because it is real: this gate cannot say "worse than main". A
+# function that goes from CRAP 12 to CRAP 29 passes. It answers "is anything over the line",
+# not "did anything get worse".
+threshold = 30.0
+
+# Exit non-zero when something exceeds it. Without this the tool prints a table and returns 0,
+# which is a report rather than a gate.
+fail-above = true
+
+# A function with no coverage data at all scores as uncovered.
+#
+# `pessimistic` and not `skip`, deliberately: `skip` would make the gate quietest exactly where
+# instrumentation silently produced nothing, which is the failure mode that turns a gate into a
+# no-op. `cargo xtask crap` also refuses an empty report outright, so the two rules cover the
+# same hole from both sides.
+missing = "pessimistic"
+
+# Sibling test modules. `#[cfg(test)] mod tests;` in one file with the tests in another means
+# the tests live in a plain `.rs` file that the walker cannot tell from production code: the
+# `#[cfg(test)]` attribute sits on the `mod` line, not inside the file. Individual `#[test]`
+# functions are filtered by the tool; a non-`#[test]` helper beside them is not, and would be
+# scored as uncovered production code.
+#
+# `exclude` APPENDS to the built-in `tests/**`, `benches/**`, `examples/**`, which is what keeps
+# integration-test directories out. Do not restate those here: `default-excludes` replaces that
+# list and this key does not.
+exclude = [
+  "**/tests.rs",
+  "**/*_tests.rs",
+]
+
+# Functions and files exempt from the score.
+#
+# EVERY ENTRY NEEDS A COMMENT SAYING WHY, and that is a gate rather than a convention:
+# `cargo xtask check-crap` fails on an unannotated entry. The reason is the same one `deny.toml`
+# gives for its licence list - an allowlist whose entries carry no justification becomes
+# pre-approval for whatever somebody adds next, and nobody can tell later which entries were
+# reasoned about.
+#
+# What does NOT belong here: a function that scores badly because it is untested. The fix for
+# that is a test. An entry is for code whose complexity the metric reads wrongly - a generated
+# match arm table, a vendored port - not for code we have not got round to covering.
+#
+# EMPTY ON PURPOSE. The current tree has one function over the line (`Grain::as_str`, model.rs)
+# and it is not listed here: it is uncovered by its own crate's tests, which is the finding, not
+# an exemption.
+allow = []
+
+# `(file, function, line)` ordering rather than by score, so the report of a small change is a
+# small diff. Nothing consumes it as data today; it costs nothing and makes two runs comparable
+# by eye.
+sort = "file"

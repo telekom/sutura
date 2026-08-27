@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(dateTrunc('month', "orders"."order_date") AS DATE) AS "period", avg("orders"."amount_cents") AS "average_order" FROM "orders" WHERE "orders"."order_date" >= ? AND "orders"."order_date" < ? GROUP BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) ORDER BY CAST(dateTrunc('month', "orders"."order_date") AS DATE) LIMIT 10001

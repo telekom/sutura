@@ -46,15 +46,34 @@ const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
         needle: "--all-targets -- -D warnings",
         instead: "--all-targets --all-features -- -D warnings",
-        why: "adapters are feature-gated and default-off, so without --all-features clippy \
-              inspects almost nothing and still reports success",
+        why: "no crate here declares a feature today, so this is a no-op - and that is the \
+              point: the flag is in every entry point already, so the day an adapter goes \
+              behind one, coverage does not silently drop to nothing",
         only: &[],
         except: &[".agents/skills/engineering/rust/SKILL.md"],
     },
     Forbidden {
+        needle: "cargo fmt --all",
+        instead: "cargo run -q -p xtask -- fmt (add --check to verify)",
+        why: "`--all` formats every package cargo metadata reports, INCLUDING the path \
+              dependencies `[workspace] exclude` keeps out of the member list - so it wanted to \
+              rewrite the VENDORED mimalloc source, which is the one thing vendoring must not \
+              do. xtask derives the member list instead. The justfile and the commit hook were \
+              fixed for this and two devenv scripts were missed for weeks, which is why it is a \
+              gate now rather than three comments",
+        only: &[],
+        // TWO exemptions, and deliberately not three. Both of these quote the form in order to
+        // forbid it, so a detector with no exemption here would report its own reasoning - the
+        // failure mode this repo deleted a whole gate over. `devenv.nix` is NOT exempt: it is the
+        // file that actually carried the bug, so its comment is worded to avoid the literal
+        // rather than exempted, and the gate therefore still guards it. Rust source is out of
+        // scope for this whole module (see the filter in `run`), so `fmt.rs` needs no entry.
+        except: &["justfile", ".pre-commit-config.yaml"],
+    },
+    Forbidden {
         needle: "cargo nextest run --workspace\"",
         instead: "cargo nextest run --workspace --all-features",
-        why: "same reason as clippy: the default feature set is nearly empty",
+        why: "same reason as clippy: a no-op today, in place so it stays correct later",
         only: &[],
         except: &[],
     },

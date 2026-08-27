@@ -32,6 +32,16 @@ let
   };
   toolchains = import ./nix/toolchains.nix { inherit rustPkgs; };
 
+  # The data system the local Warehouse adapter links against, resolved by the SAME file
+  # flake.nix imports so the dev shell and CI cannot link two different libduckdbs.
+  duckdb = import ./nix/duckdb.nix { inherit pkgs; };
+
+  # The CRAP gate's two tools, resolved by the SAME file flake.nix imports. For a tool whose
+  # output is a VERDICT this matters more than it does for a library: resolving cargo-crap
+  # independently here and there would mean the dev shell reporting a score CI does not, and the
+  # disagreement would look like flakiness rather than like two pins.
+  crap = import ./nix/crap.nix { inherit pkgs; };
+
   # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
   # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
   rustToolchain = toolchains.nightly;
@@ -70,6 +80,12 @@ in
   # where the snippet is then a no-op - which is exactly right for CI.
   env.SUTURA_STABLE_BIN = stableBin;
 
+  # Build-time and run-time paths to libduckdb, from nix/duckdb.nix. Spelled out there, once,
+  # including why the run-time one is separate and what breaks without it.
+  env.DUCKDB_LIB_DIR = duckdb.env.DUCKDB_LIB_DIR;
+  env.DUCKDB_INCLUDE_DIR = duckdb.env.DUCKDB_INCLUDE_DIR;
+  env.LD_LIBRARY_PATH = duckdb.env.LD_LIBRARY_PATH;
+
   env.CARGO_UNSTABLE_CODEGEN_BACKEND = "true";
   env.CARGO_PROFILE_DEV_CODEGEN_BACKEND = "cranelift";
 
@@ -80,6 +96,21 @@ in
     # in devco/rust-toolchain-nightly.toml, cranelift among them. First in the list so it wins any
     # PATH collision - the gates override it back to stable per-command.
     rustToolchain
+
+    # The data system the local Warehouse adapter links against, and its CLI, which is handy for
+    # looking at a fixture by hand. Listed here rather than inside the `with pkgs` block below
+    # because `duckdb` is a let-binding in this file and reading it as `pkgs.duckdb` in one place
+    # and the binding in another is exactly the drift nix/duckdb.nix exists to remove.
+    duckdb.package
+
+    # The CRAP gate. Two tools because the metric needs two inputs and neither produces both:
+    # cargo-llvm-cov runs the tests under LLVM coverage and writes LCOV, cargo-crap reads that
+    # LCOV, computes complexity from the AST and scores. Listed here rather than inside the
+    # `with pkgs` block below because `crap` is a let-binding in this file, and reading one of
+    # them as `pkgs.cargo-llvm-cov` here and through the binding there is exactly the drift
+    # nix/crap.nix exists to remove.
+    crap.cargoCrap
+    crap.llvmCov
   ] ++ (with pkgs; [
     # Linking dominates the inner loop; .cargo/config.toml points at these.
     clang
@@ -132,7 +163,14 @@ in
       GITHUB_TOKEN="$(grep -m1 '^GITHUB_TOKEN=' .env 2>/dev/null | cut -d= -f2- || true)"
       export GITHUB_TOKEN
     fi
-    export GH_TOKEN="''${GITHUB_TOKEN:-}"
+    # Only when there IS one. An unconditional export set `GH_TOKEN=` on every shell without a
+    # token, and an EMPTY variable is not the same as an absent one: zizmor takes `--gh-token`
+    # from the environment and refuses an empty one outright ("GitHub token cannot be empty"), so
+    # the workflow-analysis hook failed on every machine without a token - a gate reporting a
+    # configuration problem as a finding about the workflows.
+    if [ -n "''${GITHUB_TOKEN:-}" ]; then
+      export GH_TOKEN="$GITHUB_TOKEN"
+    fi
 
     # gh-axi, installed on first entry. Two things that used to be wrong about this, both
     # fixed rather than the tool removed:
@@ -160,6 +198,11 @@ in
     echo "  clippy     $(cargo clippy --version 2>/dev/null || echo MISSING)"
     echo "  nextest    $(cargo nextest --version 2>/dev/null || echo MISSING)"
     echo "  cargo-deny $(cargo deny --version 2>/dev/null || echo MISSING)"
+    # The CRAP gate's two tools. Echoed for the same reason as the rest: a broken pin should
+    # take two seconds to diagnose, and for a tool whose output is a verdict the version is
+    # part of the answer, so seeing it is not a nicety.
+    echo "  llvm-cov   $(cargo llvm-cov --version 2>/dev/null || echo MISSING)"
+    echo "  cargo-crap $(cargo crap --version 2>/dev/null || echo MISSING)"
     echo "  pixi       $(pixi --version 2>/dev/null || echo MISSING)"
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
@@ -172,13 +215,20 @@ in
     # Formatting includes line endings: rustfmt does not normalise CRLF, and a carriage
     # return kept inside a Nix ''...'' string becomes part of a shell argument - which
     # produces errors naming a lint or flag that looks byte-identical to the correct one.
+    # THROUGH xtask, never the `--all` form. `--all` formats every package `cargo metadata`
+    # reports, INCLUDING the path dependencies `[workspace] exclude` keeps out of the member
+    # list - so it wanted to rewrite the VENDORED mimalloc source, which is the one thing
+    # vendoring must not do. xtask derives the member list instead and says so at length in
+    # xtask/src/fmt.rs. The justfile and the commit hook were fixed for this; these two scripts
+    # were missed, so `xtask fmt --check` passing did not prove `devenv shell gates` passed.
+    # `cargo xtask check-guidance` now fails on the `--all` form so neither can come back.
     fmt.exec = onStable ''
       set -e
-      cargo fmt --all
+      cargo run -q -p xtask -- fmt
       cargo run -q -p xtask -- text-hygiene --fix
     '';
-    # `--all-features` because the adapters are feature-gated and default-off: without it
-    # these commands lint and test almost nothing and still pass.
+    # `--all-features` is a no-op today, since no crate declares a feature. It stays so that
+    # coverage cannot silently drop the day an adapter goes behind one.
     lint.exec = onStable "cargo clippy --workspace --all-targets --all-features -- -D warnings";
     test.exec = onStable "cargo nextest run --workspace --all-features";
     boundaries.exec = onStable "cargo run -q -p xtask -- check-boundaries";
@@ -191,6 +241,14 @@ in
     secrets.exec = "betterleaks dir . --config devco/gitleaks.toml --redact --verbose";
     check-docs.exec = onStable "cargo run -q -p xtask -- check-docs";
     unused-deps.exec = onStable "cargo run -q -p xtask -- unused-deps";
+
+    # The CRAP gate. `onStable` because coverage instrumentation is LLVM-specific and the shell's
+    # bare cargo is a cranelift nightly where `-C instrument-coverage` does not exist - so this is
+    # not the channel-consistency argument the lints have, it is that the instrumentation is
+    # absent. The task hardens its own environment as well, since a gate whose failure mode is a
+    # silently empty report must not depend on a `source` line somebody could forget.
+    crap.exec = onStable "cargo run -q -p xtask -- crap";
+    check-crap.exec = onStable "cargo run -q -p xtask -- check-crap";
 
     # The site. `docs` renders to site/ (gitignored); `docs-serve` watches and reloads.
     #
@@ -258,7 +316,7 @@ in
     gates.exec = onStable ''
       set -e
       cargo run -q -p xtask -- hygiene
-      cargo fmt --all -- --check
+      cargo run -q -p xtask -- fmt --check
       cargo clippy --workspace --all-targets --all-features -- -D warnings
       cargo nextest run --workspace --all-features
       cargo test --doc --workspace --all-features

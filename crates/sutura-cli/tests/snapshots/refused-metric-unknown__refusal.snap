@@ -1,0 +1,6 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+MetricUnknown:
+  metric: customer_lifetime_value

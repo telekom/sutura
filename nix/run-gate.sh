@@ -21,6 +21,18 @@ set -eu
 
 gate="${1:?usage: run-gate.sh <gate>}"
 
+# Tier 1 runs the tool from PATH, which inside the dev shell means the nightly cranelift cargo.
+# That is not merely a different lint set here - it cannot BUILD this tree: a vendored asset
+# bundle's CRC32 uses an x86 intrinsic cranelift does not implement, so the build script aborts.
+# Sourcing this is what makes tier 1 and tier 2 the same check reached differently, which is the
+# claim the comment above makes. Outside the dev shell it is a no-op.
+# A literal path, not `$(dirname "$0")`: shellcheck cannot follow a path it has to evaluate, so
+# the computed form fails SC1091 and the directive above cannot save it. Every caller - the hooks
+# and the justfile alike - runs from the repository root, which is the same assumption the
+# `nix build` invocations below already make.
+# shellcheck source=nix/stable-env.sh
+. nix/stable-env.sh
+
 # `nix build .#checks.<system>.<name>` needs the system pair, and hardcoding one would break
 # on aarch64 macOS. Ask nix rather than guess.
 nix_check() {
@@ -65,7 +77,7 @@ supply-chain)
         exit "$status"
     elif command -v nix >/dev/null 2>&1; then
         echo "run-gate: cargo-deny absent, using nix (same pin as CI)"
-        exec nix run .#deny -- check
+        exec nix run .#deny
     else
         echo "run-gate: SKIPPED supply chain - no cargo-deny and no nix on this host."
         echo "          CI runs it on every push; this only delays the finding."
@@ -84,6 +96,48 @@ secrets)
     else
         echo "run-gate: SKIPPED the secret sweep - no betterleaks and no nix on this host."
         echo "          CI runs it on every push; this only delays the finding."
+    fi
+    ;;
+crap)
+    # The CRAP score. Both tools or nothing: `cargo xtask crap` fails rather than skips when one
+    # is missing, which is right for the gate and wrong for a hook, so the tiering happens here.
+    if cargo llvm-cov --version >/dev/null 2>&1 && cargo crap --version >/dev/null 2>&1; then
+        exec cargo run -q -p xtask -- crap
+    elif command -v nix >/dev/null 2>&1; then
+        echo "run-gate: cargo-crap or cargo-llvm-cov absent, using nix (same pin as CI)"
+        exec nix run .#crap
+    else
+        echo "run-gate: SKIPPED the CRAP score - no cargo-crap/cargo-llvm-cov and no nix here."
+        echo "          CI runs it on every push; this only delays the finding."
+    fi
+    ;;
+fmt-parity)
+    # PUSH-TIER ONLY, and it exists because of a deliberate split rather than an oversight.
+    #
+    # Local tasks build on the cranelift nightly, because that is what makes the inner loop fast
+    # and a second stable dependency build is the cost the split exists to avoid. But rustfmt's
+    # output can differ between channels - today it does not, verified byte-for-byte over this
+    # tree, so this is latent rather than live - and CI formats on stable. A latent divergence
+    # that only CI can see is the shape of the clippy incident this repo already had.
+    #
+    # Through the FLAKE CHECK rather than a local stable rustfmt, which is what makes it cheap:
+    # `checks.fmt` is crane's `cargoFmt` and compiles nothing, so with nix present this is the
+    # exact verdict CI reaches for the price of a cache lookup. No second toolchain is installed
+    # and no second target directory is filled.
+    if command -v nix >/dev/null 2>&1; then
+        system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+        # `--offline` is retried rather than passed always, matching `just ci`. This tree's
+        # substituter list includes a private cache, and an expired credential there answers
+        # 401 - which nix treats as a hard failure of the build, not of a lookup it could skip.
+        # A push blocked because a *cache* would not talk to us reports a formatting problem
+        # where there is none. Offline still reaches the same verdict from local store paths;
+        # only a genuinely uncached check degrades, and it degrades to a local build.
+        nix build ".#checks.${system}.fmt" -L \
+            || nix build ".#checks.${system}.fmt" -L --offline
+        exit "$?"
+    else
+        echo "run-gate: SKIPPED the stable-channel format check - no nix on this host."
+        echo "          Commit-stage formatting ran on whatever cargo is on PATH; CI runs stable."
     fi
     ;;
 *)

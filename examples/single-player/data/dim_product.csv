@@ -1,0 +1,9 @@
+product_key,product_name,product_family
+1,Mobile S,mobile
+2,Mobile M,mobile
+3,Mobile L Unlimited,mobile
+4,Internet Cable 300,fixed_internet
+5,Internet Fiber 1000,fixed_internet
+6,TV Entertainment,tv
+7,One Home S,convergent
+8,One Home L,convergent

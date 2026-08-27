@@ -1,0 +1,116 @@
+# The built-in defaults, compiled into the binary.
+#
+# EMBEDDED rather than shipped as a file, and that is the first decision in this file. A default
+# that lives on disk is a default that can be missing, and a service whose configuration file was
+# not mounted should not fall back to something nobody wrote down. So this is always the bottom
+# layer, every key has a value here, and a deployment's own file overrides what it wants to change
+# rather than restating the whole tree.
+#
+# The values are the SAFE posture, not the convenient one:
+#
+#   * `server.host` is loopback. This service has no per-caller identity, so its bind address is
+#     its whole perimeter, and reaching it from another host is an explicit decision made in two
+#     places (`security.tls_termination` and an access token) rather than a default.
+#   * `security.access_token` is absent, which is only permitted on loopback and outside
+#     production. Anything else refuses to start.
+#   * `security.tls_termination` is `none`, which says nothing encrypts the path. A bind other
+#     hosts can reach requires the operator to name the terminator instead - `sidecar`, `ingress`
+#     or `in-process` - so the cleartext hop the bearer token crosses is a stated fact rather than
+#     an assumption. A non-loopback bind is NOT refused: an ingress or a sidecar terminating in
+#     front of a plaintext pod-local listener is the normal arrangement.
+#   * `rate_limit.enabled` is NOT here, because it follows the environment: off in development and
+#     test, on in production - the same shape `telemetry.format` and `api.docs` have. A limiter that
+#     fires while somebody is iterating is a bug report about sutura that is really a bug report
+#     about the tier; production is the deployment an unbounded caller costs something. The
+#     convenience runs in one direction only: `rate_limit.enabled: false` in production is a refusal
+#     to start, not a default, and an explicit value in either direction is recorded as explicit so
+#     the startup log can say somebody chose it.
+#   * `rate_limit.client_address` is `peer` and `rate_limit.trusted_proxies` is empty. The peer
+#     address cannot be forged; a forwarded header can, so believing one requires naming the hop
+#     it may come from. Behind an ingress, `peer` is one bucket for every caller - see
+#     `docs/serving.md`.
+#
+# Overriding: a file layered on top of this (`<dir>/base.yaml`, then `<dir>/<environment>.yaml`),
+# then an environment variable per key - `SUTURA__SERVER__PORT`, `SUTURA__SECURITY__ACCESS_TOKEN`.
+# The environment is chosen by `SUTURA_ENVIRONMENT` alone and is deliberately not a key here.
+
+server:
+  # Loopback. See above: this is a security default, not a convenience one.
+  host: "127.0.0.1"
+  port: 8080
+  request_timeout_seconds: 30
+  # A modelled question is a few hundred bytes. 64 KiB is generous by three orders of magnitude and
+  # still refuses a body that exists to be large.
+  max_body_bytes: 65536
+
+security:
+  # One of: none, sidecar, ingress, in-process. See the note above - this is a declaration of where
+  # TLS is terminated, not a control that terminates it.
+  tls_termination: "none"
+
+rate_limit:
+  # `enabled` is deliberately absent - see the note above. It follows the environment, and writing
+  # `true` here would make a value nobody chose look exactly like one somebody did.
+  #
+  # The unauthenticated surface: liveness, and the generated interface description. Nothing there
+  # is worth polling, so the tier is tight.
+  probe_per_second: 2
+  probe_burst: 5
+  # The versioned API, where one caller legitimately asks several questions in a row.
+  api_per_second: 10
+  api_burst: 20
+  # `peer` or `forwarded`. `forwarded` refuses to start with an empty `trusted_proxies`, because a
+  # header nobody vouched for is a bucket the caller chooses.
+  client_address: "peer"
+  trusted_proxies: []
+
+telemetry:
+  service_name: "sutura"
+  # Overridden by `RUST_LOG` when that is set, which is the convention every Rust operator already
+  # knows. This is the fallback, not the ceiling.
+  filter: "info"
+
+catalog:
+  dir: "catalog"
+  data_dir: "data"
+  # A placeholder, and it is meant to be replaced by a commit id or a build number: what identifies
+  # a snapshot of a directory is not something the directory knows.
+  version: "unversioned"
+
+runtime:
+  # The resource that runs out is a blocking-pool thread holding a data system, not a socket, so
+  # this is deliberately a small number and not a connection-limit-shaped one.
+  max_concurrent_queries: 8
+  # Shorter than `server.request_timeout_seconds` on purpose: a caller who has waited this long for
+  # a slot is better served by a `503` they can retry than by a `408` much later saying the same
+  # thing less clearly.
+  admission_timeout_seconds: 5
+  # `engine_worker_threads` is deliberately absent, which means "as many threads as this machine can
+  # run", resolved to a number at load time so the startup log prints what is in effect. A container
+  # with a CPU quota should set it: `available_parallelism` reports what the kernel exposes, which on
+  # most runtimes is the host's core count rather than the cgroup's share.
+  # Chosen against the orchestrator's kill timer rather than as a round number: the usual window is
+  # thirty seconds, and this leaves room for the exit itself.
+  shutdown_grace_seconds: 15
+
+prompt:
+  # How a catalog author's own prose reaches an agent: `quoted` or `omitted`.
+  #
+  # `quoted` puts `> ` at the start of every line of it and names the trust boundary in the text
+  # above the block. That is a mitigation and not a claim of safety: a description is content
+  # somebody wrote into a catalog document, this repository's threat model treats catalog content as
+  # untrusted, and a per-line prefix stops prose from reaching column zero without doing anything
+  # about prose that persuades. `omitted` leaves it out for a deployment whose catalog authors are
+  # not the people who decide what its agents are told - and the prompt then SAYS the descriptions
+  # exist and were left out, because silence is what makes an agent infer a definition from a name.
+  #
+  # NOT environment-derived, unlike `telemetry.format` and `api.docs`. Whether a catalog's authors
+  # are trusted is a fact about who writes the catalog, not about whether this is a laptop.
+  catalog_prose: "quoted"
+  # `instructions_file` is deliberately absent, and absent means there is no operator section at all.
+  # A path here is layered ON TOP of the derived text as its last section; there is no key that
+  # replaces the derived part, because the derived part carries the refusal guidance and a key whose
+  # worst setting deletes that would be a key whose failure mode is invisible.
+  #
+  # An EMPTY string is an error rather than an absence: an empty path resolves to the working
+  # directory. Remove the key to mean "no operator text".

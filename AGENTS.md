@@ -28,73 +28,66 @@ case - it cannot catch a paraphrase. **The control is not writing it down here.*
 
 ## Layout
 
-The directory structure is the architecture: `sutura-domain` is the hexagon's interior, everything
-else is an adapter, and nothing depends on an adapter. It holds the domain types today; each port
-trait arrives with the adapter that implements it, because a trait with no implementor is a guess
-at a signature and `pub` hides it from `dead_code`.
+`sutura-domain` is the hexagon's interior. Everything else is an adapter, and nothing depends on an
+adapter. A port trait arrives with its first implementor.
 
 | Crate | Role |
 | --- | --- |
-| `sutura-domain` | Domain types; a port trait per adapter, as adapters land. No framework deps - no tokio, axum, rmcp, datafusion, arrow |
-| `sutura-semantic` | `Query` → plan → `GeneratedQuery` |
-| `sutura-app` | The service; generic over ports, holds no framework types |
-| `sutura-catalog-local` / `-datahub` | `SemanticCatalog` adapters (git YAML / catalog) |
-| `sutura-exec-clickhouse` / `-postgres` / `-duckdb` | `Warehouse` adapters. The near-term targets are ClickHouse and Postgres, with DuckDB for local and single-file work - see `docs/architecture.md`. `Warehouse` is the PORT's name and says nothing about what sits behind it |
-| `sutura-arrow` | `RecordBatch` → Arrow IPC / Flight SQL |
-| `sutura-mcp` / `sutura-http` | Transport only, no business logic |
+| `sutura-domain` | Domain types and port traits. Deps: `serde`, `serde_json`, `sha2`, `thiserror`. No framework - no tokio, axum, rmcp, datafusion, arrow |
+| `sutura-semantic` | `Query` → `QueryPlan`. Renders nothing and names no dialect; there is no SQL generator in its tree |
+| `sutura-sql` | `QueryPlan` → one statement in one dialect. The only crate that names `polyglot-sql` |
+| `sutura-app` | The service, generic over the ports. Holds the `Surface` driving port and `LocalService`, its one implementor |
+| `sutura-catalog-local` | `SemanticCatalog` over a directory of markdown documents with YAML frontmatter |
+| `sutura-exec-duckdb` | `Warehouse` over DuckDB as a data source: renders through `sutura-sql` and pushes down. A dev-dependency, not shipped |
+| `sutura-exec-datafusion` | THE engine. A plan becomes a logical plan over Arrow; no SQL is generated. Behind the `Warehouse` port today; belongs above it once federation lands |
+| `sutura-config` | The settings tree, the `Environment`, the startup refusals. No framework; reads paths, opens no socket |
+| `sutura-runtime` | Process-global concerns: tracing subscriber, panic hook, shutdown signal, banner |
+| `sutura-http` | Transport only. Versioned `v1` tree, liveness probe, generated interface description, rate limiting, bearer gate, optional TLS. **The token authenticates the deployment, not the caller** |
+| `sutura-serve` | Composition root for the HTTP surface. Synchronous down to one `block_on`: the engine holds its own runtime |
 | `sutura-cli` | The binary; composes adapters |
-| `xtask` | The repo gates: boundary check (dependency direction, and the typed surface of a library crate), file-length check, unused-dependency check, line-ending check. Schema dump and drift check arrive with the schemas |
+| `xtask` | The repo gates |
+| `-datahub`, `-postgres`, `-clickhouse`, `sutura-arrow`, `sutura-mcp` | Planned. None exists |
 
-Adapters are feature-gated and default-off, so `cargo nextest run -p sutura-domain` compiles no heavy
-dependency. Keep it that way: its test suite should run in well under a second.
+`cargo check -p sutura-domain --no-default-features` is the inner loop; keep it under a second.
 
+A data system's driver is a dev-dependency. `sutura-cli` links the engine only, which is what keeps
+the musl artifacts building - nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path
+from nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike.
 ## Commands
 
-`direnv` loads the devenv on `cd` - run `direnv allow` once per clone. Nix + devenv provisions the
-shell and owns the task names; pixi owns the hook runner and the maintenance interpreter, nothing
-that reports findings; `prek` runs the hooks.
-
-**Two toolchains, and the trap matters.** The dev shell's bare `cargo` is a pinned **nightly**
-(cranelift); every gate runs on the pinned **stable** that CI uses. So a bare `cargo clippy`
-reports lints stable has never heard of. **Do not conclude a branch is red from one** - run
-`just lint`. CONTRIBUTING.md has the mechanism.
-
-CI does **not** enter this shell: it runs `nix build .#checks.<system>.<name>`, so the pipeline
-needs `nix` and nothing more. The two cannot drift because they share an implementation rather than
-a shell - the `hygiene` check runs the same `xtask` binary as the `hygiene` script here. Add a gate
-in one place only and the omission shows up as a diff.
+`direnv allow` once per clone. Then:
 
 ```bash
+just validate       # THE gate. Run this before saying a change is done.
 just check          # fast inner loop, domain crate only
-just lint           # clippy, on stable
-just test           # tests, on stable
-just hygiene        # the cheap structural gates
-just gates          # everything CI runs
-just ship-check     # the finishing sequence
-just classify       # what does this change require?
-just check-changed <paths>
-just causality      # red-before-green proof
-just hooks          # every hook over every file
-just ci             # what CI runs, through nix, no devenv
+just test           # tests
+just lint           # clippy
+just fmt            # format
 just docs           # render the site
-just image          # the release image
-just build-all      # all four shipped binaries
+just api            # regenerate the committed API pages
+just classify       # what does this change require?
+just causality      # red-before-green proof
 just update         # bump every lock
+just doctor         # is this machine set up
 ```
 
-`just` with no argument lists the rest. A task is the only name worth citing: it is one place
-to change, and `cargo xtask check-guidance` fails on a citation of a task that does not exist.
+`just` with no argument lists the rest.
 
-- `--all-features` is not optional. Adapters are feature-gated and default-off, so a bare
-  `cargo clippy --workspace` inspects almost nothing and still reports success.
-- Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
-- The leak guard is **not** a hook in this repo. Its pattern list lives in a private repo - a file
-  here enumerating what we avoid naming would itself be the disclosure - so it runs from there.
-- nix is the **only** pin for any tool whose version changes what it reports - zizmor, actionlint,
-  shellcheck, clippy, nextest, cargo-deny. pixi holds only `prek` and `python`, which cannot change
-  a verdict. `cargo xtask check-pins` fails if a tool appears in both.
+**`just validate` is the only thing that counts as verified.** It runs the nix checks, which build
+a filtered copy of the tree - the only way to catch a file the build needs and the source filter
+drops. Every other command reads the real tree and cannot see that class of bug.
+
+Rules:
+
+- Cite a `just` task, never a raw command line. `cargo xtask check-guidance` fails on a citation of
+  a task that does not exist, and on a cited `cargo` line missing `--all-features`.
+- Never conclude a branch is red from a bare `cargo clippy`. The dev shell's cargo is nightly for
+  the cranelift backend and reports lints stable has not got; the gates run stable.
+- nix is the only pin for a tool whose version changes what it reports. pixi holds only `prek` and
+  `python`. `cargo xtask check-pins` fails if a tool appears in both.
 - If tooling is missing, report the exact install command and ask before installing it.
-
+- Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
+- The leak guard is not a hook here. Its pattern list lives in a private repo and runs from there.
 ## Canonical Sources And Generated Output
 
 One owner per artefact. Nothing here is hand-edited: each is regenerated from its source, and the
@@ -102,9 +95,9 @@ regeneration is checked rather than trusted.
 
 | Artefact | Owner | Rule |
 | --- | --- | --- |
-| Metric definitions, their statements and anchors | the upstream semantic layer that renders them (dbt / MetricFlow) - **not this repo** | They arrive as a pinned, hashed snapshot: `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. Editing a pinned statement here forks the definition from the number it certifies |
-| MCP tool JSON schemas · the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both, so they cannot disagree: a `dump-schemas` task (not yet written) will produce them and CI will byte-compare. **Not yet built** - the `schemars` dependency was removed by the unused-deps gate because nothing references it yet, and returns with the tool surface. Declaring a dependency to satisfy a document is what that gate exists to stop |
-| The executed SQL | `sutura-semantic`, which generates only the wrapper - projection, `GROUP BY`, a bounded date predicate, parameterized values, identifier quoting | The pinned statement is spliced in as a derived table **without being parsed**. SQL goldens are regenerated and reviewed as a diff, never typed |
+| Metric definitions and anchors | the catalog | Arrive as `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. `docs/adr/0001` is the decision |
+| MCP tool schemas, the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both. Not built; `schemars` returns with the tool surface |
+| The executed SQL | `sutura-sql` | Goldens per dialect, regenerated and reviewed as a diff, never typed. The plan's serialized form is pinned too. `differential.rs` runs one plan both ways and compares rows |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
 | Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Exists ONLY so the cranelift backend is available locally. Never read by CI. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
@@ -118,28 +111,40 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 
 | Invariant | Enforced by |
 | --- | --- |
-| No SQL, table name, filter expression or row-id list on the tool surface | `Query` carries no such field, so an uncertified question is unrepresentable rather than merely refused. Any widening lands as a diff in the dumped schemas |
-| Refusal is a result, not an error | `ToolOutcome::Refusal { reason: RefusalReason }` is the public surface, and a test provokes every variant |
-| A catalog edit cannot change what executes | Definitions are pinned and hashed at build time; arguments validate against the **pinned** allowlist, and `SemanticCatalog::load` takes no request context, so it cannot reach the hot path |
-| An unvalidated bundle is never served | The service accepts only `Validated<PinnedDefinitions>` - anything else does not compile. The anchor test re-runs each pinned statement in CI and at startup, and failure fails readiness |
-| We never re-parse SQL we did not generate | Byte-for-byte passthrough, asserted by the SQL goldens. *Gap: no lint yet bans a transpile call on the query path - review catches it until one exists* |
-| Every query runs as the calling principal | `CredentialBroker::credential_for(&RequestContext, ..)` mints per request; a leg that cannot run as the subject returns `RefusalReason::SourceIdentityUnavailable` instead of downgrading. The nightly two-identity test asserts two users get different rows |
-| A plan cannot silently span two sources | `PlanSources` asserted `len() == 1` by the governance-invariant tests |
-| No result cache | Under row-level security a query-keyed cache is a cross-user leak. *No mechanism can prove an absence: adding any cache of rows is an architecture decision, keyed on subject first or not at all* |
-| No panic path reachable from input | `unwrap_used` / `expect_used` / `panic` / `indexing_slicing` denied for library crates in `clippy.toml`, exempt in tests; `panic = "abort"` on shipped profiles |
-| A credential cannot be logged by accident | Credential-shaped types are newtypes with a hand-written `Debug`, plus a unit test asserting the secret is absent from `{:?}` |
-| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` on one does not compile. A derived comparison is byte-wise and returns on the first difference, which is a timing oracle at whatever call site adds it - and the call site is where it would be invisible. A real comparison arrives with a constant-time implementation and a name that says so |
-| The domain acquires no framework dependency | The dependency-boundary half of the boundary check in `xtask`, run by `gates` and in CI. An **allowlist** over the whole transitive tree, so a framework reached through an innocuous crate fails it too |
-| A newtype's invariant cannot be walked around | The field is private and the constructor is the only way in, so a violating value is unrepresentable rather than merely rejected. The typed-surface half of the boundary check fails a `pub` field on a `pub struct` in a library crate. `serde` is routed through the constructor with `#[serde(try_from = ..)]`, because a derived `Deserialize` writes past it - *Gap: that routing is not itself checked; review catches it until a gate does* |
-| A library crate's errors are typed, not prose | The typed-surface half of the boundary check fails a `Result<.., String>` or a declared dynamic-error crate (`anyhow`, `eyre`) in any crate with a `[lib]` target. Binaries are deliberately exempt: there the error's audience is a human reading stderr. *Gap: it is line-scoped, so a signature wrapped across lines escapes it* |
-| No file exceeds 1000 lines | `cargo xtask max-lines`, in the hooks and in CI. Generated and vendored output is exemptable in `devco/max-lines-ignore`; anything under `crates/` or `xtask/` is not - the gate fails on such a pattern rather than honouring it, so the only way past it is to split the file |
-| No dependency is declared and unused | `cargo xtask unused-deps`, in the hooks and in CI. A crate must reference every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by somebody - an entry nothing inherits pins nothing |
-| No first-party `unsafe` | `unsafe_code = "forbid"` in the workspace lint table. `forbid` and not `deny`, so a crate cannot re-allow it locally; lifting it is a visible diff to this table |
-| Dead code does not accumulate, and cannot hide behind `pub` | `dead_code`, `unused_must_use` and `unreachable_pub` are `deny` rather than the default `warn`, so a plain `cargo build` fails on them. `unreachable_pub` is what stops an unused item from being kept alive by a `pub` that reaches nowhere |
-| A suppression cannot outlive its cause | `clippy::allow_attributes` is on, so a bare `#[allow]` is a lint error: `#[expect(.., reason = "..")]` is required and fails once the underlying warning stops firing |
-| No interpreter in the query path | Python is build-time tooling only; the image from `nix build .#oci` holds one binary, so a query-path dependency could not ship |
-| A result cannot be separated from what defined it | Provenance rides in the Arrow schema metadata, and both wire envelopes share one encoder |
-| Every call is attributable, refusals included | `AuditSink` records the whole principal chain before the outcome is returned |
+| No SQL, table name, filter expression or row-id list on the tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it |
+| Refusal is a result, not an error | `ToolOutcome::Refusal`; a golden provokes every variant a question can reach |
+| A question's time range is bounded, and bounded to a size | `TimeRange` has no unbounded form; `resolve` refuses a span over `MAX_RANGE_DAYS` (3653) as `TimeRangeTooLong`. Goldens stand one day either side |
+| A catalog edit cannot change what executes | Definitions arrive as `PinnedDefinitions` with a digest over their canonical form; the digest travels with the answer |
+| A result cannot be separated from what defined it | `PinnedDefinitions::pin` computes the digest from the definitions it stores - no digest parameter, no hasher parameter. `ToolOutcome::Answer` carries `Provenance` with no constructor that omits it |
+| An unvalidated bundle is never served | `sutura_app::verify_and_validate` is the only constructor of `Validated`, lives in a private module, and takes the `Warehouse`. Two `compile_fail` doctests, each with a compiling twin |
+| We never re-parse SQL we did not generate | Nothing calls `transpile`; `clippy.toml` `disallowed-methods` bans it and the feature is not compiled |
+| No value from a question reaches the statement as text | Every value becomes a bind parameter; `GeneratedQuery` keeps statement and parameters in separate fields with no merging constructor. A golden asserts no question literal appears in its statement |
+| No identifier reaches the statement unquoted | Forced quoting for identifiers and aliases; a golden asserts it over the corpus with quoted spans stripped first |
+| Every generated statement is well formed SQL, and parses under its target dialect | The golden suite parses each statement with the dialect it was generated for. **Narrower than "the data system accepts it":** the dialect layer's parser is not gated per dialect for every construct. Acceptance is vouched for by the anchors and by `differential.rs`, which runs a real DuckDB. Postgres and ClickHouse are rendered and parse-checked, nothing more |
+| Adding a metadata provider or a data system is a registration, not a test edit | The golden corpus, the refusal corpus and the anchor check are a matrix over `tests/adapters`. One registry entry adds a catalog or a data system |
+| The measure vocabulary is closed, and holds no SQL expression | `Measure` is two shapes over a `Term` of two terms, `RequiredFilter` four operators, `deny_unknown_fields` at every depth. A new shape is a domain variant plus a plan variant plus a generator arm plus a golden |
+| A definitional filter is always applied | `required_filters` compile into every plan for the metric, marked `PredicateOrigin::Definition`. A caller has no field that could name or remove one |
+| A join cannot silently change a measure | `Definitions::assemble` refuses a dimension reached through a relationship whose *declared* cardinality may duplicate rows, and a reconciliation test checks grouped rows against the ungrouped total. **Catalog cardinality is a trusted precondition:** nothing checks the declaration against the data, and an anchor cannot see it because an anchor is asked with no dimensions |
+| A result that hit the row cap is refused, not truncated | `row_limit()` is `max_rows + 1`, so a result at the cap is distinguishable from one cut off by it; `answer()` returns `ResultTooLarge`. Both legs pinned: 39 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch on its logical plan |
+| Two result columns cannot share a label | `Definitions::assemble` refuses a dimension named after the time bucket or after its own metric |
+| A catalog document's fields are exactly what it declares | `deny_unknown_fields` on every on-disk shape |
+| A plan cannot silently span two sources | The plan stage collects sources into a `BTreeSet` and refuses `PlanSpansTwoSources` unless exactly one is in it |
+| No result cache | There is none to key. Adding any cache of rows is an architecture decision, keyed on subject first or not at all |
+| No panic path reachable from input | `unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, integer overflow lints denied; `panic = "abort"` |
+| A credential cannot be logged by accident | `Secret`'s hand-written `Debug` and `Display` redact; a test asserts it at depth inside a nested struct |
+| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` does not compile. A real comparison arrives constant-time and named |
+| The domain acquires no framework dependency | `cargo xtask check-boundaries` walks the whole transitive tree against `ALLOWED_IN_DOMAIN` |
+| The SQL generator is not in the compiler's closure | `FORBIDDEN_EDGES` forbids `sutura-semantic → polyglot-sql` **and** `sutura-semantic → sutura-sql`; the second is what stops the first returning transitively |
+| A driving port is not owned by one of its callers | `Surface`, `SurfaceFailure` and `LocalService` live in `sutura-app`. Not gated: `check-boundaries` reads dependency direction, not which crate declares a trait |
+| A newtype's invariant cannot be walked around | `check-boundaries` fails a `pub` field on a `pub struct` in a library crate. It reads one declaration at a time and cannot see a second public path to the same value |
+| A library crate's errors are typed, not prose | `check-boundaries` fails `Result<_, String>` and a dynamic-error crate in a library. Binaries are exempt |
+| No file exceeds 1000 lines | `cargo xtask max-lines`. `devco/max-lines-ignore` cannot exempt anything under `crates/` or `xtask/` |
+| Complexity in the invariant core is covered by tests | `cargo xtask check-crap`, threshold 30, scope `sutura-domain`. Per-crate coverage sees only that crate's own tests, which is why the scope is the crate whose suite is its own |
+| No dependency is declared and unused | `cargo xtask unused-deps` |
+| No first-party `unsafe` | `unsafe_code = "forbid"`, so a crate cannot re-allow it locally |
+| Dead code does not accumulate, and cannot hide behind `pub` | `dead_code = "deny"` plus the unreachable-`pub` lint |
+| A suppression cannot outlive its cause | `#[expect]` over `#[allow]`: an expectation that stops firing is itself a warning, and `-D warnings` makes it an error |
+| No interpreter in the query path | No scripting engine is a dependency, and `check-boundaries` keeps the domain's tree to its allowlist |
 
 ## Changing The Query Path Or The Tool Surface
 
@@ -151,7 +156,7 @@ whether it feels safe - it is which mechanism would fail if it were not.
 | A new or widened tool input | No field carries SQL, a table, a predicate or row ids | The dumped tool schemas change and the byte-compare fails until they are re-dumped, which puts the new surface in the diff |
 | A new failure mode | It is a `RefusalReason` variant inside `ToolOutcome`, not an `Err` | The missing per-variant test, then the schema drift check |
 | Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads `PinnedDefinitions`, not the scoped view |
-| A second execution leg | Every leg runs as the same subject, or the plan is refused rather than downgraded | `PlanSources.len() == 1` today; the nightly two-identity test once federation exists |
+| A second execution leg | Every leg runs as the same subject, or the plan is refused rather than downgraded | The plan stage's one-source set, which refuses `PlanSpansTwoSources` today. Beyond that, nothing: a test that asserts two subjects get different rows does not exist and cannot, until a credential exists per leg. Adding a second leg without it is an architecture decision, not a feature |
 | A change to a definition or its anchor | It was authored upstream, not here | The digest moves and the anchor test re-executes the statement |
 | Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
 

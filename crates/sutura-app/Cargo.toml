@@ -1,0 +1,43 @@
+[package]
+name = "sutura-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The service: generic over the ports, holding no framework types."
+
+[dependencies]
+sutura-domain = { workspace = true }
+sutura-semantic = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+# The golden suite lives here because this is the lowest crate that can see both ports at once, so
+# it is the one place a corpus can be run against a real adapter and a fake without either of them
+# depending on the other.
+sutura-catalog-local = { workspace = true }
+# A DATA SOURCE, not an engine, and a development dependency rather than a shipped one: it is here
+# to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
+# adapter today. The binary links the engine and nothing else.
+sutura-exec-duckdb = { workspace = true }
+# THE engine, and what the golden suite executes with. Also the far side of the differential test:
+# one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
+# statement that is valid SQL with different semantics is the bug class that catches.
+sutura-exec-datafusion = { workspace = true }
+insta = { workspace = true }
+# Rendering, and a DEV dependency here rather than a shipped one, which is the whole point of the
+# split. This crate compiles a question into a plan and hands the plan to a port; the SQL goldens
+# are a test asking for a rendering. Nothing in `src/` names it, so a build that only ever executes
+# plans on the engine does not link a SQL generator.
+sutura-sql = { workspace = true }
+serde_norway = { workspace = true }
+# Parse-only, and test-only: it proves the generated statement is valid in each target dialect
+# without needing one of each data system in CI. It never re-emits, so it cannot introduce the
+# parser-differential problem that makes translation unusable on the query path.
+polyglot-sql = { workspace = true }
+
+[lints]
+workspace = true

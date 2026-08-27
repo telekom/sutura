@@ -1,0 +1,71 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: orders_placed
+table: orders
+joins:
+  - relationship: orders_customer
+    table: customers
+    join_type: many_to_one
+    origin:
+      table: orders
+      column: customer_id
+    target:
+      table: customers
+      column: id
+bucket:
+  label: period
+  grain: month
+  column:
+    table: orders
+    column: order_date
+keys:
+  - label: region
+    column:
+      table: customers
+      column: region_code
+measure:
+  simple:
+    term:
+      aggregate:
+        aggregate: count
+        column:
+          table: orders
+          column: order_id
+measure_label: orders_placed
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: orders
+          column: order_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: orders
+          column: order_date
+        param: 1
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 1
+  - Date:
+      year: 2026
+      month: 7
+      day: 1
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 7
+    day: 1
+max_rows: 10000

@@ -63,7 +63,7 @@ jobs:
   verify:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     permissions:
       contents: read
     concurrency:
@@ -74,6 +74,10 @@ jobs:
         with:
           persist-credentials: false
 
+      # Before nix installs: /nix/store is what fills. See
+      # `.github/actions/reclaim-disk` for why this is local and why it cannot
+      # affect the Nix cache.
+      - uses: ./.github/actions/reclaim-disk
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
           # The flag that makes nix honour settings from flake.nix itself is deliberately
@@ -119,7 +123,7 @@ jobs:
   publish:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     # Deploy the site to gh-pages, and nothing else. Not `pages`, not `id-token` - those existed
     # only for actions/deploy-pages, which this no longer uses.
     permissions:

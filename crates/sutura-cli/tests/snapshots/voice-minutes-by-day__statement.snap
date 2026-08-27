@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: rendered(&query)
+---
+SELECT CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) AS "period", SUM("fct_usage_daily"."voice_min") AS "voice_minutes" FROM "fct_usage_daily" WHERE "fct_usage_daily"."usage_date" >= ? AND "fct_usage_daily"."usage_date" < ? GROUP BY CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) ORDER BY CAST(DATE_TRUNC('day', "fct_usage_daily"."usage_date") AS DATE) LIMIT 10001
+-- $1 = 2026-06-01
+-- $2 = 2026-06-05

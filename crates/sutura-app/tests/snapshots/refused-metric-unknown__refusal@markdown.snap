@@ -1,0 +1,6 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: reason
+---
+MetricUnknown:
+  metric: customer_lifetime_value

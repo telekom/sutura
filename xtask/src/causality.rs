@@ -190,17 +190,32 @@ fn changed_with_additions(base: &str) -> Option<Vec<ChangedFile>> {
     Some(files)
 }
 
-/// Run cargo in `dir`, returning whether it succeeded plus its combined output.
-/// Run the test suite in `dir` with nextest.
+/// Run the test suite in `dir` with nextest, building into `target`.
 ///
 /// nextest, not `cargo test`, because this gate compares two runs and every other test
 /// invocation in the repo uses nextest: measuring "green on head" with a different runner than
 /// CI trusts would make the comparison meaningless. It also gives per-test process isolation,
 /// so one panicking test cannot take others down and skew the comparison.
-fn cargo_test(dir: &Path) -> (bool, String) {
+///
+/// ONE TARGET DIRECTORY FOR BOTH RUNS, and that is what keeps this gate affordable. The base
+/// run happens in a worktree, so by default it gets its own `target/` and compiles the whole
+/// dependency closure a second time - `DataFusion`, Arrow and the rest, none of which the base
+/// commit changed. On a 14 GB runner the second copy is what exhausted the disk. Sharing the
+/// directory leaves the dependencies built once and rebuilds only our own crates, which is
+/// exactly the difference between the two trees.
+///
+/// Safe to share because both runs use the same toolchain and the same profile. Alternating
+/// COMPILERS in one directory invalidates every artifact in it; alternating our own sources
+/// does not, because cargo fingerprints them and the dependency graph below them is identical.
+///
+/// `--cargo-profile` and not `--profile`: nextest reserves `--profile` for its own profiles,
+/// and passing `ci` there would select a nextest profile that does not exist rather than a
+/// cargo one that does.
+fn cargo_test(dir: &Path, target: &Path) -> (bool, String) {
     let out = Command::new("cargo")
         .current_dir(dir)
-        .args(["nextest", "run", "--workspace", "--all-features"])
+        .env("CARGO_TARGET_DIR", target)
+        .args(["nextest", "run", "--workspace", "--all-features", "--cargo-profile", "ci"])
         .output();
     match out {
         Ok(o) => {
@@ -372,7 +387,10 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> V
     }
 
     // HEAD must be green, or "red on base" means nothing.
-    let (head_ok, head_out) = cargo_test(root);
+    // One directory for both runs. Beside the worktree under `target/`, so a `cargo clean`
+    // or a fresh checkout takes it with everything else rather than leaving it behind.
+    let shared_target = root.join("target").join("causality-target");
+    let (head_ok, head_out) = cargo_test(root, &shared_target);
     if !head_ok {
         eprintln!("xtask test-causality: FAILED - the tests are not green on HEAD");
         eprintln!("{}", tail(&head_out, 30));
@@ -387,13 +405,13 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> V
         return Verdict::Fail;
     }
 
-    let verdict = reconstruct_and_run(&wt, base, &restore, &remove);
+    let verdict = reconstruct_and_run(&wt, base, &restore, &remove, &shared_target);
     remove_worktree(root, &wt);
     verdict
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.
-fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String]) -> Verdict {
+fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String], target: &Path) -> Verdict {
     let mut checkout = Command::new("git");
     strip_git_env_for(&mut checkout);
     checkout.current_dir(wt).args(["checkout", base, "--"]);
@@ -421,7 +439,7 @@ fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&St
         }
     }
 
-    let (base_ok, base_out) = cargo_test(wt);
+    let (base_ok, base_out) = cargo_test(wt, target);
     match classify_base(&base_out, base_ok) {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");

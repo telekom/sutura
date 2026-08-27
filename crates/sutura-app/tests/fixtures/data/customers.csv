@@ -1,0 +1,5 @@
+id,region_code,segment
+1,north,retail
+2,south,retail
+3,north,business
+4,west,business

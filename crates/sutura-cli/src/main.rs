@@ -1,10 +1,11 @@
 //! The sutura binary.
 //!
-//! M0 deliberately ships almost nothing: its purpose is to prove the machinery - that the
-//! toolchain resolves, the workspace compiles, the gates run, and a release image builds
-//! and runs. Behaviour arrives with the milestone that needs it.
-
-use sutura_domain::identity::Secret;
+//! The composition root, and nothing else. Every command lives in [`commands`], which is the one
+//! place an adapter is named; this file holds the allocator, the command table and `doctor`.
+//!
+//! `Result<_, String>` is used freely below the surface here. The boundary gate exempts a binary
+//! on purpose: the audience for these errors is a person reading stderr, not code matching on a
+//! variant.
 
 // mimalloc as the global allocator, on Linux only.
 //
@@ -60,17 +61,97 @@ const ALLOCATOR_NAME: &str = if cfg!(target_os = "linux") {
     "system"
 };
 
-fn main() {
-    let mut args = std::env::args().skip(1);
-    match args.next().as_deref() {
-        Some("--version" | "-V") => println!("sutura {}", env!("CARGO_PKG_VERSION")),
-        Some("doctor") => doctor(),
-        Some(other) => {
-            eprintln!("sutura: unknown argument `{other}`");
-            eprintln!("usage: sutura [--version | doctor]");
-            std::process::exit(2);
+mod commands;
+
+use std::process::ExitCode;
+
+use sutura_domain::identity::Secret;
+
+/// A command: the name, the `--help` line, and the code it runs.
+///
+/// The handler is IN the table, which is the same shape `xtask/src/main.rs` and `dev/src/main.rs`
+/// use and for the same reason: dispatch and `--help` are derived from one list, so they cannot
+/// describe different sets of commands. A unit test asserts the names are unique and described.
+/// What a command does. Named rather than written inline: the complexity threshold in
+/// `clippy.toml` catches a bare `fn(&[String]) -> ExitCode` in a struct field, and a name says what
+/// it is.
+type Action = fn(&[String]) -> ExitCode;
+
+struct Cmd {
+    name: &'static str,
+    description: &'static str,
+    run: Action,
+}
+
+const COMMANDS: &[Cmd] = &[
+    Cmd {
+        name: "doctor",
+        description: "what this binary was built with",
+        run: |_args| {
+            doctor();
+            ExitCode::SUCCESS
+        },
+    },
+    Cmd {
+        name: "catalog",
+        description: "<catalog-dir> - the metrics this catalog defines, with its digest",
+        run: commands::catalog,
+    },
+    Cmd {
+        name: "describe",
+        description: "<catalog-dir> <metric> - one metric in full, prose included",
+        run: commands::describe,
+    },
+    Cmd {
+        name: "prompt",
+        description: "<catalog-dir> [config-dir] - the system prompt to give an agent",
+        run: commands::prompt,
+    },
+    Cmd {
+        name: "compile",
+        description: "<catalog-dir> <question.yaml> [dialect] - the statement, no data system",
+        run: commands::compile,
+    },
+    Cmd {
+        name: "query",
+        description: "<catalog-dir> <question.yaml> <data-dir> - check the anchors, then answer",
+        run: commands::query,
+    },
+];
+
+fn main() -> ExitCode {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let rest = args.split_first().map(|(_, rest)| rest).unwrap_or_default();
+
+    match args.first().map(String::as_str) {
+        Some("--version" | "-V") => {
+            println!("sutura {}", env!("CARGO_PKG_VERSION"));
+            ExitCode::SUCCESS
         }
-        None => println!("usage: sutura [--version | doctor]"),
+        Some("--help" | "-h" | "help") => {
+            usage();
+            ExitCode::SUCCESS
+        }
+        None => {
+            usage();
+            ExitCode::from(2)
+        }
+        Some(requested) => COMMANDS.iter().find(|c| c.name == requested).map_or_else(
+            || {
+                eprintln!("sutura: unknown command `{requested}`");
+                usage();
+                ExitCode::from(2)
+            },
+            |cmd| (cmd.run)(rest),
+        ),
+    }
+}
+
+fn usage() {
+    eprintln!("usage: sutura <command> [args]");
+    eprintln!("       sutura --version");
+    for cmd in COMMANDS {
+        eprintln!("  {:<9} {}", cmd.name, cmd.description);
     }
 }
 
@@ -84,7 +165,36 @@ fn doctor() {
     );
     println!("  target       : {}", std::env::consts::ARCH);
     println!("  allocator    : {ALLOCATOR_NAME}");
+    println!("  engine       : datafusion (arrow, in process)");
+    println!("  data systems : none - this build reads files, and pushes down to nothing");
     // Proves the redaction invariant holds in the shipped binary, not only under test.
     let probe = Secret::new("must-not-appear");
     println!("  redaction    : {probe:?}");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::COMMANDS;
+
+    #[test]
+    fn command_names_are_unique_and_described() {
+        // The table is the only source for both dispatch and `--help`, so this is what stops a
+        // command from being listed twice or listed with no explanation of what it wants.
+        let mut names: Vec<&str> = COMMANDS.iter().map(|c| c.name).collect();
+        let count = names.len();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), count, "two commands share a name");
+        for cmd in COMMANDS {
+            assert!(!cmd.description.is_empty(), "{} has no help line", cmd.name);
+        }
+    }
+
+    #[test]
+    fn query_is_listed_whether_or_not_its_adapter_is_compiled() {
+        // Both builds are real: the cross artifacts ship without a data-system adapter. A command
+        // that vanished from `--help` in one of them would read as a packaging mistake, so the
+        // absent case is a command that explains itself instead.
+        assert!(COMMANDS.iter().any(|c| c.name == "query"));
+    }
 }

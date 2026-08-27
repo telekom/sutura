@@ -1,0 +1,28 @@
+[package]
+name = "sutura-exec-datafusion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter that executes a plan in process with DataFusion, generating no SQL."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# NOT `sutura-semantic`, and that absence is the whole crate. The sibling DuckDB adapter depends on
+# the compiler for its last stage because it speaks SQL; this one executes the plan directly, so
+# there is no dialect to render for, no identifier to quote and no placeholder to position.
+datafusion = { workspace = true }
+# One runtime, built once and kept beside the session context. See the struct.
+#
+# `rt-multi-thread` ADDS to the base `rt` the workspace entry asks for, and it is the whole of what
+# lets `with_worker_threads` exist: `Builder::new_multi_thread` is not in the build without it. The
+# narrowing the workspace comment describes is otherwise intact - no `enable_all`, so still no timer
+# and no I/O driver, neither of which a plan over a local file needs.
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

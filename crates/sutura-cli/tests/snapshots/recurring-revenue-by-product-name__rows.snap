@@ -1,0 +1,28 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - Internet Cable 300
+  - 2026-06-01
+  - "37992"
+- - Internet Fiber 1000
+  - 2026-06-01
+  - "42491"
+- - Mobile L Unlimited
+  - 2026-06-01
+  - "39928"
+- - Mobile M
+  - 2026-06-01
+  - "12120"
+- - Mobile S
+  - 2026-06-01
+  - "12996"
+- - One Home L
+  - 2026-06-01
+  - "15415"
+- - One Home S
+  - 2026-06-01
+  - "28873"
+- - TV Entertainment
+  - 2026-06-01
+  - "7307"

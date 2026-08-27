@@ -1,0 +1,5 @@
+metric: voice_minutes
+grain: day
+range:
+  start: 2026-06-01
+  end: 2026-06-05

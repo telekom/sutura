@@ -1,0 +1,19 @@
+[package]
+name = "sutura-catalog-local"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A SemanticCatalog adapter over a directory of markdown documents with YAML frontmatter."
+
+[dependencies]
+sutura-domain = { workspace = true }
+serde = { workspace = true }
+serde_norway = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

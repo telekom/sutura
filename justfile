@@ -78,11 +78,14 @@ fmt:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    cargo fmt --all
+    # `xtask fmt` and NOT `cargo fmt --all`. `--all` reaches path dependencies that are not
+    # workspace members, which means it rewrites the vendored allocator - the one thing vendoring
+    # must never do. xtask/src/fmt.rs derives the member list and explains it at length.
+    cargo run -q -p xtask -- fmt
     cargo run -q -p xtask -- text-hygiene --fix
 
-# `--all-features` is not optional here: adapters are default-off, so without it clippy
-# inspects almost nothing and still reports success.
+# `--all-features` is a no-op today - no crate declares a feature - and stays on every entry point
+# so that coverage cannot silently drop the day an adapter goes behind one.
 
 # Lint everything.
 lint:
@@ -107,14 +110,35 @@ test:
 check-changed +paths:
     cargo run -q -p xtask -- check-changed {{ paths }}
 
-# What CI runs, through nix, without entering the dev shell. The one command that needs no
-# devenv - useful for reproducing a red pipeline locally.
+# THE gate. Run this before saying a change is done; nothing else counts as verified.
+#
+# It is `ci` plus the two app-backed checks, and it is deliberately the nix path rather than the
+# dev shell. The difference is not speed: a nix check builds a FILTERED copy of the tree, so it
+# is the only thing that catches a file the build needs and the filter drops. `gates` reads the
+# real tree and cannot see that class of bug at all - `include_str!("defaults.yaml")` passed
+# every dev-shell check and failed CI.
+validate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just ci
+    just secrets
+    nix run .#deny
+    printf '\nvalidate: ok - the nix checks, the secret sweep and the supply chain\n'
+
+# What CI runs, through nix, without entering the dev shell. Prefer `just validate`, which adds
+# the two checks that need network and therefore cannot be nix checks.
+#
+# `--offline` is retried on failure rather than passed always: a substituter that cannot be
+# reached must not silently become a local rebuild of everything, but it must not stop the gate
+# either. A skipped check is the failure mode this repo cares about most.
 ci:
-    nix build .#checks.x86_64-linux.hygiene -L
-    nix build .#checks.x86_64-linux.fmt -L
-    nix build .#checks.x86_64-linux.clippy -L
-    nix build .#checks.x86_64-linux.nextest -L
-    nix build .#checks.x86_64-linux.doctest -L
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for check in hygiene fmt clippy nextest doctest crap; do
+        printf '\n=== %s ===\n' "$check"
+        nix build ".#checks.x86_64-linux.$check" -L \
+            || nix build ".#checks.x86_64-linux.$check" -L --offline
+    done
 
 # The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody
 # has measured yet.
@@ -141,15 +165,35 @@ gates: hygiene
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
-    cargo fmt --all -- --check
+    cargo run -q -p xtask -- fmt --check
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
     cargo deny check
+    bash nix/run-gate.sh crap
 
 # The finishing sequence, over the committed branch diff. Needs a clean tree.
 ship-check:
     devenv shell ship-check
+
+# Exactly what `nix build .#checks.x86_64-linux.crap` runs, reached the cheap way. Through
+# `nix/run-gate.sh` so it works on a host with neither the tools nor the dev shell: the tools
+# themselves, then `nix run .#crap` with the same pin CI uses, then a notice.
+#
+# `source nix/stable-env.sh` because coverage instrumentation is LLVM-specific and the dev
+# shell's bare cargo is a cranelift nightly, where `-C instrument-coverage` does not exist. This
+# one is not the channel-consistency argument the lints have - it is that the instrumentation is
+# absent. `cargo xtask crap` re-establishes it anyway rather than trusting this line.
+#
+# Scope, cost and the reason there is no downloaded baseline are all in docs/crap.md.
+
+# The CRAP score: complexity weighted by the tests that cover it. Scoped to sutura-domain.
+crap:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    bash nix/run-gate.sh crap
 
 # What a diff requires. `just classify origin/main`
 classify base="origin/main":
@@ -257,10 +301,29 @@ zizmor:
 zizmor-pedantic:
     nix run .#zizmor -- --persona pedantic .github/workflows
 
-# Lint the workflows and the shell scripts. Same list CI runs.
+# A GLOB, not a list. It was two files here and one in ci.yml, under a comment in that file
+# claiming "every shell script we ship... the glob is the list" - true of neither.
+# `nix/run-gate.sh` was in neither, and that file decides whether the tests, the secret sweep,
+# the supply-chain gate and the CRAP score run at all: a `set -eu` slip there turns four gates
+# into silent no-ops. The pre-commit `shellcheck` hook covers the same set from the staged side.
+
+# Lint the workflows and every shell script we ship.
 lint-ci:
+    #!/usr/bin/env bash
+    set -euo pipefail
     nix run .#actionlint
-    nix run .#shellcheck -- .claude/hooks/ponytail-session-start.sh nix/stable-env.sh
+    # `-x` follows `source` directives, which is how a sourced-only file gets judged too - and
+    # without it a script that sources another fails SC1091 even with a `# shellcheck source=`
+    # directive, which is what the flag exists to honour.
+    # `find`, not a `**` glob: this recipe runs under `sh` on some hosts, where globstar is off.
+    mapfile -t scripts < <(find . -name '*.sh' -not -path './.git/*' -not -path './target/*' \
+      -not -path './.devenv/*' -not -path './.direnv/*' -not -path './.pixi/*' \
+      -not -path './site/*' -not -path './vendor/*' | sort)
+    printf 'shellcheck: %d script(s)\n' "${#scripts[@]}"
+    # An empty list would pass by checking nothing, which is the failure mode a glob-driven
+    # check is most prone to.
+    test "${#scripts[@]}" -gt 0
+    nix run .#shellcheck -- -x "${scripts[@]}"
 
 # Refresh every imported skill and rewrite the lock.
 skills-refresh:

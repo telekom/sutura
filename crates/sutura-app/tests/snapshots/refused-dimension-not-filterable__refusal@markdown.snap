@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: reason
+---
+DimensionNotFilterable:
+  metric: revenue
+  dimension: segment

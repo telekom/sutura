@@ -77,9 +77,42 @@
           # workspace at all, and crane's filter is written for first-party Rust and drops
           # both them and the C. Without this the build fails in `cargo check` with
           # "failed to read vendor/mimalloc_rust/Cargo.toml".
+          #
+          # Keep `crates/*/tests/**` WHOLESALE, and this one is the trap. crane keeps Cargo
+          # inputs, which means `.rs`, `Cargo.toml` and `Cargo.lock` - so the golden suite's
+          # fixtures (markdown catalog documents, CSV data, question files) and its committed
+          # `.snap` snapshots are all dropped. The suite then COMPILES and finds no fixtures,
+          # which is a green check over nothing. `just test` in the dev shell reads the real
+          # tree and would not notice, so `just ci` is the only thing that catches it.
+          #
+          # THE RULE, because this filter has now bitten three times and each clause below is one
+          # of them: **any directory a build or a test READS has to be named here.** crane keeps
+          # Cargo inputs only, so everything else is absent from the sandbox while being present
+          # in the dev shell - which makes this the one bug class local gates cannot see. The
+          # three: the golden fixtures under `crates/*/tests`, `defaults.yaml` under
+          # `crates/*/src`, and `examples/` read by `sutura-cli`'s example test. Adding a data
+          # directory means adding a clause, and `just validate` is what proves it.
+          #
+          # Keep non-Rust files under `crates/*/src/**` for the same reason, one layer in, and
+          # this one bit for real: `sutura-config` holds its defaults as `defaults.yaml` beside
+          # the code and reads them with `include_str!`. crane dropped the file, so CI failed
+          # with `couldn't read crates/sutura-config/src/defaults.yaml` while every local build
+          # passed - `include_str!` resolves against the real tree in the dev shell and against
+          # the FILTERED copy in a nix build. A data file next to the code that reads it is a
+          # normal thing to write, so the filter has to expect it rather than the author having
+          # to remember this. `.rs` still goes through crane's own filter below.
           filter = path: type:
             (builtins.match ".*rust-toolchain\.toml$" path != null)
             || (builtins.match ".*/vendor(/.*)?$" path != null)
+            || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
+            || (builtins.match ".*/crates/[^/]+/src(/.*)?$" path != null)
+            || (builtins.match ".*/examples(/.*)?$" path != null)
+            # `xtask` is a repo-inspection tool, so its tests read repo files by design. Named
+            # file by file rather than by directory: `docs/` holds the generated API pages and
+            # churns, and matching all of it would put every prose edit in the Rust build's
+            # derivation hash - a rebuild of the closure for a typo.
+            || (builtins.match ".*/nix(/.*)?$" path != null)
+            || (builtins.match ".*/docs/crap\.md$" path != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -119,17 +152,60 @@
         # shape as `repo::root()` returning the wrong directory.
         apiDocsWriter = pkgs.writeShellApplication {
           name = "sutura-api-docs";
-          runtimeInputs = [ pkgs.python3 ];
+          # clang and lld because `.cargo/config.toml` selects them as the linker, and this app runs
+          # outside the dev shell that would otherwise have them. Without them every build script
+          # in the tree fails with "linker `clang` not found", which reads like a broken toolchain.
+          runtimeInputs = [ pkgs.python3 pkgs.clang pkgs.lld duckdb.package ];
           text = ''
             if [ ! -f flake.nix ] || [ ! -f Cargo.toml ]; then
               echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
               exit 1
             fi
             export PATH="${(import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly}/bin:$PATH"
-            # One library crate today. A second one is two more lines here and in the gate.
-            cargo rustdoc -q -p sutura-domain --all-features -- \
-              -Z unstable-options --output-format json
-            exec python3 docs/.tools/rustdoc_to_markdown.py target/doc/sutura_domain.json
+            # The cranelift backend is INHERITED when this app is run from inside the dev shell,
+            # and it cannot build this tree: `utoipa-swagger-ui`'s build script unzips its vendored
+            # asset bundle, and the CRC32 in `zip` uses `llvm.x86.pclmulqdq.256`, which cranelift
+            # does not implement - so the build script aborts with SIGABRT and the whole run dies
+            # after writing six of nine pages. Nothing here needs a fast codegen backend: this app
+            # emits rustdoc JSON and runs a Python renderer over it.
+            unset CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
+            # `--all-features` reaches the adapters, and one of them links libduckdb. This app runs
+            # OUTSIDE the dev shell - that is the point of it - so the three variables have to be
+            # here too, from the same nix/duckdb.nix the shell and the checks read.
+            export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
+            export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
+            export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}"
+
+            # DERIVED, not listed. `checks.api-docs` reads the library crates out of `cargo
+            # metadata`, so a hardcoded list here is a list that goes stale silently: the gate would
+            # ask for a page this writer never generates, and the fix it names would not produce it.
+            # This is the same query, so the two cannot disagree.
+            libs=$(cargo metadata --format-version 1 --no-deps | python3 -c '
+            import json, sys
+            meta = json.load(sys.stdin)
+            names = sorted(
+                p["name"]
+                for p in meta["packages"]
+                if any("lib" in t["kind"] for t in p["targets"])
+            )
+            print(" ".join(names))
+            ')
+            if [ -z "$libs" ]; then
+              echo "no library crates found: cargo metadata returned none" >&2
+              exit 1
+            fi
+            for lib in $libs; do
+              echo "api-docs: $lib"
+              cargo rustdoc -q -p "$lib" --all-features -- \
+                -Z unstable-options --output-format json
+              # rustdoc names its JSON after the crate's Rust identifier, so a package with a
+              # hyphen becomes a file with an underscore.
+              # The target directory variable, and not a literal `target/`: a developer who redirects the target
+              # directory - onto a faster volume, say - would otherwise get a "no such file" from
+              # the generator rather than the pages they asked for.
+              json="''${CARGO_TARGET_DIR:-target}/doc/$(printf '%s' "$lib" | tr - _).json"
+              python3 docs/.tools/rustdoc_to_markdown.py "$json"
+            done
           '';
         };
 
@@ -140,6 +216,44 @@
 
         # Native build: what `nix build` and `nix flake check` use.
         craneLib = craneLibFor system;
+
+        # The data system the local Warehouse adapter links against, resolved by the SAME file
+        # devenv.nix imports so the dev shell and CI cannot link two different libduckdbs. It also
+        # explains why the crate is built without its `bundled` feature, and why the run-time path
+        # is a third variable rather than an afterthought.
+        duckdb = import ./nix/duckdb.nix { inherit pkgs; };
+
+        # What cargo needs to LINK this workspace, outside a build sandbox, as shell lines.
+        #
+        # The checks do not need this: crane puts `duckdb.package` in `buildInputs` and the nix
+        # builder sets the linker search path from it. An app is a plain shell script outside
+        # any build sandbox, so it inherits nothing and has to say so itself.
+        #
+        # Two separate omissions, found one after the other, both in `apps.causality`:
+        #
+        #   - It exported only `PATH`, and `--all-features` pulls `sutura-exec-duckdb`, which
+        #     links `-lduckdb`: `ld.lld: error: unable to find library -lduckdb`. Only visible
+        #     after a disk fix let the gate run far enough to reach the linker, which is why a
+        #     pre-existing gap looked like a new regression.
+        #   - `.cargo/config.toml` sets `linker = "clang"` with `-fuse-ld=lld` and neither was on
+        #     PATH. The dev shell's `runtimeInputs` comment says precisely what that looks like -
+        #     "every build script fails with linker `clang` not found" - and the apps never got
+        #     the same treatment. It PASSED in CI and failed locally, which is the wrong way
+        #     round: `ubuntu-latest` ships clang, so the gate was depending on ambient tooling
+        #     in the one place this flake exists to make ambient tooling irrelevant.
+        #
+        # One binding, so the next app that shells out to cargo cannot omit half of it.
+        cargoLinkEnv = ''
+          export PATH="${pkgs.clang}/bin:${pkgs.lld}/bin:$PATH"
+          export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
+          export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
+          export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+        '';
+
+        # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
+        # CI cannot score with two different versions. See nix/crap.nix for which one comes from
+        # nixpkgs, which is a hash-pinned prebuilt, and why.
+        crap = import ./nix/crap.nix { inherit pkgs; };
 
         commonArgs = {
           inherit src;
@@ -154,7 +268,15 @@
           # sandbox has neither unless we say so, and a flake that linked differently from
           # the dev shell would reintroduce exactly the drift this flake exists to remove.
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
-        };
+          # `buildInputs` and not `nativeBuildInputs`: this is a library the built artifact links
+          # against, not a tool that runs during the build, and `strictDeps = true` above makes the
+          # distinction load-bearing rather than stylistic.
+          #
+          # Only the NATIVE args carry it. The cross builds below deliberately do not: nixpkgs has
+          # no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature so
+          # the musl artifacts never ask for one.
+          buildInputs = [ duckdb.package ];
+        } // duckdb.env;
 
         # The two profiles we ship.
         #
@@ -165,10 +287,31 @@
         releaseArgs = commonArgs // { CARGO_PROFILE = "release"; };
 
         # Dependencies, compiled ONCE and reused by the build and by every check. This is
-        # the reason to use crane rather than a plain buildRustPackage: a naive layout
-        # recompiles the dependency tree for clippy, for the tests and for the build, and
-        # on this dependency set that is most of the wall clock.
-        cargoArtifacts = craneLib.buildDepsOnly releaseArgs;
+        # ONE dependency closure for everything CI does except ship a binary, at opt-level 0.
+        #
+        # Measured, on the run that first got there: `nextest` spent 57 minutes compiling to run
+        # **1.567 seconds** of tests, because every test binary links DataFusion, Arrow and
+        # DuckDB. At this profile the same check builds and runs in 1 min 5 s. Our own crates are
+        # small; the minutes were all dependencies, which is exactly what opt-level 0 on the
+        # closure addresses.
+        #
+        # Named in BOTH places, and that is half the fix. `clippy`, `nextest`, `doctest` and
+        # `crap` were built from `commonArgs`, which sets no `CARGO_PROFILE`, while the artifacts
+        # they inherited were built as `release`. Cargo stores artifacts per profile and the two
+        # derivations are provably different - `pkb4gj15` against `v7whyzp6f` - so a check could
+        # not reuse deps built under the other profile. `nix eval` now shows one drv hash across
+        # every consumer.
+        #
+        # There is deliberately no second, smaller closure. An `xtask`-only one was tried: it
+        # made `checks.hygiene` standalone-cheap but gave CI two dependency builds and two cache
+        # entries for one dependency set, which is the opposite of what a shared cache is for.
+        # At opt-level 0 the full closure is cheap enough that scoping it buys less than the
+        # duplication costs.
+        #
+        # `release` stays for the shipped binary and the cross artifacts - the only place an
+        # optimised build is worth paying for.
+        ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
+        ciArtifacts = craneLib.buildDepsOnly ciArgs;
 
         # A native build for one profile. For `release` the deps derivation is identical to
         # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
@@ -466,10 +609,15 @@
           sutura-performance = nativeFor "release-performance";
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
-          # nothing but `nix` on the runner. It reuses `cargoArtifacts`, so exposing it
-          # costs no extra dependency build.
-          xtask = craneLib.buildPackage (releaseArgs // {
-            inherit cargoArtifacts;
+          # nothing but `nix` on the runner.
+          #
+          # `ciArtifacts`: this binary is what CI runs as `nix run .#xtask -- classify`, and
+          # `classify` is the FIRST step, so on a cold cache whatever it waits for is on the
+          # critical path before the pipeline can decide what to run. That step was 23.9 minutes
+          # on the push that added the engine. At opt-level 0 it is a fraction of that, and it is
+          # the same closure every gate uses rather than a second one.
+          xtask = craneLib.buildPackage (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             pname = "xtask";
             cargoExtraArgs = "--package xtask";
             doCheck = false;
@@ -508,14 +656,32 @@
           # adapters are feature-gated and default-off, so the default feature set is
           # nearly empty. Without it, clippy and the tests would cover none of them and
           # would still report success.
-          clippy = craneLib.cargoClippy (commonArgs // {
-            inherit cargoArtifacts;
+          clippy = craneLib.cargoClippy (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
-          nextest = craneLib.cargoNextest (commonArgs // {
-            inherit cargoArtifacts;
+          nextest = craneLib.cargoNextest (ciArgs // {
+            cargoArtifacts = ciArtifacts;
+            # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
+            # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
+            # BY DESIGN - `nix/crap.nix` against `docs/crap.md`, `devco/max-lines-ignore`, the
+            # workflows. The golden suites read fixtures and `examples/`. Every one of those is
+            # invisible under crane's filter, so each new one was a green local run and a red
+            # CI step: three found that way already, and the fourth was found here.
+            #
+            # It costs nothing where the cost would matter. `ciArtifacts` above still builds
+            # from the FILTERED source, and that is the expensive derivation - the dependency
+            # closure. This only widens what the cheap half sees: our own crates, and the tests.
+            # `checks.hygiene` has been doing exactly this since it was written, for the same
+            # reason, and the filter clauses stay because clippy and the release build read them.
+            src = ./.;
             cargoNextestExtraArgs = "--workspace --all-features";
+            # `insta` writes a `.snap.new` beside a snapshot that did not match and then fails. In
+            # a sandbox that file goes nowhere anybody will read, so this turns the failure into a
+            # diff in the log and nothing else. It is also the setting that makes a MISSING
+            # snapshot a failure rather than something quietly created and passed.
+            INSTA_UPDATE = "no";
           });
 
           # The image is supposed to hold one executable and no toolchain. It held three and
@@ -559,11 +725,11 @@
 
           # nextest deliberately does not run doctests. Zero exist today, so this is cheap
           # now and stays honest as `///` examples appear.
-          doctest = craneLib.mkCargoDerivation (releaseArgs // {
-            inherit cargoArtifacts;
+          doctest = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             pnameSuffix = "-doctest";
             doCheck = false;
-            buildPhaseCargoCommand = "cargo test --doc --workspace --all-features";
+            buildPhaseCargoCommand = "cargo test --doc --workspace --all-features --profile \"$CARGO_PROFILE\"";
           });
 
           fmt = craneLib.cargoFmt {
@@ -581,15 +747,27 @@
           # There is no `.git` in the sandbox, which is why `repo::all_files()` falls back
           # to walking the tree instead of failing.
           #
-          # `--release` reuses `cargoArtifacts` rather than compiling xtask's dependency
-          # set a second time under the dev profile.
-          hygiene = craneLib.mkCargoDerivation (commonArgs // {
-            inherit cargoArtifacts;
+          # THE PROFILE IS NAMED IN THE COMMAND, and it has to be. `CARGO_PROFILE` in `ciArgs`
+          # is a crane convention: crane's own helpers (`cargoClippy`, `cargoNextest`,
+          # `buildPackage`) read it and append `--profile`. A hand-written
+          # `buildPhaseCargoCommand` is run verbatim, so there the variable is inert and cargo
+          # falls back to its default - a different profile, a different `target/` subdirectory,
+          # and `cargoArtifacts` that cannot be reused however correctly they were declared.
+          #
+          # That is not hypothetical. `doctest` had no `--profile` and compiled into
+          # `target/debug` while its artifacts sat in `target/ci`, so it rebuilt DataFusion from
+          # scratch inside its own derivation and died on `No space left on device` after
+          # exhausting the runner's 14 GB. `crap` said `--release` against `ci` artifacts and
+          # paid the same tax more quietly. The derivation graph showed one shared closure the
+          # whole time - `nix eval` agreed - because sharing an input is not the same as
+          # compiling into it.
+          hygiene = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
             src = ./.;
             pnameSuffix = "-hygiene";
             doCheck = false;
             buildPhaseCargoCommand = ''
-              cargo run --release -q -p xtask -- hygiene
+              cargo run -q --profile "$CARGO_PROFILE" -p xtask -- hygiene
             '';
           });
 
@@ -636,6 +814,47 @@
               '';
             });
 
+          # The CRAP gate: cyclomatic complexity weighted by the tests that cover it.
+          #
+          # A CHECK and not an app, which is the opposite of `deny` below, and the difference is
+          # the network. cargo-deny fetches the RustSec database; this needs nothing but the
+          # vendored dependency set, a compiler and two tools already in the store. So it can be
+          # sandboxed, and being sandboxed is what makes it reproducible.
+          #
+          # THE SHARED `cargoArtifacts`, and the reasoning is the opposite of what it looks like.
+          # The coverage build cannot reuse them at all: `-C instrument-coverage` changes the
+          # rustc invocation, so every dependency it needs is compiled fresh whatever is passed.
+          # What the shared attribute buys is that no SECOND dependency derivation is created -
+          # `api-docs` needs one because it is on a different channel, and it costs a full extra
+          # workspace build. Here the artifacts are only what makes `cargo run -p xtask` cheap,
+          # and they are already built for clippy and nextest.
+          #
+          # The instrumented compile itself is the scope: `sutura-domain`, whose dependency set is
+          # serde and thiserror. 11 s cold, measured. `SCOPE` in xtask/src/crap.rs carries the
+          # cost of every wider option and docs/crap.md says why this one.
+          #
+          # `src = ./.` rather than the filtered source: the gate reads `.cargo-crap.toml` and
+          # `docs/crap.md`, and crane's filter keeps only Cargo inputs.
+          #
+          # `HOME` because cargo-llvm-cov writes there and a build sandbox has no home directory -
+          # without it the run fails on a path it cannot create.
+          crap = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
+            src = ./.;
+            pnameSuffix = "-crap";
+            doCheck = false;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [
+              crap.cargoCrap
+              crap.llvmCov
+              pkgs.cargo-nextest
+            ];
+            buildPhaseCargoCommand = ''
+              export HOME="$TMPDIR/home"
+              mkdir -p "$HOME"
+              cargo run -q --profile "$CARGO_PROFILE" -p xtask -- crap
+            '';
+          });
+
           # NOTE: cargo-deny is deliberately NOT a check here. It fetches the RustSec
           # advisory database, and a Nix build sandbox has no network - as a check it could
           # only ever fail, or pass while silently auditing nothing. CI runs it as
@@ -676,7 +895,29 @@
             # cargo-nextest as well: the gate shells out to `cargo nextest`, and without it
             # the run fails with "no such command" rather than a verdict.
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
-            exec cargo run --release -q -p xtask -- test-causality "$@"
+
+            ${cargoLinkEnv}
+            exec cargo run -q --profile ci -p xtask -- test-causality "$@"
+          '');
+        };
+
+        # `nix run .#crap` - the CRAP gate, outside the sandbox.
+        #
+        # `checks.crap` above is what CI runs and is the authority. This app exists for the
+        # host that has nix and no dev shell: `nix/run-gate.sh` falls back to it, so a commit
+        # hook on such a machine reaches the SAME pin rather than skipping.
+        #
+        # It supplies the pinned cargo as well as the two tools, for the reason `apps.deny`
+        # gives at length: `nix run` puts only the named program on PATH, and a tool that
+        # shells out to cargo would otherwise use whatever cargo the host happens to ship -
+        # a second, unpinned toolchain, which is the drift this file exists to remove.
+        apps.crap = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-crap" ''
+            export PATH="${rustToolchain}/bin:${crap.cargoCrap}/bin:${crap.llvmCov}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            exec cargo run -q --profile ci -p xtask -- crap "$@"
           '');
         };
 

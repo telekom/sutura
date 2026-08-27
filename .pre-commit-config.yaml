@@ -17,16 +17,32 @@ repos:
         # metadata reports, INCLUDING path dependencies that `[workspace] exclude` keeps out
         # of the member list. It wanted to rewrite the vendored mimalloc source, which is the
         # one thing vendoring must not do. xtask derives the package list instead.
-        entry: cargo run -q -p xtask -- fmt --check
+        entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- fmt --check'
         language: system
         files: \.rs$
         pass_filenames: false
 
       # `--all-features` is not optional here: the adapters are feature-gated and
       # default-off, so without it clippy inspects almost nothing and reports success.
+      #
+      # THROUGH `nix/stable-env.sh`, and this is the fix rather than the decoration. That file's own
+      # header says why: "Clippy's lint set differs between channels and this repo enables the whole
+      # `restriction` category with `-D warnings`. Nightly clippy knows lints stable does not, so
+      # gating on nightly means local failures CI cannot reproduce and local passes CI rejects." It
+      # then says it is sourced by the devenv gate scripts and the justfile recipes - and this hook
+      # was not one of them, so every commit inside the dev shell gated on NIGHTLY clippy while CI
+      # gated on stable.
+      #
+      # That is not theoretical. A nightly moved and brought `rest_pattern_accessible_field` and
+      # `assert_is_empty` with it, and the hook went red on files nobody had touched - including
+      # `xtask/src/text.rs`, which is what makes this pre-existing rather than a new rule. `-D
+      # warnings` turns each one into a wall in front of every commit in the repository.
+      #
+      # `bash -c` because `language: system` runs the entry as a command rather than through a
+      # shell, so there is nothing to source it otherwise.
       - id: rust-clippy
-        name: cargo clippy (-D warnings, all features)
-        entry: cargo clippy --workspace --all-targets --all-features -- -D warnings
+        name: cargo clippy (-D warnings, all features, on stable)
+        entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
@@ -36,7 +52,7 @@ repos:
       # tree walks. xtask owns which gates these are (`Kind::Hygiene`).
       - id: hygiene
         name: structural gates
-        entry: cargo run -q -p xtask -- hygiene
+        entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- hygiene'
         language: system
         pass_filenames: false
         always_run: true
@@ -47,10 +63,16 @@ repos:
       # no package widens to `--workspace` rather than checking less than was asked.
       - id: rust-check-changed
         name: cargo check (changed packages only)
-        entry: cargo run -q -p xtask -- check-changed
+        entry: bash -c 'source nix/stable-env.sh; exec cargo run -q -p xtask -- check-changed "$@"' --
         language: system
         files: \.rs$
         pass_filenames: true
+        # `pass_filenames: true` lets prek PARTITION the paths and run this hook once per
+        # partition, concurrently. Two simultaneous invocations on one target directory means two
+        # `cargo metadata` calls, two xtask builds, and one of them blocked on the build-directory
+        # lock for the duration - all of it to check the same workspace. Serial is strictly
+        # cheaper here, and one line.
+        require_serial: true
 
       # A commit is the claim that the change works, so the tests run BEFORE it, not on push.
       # They were on pre-push, which inverts that: the claim is already in history by the time
@@ -70,9 +92,33 @@ repos:
       # assumed to be covered above.
       - id: rust-doctests
         name: doctests
-        entry: cargo test --doc --workspace --all-features
+        entry: bash -c 'source nix/stable-env.sh; exec cargo test --doc --workspace --all-features'
         language: system
         pass_filenames: false
+
+      # The CRAP score: cyclomatic complexity weighted by the tests that cover it.
+      #
+      # SCOPED BY `files:` so it does not fire on unrelated edits. The regex is the scored crate
+      # plus everything that can change the verdict without touching it - the policy, the gate,
+      # the pin, and the manifests that decide what compiles. Editing the HTTP crate must not pay
+      # for a coverage build; editing `.cargo-crap.toml` must.
+      #
+      # COMMIT STAGE, not push, and that is affordable rather than brave: the scope is
+      # `sutura-domain`, whose whole instrumented build is 11 s cold and 4 s warm. Every wider
+      # scope was measured and is in docs/crap.md; `--workspace` is over six minutes and never
+      # reached a test.
+      #
+      # Through `nix/run-gate.sh`, which falls back to `nix run .#crap` and then to a notice. The
+      # gate itself FAILS when a tool is missing - a score is the whole point and a run that
+      # produced none has judged nothing - so the tiering belongs here, in the bypassable layer,
+      # and not in the gate.
+      - id: rust-crap
+        name: CRAP score (complexity weighted by coverage)
+        entry: bash nix/run-gate.sh crap
+        language: system
+        files: ^(crates/sutura-domain/.*\.rs|\.cargo-crap\.toml|xtask/src/crap\.rs|nix/(crap\.nix|run-gate\.sh|stable-env\.sh)|rust-toolchain\.toml|Cargo\.(toml|lock))$
+        pass_filenames: false
+        require_serial: true
 
       # --- on push: what only makes sense against the whole tree --------------
       # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
@@ -90,6 +136,49 @@ repos:
         language: system
         pass_filenames: false
         stages: [pre-push]
+
+      # Formatting, on the channel CI uses.
+      #
+      # THE SPLIT THIS EXISTS FOR: local tasks build on the cranelift nightly for speed, and CI
+      # is the authority and runs stable. That is deliberate, and for anything that CODEGENS it
+      # costs nothing but time. rustfmt is different - its OUTPUT can differ between channels, so
+      # the commit-stage `rust-fmt` hook above can be green on nightly while `checks.fmt` is red.
+      # Today the two agree byte-for-byte over this tree, so this is latent rather than live, and
+      # a latent divergence only CI can see is the exact shape of the clippy incident this repo
+      # already had.
+      #
+      # Push is the right tier for the same reason the whole-tree secret sweep is here: it is the
+      # last local chance to see what CI will see. And it is CHEAP - `run-gate.sh fmt-parity`
+      # builds the flake check, which compiles nothing, so with nix present this is a cache
+      # lookup rather than a second toolchain.
+      - id: fmt-parity
+        name: formatting on stable (as CI checks it)
+        entry: bash nix/run-gate.sh fmt-parity
+        language: system
+        files: \.rs$
+        pass_filenames: false
+        stages: [pre-push]
+
+      # Every shell script we ship, and the glob IS the list.
+      #
+      # It was two hand-written lists - two files named in the justfile, one in ci.yml - under a
+      # comment claiming to be exhaustive, which it was of neither. `nix/run-gate.sh` was in
+      # neither, and that file decides whether the tests, the secret sweep, the supply-chain gate
+      # and now the CRAP score run AT ALL: a `set -eu` slip there turns four gates into silent
+      # no-ops at once. A `files:` glob cannot drift the way a transcribed list does.
+      #
+      # Through nix, the only pin for shellcheck - its version decides what it reports, so
+      # `cargo xtask check-pins` fails if it reappears in pixi.toml. Skipped with a notice where
+      # nix is absent, like the other nix-backed hooks here.
+      - id: shellcheck
+        name: shell scripts
+        entry: >-
+          bash -c 'command -v nix >/dev/null 2>&1
+          && exec nix run .#shellcheck -- -x "$@"
+          || echo "shellcheck skipped - no nix on this host, CI enforces it"' --
+        language: system
+        files: \.sh$
+        pass_filenames: true
 
       # --- on commit-msg ------------------------------------------------------
       # `default_install_hook_types` above declares `commit-msg`, and AGENTS.md states the

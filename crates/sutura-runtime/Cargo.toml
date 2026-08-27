@@ -1,0 +1,30 @@
+[package]
+name = "sutura-runtime"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Process-lifecycle concerns for a sutura service: the log, the panic hook and the shutdown signal."
+
+[dependencies]
+sutura-config = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tracing-bunyan-formatter = { workspace = true }
+tracing-log = { workspace = true }
+tracing-subscriber = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"] }
+
+[dev-dependencies]
+# `test-util` and nothing else, for `#[tokio::test(start_paused = true)]`. The admission window and
+# the shutdown grace period are measured in seconds, and a test that waits them out in real time
+# adds those seconds to every run of the suite while proving less: a paused clock advances only when
+# nothing is ready, so the assertion is about the WINDOW rather than about a sleep being long
+# enough. Test-only on purpose - it is what makes `tokio`'s timer controllable, which is not
+# something a shipped binary should be able to do.
+tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "test-util", "time"] }
+
+[lints]
+workspace = true

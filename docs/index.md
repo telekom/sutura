@@ -1,12 +1,12 @@
 ---
 title: Introduction
-description: What sutura is, what it guarantees, and which page to read next.
+description: What sutura is, what it enforces today, what it does not yet, and which page to read next.
 ---
 
 # sutura
 
-sutura answers questions about data **as the person or agent asking**, using metric
-definitions somebody certified, and refuses when it cannot do either.
+sutura is being built to answer questions about data **as the person or agent asking**, using
+metric definitions somebody certified, and to refuse when it cannot do either.
 
 Give an agent a database connection and it answers with SQL it invented, run under whatever
 credential the service holds. Two failures, not one. The number is uncertified, so nobody can
@@ -14,18 +14,30 @@ say whether "revenue" means what finance means by it. And the rows are the ones 
 may read rather than the ones the *caller* may read, which is how a row-level security policy
 becomes decorative.
 
+!!! warning "What is built, and what is a design target"
+
+    sutura today is **a governed single-player semantic compiler and executor over local files.**
+    The half of the design that fixes the *second* failure above is not built: there is no request
+    context, no credential broker, no audit sink, no Arrow result envelope, and neither an MCP nor
+    an HTTP surface. Every claim on this site is marked *enforced today* or *design target* at the
+    point it is made, and the identity claims are all design targets.
+
 ## The four properties
 
-| Property | The mechanism it rests on |
-| --- | --- |
-| Every query runs as the caller | A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity |
-| A refusal is an answer | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works |
-| You cannot ask it to run SQL | The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused |
-| Definitions come from elsewhere | They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies |
+Three columns, deliberately. The middle one is the design; the last one says whether anything holds
+it in the code that is here now.
+
+| Property | The mechanism it rests on | Status |
+| --- | --- | --- |
+| Every query runs as the caller | A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity | **Design target, not built.** Neither a request context nor a credential broker exists, so no caller identity reaches the query path at all. In single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be |
+| A refusal is an answer | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works | **Enforced today.** `ToolOutcome::Refusal` is the public surface and the golden suite provokes every reachable variant. Recording a refusal against the principal chain is a *design target*: there is no audit sink |
+| You cannot ask it to run SQL | The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused | **Enforced today.** `Query` declares no such field, `deny_unknown_fields` turns an attempt into an error naming it, and a golden asserts no value a question carries reaches the statement as text |
+| Definitions come from elsewhere | They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies | **Enforced today.** The load path takes no request context, the bundle is hashed, and every declared anchor re-executes before the bundle may be served |
 
 Those mechanisms are the design. [Architecture](architecture.md) says how the four force the
 shape of the system and which parts are compiled today. `AGENTS.md` in the repository lists
-every invariant beside the type, lint or gate that enforces it.
+every invariant beside the type, lint or gate that enforces it - including the rows that say
+outright that nothing enforces them yet.
 
 ## What it borrows
 
@@ -37,8 +49,10 @@ Two Apache-2.0 projects got there first.
 - **[Spice](https://github.com/spiceai/spiceai)**, also DataFusion-based, federates and accelerates
   queries across sources.
 
-Between them they cover compiling a question and federating it. What sutura adds is identity: not
-only what a question means, but who is asking and whether they may see the answer.
+Between them they cover compiling a question and federating it. What sutura *means to* add is
+identity: not only what a question means, but who is asking and whether they may see the answer.
+That is the designed and unbuilt part, so what actually differs today is the narrow tool surface
+and the pinned bundle, not the identity.
 
 [Where the parts come from](architecture.md#where-the-parts-come-from) sets those two and
 [polyglot](https://github.com/tobilg/polyglot) on the line from a modelled question to executed SQL,
@@ -46,8 +60,25 @@ and says which parts we mean to build.
 
 ## Status
 
-The design is settled; the code is a walking skeleton. The environment, the release pipeline
-and the gates that hold the properties above exist. The query path does not.
+The query path is built, and the combination it supports is exactly one: **metadata from a catalogue of
+markdown documents with YAML frontmatter in git, and execution by the in-process engine over the CSV or
+Parquet files you point it at.** A question naming a metric, a grain, a bounded range and some
+dimensions compiles to a plan and executes, and every metric that declares a certified number
+reproduces it before the bundle can be served.
+
+The plan can also be *rendered* as SQL for `DuckDB`, Postgres or `ClickHouse`, and there is a `DuckDB`
+adapter that pushes a statement down - but that adapter is a **test dependency**, not the runtime data
+source, and the shipped binary links neither it nor any driver. Which adapter is used is a compile-time
+decision in the binary; there is no configuration that selects one.
+[What can be plugged in today](architecture.md#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
+is the table, and it is the section to read before assuming otherwise.
+
+What is not built is the part that makes the first sentence of this page true of a warehouse. There
+is no request context type, so no caller identity reaches the query path at all, and no credential
+broker, so "as the person or agent asking" holds here only because a file has nobody else to be.
+There is no audit sink either, so a refusal is a value the caller receives and is recorded nowhere.
+The MCP and HTTP surfaces, Arrow results and federation are also still ahead.
+[What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Where to start
 
@@ -57,6 +88,6 @@ and the gates that hold the properties above exist. The query path does not.
 | Ask the short questions first | [Questions and answers](qa.md) |
 | Understand the shape of the system | [Architecture](architecture.md) |
 | Read the Rust API | [API reference](api/index.md) |
-| Install it and ask a question | [Getting started](getting-started.md), once the query path exists |
+| Install it and ask a question | [Getting started](getting-started.md) |
 
 To work *on* sutura, start at [Contributing](contributing.md) under **Development**.

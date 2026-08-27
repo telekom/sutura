@@ -164,29 +164,59 @@ One owner per concern, because two owners for one version is one too many.
 Read this before you believe a red `cargo clippy`.
 
 The dev shell's bare `cargo` is the pinned **nightly** (`devco/rust-toolchain-nightly.toml`), because
-the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. Every
-gate instead sources `nix/stable-env.sh`, which puts the pinned **stable**
-(`rust-toolchain.toml`) in front and gives it its own target directory.
+the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. The
+pinned **stable** (`rust-toolchain.toml`) is what CI uses and what `nix/stable-env.sh` puts in
+front, with its own target directory.
 
-So a `just` task or a devenv script runs on stable, the same compiler CI uses, while typing
-`cargo` yourself runs on nightly. Clippy's lint set differs between channels and this repo
-gates on the whole clippy `restriction` category with `-D warnings`, so a bare `cargo clippy`
-reports lints stable has never heard of. **Do not conclude your branch is red from that** - run
-`just lint`. The separate target directory is not optional either: alternating compilers in one
-directory invalidates every artifact in it.
+**CI is the authority, and it is stable throughout.** Locally the split is by what the channel
+can change, and it is not uniform - so here is the actual state rather than a tidier claim:
+
+| Runs on stable | Runs on the shell's cargo (nightly + cranelift) |
+| --- | --- |
+| every `just` task and devenv script that sources `nix/stable-env.sh` | the `rust-fmt`, `rust-check-changed` and `rust-doctests` commit hooks |
+| the `rust-clippy` commit hook | typing `cargo` yourself |
+| the `rust-crap` hook, because coverage instrumentation is LLVM-only | |
+
+Anything that CODEGENS is faster on cranelift and its verdict does not depend on the channel, so
+local iteration stays there deliberately. Two things are different:
+
+- **clippy.** Its lint set differs between channels and this repo gates on the whole
+  `restriction` category with `-D warnings`, so a bare `cargo clippy` reports lints stable has
+  never heard of. **Do not conclude your branch is red from that** - run `just lint`. The commit
+  hook already forces stable for this reason.
+- **rustfmt.** Its *output* can differ between channels. Today the two agree byte-for-byte over
+  this tree, so the commit hook is left fast; the `fmt-parity` push hook builds `checks.fmt` -
+  the exact check CI runs, which compiles nothing - so the divergence is caught before the pull
+  request rather than by it.
+
+And one hard exception: **the coverage run for the CRAP gate must be stable.**
+`-C instrument-coverage` does not exist under cranelift, so this is not a consistency preference
+but an absence. `cargo xtask crap` re-establishes stable itself rather than trusting its caller.
+
+The separate target directory is not optional either: alternating compilers in one directory
+invalidates every artifact in it.
 
 ## The gates
 
 | Stage | What runs |
 | --- | --- |
-| commit | `cargo fmt --check`; clippy over the workspace, `--all-targets --all-features`, `-D warnings`; `hygiene`, the cheap structural gates in one hook; `cargo check` narrowed to the changed packages; a staged secret scan; workflow static analysis when a workflow changed |
+| commit | `cargo fmt --check`; clippy over the workspace, `--all-targets --all-features`, `-D warnings`; `hygiene`, the cheap structural gates in one hook; `cargo check` narrowed to the changed packages; `cargo nextest` and doctests; the **CRAP score** when the scored crate or its policy changed; a staged secret scan; workflow static analysis when a workflow changed |
 | commit-msg | the conventional-commit subject check |
-| push | `cargo nextest`, doctests, `cargo-deny`, and a secret scan over the whole tree rather than the staged diff |
+| push | a secret scan over the whole tree rather than the staged diff, `cargo-deny`, formatting on stable as CI checks it, and shellcheck over every `.sh` we ship |
 | CI | the same gates, plus test causality, the cross-built release binaries and the image |
 
 `hygiene` is one hook because `xtask` owns the list: `check-boundaries`, `max-lines`,
 `check-pins`, `unused-deps`, `line-endings`, `text-hygiene`, `check-skills`, `check-guidance`,
-`check-workflows`, `check-docs`. `cargo xtask --help` prints them, marked.
+`check-workflows`, `check-docs`, `check-crap`. `cargo xtask --help` prints them, marked.
+
+**The CRAP gate** scores cyclomatic complexity weighted by the tests that cover it, which is the
+combination neither a complexity limit nor a coverage percentage catches alone. It is in two
+halves by cost: `check-crap` reads the policy and compiles nothing, so it is in the sweep above;
+`just crap` runs the coverage build and the score. It is scoped to `sutura-domain` - 11 s cold,
+where `--workspace` coverage is over six minutes and more than 80 CPU-minutes - and
+[The CRAP gate](https://github.com/telekom/sutura/blob/main/docs/crap.md) carries the measured
+cost of every wider option, why the scope is what it is, what it therefore does not see, and why
+there is no downloaded baseline.
 
 Locally, `just gates` is everything CI runs and `just hygiene` is the structural half in
 seconds. Scope hook runs while iterating with `just hooks --files <path>`, then sweep with
@@ -365,10 +395,10 @@ One reviewable idea per branch. If describing it needs an "and", split it.
 - **No dependency declared and unused.** `cargo xtask unused-deps`. A crate must reference
   every dependency it declares, and every `[workspace.dependencies]` entry must be inherited by
   somebody. Declaring a dependency to satisfy a document is what it exists to stop.
-- **`--all-features` on every lint and test entry point.** The adapters are feature-gated and
-  default-off, so `cargo clippy --workspace` on its own inspects almost nothing and still
-  reports success. A scoped `cargo check -p sutura-domain --no-default-features` is the fast
-  inner loop, never the gate.
+- **`--all-features` on every lint and test entry point.** No crate here declares a feature today,
+  so the flag is a no-op - and it stays in every entry point for exactly that reason: the day an
+  adapter goes behind one, coverage must not silently drop to nothing. A scoped
+  `cargo check -p sutura-domain --no-default-features` is the fast inner loop, never the gate.
 - **The domain crate acquires no framework dependency.** `cargo xtask check-boundaries` checks
   the whole transitive tree against an allowlist, so a framework reached through an innocuous
   crate fails it too.

@@ -1,0 +1,7 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: chain(error)
+---
+the data system did not answer
+  caused by: column revenue_per_refunded_order came back as a value that is not a finite number
+  caused by: inf is not a finite number

@@ -1,0 +1,9 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+region	period	orders_placed
+Text(north)	Text(2026-06-01)	Integer(5)
+Text(south)	Text(2026-06-01)	Integer(2)
+Text(west)	Text(2026-06-01)	Integer(1)
+Null	Text(2026-06-01)	Integer(1)
