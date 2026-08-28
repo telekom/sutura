@@ -23,6 +23,7 @@ mod repo;
 mod skills;
 mod text;
 mod unused_deps;
+mod warm_start;
 mod workflows;
 
 use std::process::ExitCode;
@@ -103,6 +104,14 @@ const TASKS: &[Task] = &[
         description: "no tool is pinned by both nix and pixi",
         kind: Kind::Hygiene,
         run: pins::run,
+    },
+    Task {
+        // Beside `check-pins` because it is the same shape of gate: two files, read as text
+        // rather than evaluated, one value that has to be the same in both.
+        name: "check-warm-start",
+        description: "the causality gate builds where nix warms its target directory",
+        kind: Kind::Hygiene,
+        run: warm_start::run,
     },
     Task {
         name: "unused-deps",

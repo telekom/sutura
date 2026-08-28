@@ -80,7 +80,9 @@ let
   # `xtask/src/causality.rs` computes `<root>/target/causality-target` for its own two runs
   # and reads no environment variable for it, so warming any other directory would silently
   # do nothing at all - the reuse would simply not happen, with no error. Change one and
-  # change the other. Nothing checks this.
+  # change the other. `cargo xtask check-warm-start` now fails when they disagree, reading each
+  # side through its mechanism - what this exports, and the whole `join` chain over there -
+  # rather than by finding the literal string in both files.
   #
   # The unpack is crane's `inheritCargoArtifacts` line verbatim, and it is STAMPED with the
   # derivation that produced it: 756 MB of decompression is worth paying once per closure

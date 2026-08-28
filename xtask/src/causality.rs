@@ -434,6 +434,12 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held
     // HEAD must be green, or "red on base" means nothing.
     // One directory for both runs. Beside the worktree under `target/`, so a `cargo clean`
     // or a fresh checkout takes it with everything else rather than leaving it behind.
+    //
+    // THIS PATH IS SPELLED TWICE. `nix/cargo-env.nix` unpacks the closure the checks already
+    // built into the same directory, and a rename on either side would silently stop the reuse
+    // rather than fail - the gate would still answer, minutes later. `check-warm-start` reads
+    // both files and fails if they differ; it finds this binding by name, so a rename here is a
+    // red gate rather than a silent one.
     let shared_target = root.join("target").join("causality-target");
     let (head_ok, head_out) = cargo_test(root, &shared_target);
     if !head_ok {
