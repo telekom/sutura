@@ -24,6 +24,10 @@ test-capture = []
 
 [dependencies]
 sutura-config = { workspace = true }
+# For the audit sink, and for nothing else: the port and the record are domain types, and the writer
+# behind them is a use of the subscriber this crate installs. Inward-pointing - the domain gains no
+# dependency from this, which is what `cargo xtask check-boundaries` reads.
+sutura-domain = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-bunyan-formatter = { workspace = true }

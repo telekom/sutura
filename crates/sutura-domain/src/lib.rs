@@ -8,12 +8,13 @@
 //! digest needs, and nothing else - which is why there is a hand-written calendar in [`calendar`]
 //! and no SQL parser anywhere in this crate, [`expression`] included.
 //!
-//! **Two ports live here now, and each arrived with the adapter that implements it.** A port exists
+//! **Three ports live here now, and each arrived with the adapter that implements it.** A port exists
 //! to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 //! guess at a signature that only the first real adapter can settle, and in a library crate `pub`
 //! hides such a guess from `dead_code`. [`pinned::SemanticCatalog`] arrived with the local catalog
-//! adapter and [`warehouse::Warehouse`] with the `DuckDB` one. `CredentialBroker` is still absent for
-//! the same reason it always was: nothing implements it yet.
+//! adapter, [`warehouse::Warehouse`] with the `DuckDB` one, and [`audit::AuditSink`] with the
+//! structured writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets.
+//! `CredentialBroker` is still absent for the same reason it always was: nothing implements it yet.
 //!
 //! The modules are grouped by concept rather than named after traits, so a port sits next to the
 //! types it speaks in:
@@ -36,13 +37,19 @@
 //! - [`query`] is the tool surface, defined mostly by what it has no field for.
 //! - [`warehouse`] is the execution port. It speaks in plans, so an adapter that executes without
 //!   generating any SQL is a first-class implementation of it rather than a special case.
-//! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes.
+//! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes. The
+//!   principal chain a call is attributed to lives in [`identity`] as well, beside the redaction,
+//!   because both are properties of who is asking rather than of what was asked.
+//! - [`audit`] is the record one call is written to, and the port it goes through. It is not a
+//!   store: sutura writes a record before the outcome returns and retains nothing, so what the
+//!   sink does with it is the deployment's.
 //!
 //! One module is private, and it is the only one: `text` holds the set of invisible and
 //! direction-changing code points that a phrase, a note body, a version label and an authored SQL
 //! fragment all refuse. It exists because that set was written down twice, in two files, and the two
 //! had already drifted.
 
+pub mod audit;
 pub mod calendar;
 pub mod catalog;
 pub mod definitions;

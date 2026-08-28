@@ -62,8 +62,11 @@ retrying is 503 `source_unavailable`. 200 means the question was ANSWERED and no
 
 NO PER-CALLER IDENTITY. Where an access token is configured, presenting it proves the caller holds \
 a secret an operator configured - it authenticates the deployment, not the caller. There is no \
-request context, no per-request credential and no row-level scoping: every question is answered \
-with whatever access the service process already had, whoever asked it.";
+per-request credential and no row-level scoping: every question is answered with whatever access \
+the service process already had, whoever asked it. Each call IS recorded against a principal chain \
+before its outcome is returned, and on this deployment that chain names the deployment itself - it \
+is this paragraph as a value, not an identity for you to set. No request field carries one: a body \
+naming a subject is a 400 that says so.";
 
 /// The document, before the route fragments are merged into it.
 ///
