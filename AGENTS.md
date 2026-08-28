@@ -127,7 +127,7 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 
 | Invariant | Enforced by |
 | --- | --- |
-| No SQL, table name, filter expression or row-id list on the tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it |
+| No SQL, table name, filter expression or row-id list on the CERTIFIED tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it. A raw SQL tool exists only as the separately-scoped, off-by-default capability `docs/adr/0013` decides: its result type has nowhere to put a definition digest, so labelling one as certified is unrepresentable, and it is available only where the source executes as the asking subject or the deployment is single-user |
 | Refusal is a result, not an error | `ToolOutcome::Refusal`; a golden provokes every variant a question can reach |
 | A question's time range is bounded, and bounded to a size | `TimeRange` has no unbounded form; `resolve` refuses a span over `MAX_RANGE_DAYS` (3653) as `TimeRangeTooLong`. Goldens stand one day either side |
 | A catalog edit cannot change what executes | Definitions arrive as `PinnedDefinitions` with a digest over their canonical form; the digest travels with the answer |

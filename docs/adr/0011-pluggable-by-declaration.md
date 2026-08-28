@@ -197,21 +197,36 @@ not four adapters each with an opinion about authorization.
 One entry in that table behaves unlike the rest, and it is worth being concrete because a working
 version of it exists elsewhere and the useful half is reproducible here while the other half is not.
 
-**What such a catalog is.** A documentation source over a relational database: searchable descriptions
-of what tables and columns MEAN, often with a way to sample an interface, sitting beside the database
-it describes. What it does **not** carry is a certified metric. It documents fields; it does not define
-`revenue`.
+**What such a catalog actually has.** Mainly DDL and comments: the tables, the columns, their types,
+their constraints, and whatever prose somebody wrote against them. It is not a semantic layer and does
+not pretend to be one.
 
-**What that implies here, and it is not a small thing.** Sutura's surface takes a metric name. A source
-with no metrics cannot answer a question on the governed surface at all - not because the connector is
-weak but because there is nothing certified to compute. So the connector's declaration is:
+**So its declaration is narrow, and that is why composition exists.** A rich source declares
+everything - a full metadata platform provides metrics, descriptions, glossary and lineage on its own,
+and a deployment reading only that one needs no composition at all. Composition exists for the NARROW
+sources, and this is the canonical narrow one:
 
 | Provides | Declared |
 | --- | --- |
-| Descriptions of what a field means | **yes** - this is its purpose |
-| Sample values for an interface | optional |
-| Guidance on how to use the source, as prose the prompt renders | **yes** - this is the extra obligation |
-| Certified metrics | **no** |
+| Structure: tables, columns, types | **yes** - this is most of what it has |
+| Comments as descriptions | **yes** - the other part |
+| Relationships, from foreign keys | **yes**, with evidence rather than assertion - see below |
+| Certified metrics, measures, grains, allowed values | **no** - a human declares those elsewhere |
+
+**And here is the part worth having this connector for.** The root-of-trust file records a real gap:
+*"catalog cardinality is a trusted precondition: nothing checks the declaration against the data"*. A
+source that has DDL can close it. A foreign key names the join and its direction; a primary-key or
+unique constraint on the referenced column is EVIDENCE that the side being joined to is unique, which
+is exactly the fan-out question a declared cardinality is currently trusted to answer. So this
+connector can:
+
+- **Refuse a model whose declared column does not exist**, at load, naming the column and the table -
+  instead of the database rejecting it at query time.
+- **Refuse a declared cardinality the constraints contradict**, which turns a trusted precondition into
+  a checked one for any source that has DDL.
+
+That is a stronger contribution than descriptions, and it is the argument for building this connector
+before the richer ones: it makes an existing invariant less trusting rather than adding a new one.
 
 **The guidance is the interesting part, and it is descriptive content like any other.** A working
 example of the genre, generically: which search to run before selecting anything, that a name must be
@@ -221,22 +236,15 @@ bounded, refused at load rather than truncated at render, attached to something 
 and **descriptive only**. It selects nothing, widens nothing, parameterises nothing. A source's own
 usage instructions are one more kind of note, not a new channel.
 
-**And the half that cannot be reproduced, said plainly.** The working version of this pattern pairs
+**And the other half is a separate, configurable decision.** The working version of this pattern pairs
 catalog search with a general select, and an agent composes the two: read what a column means, then run
-SQL against it. **That second tool is precisely what this surface does not have**, and not by
-oversight - "no general SQL tool" is the rule that makes an uncertified answer unavailable *because no
-tool exists* rather than because a prompt asked for restraint. Adding it to the governed surface would
-remove the property everything else here is arranged to protect.
+SQL against it. Whether this surface offers that tool is a per-deployment choice, off by default, and it
+is decided in [a raw SQL tool](0013-a-raw-sql-tool-off-by-default.md) rather than here - including the
+mechanisms that stop it from ever looking certified.
 
-So with the right configuration and prompt, sutura reproduces the half that survives governance: the
-agent knows what the fields mean, knows how this source must be addressed, and knows that nothing here
-is certified. What it cannot do is answer from an undefined metric. **That refusal is the product
-working**, and the guidance should say what to ask for instead - a metric declared, by whoever owns the
-number.
-
-If a deployment genuinely wants the exploratory path, it is **a separate surface with its own scope**,
-never a widening of this one. Read and write, governed and ungoverned, stay separate surfaces; a
-free-form path lives behind its own separately-scoped tool or it does not exist.
+What does not change either way: a question naming a metric is compiled, and the answer to it is
+produced by compilation rather than by a model writing SQL. A deployment that enables the raw tool gets
+both paths, clearly distinguished; it does not get a blurrier version of the certified one.
 
 ## Metadata sources compose, and that is a decision with teeth
 
