@@ -212,7 +212,13 @@ impl Shape {
 ///
 /// **Four of them cannot be produced by any fragment, and each says so on itself rather than here:**
 /// [`Self::Qualify`], [`Self::Unrenderable`], [`Self::Render`] and [`Self::RenderedDoesNotParse`]
-/// are each reachable only if the dialect layer violates one of its own invariants. They exist
+/// each need a defect in the dialect layer, and **not the same defect** - which is why the argument
+/// is on the variant and not summarised here. [`Self::Qualify`] needs that layer's own transformer to
+/// violate one of its own invariants; [`Self::Unrenderable`] and [`Self::Render`] are ruled out by
+/// construction, because this module's caps sit under the layer's complexity guard and no dialect
+/// configuration raises its unsupported level; and [`Self::RenderedDoesNotParse`] is **not** ruled
+/// out by construction at all - it is the load-time net for a generator that emits text its own
+/// parser rejects, which is the reason it is a check here rather than a test. They exist
 /// because the calls they wrap return a `Result` and this crate may not `unwrap` one, and what is
 /// pinned about them is the wiring - the fields, and that the cause survives `#[source]` - not a
 /// refusal a catalog can provoke. `tests::the_four_refusals_only_a_dialect_layer_defect_can_produce`

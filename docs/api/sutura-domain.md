@@ -2008,6 +2008,23 @@ parameters rather than written into the statement. Not because the catalog is un
 way a caller is, but because a value that is sometimes inlined and sometimes bound is a generator
 with two paths, and the inlining path is the one that would eventually be handed caller text.
 
+**The value is a `DimensionValue` rather than a `String`, and that is the decision worth
+recording here.** It was the last authored string on the wired path with no character rule on it:
+it deserializes straight out of a metric document's frontmatter, and it reaches a person twice -
+`sutura-cli`'s `definitions` command prints it beside the measure, which is where somebody
+deciding whether a metric means what it claims reads it. A right-to-left override inside
+`status = 'active'` made that line render one way and the bound parameter another, which is the
+finding `crate::expression::SqlFragment` and `crate::knowledge::Phrase` already closed,
+arriving at a third channel. `DimensionValue` is the type that already refuses it, and the
+argument its documentation makes for using one type on both sides of the caller/allowlist pair
+applies again here: a definitional filter's value is compared against the same column a caller's
+filter is, so a second, laxer character rule on this side would be a rule nothing compares
+against the first.
+
+The cost is the one that type states: a column whose values genuinely carry a tab, a no-break
+space or a double space cannot be filtered on - by a caller or by a definition. It also bounds
+the length at `crate::catalog::MAX_DIMENSION_VALUE_CHARS`, which this field did not have.
+
 Externally tagged for the same reason `Measure` is: the operator is a word, not an inference.
 
 #### Variants
@@ -2024,7 +2041,7 @@ pub const fn column(&self) -> &ColumnName
 ```
 
 ```rust
-pub const fn value(&self) -> Option<&String>
+pub const fn value(&self) -> Option<&DimensionValue>
 ```
 
 The value this filter compares against, if it compares against one.

@@ -484,6 +484,20 @@ Why an authored expression could not be compiled.
 degraded mode in which the metric is skipped and the rest is answered, because a metric that is
 present in a bundle and unanswerable is a metric an agent will ask about.
 
+**Four of them cannot be produced by any fragment, and each says so on itself rather than here:**
+`Self::Qualify`, `Self::Unrenderable`, `Self::Render` and `Self::RenderedDoesNotParse`
+each need a defect in the dialect layer, and **not the same defect** - which is why the argument
+is on the variant and not summarised here. `Self::Qualify` needs that layer's own transformer to
+violate one of its own invariants; `Self::Unrenderable` and `Self::Render` are ruled out by
+construction, because this module's caps sit under the layer's complexity guard and no dialect
+configuration raises its unsupported level; and `Self::RenderedDoesNotParse` is **not** ruled
+out by construction at all - it is the load-time net for a generator that emits text its own
+parser rejects, which is the reason it is a check here rather than a test. They exist
+because the calls they wrap return a `Result` and this crate may not `unwrap` one, and what is
+pinned about them is the wiring - the fields, and that the cause survives `#[source]` - not a
+refusal a catalog can provoke. `tests::the_four_refusals_only_a_dialect_layer_defect_can_produce`
+is that test, and it is named for what it is so that nobody reads it as coverage of an input.
+
 **Every field is the value, never prose about it**, and that is this enum's one shape rule. The
 dialect word a refusal is about is a `DialectTag` and not a `String`, because that is what every
 construction site already holds; the two refusals that name a *set* carry the set rather than a
@@ -503,8 +517,8 @@ splitting a message on `", "`, which is a contract nothing checks and a format e
 - `UnknownFunction` - A called function that is not one of the names a measure may call.
 - `TooDeep` - A fragment nesting deeper than the checks can walk. See the guard in `super::parse`, in the parent module.
 - `NotQualified` - A column the qualification rewrite did not reach. See `super::require_qualified`, in the parent module.
-- `Qualify`
-- `Render`
+- `Qualify` - The qualification rewrite failed.
+- `Render` - The target's generator refused the tree.
 - `RenderedDoesNotParse` - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.
 
 ##### Implements

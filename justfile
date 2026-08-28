@@ -141,7 +141,11 @@ ci:
     # force one - a linux builder, or reproducing what a CI log shows.
     system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
     printf 'checks for %s\n' "$system"
-    for check in hygiene fmt clippy nextest doctest crap; do
+    # api-docs IS in this list, and the omission was not harmless: the committed API pages are
+    # byte-compared and no test covers them, so four stale-page incidents were invisible locally
+    # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
+    # along - but this loop names its checks, so a name left out is a check nobody ran.
+    for check in hygiene fmt clippy nextest doctest crap api-docs; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline

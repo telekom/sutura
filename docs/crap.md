@@ -40,7 +40,8 @@ coverage build can reuse them - it cannot, `-C instrument-coverage` changes the 
 so every dependency is compiled fresh regardless - but because sharing the attribute means no
 SECOND dependency derivation is created. That is what keeps the marginal CI cost to the ten
 seconds above rather than to another full workspace dependency build, which is what the
-`api-docs` check pays for being on a different channel.
+`api-docs` check USED to pay for being on a different channel - until it moved onto this same
+closure, measured: `nix-store -q --references` on both drvs now names one `sutura-deps`.
 
 **ONE MEASUREMENT, TWO CONSUMERS.** The check writes a path-portable copy of its score report to
 `target/crap/baseline.json`, and inside a Nix build it publishes the same file to
