@@ -28,6 +28,7 @@
 //! `docs/adr/0001-first-party-semantic-models.md` argues against. They belong to a definition
 //! rendered upstream and taken as given.
 
+use crate::catalog::DimensionValue;
 use crate::model::{Aggregate, ColumnName};
 
 /// One aggregate applied to one declared column.
@@ -314,17 +315,34 @@ impl Measure {
 /// way a caller is, but because a value that is sometimes inlined and sometimes bound is a generator
 /// with two paths, and the inlining path is the one that would eventually be handed caller text.
 ///
+/// **The value is a [`DimensionValue`] rather than a `String`, and that is the decision worth
+/// recording here.** It was the last authored string on the wired path with no character rule on it:
+/// it deserializes straight out of a metric document's frontmatter, and it reaches a person twice -
+/// `sutura-cli`'s `definitions` command prints it beside the measure, which is where somebody
+/// deciding whether a metric means what it claims reads it. A right-to-left override inside
+/// `status = 'active'` made that line render one way and the bound parameter another, which is the
+/// finding [`crate::expression::SqlFragment`] and [`crate::knowledge::Phrase`] already closed,
+/// arriving at a third channel. [`DimensionValue`] is the type that already refuses it, and the
+/// argument its documentation makes for using one type on both sides of the caller/allowlist pair
+/// applies again here: a definitional filter's value is compared against the same column a caller's
+/// filter is, so a second, laxer character rule on this side would be a rule nothing compares
+/// against the first.
+///
+/// The cost is the one that type states: a column whose values genuinely carry a tab, a no-break
+/// space or a double space cannot be filtered on - by a caller or by a definition. It also bounds
+/// the length at [`crate::catalog::MAX_DIMENSION_VALUE_CHARS`], which this field did not have.
+///
 /// Externally tagged for the same reason [`Measure`] is: the operator is a word, not an inference.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case", deny_unknown_fields)]
 pub enum RequiredFilter {
     /// `column = value`.
-    Equals { column: ColumnName, value: String },
+    Equals { column: ColumnName, value: DimensionValue },
     /// `column <> value`. Note what this does NOT match in SQL: a null column. `NotEquals` on a
     /// nullable column excludes null rows, and a definition that means "everything except x,
     /// including unknown" needs `IsNull` beside it - which does not exist yet, because nothing has
     /// needed it.
-    NotEquals { column: ColumnName, value: String },
+    NotEquals { column: ColumnName, value: DimensionValue },
     /// `column IS TRUE`, for a boolean column.
     IsTrue { column: ColumnName },
     /// `column IS NOT NULL`.
@@ -347,7 +365,7 @@ impl RequiredFilter {
     /// `None` for the two that need no value, which is what tells the generator whether to emit a
     /// placeholder and the plan whether to bind a parameter.
     #[inline]
-    pub const fn value(&self) -> Option<&String> {
+    pub const fn value(&self) -> Option<&DimensionValue> {
         match *self {
             Self::Equals { ref value, .. } | Self::NotEquals { ref value, .. } => Some(value),
             Self::IsTrue { .. } | Self::IsNotNull { .. } => None,
@@ -394,8 +412,11 @@ impl core::fmt::Display for Term {
 impl core::fmt::Display for RequiredFilter {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match *self {
-            Self::Equals { ref column, ref value } => write!(f, "{column} = {value:?}"),
-            Self::NotEquals { ref column, ref value } => write!(f, "{column} <> {value:?}"),
+            // `as_str` rather than the newtype's own `Debug`, which would print the wrapper's name
+            // into a line a person reads. The quoting is what stays: it is what makes spacing
+            // visible in the rendering, which is why this is `{:?}` and not `{}`.
+            Self::Equals { ref column, ref value } => write!(f, "{column} = {:?}", value.as_str()),
+            Self::NotEquals { ref column, ref value } => write!(f, "{column} <> {:?}", value.as_str()),
             Self::IsTrue { ref column } => write!(f, "{column} is true"),
             Self::IsNotNull { ref column } => write!(f, "{column} is not null"),
         }
@@ -405,10 +426,15 @@ impl core::fmt::Display for RequiredFilter {
 #[cfg(test)]
 mod tests {
     use super::{AggregatedColumn, InvalidTerm, Measure, RequiredFilter, Term, TermRepr, ZeroDenominator};
+    use crate::catalog::DimensionValue;
     use crate::model::{Aggregate, ColumnName};
 
     fn column(raw: &str) -> ColumnName {
         ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn value(raw: &str) -> DimensionValue {
+        DimensionValue::parse(raw).expect("a test value is a value")
     }
 
     fn aggregated(aggregate: Aggregate, raw: &str) -> Term {
@@ -543,10 +569,10 @@ mod tests {
         // out of the statement.
         let equals = RequiredFilter::Equals {
             column: column("status"),
-            value: String::from("active"),
+            value: value("active"),
         };
         assert_eq!(equals.column(), &column("status"));
-        assert_eq!(equals.value(), Some(&String::from("active")));
+        assert_eq!(equals.value(), Some(&value("active")));
 
         let is_true = RequiredFilter::IsTrue {
             column: column("churned_in_month"),
@@ -561,8 +587,8 @@ mod tests {
 
         let not_equals = RequiredFilter::NotEquals {
             column: column("status"),
-            value: String::from("cancelled"),
+            value: value("cancelled"),
         };
-        assert_eq!(not_equals.value(), Some(&String::from("cancelled")));
+        assert_eq!(not_equals.value(), Some(&value("cancelled")));
     }
 }

@@ -818,6 +818,16 @@ fn wrap(prefix: &str, text: &str, indent: &str) -> String {
 /// There is no third channel: `quote` is private, both call sites are in this crate, and the two
 /// above are all of them.
 ///
+/// **The control-character filter is not dead code, and which caller still needs it is worth naming
+/// rather than leaving to a reader.** `sutura_domain::catalog::Description` refuses every control
+/// character but a newline and a tab at parse - the same set as this filter, chosen as its
+/// complement - so for the description call site below the filter now removes nothing and could be an
+/// assertion. It stays a filter because of the OTHER caller: a
+/// `sutura_domain::knowledge::NoteBody` deliberately permits a control character in the middle of its
+/// prose and relies on this function to drop it, which its own documentation states. Turning this
+/// into an assertion would mean widening that type's parse first, and that is a decision about note
+/// bodies rather than a tidy-up here.
+///
 /// **There is deliberately no length cap.** A cap that truncated a description would make this
 /// document say something the author did not write, about a definition whose digest certifies the
 /// text as it stands. The bound on the size of this section is that a catalog is content an operator

@@ -9,10 +9,16 @@
 //! not a thing to keep two copies of, and the fix for a duplicated decision is not a comment asking
 //! the next author to update both.
 //!
-//! So this module owns the set, every parser in this crate calls [`is_invisible`], and the tests at
-//! the bottom of this file walk **every** Unicode scalar value to assert that what
-//! [`crate::expression::SqlFragment::parse`] refuses is exactly what this predicate names - which is
-//! the check the two copies could not have, and which fails if either list is edited alone.
+//! So this module owns the set and every parser in this crate calls [`is_invisible`] - which is now
+//! a fact about the code and not an intention. It was neither for a while: this header claimed it
+//! while [`crate::expression`] still held a private copy of the list, and the concession was written
+//! a hundred lines further down where nobody reading the claim would meet it. **The fix was deleting
+//! the copy, not softening the sentence**, because the sentence is what a reader of a new parser
+//! goes on.
+//!
+//! The tests at the bottom of this file walk **every** Unicode scalar value to assert that what
+//! [`crate::expression::SqlFragment::parse`] refuses is exactly what this predicate names. That is
+//! no longer two lists compared - there is one - and what it is instead is stated where the test is.
 //!
 //! # Why it is not in `model`, where the other text rules are
 //!
@@ -130,15 +136,30 @@ mod tests {
         assert_eq!(first_invisible("\u{FEFF}leading"), Some('\u{FEFF}'));
     }
 
-    /// The test the two drifted copies could not have had.
+    /// What a caller of this predicate refuses is the whole of what this predicate names, and
+    /// nothing else.
     ///
-    /// It walks the whole Unicode scalar range and asserts that the set
-    /// [`SqlFragment::parse`] refuses as invisible is the same set [`is_invisible`] names - not a
-    /// sample of it, the same set. `expression` still holds a private copy of the list, pending the
-    /// one-line change that makes it call this function; until then this is what keeps the two from
-    /// disagreeing again, and it fails whichever of the two is edited alone.
+    /// **It is not the drift test it started as, and the difference is worth being exact about.**
+    /// It was written when [`crate::expression`] held a private second copy of the list, and then it
+    /// compared two lists over the whole Unicode range and failed whichever was edited alone. There
+    /// is one list now, so that reading of it is gone with the copy.
+    ///
+    /// What is left is not vacuous, and its two halves now catch different things - which is worth
+    /// stating, because with one list they no longer catch the same one.
+    ///
+    /// The per-scalar comparison walks all 0x110000 scalars through [`SqlFragment::parse`] - a real
+    /// parser, with its own emptiness, length and control-character refusals ahead of this one - and
+    /// asserts that the answer is the invisible refusal exactly when [`is_invisible`] says so,
+    /// **carrying that scalar's own code point**. So it fails on an earlier guard that shadows this
+    /// one over part of the range, on a later one that swallows it, and on a refusal that reports a
+    /// character other than the one it found. Measured, not assumed: widening the control-character
+    /// guard in `SqlFragment::parse` by one code point fails this half.
+    ///
+    /// The count is what catches an edit to the list itself. A range deleted from the predicate now
+    /// moves both sides of the comparison together - that is what having one list means - so it
+    /// passes the walk and lands here. Measured too: dropping `U+2060..2064` reports 19 against 24.
     #[test]
-    fn the_authored_expression_refusal_and_this_predicate_are_one_set() {
+    fn a_parser_refuses_exactly_what_this_predicate_names_and_reports_the_character_it_found() {
         let mut refused = 0_usize;
         for code in 0..=0x0010_FFFF_u32 {
             let Some(character) = char::from_u32(code) else {

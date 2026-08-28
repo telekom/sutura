@@ -1,9 +1,10 @@
-//! The two authored strings a catalog carries that no identifier parser covers.
+//! The authored prose a catalog carries that no identifier parser covers: a declared value and a
+//! description.
 //!
 //! Everything else a catalog author writes into a definition is an identifier - a
 //! [`ModelName`](crate::model::ModelName), a [`ColumnName`](crate::model::ColumnName), a
 //! [`Grain`](crate::model::Grain) - and [`crate::model`]'s parser refuses everything that is not one
-//! of a few dozen ASCII bytes. These two are not identifiers, and for a long time they were not
+//! of a few dozen ASCII bytes. These two types are not identifiers, and for a long time they were not
 //! anything: a declared dimension value and a description were `String`, straight from a YAML
 //! document, and the only thing between a catalog file and an agent's context was that somebody had
 //! reviewed the file.
@@ -13,6 +14,14 @@
 //! description is quoted into the same document. Neither went through a parse, so neither was held
 //! to the one rule every other piece of authored text in this crate is held to - the rule
 //! [`crate::text`] owns, that the text a reviewer reads has to be the text that runs.
+//!
+//! **Two types, three fields**, and the count is worth stating because it was wrong here once: the
+//! header of this file used to say "the two authored strings", and a
+//! [`RequiredFilter`](crate::measure::RequiredFilter)'s value was a third one, on the same wired path,
+//! with no parse on it. It is a [`DimensionValue`] now - the same type as a declared value, for the
+//! reason that type's documentation gives about the two sides of one comparison - so the sentence and
+//! the code agree again. A field counted as covered by the type it does not use is the failure mode a
+//! header sentence has, and the remedy is that the types are what is enumerated here.
 //!
 //! # Why a separate file
 //!
@@ -189,6 +198,22 @@ fn has_unreadable_spacing(raw: &str) -> bool {
     raw.contains("  ")
 }
 
+/// The first control character a renderer would remove, if the text holds one.
+///
+/// Named for what it is about rather than for what it matches: the set is *the control characters
+/// `sutura_app::prompt::quote` does not keep*, which is every one of them but `\n` and `\t`. Written
+/// as the complement of the renderer's two exemptions rather than as its own list, so the two cannot
+/// drift the way [`crate::text`]'s module documentation describes two copies of one rule drifting -
+/// if the renderer ever kept a third character, this refusal would be the thing to widen, and it
+/// says so in one place.
+///
+/// A free function here rather than a predicate in [`crate::text`]: that module owns the rule EVERY
+/// authored type agrees on, and this is one type's agreement with one renderer.
+fn first_altered_control(raw: &str) -> Option<char> {
+    raw.chars()
+        .find(|character| character.is_control() && *character != '\n' && *character != '\t')
+}
+
 /// Delegates to [`DimensionValue::parse`]: one constructor is the source of truth, and
 /// `serde(try_from)` above is what makes this the deserialization path.
 impl TryFrom<String> for DimensionValue {
@@ -233,15 +258,24 @@ pub const MAX_DESCRIPTION_LINES: usize = 200;
 ///
 /// **The channel this type was added for was the last one whose rendering could differ from its
 /// content.** A metric description is quoted into the agent-facing prompt by
-/// `sutura_app::prompt::quote`, which drops control characters and deliberately does not drop the
-/// code points [`crate::text::is_invisible`] names - the rule in this repository is *refuse at load,
-/// never alter at render*, because a render that quietly removed a character would make the document
-/// differ from the text the definition digest certifies, and would do so with nothing downstream
-/// able to tell. Every other body reaching that renderer is a [`crate::knowledge::NoteBody`], which
-/// refuses those code points at parse. This one was a `String` built with `String::from` from a
-/// markdown document, with no character check, no length check and no emptiness check anywhere on
-/// the path - so a description reading `status = 'active'` in every terminal and every diff, saying
-/// something else, was reachable. CVE-2021-42574 with the fragment replaced by a paragraph.
+/// `sutura_app::prompt::quote`, and the rule in this repository is *refuse at load, never alter at
+/// render*, because a render that quietly removed a character would make the document differ from the
+/// text the definition digest certifies, and would do so with nothing downstream able to tell. Every
+/// other body reaching that renderer is a [`crate::knowledge::NoteBody`], which refuses at parse.
+/// This one was a `String` built with `String::from` from a markdown document, with no character
+/// check, no length check and no emptiness check anywhere on the path - so a description reading
+/// `status = 'active'` in every terminal and every diff, saying something else, was reachable.
+/// CVE-2021-42574 with the fragment replaced by a paragraph.
+///
+/// **The rule cuts both ways, which is what the first version of this type got half right.** It
+/// refused the code points [`crate::text::is_invisible`] names, which the renderer keeps, and said
+/// nothing about the control characters the renderer DROPS - so `refuse at load, never alter at
+/// render` held in one direction here and not the other, and the alteration in the other direction
+/// was reachable from a CRLF working tree. Both sets are refused now:
+/// [`InvalidDescription::ControlCharacter`] names the renderer's set, minus the newline and the tab it
+/// keeps, and [`InvalidDescription::InvisibleCharacter`] names [`crate::text`]'s. The renderer's own
+/// filter stays where it is, because a [`crate::knowledge::NoteBody`] still reaches it and still
+/// permits a control character mid-prose.
 ///
 /// **Empty is legal, and that is the current shape rather than a concession.** A definition document
 /// with no prose under its frontmatter is a definition with no description; `sutura_app::prompt`
@@ -272,6 +306,30 @@ pub struct Description(String);
 /// [`InvalidNoteBody`]: crate::knowledge::InvalidNoteBody
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum InvalidDescription {
+    /// A control character other than a newline or a tab, anywhere in the prose.
+    ///
+    /// **The half of the promise that was missing.** `sutura_app::prompt::quote` DROPS every control
+    /// character except those two, so a description carrying one rendered into the agent-facing
+    /// prompt as something other than the text on disk - the alteration at render this module's rule
+    /// exists to forbid, at the one field that had no character check reaching that renderer. A
+    /// newline and a tab are content in a markdown block and are what the renderer keeps, so they are
+    /// what this permits.
+    ///
+    /// **A carriage return is refused with the rest, and that is the reachable case rather than the
+    /// theoretical one.** `sutura_catalog_local`'s frontmatter reader strips `\r` at the fence lines
+    /// alone, and `cargo xtask line-endings` sees tracked files only - so a CRLF working tree, a
+    /// document pasted from a Windows editor, or a catalog directory an operator mounted from one
+    /// gives every description a `\r` at the end of every line, invisible in every diff and dropped
+    /// by the renderer. Refusing it names the file; normalising it would be this crate altering
+    /// authored text, which is the thing the digest is taken over.
+    ///
+    /// Reported as a code rather than with the prose, for the reason the length variants below give,
+    /// and for the reason [`InvalidDimensionValue::InvisibleCharacter`] gives: an author cannot find
+    /// the character by looking at the file.
+    #[error(
+        "a description may not contain the control character {code:#06x}; a newline and a tab are the only ones a description may hold"
+    )]
+    ControlCharacter { code: u32 },
     /// One of the code points [`crate::text::is_invisible`] names, anywhere in the prose.
     ///
     /// The whole reason this type exists. It is not folded into a length or an emptiness check
@@ -293,6 +351,17 @@ impl Description {
     /// Parses a description, refusing prose that cannot be read as what it says.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidDescription> {
         let trimmed = raw.as_ref().trim();
+        // First, and before the invisible set, for the reason `DimensionValue::parse` gives: a
+        // control character is the more accurate thing to name when a description holds both, and a
+        // carriage return reported as an odd invisible code point would send its author looking for
+        // something exotic rather than at their editor's line endings. `\n` and `\t` are exempt
+        // because they are content in a markdown block and are the two the renderer keeps - the set
+        // refused here is exactly the set `sutura_app::prompt::quote` would otherwise remove.
+        if let Some(offending) = first_altered_control(trimmed) {
+            return Err(InvalidDescription::ControlCharacter {
+                code: u32::from(offending),
+            });
+        }
         if let Some(offending) = first_invisible(trimmed) {
             return Err(InvalidDescription::InvisibleCharacter {
                 code: u32::from(offending),

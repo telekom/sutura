@@ -16,6 +16,7 @@ use crate::shared::{settings, sql_for};
 /// The statement and the values bound to it.
 fn pins_the_statement_and_its_parameters(dialect: Dialect) {
     let pinned = load::<ReferenceCatalog>();
+    let mut checked = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
         let name = stem(&path);
@@ -28,7 +29,9 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
             insta::assert_snapshot!(format!("{name}__sql"), query.sql());
             insta::assert_yaml_snapshot!(format!("{name}__params"), query.params());
         });
+        checked = checked.saturating_add(1);
     }
+    assert!(checked > 0, "the corpus produced no statements to check");
 }
 
 /// A parameter's value as text, for comparing against what a question carried.
@@ -329,6 +332,7 @@ fn quotes_every_identifier(dialect: Dialect) {
 /// a golden cannot render for one and parse-check against another.
 fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot_sql::DialectType) {
     let pinned = load::<ReferenceCatalog>();
+    let mut checked = 0_usize;
     for path in questions() {
         let asked = read_question(&path);
         let compiled = compile(&asked, &pinned).expect("the corpus compiles");
@@ -344,7 +348,9 @@ fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot
             parsed.err(),
             query.sql()
         );
+        checked = checked.saturating_add(1);
     }
+    assert!(checked > 0, "the corpus produced no statements to check");
 }
 
 /// One cell of the dialect axis.

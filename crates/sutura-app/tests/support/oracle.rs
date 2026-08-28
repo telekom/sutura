@@ -355,7 +355,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
         vec![RequiredFilter::Equals {
             column: column("status"),
-            value: String::from("active"),
+            value: declared_value("active"),
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
@@ -376,7 +376,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         ))),
         vec![RequiredFilter::Equals {
             column: column("status"),
-            value: String::from("active"),
+            value: declared_value("active"),
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
@@ -395,7 +395,7 @@ fn simple_measures_that_needed_a_wider_vocabulary() -> Vec<Metric> {
         Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Avg, column("mrr_cents")))),
         vec![RequiredFilter::Equals {
             column: column("status"),
-            value: String::from("active"),
+            value: declared_value("active"),
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),
@@ -501,7 +501,7 @@ fn the_ratios() -> Vec<Metric> {
         },
         vec![RequiredFilter::Equals {
             column: column("status"),
-            value: String::from("active"),
+            value: declared_value("active"),
         }],
         column("month"),
         BTreeSet::from([Grain::Month]),

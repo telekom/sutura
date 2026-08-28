@@ -338,10 +338,14 @@ pub(super) fn aggregates(name: &str) -> bool {
 /// happens to have. A date name keeps its own refusal, because "a date function, and here is the
 /// argument-order defect" is a better sentence than "not on the list".
 ///
-/// The dotted-name branch fires for no input the authoring dialect produces today - it parses
-/// `secret.udf(x)` into a `dot` node, which [`Construct::Opaque`] refuses instead. It stays because
-/// how a qualified call parses is an upstream detail and the branch costs one line, and it is asked
-/// FIRST so that a dotted name is not reported as an unknown one when the schema is the problem.
+/// **The dotted-name branch DOES fire, and the claim that it could not was wrong.** It said the
+/// authoring dialect produces no input that reaches it, on the evidence that `secret.udf(x)` parses
+/// into a `method_call` node which [`Construct::Opaque`] refuses instead. That is true of the
+/// unquoted spelling and only of it: `"main.max"(mrr_eur)` is a QUOTED identifier that happens to
+/// hold a dot, and it parses to an ordinary `Function` whose `name` is `main.max` - measured, and
+/// now provoked by a test. So the branch is a live refusal rather than a line kept on principle, and
+/// it is asked FIRST so that such a name is reported as the schema it reaches rather than as a name
+/// that is merely unlisted.
 pub(super) fn name_refusal(name: &str) -> Option<Construct> {
     if name.contains('.') {
         return Some(Construct::QualifiedFunctionName);

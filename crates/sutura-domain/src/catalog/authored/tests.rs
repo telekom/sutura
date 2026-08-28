@@ -224,6 +224,47 @@ fn an_invisible_character_in_prose_is_refused_at_both_ends_of_every_range() {
 }
 
 #[test]
+fn a_control_character_the_renderer_would_drop_is_refused_and_the_two_it_keeps_are_not() {
+    // The other half of *refuse at load, never alter at render*, and the half this type did not
+    // have. `sutura_app::prompt::quote` keeps `\n` and `\t` and drops every other control character,
+    // so a description carrying one rendered into the prompt as something other than what the file
+    // says - the alteration at render the rule forbids, with nothing downstream able to tell.
+    for code in [0x00_u32, 0x07, 0x0B, 0x0C, 0x1B, 0x7F] {
+        let offending = character(code);
+        let raw = format!("Revenue from status = 'act{offending}ive' subscriptions.");
+        assert_eq!(
+            Description::parse(&raw),
+            Err(InvalidDescription::ControlCharacter { code }),
+            "{code:#06x}"
+        );
+    }
+    // The reachable one, and the reason this is not a theoretical case: a CRLF working tree gives
+    // every line of every description a trailing `\r`. `frontmatter` strips one at the fence lines
+    // alone and `cargo xtask line-endings` sees tracked files only, so a catalog directory mounted
+    // from a Windows editor arrives here like this.
+    assert_eq!(
+        Description::parse("Net revenue.\r\n\r\nPer customer.\r\n"),
+        Err(InvalidDescription::ControlCharacter { code: 0x0D })
+    );
+    // And the two the renderer keeps stay content, which is what makes this the renderer's set
+    // rather than every control character.
+    drop(Description::parse("Net revenue.\n\n\tPer customer.").expect("a newline and a tab are prose"));
+}
+
+#[test]
+fn a_control_character_is_reported_before_an_invisible_one() {
+    // The order the checks run in, asserted rather than left to the reading: a description holding
+    // both is reported as the control character, because "your editor wrote CRLF" is the more
+    // useful thing to say than "there is an exotic code point in here somewhere".
+    assert_eq!(
+        // The `\r` is inside the prose rather than at the end of it, because `parse` trims first and
+        // a trailing CRLF is exactly what a document body arrives with.
+        Description::parse("Net\u{202E}revenue.\r\nPer customer."),
+        Err(InvalidDescription::ControlCharacter { code: 0x0D })
+    );
+}
+
+#[test]
 fn the_byte_cap_is_checked_at_both_ends() {
     let at_limit = "p".repeat(MAX_DESCRIPTION_BYTES);
     assert_eq!(

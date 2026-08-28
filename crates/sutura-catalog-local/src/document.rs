@@ -256,8 +256,8 @@ pub struct MetricDoc {
     ///
     /// `singleton_map_recursive` rather than `singleton_map` because the enum is inside a sequence,
     /// and the non-recursive adapter applies to the value it is attached to. Recursion is safe here:
-    /// a [`RequiredFilter`] payload holds only a column name and a string, so there is no nested
-    /// enum for it to reinterpret.
+    /// a [`RequiredFilter`] payload holds a column name and a value, both of them newtypes over one
+    /// scalar with a `try_from`, so there is no nested enum for it to reinterpret.
     #[serde(default, with = "serde_norway::with::singleton_map_recursive")]
     required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
@@ -308,6 +308,7 @@ impl MetricDoc {
 #[cfg(test)]
 mod tests {
     use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+    use sutura_domain::catalog::DimensionValue;
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -321,6 +322,10 @@ mod tests {
 
     fn column(raw: &str) -> ColumnName {
         ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn value(raw: &str) -> DimensionValue {
+        DimensionValue::parse(raw).expect("a test value is a value")
     }
 
     fn aggregated(aggregate: Aggregate, raw: &str) -> Term {
@@ -604,11 +609,11 @@ colums: [amount_cents]
         let expected = vec![
             RequiredFilter::Equals {
                 column: column("channel"),
-                value: String::from("web"),
+                value: value("web"),
             },
             RequiredFilter::NotEquals {
                 column: column("channel"),
-                value: String::from("store"),
+                value: value("store"),
             },
             RequiredFilter::IsTrue {
                 column: column("is_paid"),
@@ -628,6 +633,25 @@ colums: [amount_cents]
         let yaml = format!("{MINIMAL_METRIC}required_filters:\n  - greater_than: {{ column: amount_cents, value: 0 }}\n");
         let err = metric_doc(&yaml).expect_err("greater_than is not one of the four operators");
         assert!(err.to_string().contains("greater_than"), "{err}");
+    }
+
+    #[test]
+    fn a_required_filter_value_is_parsed_by_the_document_it_arrives_in() {
+        // The wired path for the third authored string. A definitional filter's value used to be a
+        // `String` with `deny_unknown_fields` around it and no character rule inside it, so a
+        // right-to-left override in this line rendered as `status = "active"` in `sutura
+        // definitions` and bound something else - the finding already closed for an authored SQL
+        // fragment and a glossary phrase, at a channel that still had it. `DimensionValue`'s
+        // `try_from` is what makes the frontmatter reader the enforcement point.
+        for (value, needle) in [
+            ("act\u{202E}ive", "invisible"),
+            ("\"  active\"", "spacing"),
+            ("\"\"", "empty"),
+        ] {
+            let yaml = format!("{MINIMAL_METRIC}required_filters:\n  - equals: {{ column: status, value: {value} }}\n");
+            let err = metric_doc(&yaml).expect_err("a value that is not a dimension value is not one");
+            assert!(err.to_string().contains(needle), "{value}: {err}");
+        }
     }
 
     #[test]

@@ -42,6 +42,7 @@
 use std::collections::BTreeMap;
 
 use crate::measure::Measure;
+use crate::text::first_invisible;
 
 /// The longest authored fragment accepted.
 ///
@@ -83,6 +84,10 @@ pub enum InvalidFragment {
     /// request as `status = 'active'` and compiles to a comparison against something else, so the
     /// branch never fires and the number certified under the name a reviewer approved is zero. The
     /// digest covers text, faithfully, and the text is not what the reviewer read.
+    ///
+    /// **The set is [`crate::text::is_invisible`] and is not restated here.** It used to be, as a
+    /// private `const fn` two hundred lines below this variant, and the second copy was missing
+    /// three of the seven ranges - which is the whole argument for the module that now owns it.
     #[error("an authored expression may not contain the invisible or direction-changing character {code:#06x}")]
     InvisibleCharacter { code: u32 },
 }
@@ -127,7 +132,7 @@ impl SqlFragment {
                 code: u32::from(offending),
             });
         }
-        if let Some(offending) = trimmed.chars().find(|c| is_invisible(*c)) {
+        if let Some(offending) = first_invisible(trimmed) {
             return Err(InvalidFragment::InvisibleCharacter {
                 code: u32::from(offending),
             });
@@ -139,36 +144,6 @@ impl SqlFragment {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-}
-
-/// A character a terminal, a diff or a browser does not show, or shows in the wrong order.
-///
-/// Refused for the reason the control characters are, and the reason is the whole of it: **the
-/// fragment a reviewer reads has to be the fragment that compiles.** These are all general category
-/// `Cf`, so `char::is_control` is false for every one and the check above cannot see them.
-///
-/// Enumerated rather than taken as a whole category. `Cf` also holds the language-tag and
-/// variation-selector blocks, and a category test would move with the Unicode table under a
-/// dependency bump - which for a load-bearing refusal is a set that changes without a diff. The
-/// ranges here are the ones that reorder or erase rendered text:
-///
-/// - `U+00AD` soft hyphen, and `U+FEFF` byte order mark - invisible, and legal mid-string;
-/// - `U+200B..200F` the zero-width set, ending in the two directional marks;
-/// - `U+202A..202E` the bidirectional embeddings and overrides - the Trojan Source characters;
-/// - `U+2060..2064` word joiner and the invisible operators;
-/// - `U+2066..2069` the bidirectional isolates, which do the same job as the overrides;
-/// - `U+FFF9..FFFB` interlinear annotation, which hides one run of text behind another.
-const fn is_invisible(c: char) -> bool {
-    matches!(
-        c,
-        '\u{00AD}'
-            | '\u{200B}'..='\u{200F}'
-            | '\u{202A}'..='\u{202E}'
-            | '\u{2060}'..='\u{2064}'
-            | '\u{2066}'..='\u{2069}'
-            | '\u{FEFF}'
-            | '\u{FFF9}'..='\u{FFFB}'
-    )
 }
 
 /// Delegates to `parse`, so `serde(try_from)` above and a direct call are one code path.
@@ -499,10 +474,11 @@ mod tests {
 
     use super::{
         AuthoredSql, Computation, DialectTag, InvalidAuthoredSql, InvalidComputation, InvalidDialectTag, InvalidFragment,
-        MAX_FRAGMENT_LEN, SqlFragment, is_invisible,
+        MAX_FRAGMENT_LEN, SqlFragment,
     };
     use crate::measure::{AggregatedColumn, Measure, Term};
     use crate::model::{Aggregate, ColumnName};
+    use crate::text::is_invisible;
 
     fn fragment(raw: &str) -> SqlFragment {
         SqlFragment::parse(raw).expect("a test fragment is a fragment")

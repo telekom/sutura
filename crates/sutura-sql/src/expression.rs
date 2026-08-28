@@ -267,13 +267,8 @@ fn check(
         return Err(refused(tag, Construct::Comment));
     }
     refuse_nodes(&expression, tag, table, columns)?;
-    // Asked of the dialect layer rather than of our own lists, so a node kind missing from
-    // `QUERY_KINDS` or `TABLE_KINDS` is still refused.
-    if expression.contains(traversal::is_query) {
-        return Err(refused(tag, Construct::Query));
-    }
-    if expression.contains(traversal::is_ddl) {
-        return Err(refused(tag, Construct::SchemaStatement));
+    if let Some(construct) = dialect_layer_refusal(&expression) {
+        return Err(refused(tag, construct));
     }
     if !aggregates(&expression) {
         return Err(refused(tag, Construct::NotAggregated));
@@ -281,6 +276,32 @@ fn check(
     let qualified = qualify(expression, tag, table)?;
     require_qualified(&qualified, tag, table)?;
     Ok(qualified)
+}
+
+/// What the DIALECT LAYER's own classifiers say about a tree, if anything.
+///
+/// Asked instead of only our own name lists, so a node kind missing from `QUERY_KINDS` or
+/// `TABLE_KINDS` is still refused. Its own function rather than two `if`s inside [`check`] because
+/// one of the two answers is not reachable from a fragment and this is what lets a test provoke it
+/// anyway - see below, and the test named for it.
+///
+/// **[`Construct::SchemaStatement`] cannot be produced by any fragment today, and the guard stays.**
+/// Measured against the authoring dialect: `CREATE`, `ALTER` and `DROP` are all rejected outright in
+/// expression position - as a bare fragment, inside a `CASE`, inside `EXISTS`, and parenthesised
+/// under an operator - so no DDL node reaches a projection. The two spellings that do put one into a
+/// parsed tree, `(SELECT 1 FROM (CREATE TABLE t (a INT)))` and
+/// `(WITH x AS (CREATE TABLE t (a INT)) SELECT 1)`, both wrap it in a `subquery`, which
+/// [`refuse_nodes`] refuses as [`Construct::Query`] one guard earlier. That makes this arm
+/// defence-in-depth over an upstream parser that could widen, and **not** something to delete on the
+/// strength of today's parser being strict - which is the fail-open this module exists to avoid.
+fn dialect_layer_refusal(expression: &Expression) -> Option<Construct> {
+    if expression.contains(traversal::is_query) {
+        Some(Construct::Query)
+    } else if expression.contains(traversal::is_ddl) {
+        Some(Construct::SchemaStatement)
+    } else {
+        None
+    }
 }
 
 /// Does the TEXT hold a comment delimiter anywhere at all?

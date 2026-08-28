@@ -30,6 +30,9 @@ pub enum Construct {
     /// A named table.
     TableReference,
     /// A schema or data statement inside an expression.
+    ///
+    /// **The one construct here no fragment reaches**, and `super::dialect_layer_refusal` carries
+    /// the measurement and the argument for keeping the guard.
     SchemaStatement,
     /// `*`, either as a node or as `COUNT(*)`'s flag.
     Star,
@@ -207,6 +210,14 @@ impl Shape {
 /// degraded mode in which the metric is skipped and the rest is answered, because a metric that is
 /// present in a bundle and unanswerable is a metric an agent will ask about.
 ///
+/// **Four of them cannot be produced by any fragment, and each says so on itself rather than here:**
+/// [`Self::Qualify`], [`Self::Unrenderable`], [`Self::Render`] and [`Self::RenderedDoesNotParse`]
+/// are each reachable only if the dialect layer violates one of its own invariants. They exist
+/// because the calls they wrap return a `Result` and this crate may not `unwrap` one, and what is
+/// pinned about them is the wiring - the fields, and that the cause survives `#[source]` - not a
+/// refusal a catalog can provoke. `tests::the_four_refusals_only_a_dialect_layer_defect_can_produce`
+/// is that test, and it is named for what it is so that nobody reads it as coverage of an input.
+///
 /// **Every field is the value, never prose about it**, and that is this enum's one shape rule. The
 /// dialect word a refusal is about is a [`DialectTag`] and not a `String`, because that is what every
 /// construction site already holds; the two refusals that name a *set* carry the set rather than a
@@ -251,6 +262,16 @@ pub enum ExpressionError {
     /// The parse succeeded and the result could not be written back out, so it cannot be shown to be
     /// the projection and nothing else. Its own variant rather than a [`Shape`], because a `Shape`
     /// carries no cause and this one has one worth keeping.
+    ///
+    /// **No fragment produces this.** `Generator::generate` has exactly two failure paths in the
+    /// features this build compiles: the AST complexity guard, and `UnsupportedLevel::Raise` or
+    /// `Immediate`. The guard's limits are a million nodes and a depth of 512 or more, and
+    /// `super::parse` refuses anything past `MAX_DEPTH` - thirty-two - before it renders, over a
+    /// fragment `sutura_domain` has already capped at 1024 characters; none of the three dialect
+    /// configurations sets the level above `Warn`. The third path, a template re-parse inside the
+    /// `DuckDB` dialect, is behind the `transpile` feature and is not compiled. Measured as well as
+    /// argued: 300 fragments over the whole allowlist, in every argument shape this crate accepts,
+    /// produced none of it.
     #[error("the {tag} fragment parsed and could not be rendered back, so it cannot be checked")]
     Unrenderable {
         tag: DialectTag,
@@ -286,6 +307,16 @@ pub enum ExpressionError {
         column: String,
         table: TableName,
     },
+    /// The qualification rewrite failed.
+    ///
+    /// **No fragment produces this, and the reason is exhaustive rather than empirical.**
+    /// `traversal::transform_map` returns an error from two places: the closure, and three
+    /// `Error::Internal` checks inside the dialect layer's own explicit-stack transformer - a result
+    /// stack underflow, a child-restoration mismatch, and a final stack size that is not one. The
+    /// closure `super::qualify` passes is two arms and both return `Ok`, so every remaining path is
+    /// that transformer breaking its own invariant. The plumbing stays fallible because absorbing it
+    /// would mean substituting something for a tree that did not rewrite, which is a measure that is
+    /// not the one the catalog declares.
     #[error("the {tag} fragment could not be qualified against model table {table}")]
     Qualify {
         tag: DialectTag,
@@ -293,6 +324,11 @@ pub enum ExpressionError {
         #[source]
         cause: polyglot_sql::Error,
     },
+    /// The target's generator refused the tree.
+    ///
+    /// **No fragment produces this**, for the reason [`Self::Unrenderable`] sets out - the two are
+    /// the same call with a different generator configuration, and `Unrenderable` runs first over
+    /// the same tree.
     #[error("the {tag} fragment could not be rendered for {dialect}")]
     Render {
         tag: DialectTag,
@@ -303,6 +339,15 @@ pub enum ExpressionError {
     /// The rendering came back as something its own target cannot parse. The same check the golden
     /// suite applies to every generated statement, applied here at load rather than in a test,
     /// because this is the one statement fragment whose text came from a file.
+    ///
+    /// **No fragment has been found that produces this, and unlike the three above it is not ruled
+    /// out by construction.** It fires when one dialect's generator emits text that the same
+    /// dialect's parser rejects, which is a round-trip defect in the dialect layer rather than
+    /// anything a catalog controls - and this variant is the net for it, which is why it is a check
+    /// at load and not a test. What was tried: 300 fragments over the whole allowlist in every
+    /// argument shape this crate accepts, rendered and re-parsed for all three targets. None failed.
+    /// A test could only assert it by shipping a hostile dialect, so what is asserted instead is the
+    /// wiring - the fields, and that the parser's own error survives as the source.
     #[error("the {tag} fragment rendered for {dialect} as SQL that {dialect} cannot parse: {sql}")]
     RenderedDoesNotParse {
         tag: DialectTag,

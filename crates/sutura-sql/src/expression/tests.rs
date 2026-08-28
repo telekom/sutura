@@ -5,6 +5,13 @@
 //! that produces valid-looking SQL and a different number, or reaches data the plan never granted,
 //! and **nothing upstream errors on any of them**.
 
+// Four cases live in their own file, and the split is mechanical rather than a seam somebody
+// chose: `cargo xtask max-lines` fails at a thousand lines under `crates/` and this file plus
+// those cases is over it. What moved is the whole of the dialect-RESOLUTION decision - which
+// authored string a dialect gets, and what happens when it gets none - leaving every shape
+// refusal here, next to the fragments it reads.
+mod dialect_resolution;
+
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
@@ -651,12 +658,177 @@ fn a_star_a_placeholder_and_a_qualified_reference_are_refused() {
     assert_eq!(refusal("SUM(fact_subscription.mrr_eur)"), Construct::QualifiedColumn);
     assert_eq!(refusal("SUM(secret_table.mrr_eur)"), Construct::QualifiedColumn);
     // A schema-qualified call reaches a schema the model does not declare, and it is refused - as a
-    // `dot`, because that is what the authoring dialect parses `secret.udf(x)` into rather than a
-    // function node carrying a dotted name. The name check in `name_refusal` is the other arm and no
-    // input reaches it in `DuckDB` today; it stays because the parse of a qualified call is an
-    // upstream detail and the two arms cost one line each.
+    // `method_call`, because that is what the authoring dialect parses `secret.udf(x)` into rather
+    // than a function node carrying a dotted name. The name check in `name_refusal` is the other arm
+    // and it has its own reachable input, which is the test below this one.
     assert_eq!(refusal("secret.udf(mrr_eur)"), Construct::Opaque);
     assert_eq!(refusal("SUM(secret.schema.mrr_eur)"), Construct::Opaque);
+}
+
+#[test]
+fn a_quoted_function_name_holding_a_dot_is_refused_as_the_schema_it_reaches() {
+    // `name_refusal`'s dotted branch was documented as unreachable - "fires for no input the
+    // authoring dialect produces today" - on the evidence that `secret.udf(x)` parses to a
+    // `method_call`. That is true of the UNQUOTED spelling and only of it. A quoted identifier may
+    // hold any character, a dot included, so `"main.max"(mrr_eur)` parses to an ordinary `Function`
+    // whose `name` is `main.max`, measured in the authoring dialect - and the branch fires.
+    //
+    // Which matters beyond tidying a comment: had the branch actually been dead, a dotted name would
+    // have fallen through to the allowlist and been reported as merely unlisted, when what it is
+    // doing is naming a schema the model does not declare.
+    for raw in [
+        "\"main.max\"(mrr_eur)",
+        "\"a.b\"(mrr_eur)",
+        "SUM(\"main.max\"(mrr_eur))",
+        // A qualified spelling of a name that IS on the allowlist, so this cannot be passing because
+        // `count` is unknown: the schema is what is refused.
+        "\"pg_catalog.count\"(customer_key)",
+    ] {
+        assert_eq!(refusal(raw), Construct::QualifiedFunctionName, "{raw:?}");
+    }
+    // And the allowlist cannot hold such a name, which is what makes the branch a refusal rather
+    // than the only thing standing between a dotted name and acceptance. Asserted over the list
+    // itself in `the_allowlist_is_the_one_place_a_callable_name_is_written_down`.
+}
+
+#[test]
+fn a_node_that_names_or_unfolds_a_relation_is_refused_as_a_table_reference() {
+    // `TABLE_KINDS` had no provoking input, which reads as a list nothing exercises. It has one:
+    // `{*}` is DuckDB's braced wildcard and parses to a `braced_wildcard` node - the first entry in
+    // that list - in expression position, so it survives every shape guard and reaches the kind
+    // check.
+    //
+    // The `*` inside it is refused too, as `Construct::Star`, and which of the two fires is decided
+    // by DFS order rather than by preference: `braced_wildcard` is the parent. That is the right
+    // answer here - what the fragment does is unfold a relation, and the star is how it spells it.
+    for raw in ["{*}", "SUM({*})", "COUNT({*})", "SUM(mrr_eur) + {*}"] {
+        assert_eq!(refusal(raw), Construct::TableReference, "{raw:?}");
+    }
+    // A fragment that reaches a real table is refused one guard earlier, as a query, because
+    // DuckDB's `FROM`-first syntax wraps it in a subquery. Pinned so that the boundary between the
+    // two refusals is a decision on the record: `TableReference` is about a node that unfolds a
+    // relation, `Query` about one that runs a statement of its own.
+    assert_eq!(refusal("SUM(mrr_eur) + (FROM fact_subscription)"), Construct::Query);
+}
+
+#[test]
+fn an_integer_division_is_refused_and_a_guarded_divisor_does_not_rescue_it() {
+    // `Construct::IntegerDivision` had no provoking input either. `//` is not the spelling that
+    // reaches it - the authoring dialect rejects `SUM(mrr_eur) // 2` at the tokenizer, measured -
+    // and `DIV` is: it parses to an `int_div` node, which is a different `Expression` variant from
+    // the `Div` the divisor guard inspects.
+    assert_eq!(refusal("SUM(mrr_eur) DIV 2"), Construct::IntegerDivision);
+    // And wrapping the divisor does NOT turn it into an accepted ratio, which is the half worth
+    // pinning: `NULLIF` says what a zero denominator means and says nothing about truncation, so a
+    // guarded integer division is still a whole number where a ratio was meant.
+    assert_eq!(
+        refusal("SUM(mrr_eur) DIV NULLIF(COUNT(customer_key), 0)"),
+        Construct::IntegerDivision
+    );
+}
+
+#[test]
+fn a_schema_statement_is_refused_by_the_dialect_layers_own_classifier() {
+    // THE ONE CONSTRUCT NO FRAGMENT REACHES, tested at the guard instead of through `compile`, and
+    // labelled as such rather than left in a list that reads as coverage.
+    //
+    // Measured against the authoring dialect: `CREATE`, `ALTER` and `DROP` are rejected outright in
+    // expression position - bare, inside a `CASE`, inside `EXISTS`, and parenthesised under an
+    // operator - so no DDL node reaches a projection. The two spellings that do put one into a
+    // parsed tree, `(SELECT 1 FROM (CREATE TABLE t (a INT)))` and
+    // `(WITH x AS (CREATE TABLE t (a INT)) SELECT 1)`, wrap it in a `subquery`, which `refuse_nodes`
+    // refuses as `Construct::Query` one guard earlier. Both are asserted below, so the reason this
+    // is a guard-level test is itself a test rather than a sentence.
+    let authoring = polyglot_sql::dialects::Dialect::get(polyglot_sql::DialectType::DuckDB);
+    let mut statements = authoring
+        .parse("CREATE TABLE t (a INT)")
+        .expect("a DDL statement parses as a statement");
+    let create = statements.remove(0);
+    assert!(polyglot_sql::traversal::is_ddl(&create), "{}", create.variant_name());
+    // Our own node lists have nothing to say about it, so the dialect layer's classifier is the only
+    // thing that refuses it - which is the whole argument for asking that classifier at all.
+    assert_eq!(super::node_refusal(&create), None);
+    assert_eq!(super::dialect_layer_refusal(&create), Some(Construct::SchemaStatement));
+    // The two fragments that carry a DDL node, and the guard that actually stops them.
+    for raw in [
+        "SUM(mrr_eur) + (SELECT 1 FROM (CREATE TABLE t (a INT)))",
+        "SUM(mrr_eur) + (WITH x AS (CREATE TABLE t (a INT)) SELECT 1)",
+    ] {
+        assert_eq!(refusal(raw), Construct::Query, "{raw:?}");
+    }
+    // And the keyword in expression position does not parse at all, so there is no third way in.
+    for raw in [
+        "SUM(mrr_eur) + (CREATE SEQUENCE s)",
+        "SUM(mrr_eur) + (ALTER TABLE t ADD COLUMN a INT)",
+        "SUM(mrr_eur) + (DROP SCHEMA s)",
+        "CASE WHEN 1 = 1 THEN (CREATE TABLE t (a INT)) END",
+        "EXISTS (CREATE TABLE t (a INT))",
+    ] {
+        assert!(
+            matches!(portable(raw), Err(ExpressionError::Unparsable { .. })),
+            "{raw:?} parsed, so the reachability argument above needs re-measuring"
+        );
+    }
+}
+
+#[test]
+fn the_four_refusals_only_a_dialect_layer_defect_can_produce() {
+    // NOT a provoking test, and it says so in its name. `Qualify`, `Unrenderable`, `Render` and
+    // `RenderedDoesNotParse` have no fragment that reaches them, each for a reason its own variant
+    // spells out: the qualification closure has two arms and both return `Ok`, so the only remaining
+    // paths through `transform_map` are three `Error::Internal` invariant checks inside the dialect
+    // layer's transformer; and `Generator::generate` fails only on its AST complexity guard - a
+    // million nodes, or a depth of 512, against a fragment already capped at 1024 characters and a
+    // tree already refused past `MAX_DEPTH` of thirty-two - or at an unsupported level none of the
+    // three dialect configurations sets. Measured beside the argument: 300 fragments over the whole
+    // allowlist, in every argument shape this crate accepts, produced none of the four.
+    //
+    // They cannot be deleted: the calls they wrap return a `Result` and `unwrap_used` and
+    // `expect_used` are denied in this crate, so the alternative to a variant is a panic path from a
+    // catalog file. What is left worth checking is the WIRING, which is what this asserts - the
+    // fields a diagnosis would be read out of, and that the dialect layer's own error survives as
+    // the source rather than being flattened into a sentence.
+    let cause = || {
+        polyglot_sql::dialects::Dialect::get(polyglot_sql::DialectType::DuckDB)
+            .parse("SELECT ,")
+            .expect_err("a bare comma is not a projection")
+    };
+    let tag = DialectTag::portable();
+    let errors = [
+        ExpressionError::Qualify {
+            tag: tag.clone(),
+            table: table(),
+            cause: cause(),
+        },
+        ExpressionError::Unrenderable {
+            tag: tag.clone(),
+            cause: cause(),
+        },
+        ExpressionError::Render {
+            tag: tag.clone(),
+            dialect: Dialect::ClickHouse,
+            cause: cause(),
+        },
+        ExpressionError::RenderedDoesNotParse {
+            tag,
+            dialect: Dialect::ClickHouse,
+            sql: String::from("uniqExact(\"fact_subscription\".\"customer_key\")"),
+            cause: cause(),
+        },
+    ];
+    for error in &errors {
+        let rendered = error.to_string();
+        assert!(rendered.contains("portable"), "{rendered}");
+        // The cause survives the boundary rather than being turned into prose, which is what
+        // `#[source]` is for and what a `map_err(|_| ..)` would have lost.
+        let source = std::error::Error::source(error).expect("every one of the four keeps its cause");
+        assert!(source.to_string().contains("Parse error"), "{source}");
+    }
+    // And each one names the thing a reader would need. Written out per variant rather than as a
+    // substring loop, because which field carries the diagnosis is the point.
+    assert!(errors[0].to_string().contains("fact_subscription"), "{}", errors[0]);
+    assert!(errors[2].to_string().contains("clickhouse"), "{}", errors[2]);
+    assert!(errors[3].to_string().contains("uniqExact"), "{}", errors[3]);
 }
 
 #[test]
@@ -696,120 +868,6 @@ fn an_unknown_column_fails_the_load_naming_the_column_and_the_table() {
 
 fn table_named(raw: &str) -> TableName {
     TableName::parse(raw).expect("a test table is a table")
-}
-
-#[test]
-fn a_dialect_word_that_is_not_one_fails_the_load_rather_than_being_never_chosen() {
-    // The failure mode this closes is the quiet one: with a `portable` fragment beside a misspelled
-    // `postgresql`, resolution would hand Postgres the portable text and nothing anywhere would say
-    // that the variant the author wrote for it was never read.
-    let err = compile(
-        &authored(&[("portable", "SUM(mrr_eur)"), ("postgresql", "SUM(mrr_eur)::double precision")]),
-        &table(),
-        &columns(),
-    )
-    .expect_err("postgresql is not a dialect this build renders for");
-    match err {
-        ExpressionError::UnknownDialect {
-            ref tag, ref choices, ..
-        } => {
-            // The typed fields, not the prose. `choices` is the LIST this build renders for, so a
-            // caller offering "did you mean" has the words rather than a sentence to split.
-            assert_eq!(tag.as_str(), "postgresql");
-            assert_eq!(choices, &ALL.to_vec());
-            assert!(choices.contains(&Dialect::Postgres), "{choices:?}");
-            assert!(choices.contains(&Dialect::ClickHouse), "{choices:?}");
-        }
-        ref other => panic!("expected an unknown dialect, got {other}"),
-    }
-    // And the sentence still reads, because the join is in the format rather than at the
-    // construction site. The quoting is deliberate here and nowhere else in this enum: a tag
-    // differing from a real one by a trailing space is what this refusal is most often about.
-    let message = err.to_string();
-    assert!(message.starts_with("\"postgresql\" is not a data system"), "{message}");
-    assert!(message.contains("duckdb, postgres, clickhouse"), "{message}");
-    assert!(message.contains("or portable"), "{message}");
-}
-
-#[test]
-fn a_per_dialect_variant_is_chosen_over_portable_and_recorded() {
-    // The escape hatch inside the escape hatch, and the traceability half. `sumIf` exists in
-    // ClickHouse and nowhere else, `COUNT_IF` renders verbatim into Postgres where it does not
-    // exist - which is exactly the class of thing a per-dialect variant is for.
-    let compiled = compile(
-        &authored(&[
-            ("portable", "SUM(CASE WHEN status = 'active' THEN mrr_eur END)"),
-            ("clickhouse", "sumIf(mrr_eur, status = 'active')"),
-        ]),
-        &table(),
-        &columns(),
-    )
-    .expect("both variants compile");
-
-    let click = compiled.for_dialect(Dialect::ClickHouse).expect("clickhouse resolved");
-    assert_eq!(click.authored_for().as_str(), "clickhouse");
-    assert!(click.sql().starts_with("sumIf("), "{}", click.sql());
-    for dialect in [Dialect::DuckDb, Dialect::Postgres] {
-        let rendering = compiled.for_dialect(dialect).expect("resolved");
-        assert_eq!(rendering.authored_for().as_str(), "portable", "{dialect}");
-        assert!(rendering.sql().starts_with("SUM(CASE"), "{}", rendering.sql());
-    }
-}
-
-#[test]
-fn a_dialect_with_no_variant_and_no_portable_fragment_is_refused_not_guessed() {
-    // Where this departs from the importer it copies. Wren's OSI reader falls back to the first
-    // non-empty variant, which hands a Postgres query a ClickHouse expression because it happened
-    // to be listed first: a number computed by a definition nobody chose, under a certified name.
-    let err = compile(
-        &authored(&[("clickhouse", "sumIf(mrr_eur, status = 'active')")]),
-        &table(),
-        &columns(),
-    )
-    .expect_err("nothing was authored for duckdb or postgres");
-    match err {
-        ExpressionError::NoFragment {
-            dialect,
-            ref authored_for,
-            ..
-        } => {
-            assert!(!matches!(dialect, Dialect::ClickHouse), "{dialect} was authored for");
-            // The words a catalog wrote, as words. Recovering this from the message used to mean
-            // splitting on ", " between two other clauses, which is a contract nothing checks.
-            assert_eq!(
-                authored_for.iter().map(DialectTag::as_str).collect::<Vec<&str>>(),
-                ["clickhouse"]
-            );
-        }
-        ref other => panic!("expected a missing fragment, got {other}"),
-    }
-    assert!(err.to_string().contains("authored for clickhouse, and none"), "{err}");
-}
-
-#[test]
-fn every_variant_is_checked_even_the_ones_a_dialect_would_never_read() {
-    // A per-dialect variant is not a way around the checks. Compiling walks every dialect in `ALL`,
-    // and the ClickHouse variant here is refused when ClickHouse's turn comes rather than being
-    // carried unexamined because DuckDB and Postgres had a portable fragment.
-    let err = compile(
-        &authored(&[
-            ("portable", "SUM(CASE WHEN status = 'active' THEN mrr_eur END)"),
-            ("clickhouse", "sumIf(mrr_eur, status = 'active') FILTER (WHERE churned)"),
-        ]),
-        &table(),
-        &columns(),
-    )
-    .expect_err("the clickhouse variant carries a FILTER");
-    match err {
-        ExpressionError::Refused { ref tag, construct } => {
-            // Which VARIANT was refused is the useful half here, and it is a `DialectTag` rather
-            // than a `String` for the reason every construction site already held one.
-            assert_eq!(tag.as_str(), "clickhouse");
-            assert!(!tag.is_portable());
-            assert_eq!(construct, Construct::AggregateFilter);
-        }
-        ref other => panic!("expected a refusal, got {other}"),
-    }
 }
 
 #[test]
