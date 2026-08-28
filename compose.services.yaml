@@ -1,0 +1,107 @@
+# The development SERVICE tier: one independent instance per worktree.
+#
+# A separate file from `compose.dev.yaml`, which is the dev-CONTAINER wrapper - a shell to build in,
+# with named volumes that carry the performance on a Windows bind mount. Two unrelated jobs, and
+# `docs/adr/0007` says in as many words that this repository had no compose file for services and
+# that standing one up is this tier's work. Merging them would mean `docker compose run --rm dev`
+# starting three databases.
+#
+# Nothing in this file is per-worktree by itself, and that is the design. `xtask` supplies the
+# compose PROJECT NAME - derived from the worktree's canonical path by `sutura_dev::scope` - and
+# compose derives the container, network and volume names from it. So two worktrees running this
+# same file share nothing, and neither has to remember to change a value here.
+#
+# NO HOST PORT IS WRITTEN ANYWHERE, and that is the load-bearing part. Every `ports:` entry names
+# only the CONTAINER port, which publishes it on an ephemeral host port docker and the operating
+# system choose. `xtask dev-up` reads back what they chose and writes it into the discovery file a
+# test harness reads; nothing anywhere may name a host port, because a hash into a port range cannot
+# promise disjoint blocks and "check whether the port is free, then bind" is a race whose window
+# belongs to whatever else is on the host. `xtask`'s own test suite reads this file and fails on a
+# `"5432:5432"` or a literal `container_name:`, because no other gate in this repository reads a
+# compose file at all.
+#
+# Named volumes are declared at the bottom and are prefixed with the project name by compose, so a
+# Postgres data directory belongs to one worktree. A shared one is the fixture nobody can debug: a
+# migration from another branch, with no symptom pointing at where it came from.
+#
+# Every service declares a HEALTHCHECK, because provisioning gates on health rather than sleeping.
+# A service without one is treated as ready when it is running, which is why adding a service
+# without a probe silently weakens the gate.
+#
+# Credentials here are fixtures and are the same in every worktree on purpose: they are not secrets,
+# nothing reaches them from outside the host, and a per-worktree password would have to be
+# discovered too - which is a second discovery channel for no security gained.
+#
+# Images are pinned by tag rather than by digest. Stated rather than implied: a tag is mutable, so
+# this is a development fixture and not a supply-chain position. Nothing here ships.
+
+services:
+  # The relational source the Postgres adapter will be tested against.
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_USER: sutura
+      POSTGRES_PASSWORD: sutura
+      POSTGRES_DB: sutura
+    ports:
+      - 5432
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sutura -d sutura"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # The columnar source. The HTTP interface, which is what an adapter would speak.
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8-alpine
+    environment:
+      CLICKHOUSE_USER: sutura
+      CLICKHOUSE_PASSWORD: sutura
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - 8123
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+    healthcheck:
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://127.0.0.1:8123/ping || exit 1"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
+
+  # The identity provider. Development mode, in-memory: the tier is a fixture, and a persistent
+  # realm store is a second thing to keep consistent for no test's benefit.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--health-enabled=true"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_HTTP_ENABLED: "true"
+    ports:
+      - 8080
+    healthcheck:
+      # The management port answers the health endpoints from 25 onward, and it is NOT published:
+      # the probe runs inside the container, so nothing on the host needs to reach it.
+      #
+      # `CMD` with an explicit `/bin/bash` rather than `CMD-SHELL`, because the redirection below is
+      # a bash feature and `CMD-SHELL` runs `/bin/sh` - and this image ships no curl or wget to fall
+      # back on. **The one thing in this file not verified against a live daemon:** docker was absent
+      # on the machine this landed from, so if this probe is wrong the symptom is `dev-up` failing
+      # with `keycloak: unhealthy` - loud, and pointing at this block - rather than anything silent.
+      test:
+        - CMD
+        - /bin/bash
+        - -c
+        - "exec 3<>/dev/tcp/127.0.0.1/9000 && printf 'GET /health/ready HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n' >&3 && grep -q '200 OK' <&3"
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 15s
+
+volumes:
+  postgres-data:
+  clickhouse-data:

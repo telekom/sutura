@@ -32,6 +32,13 @@ devenv.local.nix
 # Ponytail activation flag: local, per-developer.
 .ponytail-active
 
+# The compose tier's per-worktree state: the discovery file `xtask dev-up` writes, and the lock it
+# holds across a provision or a teardown. Deliberately NOT committed and deliberately inside the
+# worktree rather than in a shared directory - the endpoints in it are the ports docker allocated
+# for THIS worktree on THIS run, so a committed copy would be a constant, which is the one thing
+# discovery exists to make unavailable.
+.sutura-dev/
+
 # The rendered site. `mkdocs build` writes it; the markdown in docs/ is the source.
 /site
 

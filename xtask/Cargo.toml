@@ -11,5 +11,11 @@ description = "Repo automation: the dependency-boundary, file-length and unused-
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 
+# The per-worktree naming and the endpoint discovery file. `xtask` provisions and `sutura-dev`
+# names, and the edge points this way so there is ONE function supplying the compose project - the
+# same one a test harness and `sutura-dev` read. Two copies of that derivation is how start and stop
+# come to disagree about which network to remove.
+sutura-dev = { workspace = true }
+
 [lints]
 workspace = true

@@ -5,48 +5,76 @@
 //! container is the worst outcome available: a test passes because the *other* branch's
 //! migration ran, and the failure appears in whichever branch is unlucky.
 //!
-//! So everything scoped to a worktree derives from one value: a short digest of its absolute
-//! path.
+//! So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
+//! of the worktree's CANONICAL path.
 //!
-//! * ports come from the digest, deterministically, inside a private range
 //! * the compose project name comes from the digest, so containers, networks and volumes are
 //!   namespaced
 //! * state lives under the worktree, never in a shared directory
 //!
-//! Deterministic rather than "find a free port": a port that moves between runs cannot be put
-//! in a config file, a bookmark, or a bug report. If it collides, the override is explicit.
+//! # Naming is derived; ports are NOT
+//!
+//! An earlier version of this module derived the published ports from the same digest, and that
+//! design is withdrawn. Two defects, and the second is the worse one:
+//!
+//! * **A hash into a port range cannot guarantee disjoint blocks.** It is a total function from an
+//!   unbounded set of paths into a finite set of blocks, so collisions exist by construction. A
+//!   corpus of sample paths can only fail to find one, which is not the same claim.
+//! * **Check-then-bind is a race.** "Refuse if the port is already bound" leaves the whole window
+//!   between the check and docker's bind open to anything else on the host - including the
+//!   neighbouring worktree running the same check at the same time. It reads as a guarantee and
+//!   delivers a probability.
+//!
+//! Ports are therefore allocated by the thing that owns them: published ephemerally, and read back
+//! after the container is up. See [`crate::discovery`], which is the only way to learn one.
+//!
+//! **Naming stays derived, because naming has no allocator** - and the asymmetry is the whole
+//! reason one of the two moved and the other did not. A hash collision in a NAME is a startup
+//! error somebody reads; a hash collision in a PORT is a test that passes against the wrong
+//! fixture.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use sha2::Digest as _;
 
-/// Ports live here. Above the registered range, below the ephemeral range Linux hands out for
-/// outbound connections, so a scoped port cannot collide with one the kernel assigned.
-const RANGE_START: u16 = 21_000;
-const RANGE_END: u16 = 31_000;
-
-/// A dev service that gets its own port per worktree.
+/// A dev service that gets its own container per worktree.
+///
+/// No port field, derived or otherwise: what a service publishes on the host is allocated at
+/// provision time and read back, so a port here would be a second answer to a question this type
+/// is not allowed to answer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Service {
-    /// Name used in the compose file and in output.
-    pub(crate) name: &'static str,
-    /// Environment variable that overrides the derived port.
-    pub(crate) port_env: &'static str,
-    /// Distinguishes this service's port from another's within the same worktree.
-    pub(crate) salt: &'static str,
+pub struct Service {
+    /// Name used in the compose file, in the discovery file and in output.
+    name: &'static str,
+    /// The port the container listens on. Not a host port: the compose file publishes this one
+    /// ephemerally, and `xtask` asks docker which host port it landed on.
+    container_port: u16,
 }
 
-/// The services a worktree may run. Adding one is a row here; nothing else changes.
+impl Service {
+    /// Name used in the compose file, in the discovery file and in output.
+    #[must_use]
+    pub const fn name(&self) -> &'static str {
+        self.name
+    }
+
+    /// The port INSIDE the container. Provisioning publishes it ephemerally and reads back the
+    /// host port docker chose.
+    #[must_use]
+    pub const fn container_port(&self) -> u16 {
+        self.container_port
+    }
+}
+
+/// The services a worktree may run. Adding one is a row here plus a block in
+/// `compose.services.yaml` - which is NOT `compose.dev.yaml`, the dev-container wrapper.
 ///
-/// They are declared before they are implemented on purpose: the port scheme has to be right
-/// from the start, because changing it later moves every developer's ports at once.
+/// # The teardown contract provisioning inherits
 ///
-/// # The teardown contract the first provisioning command inherits
-///
-/// **Written here because this list is what a `dev up` will read, and every rule below is a lesson
-/// somebody already paid for.** None of it is enforced by anything today - nothing in this
-/// repository runs a container - so this is a note to whoever writes that command, not an invariant,
-/// and it may not be cited as one.
+/// **Written here because this list is what provisioning reads, and every rule below is a lesson
+/// somebody already paid for.** `xtask/src/compose.rs` is what honours them; this is the statement
+/// of the rules, and none of them may be cited as an invariant - what enforces each one is named
+/// beside it in that module.
 ///
 /// 1. **Destructive cleanup is dry-runnable.** A command that removes containers, networks, volumes
 ///    or state directories can say what it *would* remove and exit without removing it. The reason is
@@ -67,58 +95,109 @@ pub(crate) struct Service {
 ///    mechanism fired. **A spared item is a success of the check and has to read as one.**
 ///
 /// 3. **One function supplies the compose project name to both start and stop, and it supplies it
-///    the same way.** [`Scope::project`] is that function, so this rule lands on the code above
-///    rather than on a hypothetical. The trap is specific: passing the project by command-line flag
-///    alone does NOT populate the variable an override file interpolates, so a compose file that
-///    interpolates the project name into a network, a volume or a container name resolves it from an
-///    unset variable at destroy time - and the destroy then targets the wrong network, or nothing at
-///    all, while reporting success. Whatever start relies on, stop has to be given identically:
-///    the flag AND the environment, from one call site.
+///    the same way.** [`Scope::project`] is that function. The trap is specific: passing the project
+///    by command-line flag alone does NOT populate the variable an override file interpolates, so a
+///    compose file that interpolates the project name into a network, a volume or a container name
+///    resolves it from an unset variable at destroy time - and the destroy then targets the wrong
+///    network, or nothing at all, while reporting success. Whatever start relies on, stop has to be
+///    given identically: the flag AND the environment, from one call site.
 ///
 /// # Signalling a process
 ///
-/// **A PID is signalled only if its working directory is under this repository.** Ports are derived
-/// from a path digest inside a fixed range, so a collision with something unrelated is possible by
-/// construction - and "whatever is listening on the port I derived" is not an identity. The check is
-/// the process's own working directory, resolved and compared against this repository's root, because
-/// that is the one property a colliding stranger cannot accidentally have. Without it, a derived port
-/// that happens to be taken lets this tool kill a process it has nothing to do with.
-pub(crate) const SERVICES: &[Service] = &[
+/// **A PID is signalled only if its working directory is under this repository.** "Whatever is
+/// listening on a port I expected" is not an identity, and neither is "whatever holds a PID a stale
+/// file names": a PID is reused. The check is the process's own working directory, resolved and
+/// compared against this repository's root, because that is the one property a colliding stranger
+/// cannot accidentally have.
+pub const SERVICES: &[Service] = &[
     Service {
         name: "postgres",
-        port_env: "SUTURA_DEV_POSTGRES_PORT",
-        salt: "postgres",
+        container_port: 5432,
     },
     Service {
         name: "clickhouse",
-        port_env: "SUTURA_DEV_CLICKHOUSE_PORT",
-        salt: "clickhouse",
+        container_port: 8123,
     },
     Service {
         name: "keycloak",
-        port_env: "SUTURA_DEV_KEYCLOAK_PORT",
-        salt: "keycloak",
+        container_port: 8080,
     },
 ];
 
+/// The directory, under the worktree, where provisioning keeps its state. Gitignored.
+const STATE_DIR: &str = ".sutura-dev";
+
+/// Why a worktree root could not become a scope.
+#[derive(Debug)]
+pub enum ScopeError {
+    /// The path could not be canonicalised - it does not exist, or a component is not readable.
+    ///
+    /// Canonicalisation is not a nicety here: it resolves symlinks and returns the on-disk
+    /// spelling, which is what makes one directory reached two ways one worktree rather than two.
+    /// A scope over an unresolved path would namespace containers by how somebody typed a path.
+    NotResolvable {
+        /// The path as given.
+        given: PathBuf,
+        /// What the filesystem said.
+        cause: std::io::Error,
+    },
+}
+
+impl std::fmt::Display for ScopeError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match *self {
+            Self::NotResolvable { ref given, .. } => {
+                write!(f, "`{}` could not be resolved to a real directory", given.display())
+            }
+        }
+    }
+}
+
+impl std::error::Error for ScopeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match *self {
+            Self::NotResolvable { ref cause, .. } => Some(cause),
+        }
+    }
+}
+
 /// Everything derived from one worktree.
+///
+/// If an instance exists, its root is canonical: [`Scope::from_root`] is the only public
+/// constructor and it canonicalises first, so no caller has to wonder which spelling of a path a
+/// scope was built from.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Scope {
-    /// Absolute worktree path, as the digest saw it.
-    pub(crate) root: String,
+pub struct Scope {
+    /// Canonical worktree path, as the digest saw it.
+    root: PathBuf,
     /// Short digest of `root`.
-    pub(crate) digest: String,
+    digest: String,
 }
 
 impl Scope {
     /// Derive a scope from a worktree root.
     ///
-    /// The path is lowercased before hashing: Windows reaches the same directory through
-    /// `C:\` and `c:\`, and two spellings of one worktree must not get two sets of ports.
-    #[must_use]
-    pub(crate) fn from_root(root: &Path) -> Self {
-        let text = root.to_string_lossy().to_lowercase().replace('\\', "/");
-        let digest = sha2::Sha256::digest(text.as_bytes());
+    /// The canonical constructor. It resolves the path first - symlinks included - so two spellings
+    /// of one directory are one worktree, and two genuinely different directories are two. On a
+    /// case-folding filesystem that is what makes a case-only difference one worktree, and on a
+    /// case-sensitive one it is what stops two real directories being folded into one. Neither
+    /// property comes from lowercasing the string, which an earlier version did and which was wrong
+    /// on exactly one of those two platforms.
+    pub fn from_root(root: &Path) -> Result<Self, ScopeError> {
+        let resolved = std::fs::canonicalize(root).map_err(|cause| ScopeError::NotResolvable {
+            given: root.to_path_buf(),
+            cause,
+        })?;
+        Ok(Self::from_canonical(&resolved))
+    }
+
+    /// The digest and the naming, over a path the caller has already resolved.
+    ///
+    /// Separate from [`Scope::from_root`] so the naming is testable without a filesystem, and
+    /// `pub(crate)` because a caller that has not canonicalised would get a scope whose whole
+    /// guarantee is missing.
+    pub(crate) fn from_canonical(root: &Path) -> Self {
+        let digest = sha2::Sha256::digest(root.to_string_lossy().as_bytes());
         let mut short = String::with_capacity(8);
         for byte in digest.iter().take(4) {
             use std::fmt::Write as _;
@@ -127,105 +206,119 @@ impl Scope {
             }
         }
         Self {
-            root: text,
+            root: root.to_path_buf(),
             digest: short,
         }
     }
 
+    /// The canonical worktree root.
+    #[must_use]
+    pub fn root(&self) -> &Path {
+        &self.root
+    }
+
+    /// Short digest of the canonical root. Printed so a stray container can be traced back.
+    #[must_use]
+    pub fn digest(&self) -> &str {
+        &self.digest
+    }
+
     /// Compose project name. Lowercase alphanumeric and dashes only, which is all docker
     /// compose accepts, and prefixed so a stray container is identifiable as ours.
+    ///
+    /// **The one function that supplies this name**, to start and to stop alike. Rule 3 of the
+    /// teardown contract on [`SERVICES`] is about the two of them agreeing.
     #[must_use]
-    pub(crate) fn project(&self) -> String {
+    pub fn project(&self) -> String {
         format!("sutura-dev-{}", self.digest)
     }
 
-    /// The port for `service`, from its override if set, otherwise derived.
+    /// Where provisioning keeps this worktree's state. Under the worktree, never shared.
     #[must_use]
-    pub(crate) fn port(&self, service: &Service) -> u16 {
-        std::env::var(service.port_env)
-            .ok()
-            .and_then(|v| v.parse::<u16>().ok())
-            .unwrap_or_else(|| derive_port(&self.digest, service.salt))
+    pub fn state_dir(&self) -> PathBuf {
+        self.root.join(STATE_DIR)
     }
-}
-
-/// A port in `[RANGE_START, RANGE_END)` from a digest and a salt.
-///
-/// Separate from `Scope` so it is testable without a filesystem.
-#[must_use]
-pub(crate) fn derive_port(digest: &str, salt: &str) -> u16 {
-    let mut hasher = sha2::Sha256::new();
-    hasher.update(digest.as_bytes());
-    hasher.update(b":");
-    hasher.update(salt.as_bytes());
-    let out = hasher.finalize();
-
-    // Two bytes is enough for a 10,000-wide range and keeps the arithmetic obvious.
-    let high = u16::from(out.first().copied().unwrap_or(0));
-    let low = u16::from(out.get(1).copied().unwrap_or(0));
-    let span = RANGE_END - RANGE_START;
-    // `rem_euclid` rather than `%`: the restriction lint wants the intent spelled out, and
-    // for unsigned values this is the same operation with a name.
-    RANGE_START + high.wrapping_mul(256).wrapping_add(low).rem_euclid(span)
 }
 
 #[cfg(test)]
 mod tests {
     use std::path::Path;
 
-    use super::{RANGE_END, RANGE_START, SERVICES, Scope, derive_port};
+    use super::{SERVICES, Scope};
 
     #[test]
-    fn the_same_worktree_always_gets_the_same_ports() {
-        let a = Scope::from_root(Path::new("/home/x/sutura"));
-        let b = Scope::from_root(Path::new("/home/x/sutura"));
+    fn the_project_name_is_derived_from_the_worktree_path_and_is_stable() {
+        // Stability is what makes teardown scoped: stop has to name what start named.
+        let a = Scope::from_canonical(Path::new("/home/x/sutura"));
+        let b = Scope::from_canonical(Path::new("/home/x/sutura"));
         assert_eq!(a, b);
-        for service in SERVICES {
-            assert_eq!(a.port(service), b.port(service));
-        }
+        assert_eq!(a.project(), b.project());
+        assert!(a.project().starts_with("sutura-dev-"));
     }
 
     #[test]
-    fn different_worktrees_get_different_scopes() {
-        let a = Scope::from_root(Path::new("/home/x/sutura"));
-        let b = Scope::from_root(Path::new("/home/x/sutura-feature"));
-        assert_ne!(a.digest, b.digest);
+    fn two_worktree_paths_produce_different_project_names() {
+        let a = Scope::from_canonical(Path::new("/home/x/sutura"));
+        let b = Scope::from_canonical(Path::new("/home/x/sutura-feature"));
+        assert_ne!(a.digest(), b.digest());
         assert_ne!(a.project(), b.project(), "compose projects must not collide");
     }
 
     #[test]
-    fn case_and_separator_differences_are_the_same_worktree() {
-        // Windows reaches one directory by several spellings; two spellings must not mean two
-        // sets of containers.
-        let a = Scope::from_root(Path::new(r"C:\Users\x\sutura"));
-        let b = Scope::from_root(Path::new("c:/Users/x/sutura"));
-        assert_eq!(a, b);
+    fn a_case_only_path_difference_is_two_strings_and_the_filesystem_decides() {
+        // The digest does NOT fold case - an earlier version lowercased the path, which made two
+        // real directories on a case-sensitive filesystem one worktree. Case folding, where it
+        // happens at all, is the filesystem's answer and arrives through canonicalisation; the
+        // test below asks a real directory rather than a string.
+        let upper = Scope::from_canonical(Path::new("/home/x/Sutura"));
+        let lower = Scope::from_canonical(Path::new("/home/x/sutura"));
+        assert_ne!(upper.project(), lower.project());
     }
 
     #[test]
-    fn services_within_a_worktree_do_not_share_a_port() {
-        let scope = Scope::from_root(Path::new("/home/x/sutura"));
-        let mut ports: Vec<u16> = SERVICES.iter().map(|s| scope.port(s)).collect();
-        let count = ports.len();
-        ports.sort_unstable();
-        ports.dedup();
-        assert_eq!(ports.len(), count, "two services derived the same port");
-    }
+    fn a_case_only_path_difference_is_one_worktree_where_the_filesystem_folds_case() {
+        // Both directions are asserted, because a case-folding decision with only one side tested
+        // is half a decision - and which side holds is a property of the host, not of this code.
+        let base = std::env::temp_dir().join(format!("sutura-scope-{}", std::process::id()));
+        let real = base.join("Worktree");
+        std::fs::create_dir_all(&real).expect("temp dirs are creatable");
 
-    #[test]
-    fn ports_stay_inside_the_private_range() {
-        // Below the ephemeral range, so the kernel cannot have already handed one out.
-        for seed in ["0000", "ffff", "1a2b", "dead"] {
-            for salt in ["postgres", "clickhouse", "keycloak", "future-service"] {
-                let port = derive_port(seed, salt);
-                assert!((RANGE_START..RANGE_END).contains(&port), "{port} out of range");
-            }
+        let folded = base.join("worktree");
+        let host_folds_case = folded.is_dir();
+
+        let canonical = Scope::from_root(&real).expect("the directory exists");
+        let reached_the_other_way = Scope::from_root(&folded);
+
+        if host_folds_case {
+            let other = reached_the_other_way.expect("a folding filesystem resolves both spellings");
+            assert_eq!(
+                canonical.project(),
+                other.project(),
+                "one directory reached two ways must be one worktree"
+            );
+        } else {
+            assert!(
+                matches!(reached_the_other_way, Err(super::ScopeError::NotResolvable { .. })),
+                "on a case-sensitive filesystem the other spelling is not a directory at all"
+            );
         }
+        std::fs::remove_dir_all(&base).expect("cleanup");
+    }
+
+    #[test]
+    fn an_unresolvable_root_is_refused_rather_than_hashed() {
+        // A scope over a path that does not exist would namespace containers by a spelling nothing
+        // resolved, which is the whole failure canonicalisation removes.
+        let missing = std::env::temp_dir().join("sutura-scope-definitely-not-here");
+        assert!(matches!(
+            Scope::from_root(&missing),
+            Err(super::ScopeError::NotResolvable { .. })
+        ));
     }
 
     #[test]
     fn a_compose_project_name_is_valid_for_docker() {
-        let scope = Scope::from_root(Path::new("/home/x/sutura"));
+        let scope = Scope::from_canonical(Path::new("/home/x/sutura"));
         let project = scope.project();
         assert!(
             project
@@ -234,5 +327,41 @@ mod tests {
             "docker compose rejects anything else: {project}"
         );
         assert!(project.starts_with("sutura-dev-"), "a stray container must be identifiable");
+    }
+
+    #[test]
+    fn a_service_declares_no_host_port() {
+        // The shape of the guarantee: there is no field on `Service` a host port could hide in, so
+        // nothing can read one from the declaration instead of from discovery.
+        let source = include_str!("scope.rs");
+        let declaration = source
+            .split("pub struct Service {")
+            .nth(1)
+            .and_then(|tail| tail.split('}').next())
+            .expect("the declaration is in this file");
+        // The FIELDS, not the prose about them: a doc comment explaining why there is no host port
+        // is not a host port, and a check that could not tell the two apart would fail on the
+        // explanation of itself.
+        let fields: Vec<&str> = declaration
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with("//"))
+            .collect();
+        for field in &fields {
+            assert!(
+                !field.contains("host") && !field.contains("published"),
+                "`Service` grew a host-port field: {field}"
+            );
+        }
+        assert_eq!(fields.len(), 2, "an unreviewed field on `Service`: {fields:?}");
+        for service in SERVICES {
+            assert!(service.container_port() > 0, "{} has no container port", service.name());
+        }
+    }
+
+    #[test]
+    fn state_lives_under_the_worktree() {
+        let scope = Scope::from_canonical(Path::new("/home/x/sutura"));
+        assert!(scope.state_dir().starts_with(scope.root()));
     }
 }

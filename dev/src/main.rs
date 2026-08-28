@@ -1,27 +1,32 @@
 //! `sutura-dev` - the developer workflow that needs to know which worktree it is in.
 //!
 //! Why a separate binary rather than another `xtask` task: xtask holds *gates*, which answer
-//! "does this repo violate a rule?" and are run by hooks and CI. This holds *actions*, which
-//! change your machine - create a worktree, start a database. Mixing them would mean CI runs a
-//! binary that can start containers, and a developer runs a binary whose job is to say no.
+//! "does this repo violate a rule?" and are run by hooks and CI. This holds *actions* on a
+//! developer's own tree - create a worktree, tell me where I am.
+//!
+//! **Starting a container is NOT one of them, and that is a change.** This header used to name
+//! "start a database" as the example of an action that belongs here. Provisioning went to `xtask`
+//! instead, because `xtask` already owns "what does this change require" and is the tool CI runs -
+//! and a service tier that only a developer's binary can start is a tier CI cannot stand up. What
+//! this binary keeps is the read-only half: which worktree is this, and what did provisioning bind.
 //!
 //! Why not part of the shipped `sutura` binary: the image contains one executable and the tool
 //! surface is the governance boundary. Development machinery has no business being reachable
 //! there.
 //!
 //! WHAT IT IS FOR. Several worktrees of this repo are open at once - that is the point of
-//! stacked branches - and each will need its own Postgres, `ClickHouse` and an identity provider.
+//! stacked branches - and each needs its own Postgres, `ClickHouse` and an identity provider.
 //! Two worktrees sharing one container is the worst available outcome: a test passes because
-//! the *other* branch's migration ran. `scope` derives everything per worktree so that cannot
-//! happen. The services are declared before they exist because the port scheme has to be
-//! settled first; changing it later moves every developer's ports at once.
-
-mod scope;
+//! the *other* branch's migration ran. `sutura_dev::scope` derives every NAME per worktree so that
+//! cannot happen, and `sutura_dev::discovery` reads back the ports docker allocated - which are
+//! allocated rather than derived, because a hash into a port range cannot promise disjoint blocks
+//! and check-then-bind is a race.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
 
-use scope::{SERVICES, Scope};
+use sutura_dev::discovery::{self, Endpoints};
+use sutura_dev::scope::{SERVICES, Scope};
 
 /// A command: the name, the `--help` line, and the code it runs.
 ///
@@ -40,7 +45,7 @@ struct Cmd {
 const COMMANDS: &[Cmd] = &[
     Cmd {
         name: "ports",
-        description: "the ports this worktree's services use, and why",
+        description: "this worktree's compose project, and the endpoints provisioning bound",
         run: cmd_ports,
     },
     Cmd {
@@ -107,20 +112,56 @@ fn cmd_ports(_args: &[String]) -> ExitCode {
     let Ok(root) = require_root() else {
         return ExitCode::FAILURE;
     };
-    let scope = Scope::from_root(&root);
+    let Some(scope) = require_scope(&root) else {
+        return ExitCode::FAILURE;
+    };
 
     println!("worktree   {}", root.display());
-    println!("scope      {}", scope.digest);
+    println!("scope      {}", scope.digest());
     println!("compose    {}", scope.project());
+    println!("discovery  {}", discovery::path_for(&scope).display());
     println!();
-    println!("{:<12} {:>6}  override with", "service", "port");
-    for service in SERVICES {
-        println!("{:<12} {:>6}  {}", service.name, scope.port(service), service.port_env);
+
+    match Endpoints::discover(&scope) {
+        Ok(endpoints) => {
+            println!("{:<12} endpoint", "service");
+            for (name, endpoint) in endpoints.services() {
+                println!("{name:<12} {endpoint}");
+            }
+            println!();
+            println!("Read from the discovery file, which is the only place these exist. The ports");
+            println!("were allocated by docker and the operating system, so they move between runs -");
+            println!("which is what makes two worktrees provisioning at once safe rather than lucky.");
+        }
+        Err(problem) => {
+            println!("nothing provisioned: {problem}");
+            println!();
+            println!("Declared services: {}", declared_services());
+            println!("`just dev-up` provisions them and writes the discovery file.");
+        }
     }
-    println!();
-    println!("Derived from the worktree path, so they are stable across runs: a port that moves");
-    println!("cannot go in a config file or a bug report. Another worktree gets other ports.");
     ExitCode::SUCCESS
+}
+
+/// The service names this worktree could run, for a message. NOT their ports: there is no such
+/// thing until docker has bound one, and printing a placeholder is how a constant gets copied.
+fn declared_services() -> String {
+    SERVICES
+        .iter()
+        .map(sutura_dev::scope::Service::name)
+        .collect::<Vec<&str>>()
+        .join(", ")
+}
+
+/// This worktree's scope, or a message saying why the path could not be resolved.
+fn require_scope(root: &Path) -> Option<Scope> {
+    match Scope::from_root(root) {
+        Ok(scope) => Some(scope),
+        Err(problem) => {
+            eprintln!("sutura-dev: {problem}");
+            None
+        }
+    }
 }
 
 fn cmd_worktree(args: &[String]) -> ExitCode {
@@ -210,13 +251,15 @@ fn worktree_create(branch: &str) -> ExitCode {
     // stax chooses the directory, so ask git where it went rather than guessing.
     match created_worktree(&root, branch) {
         Some(path) => {
-            let scope = Scope::from_root(&path);
             println!();
             println!("{}", path.display());
-            println!("scope {}   compose project {}", scope.digest, scope.project());
-            for service in SERVICES {
-                println!("  {:<12} {}", service.name, scope.port(service));
+            if let Some(scope) = require_scope(&path) {
+                println!("scope {}   compose project {}", scope.digest(), scope.project());
             }
+            println!(
+                "services {} - `just dev-up` in the new worktree binds them",
+                declared_services()
+            );
             println!();
             println!("Next: cd {} && direnv allow", path.display());
             println!("direnv trust is per directory, so a new worktree needs it again.");
@@ -266,8 +309,10 @@ fn worktree_list() -> ExitCode {
     println!("{:<10} {:<14} path", "scope", "compose");
     for line in String::from_utf8_lossy(&out.stdout).lines() {
         if let Some(path) = line.strip_prefix("worktree ") {
-            let scope = Scope::from_root(Path::new(path));
-            println!("{:<10} {:<14} {path}", scope.digest, scope.project());
+            match Scope::from_root(Path::new(path)) {
+                Ok(scope) => println!("{:<10} {:<14} {path}", scope.digest(), scope.project()),
+                Err(problem) => println!("{:<10} {:<14} {path}  ({problem})", "?", "?"),
+            }
         }
     }
     ExitCode::SUCCESS
@@ -350,9 +395,11 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
         root.as_ref()
             .map_or_else(|| String::from("NOT IN A GIT WORKTREE"), |r| r.display().to_string())
     );
-    if let Some(ref root) = root {
-        let scope = Scope::from_root(root);
-        println!("scope      {}", scope.digest);
+    if let Some(ref root) = root
+        && let Ok(scope) = Scope::from_root(root)
+    {
+        println!("scope      {}", scope.digest());
+        println!("compose    {}", scope.project());
     }
     println!();
 
@@ -368,7 +415,11 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
             "{:<10} {}{}",
             tool,
             if present { "present" } else { "MISSING" },
-            if required { "" } else { "  (needed once dev services land)" }
+            if required {
+                ""
+            } else {
+                "  (`just dev-up` needs docker; everything else works without it)"
+            }
         );
     }
 
@@ -394,7 +445,7 @@ fn cmd_doctor(_args: &[String]) -> ExitCode {
     if !hooks.is_empty() {
         return ExitCode::FAILURE;
     }
-    println!("Ready. `sutura-dev ports` shows this worktree's service ports.");
+    println!("Ready. `just ports` shows this worktree's compose project and its endpoints.");
     ExitCode::SUCCESS
 }
 

@@ -13,6 +13,7 @@ mod boundaries;
 mod causality;
 mod changes;
 mod commit_msg;
+mod compose;
 mod crap;
 mod docs;
 mod fmt;
@@ -243,6 +244,28 @@ const TASKS: &[Task] = &[
         description: "every cheap structural gate, in order (the one list)",
         kind: Kind::Standalone,
         run: run_hygiene,
+    },
+    Task {
+        // The compose tier. `Kind::Standalone`, and not for the usual reason: these are not
+        // expensive, they are ACTIONS - they start and remove containers on the host. The hygiene
+        // sweep runs on every commit and inside the Nix sandbox, which has no network and no docker
+        // socket, so a tier collected into it could not run and must not try.
+        name: "dev-up",
+        description: "this worktree's services, on ephemeral ports, with a discovery file (needs docker)",
+        kind: Kind::Standalone,
+        run: compose::run_up,
+    },
+    Task {
+        name: "dev-down",
+        description: "remove this worktree's services and volumes; --dry-run says what it would take",
+        kind: Kind::Standalone,
+        run: compose::run_down,
+    },
+    Task {
+        name: "dev-endpoints",
+        description: "where this worktree's services are listening, from the discovery file",
+        kind: Kind::Standalone,
+        run: compose::run_endpoints,
     },
     Task {
         name: "test-causality",

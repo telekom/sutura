@@ -3383,6 +3383,7 @@ dependencies = [
 name = "sutura-dev"
 version = "0.2.4"
 dependencies = [
+ "serde_json",
  "sha2",
 ]
 
@@ -4397,6 +4398,7 @@ version = "0.2.4"
 dependencies = [
  "serde_json",
  "sha2",
+ "sutura-dev",
 ]
 
 [[package]]

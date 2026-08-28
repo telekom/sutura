@@ -388,3 +388,31 @@ worktrees:
 # What is present, what is missing, what would fail.
 doctor:
     cargo run -q -p sutura-dev -- doctor
+
+# ------------------------------------------------------- the compose tier ---
+#
+# One independent service instance per worktree, provisioned through xtask rather than through the
+# shipped binary: docker orchestration inside a release artifact is test scaffolding delivered to
+# users, and xtask is never packaged.
+#
+# NOT a nix check, and it cannot be one - the sandbox has no network and no docker socket. So these
+# are just tasks and a CI job over nix-built artifacts.
+#
+# A missing docker SKIPS here and FAILS in CI. Both directions come from one flag: export
+# SUTURA_DEV_REQUIRE_DOCKER=1 to get the CI direction on this machine, or =0 to get this one there.
+
+# This worktree's services, on ports docker allocates, with a discovery file a harness reads.
+dev-up:
+    cargo run -q -p xtask -- dev-up
+
+# Where this worktree's services are listening. The only way to learn it - there is no constant.
+dev-endpoints:
+    cargo run -q -p xtask -- dev-endpoints
+
+# Remove this worktree's services, its network and its named volumes. Nothing else, ever.
+dev-down:
+    cargo run -q -p xtask -- dev-down
+
+# What `just dev-down` would remove, and what it would deliberately spare. Removes nothing.
+dev-down-dry:
+    cargo run -q -p xtask -- dev-down --dry-run
