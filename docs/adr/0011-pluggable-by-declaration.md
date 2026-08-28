@@ -293,3 +293,45 @@ metadata source ever impersonates, this section is void and the caching rule abo
 Optionality is therefore a declaration too, not a fallback the code takes on its own. A deployment that
 wants to survive its description source being down says so, and accepts that answers then carry a
 different digest.
+
+## Exploit what a source actually knows
+
+**Metrics are always the goal, and they are not where a deployment starts.** So the value of a metadata
+source is how much of a metric definition it can carry BEFORE a human writes one - because every field a
+source fills is a field nobody has to type, and the promotion step from an ungoverned answer to a
+certified metric is exactly as smooth as the amount already filled in.
+
+That makes flattening every source to "it provides descriptions" a waste. Some sources know far more,
+and the declaration should be able to say so:
+
+| Source | What it can carry beyond descriptions |
+| --- | --- |
+| DDL and comments | Columns and types; foreign keys as relationships; primary-key and unique constraints as **evidence** for cardinality |
+| An ontology in RDF | Labels and alternative labels as glossary phrases; definitions as descriptions; domain and range as relationships; **functional properties and cardinality restrictions as cardinality evidence**; a class hierarchy as dimension structure |
+| A process model in BPMN | The stages of a process as the **allowed values** of a status dimension, in their real order, each with what it means |
+| A full metadata platform | All of the above, declared as such, so a deployment reading only that one composes nothing |
+
+Three consequences worth stating, because each is a decision rather than an observation.
+
+**Cardinality stops being purely trusted wherever a source has evidence.** The root-of-trust file records
+that a declared cardinality is a trusted precondition nothing checks against the data. A unique
+constraint, or a functional property in an ontology, is evidence for exactly that claim. So a source
+carrying either can **refuse a declared cardinality it contradicts**, which narrows one of the few
+invariants here that rests on trust. Evidence from metadata is still not evidence from the data, and the
+distinction stays in the wording.
+
+**A process model is the best source of an allowlist there is.** A status dimension's legitimate values,
+typed by hand, are a list that rots the first time somebody adds a stage. Taken from the process model,
+they are the same list the business runs on - and its ORDER is information a hand-typed set does not
+carry.
+
+**None of them supplies a measure, and none of them should be asked to.** An ontology does not say that
+revenue is a sum of one column with two filters. A human owns that sentence, and inferring it from
+structure is precisely the guessing this design exists to avoid: it would produce a certified number
+whose definition nobody wrote. So the split is: **structure and meaning can be harvested; the measure is
+declared.**
+
+What that buys, concretely: with a rich source present, a candidate definition can arrive with the model,
+the dimensions, their allowed values, the joins and their cardinality already filled, leaving a human to
+supply the measure and approve it. That is the difference between promotion being a form to fill and
+promotion being a sentence to confirm.
