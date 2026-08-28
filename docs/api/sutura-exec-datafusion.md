@@ -36,11 +36,20 @@ adding a cache here would be the place the habit started.
 What it does offer is two narrow, typed attach affordances, `DataFusionWarehouse::attach_csv`
 and `DataFusionWarehouse::attach_parquet`, which is what a golden fixture needs.
 
-# Three files, along two seams
+**The engine's memory is bounded, and the bound is not this process's memory.** Every session here
+is built with a `RuntimeEnv` carrying a fixed-size pool, because the alternative is the engine's
+unbounded one - and under `panic = "abort"` a large enough hash join is then process death for
+every concurrent caller rather than an error for the one who asked. A refused reservation leaves as
+`RefusalReason::ResourcesExhausted`. What the pool counts is operator reservations and **nothing
+else**: not what a driver buffers, not `collect()` materialising every batch, not the row set built
+in the conversion loop below. See `pool`, which states the gap rather than implying it is closed.
+
+# Four files, along three seams
 
 `translate.rs` turns a plan into expressions and never reads a result; `collect.rs` turns a result
-into domain rows and never reads a plan except for its labels. What is left here is what neither
-of them is about: the session, the runtime, attaching a file, and executing.
+into domain rows and never reads a plan except for its labels; `pool.rs` is the working-set ceiling
+and reads neither. What is left here is what none of them is about: the session, the runtime,
+attaching a file, and executing.
 
 ## `enum DataFusionError`
 
@@ -57,6 +66,7 @@ map" send a reader to three different places.
 ### Variants
 
 - `Runtime` - The runtime this adapter executes on could not be built.
+- `Environment` - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.
 - `Attach`
 - `Build` - A logical plan could not be assembled from the query plan.
 - `Analyze` - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
@@ -107,7 +117,22 @@ The CSV affordance's twin, and why the `parquet` feature is on. Neither `compres
 manifest's comment records which.
 
 ```rust
-pub fn new(source: SourceName) -> Result<Self, DataFusionError>
+pub fn memory_pool(&self) -> &Arc<dyn MemoryPool>
+```
+
+The pool every operator in this session reserves against.
+
+**An accessor because the fields are private and stay private**, and because
+`docs/adr/0015` needs `MemoryPool::reserved` for a gauge whose absence it currently specifies:
+a gauge reading zero while no pool exists is a lie an operator builds an alert on.
+
+**State the limit with the reading.** What comes back counts operator reservations - a
+hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
+memory, and it must not be alerted on as though it were: `collect()` materialising every batch
+and the row set built during conversion are both outside it, on the same request path.
+
+```rust
+pub fn new(source: SourceName, working_set: WorkingSet) -> Result<Self, DataFusionError>
 ```
 
 Builds an adapter with nothing registered.
@@ -115,8 +140,14 @@ Builds an adapter with nothing registered.
 There is no file to open, which is the difference from the `DuckDB` adapter: the engine is
 this process, and a table exists once it has been attached.
 
+**It takes a ceiling, and that is not optional.** `SessionContext::new()` installs the
+engine's unbounded pool, which under `panic = "abort"` makes a large enough join process death
+rather than a refusal - so a constructor that let a caller skip the bound would be the one
+place the whole control could be forgotten. `sutura_config::WorkingSetCeiling::DEFAULT_BYTES`
+is what a caller with no settings to read uses.
+
 ```rust
-pub fn with_worker_threads(source: SourceName, workers: core::num::NonZeroUsize) -> Result<Self, DataFusionError>
+pub fn with_worker_threads(source: SourceName, workers: core::num::NonZeroUsize, working_set: WorkingSet) -> Result<Self, DataFusionError>
 ```
 
 The same adapter, `workers` threads wide.
@@ -149,6 +180,108 @@ widths above are *ahead* of the baseline rather than level with it.
 `Self::new` is deliberately left alone: the command-line tool answers one question and
 exits, and it is also the caller with no settings to read a width from.
 
+```rust
+pub const fn working_set(&self) -> WorkingSet
+```
+
+The ceiling this adapter's pool was built with.
+
+From the configured value rather than from `MemoryPool::memory_limit`, which defaults to
+`Unknown`: a pool that does not override it reports no ceiling, and then the reserved-against-
+ceiling ratio an operator actually wants cannot be computed.
+
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
+
+## Module `pool`
+
+The working-set ceiling.
+
+The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
+because it is a third seam, and because `lib.rs` is at the length gate.
+The working-set ceiling.
+
+The pool the engine's operators reserve against, and how a refused reservation is recognised on
+the way back out.
+
+# Why this file exists at all
+
+**There was no memory pool.** Nothing in the workspace constructed a `RuntimeEnv`, so
+`DataFusion` installed its `UnboundedMemoryPool` at both `SessionContext` construction sites -
+and shipped profiles compile `panic = "abort"`, so a hash join or an aggregate wide enough to
+outgrow the machine was not an error for the caller who asked. It was the process ending for every
+caller in flight. A bounded pool turns that into a reservation that fails, which
+`sutura_app::answer` turns into `RefusalReason::ResourcesExhausted`.
+
+# What the pool counts, and what it does not
+
+It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
+sort. **It counts nothing else.** Not what a driver buffers, not `collect()` materialising every
+batch into memory at once, not the `Vec<Vec<Value>>` built while a result is converted into domain
+rows - all three of which are on the path a question takes through this crate. So this is not a
+bound on the process's memory and must not be alerted on as one: a question large enough to end
+the process on one of those paths still ends it. `docs/adr/0009` puts the bound that reaches them
+- a byte budget applied as rows are converted - with the execution boundary rather than here, and
+says so rather than letting this one be read as wider than it is.
+
+# Greedy, and never spilling
+
+`GreedyMemoryPool` rather than `FairSpillPool`: first come, first served, and a reservation over
+the ceiling fails immediately. `docs/adr/0009` Decision 3 decides the policy and the second of its
+two reasons is what settles it - spilling writes the **asking subject's rows** to the pod's local
+disk, a data-at-rest surface nothing in this design governs, on the one path whose whole purpose
+is that a query executes as the person who asked. A bound that protects memory by making an
+ungoverned copy of the data has not protected anything.
+
+So temporary files are **disabled** rather than left at the engine's default of an OS temporary
+directory. That is belt and braces on purpose: the pool alone would still let a spilling operator
+react to a refused reservation by writing, and `DiskManagerMode::Disabled` is what makes there be
+nowhere to write to. No spill directory, no disk sizing, and a refusal that does not depend on
+disk state.
+
+Not wrapped in `TrackConsumersPool` either, though it would improve the engine's own message: what
+reaches a caller is [`RefusalReason::ResourcesExhausted`](sutura_domain::query::RefusalReason),
+which carries the configured ceiling and deliberately nothing about what the question demanded.
+
+### `struct WorkingSet`
+
+```rust
+pub struct WorkingSet
+```
+
+How many bytes the engine's operators may reserve at once.
+
+**A newtype for the unit rather than for a range**, and that is the whole of its job:
+[`DataFusionWarehouse::with_worker_threads`](crate::DataFusionWarehouse::with_worker_threads)
+already takes a `NonZeroUsize` for a thread count, so a second bare `NonZeroUsize` beside it would
+be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
+compiles and installs a three-byte pool. Wrapped, the swap does not build.
+
+It parses nothing beyond non-zero, which the inner type already carries - the range that matters is
+parsed once, in `sutura_config::WorkingSetCeiling`, against the memory the process can actually
+reach. This crate does not depend on that one and must not: an adapter does not call another
+adapter, so the composition root converts.
+
+#### Methods
+
+```rust
+pub const fn bytes(self) -> usize
+```
+
+The ceiling, for whatever sizes the pool.
+
+```rust
+pub const fn of_bytes(bytes: core::num::NonZeroUsize) -> Self
+```
+
+The ceiling, in bytes.
+
+The one constructor, named for the unit so a call site reads as bytes at the point of the call
+rather than at the declaration it came from.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
