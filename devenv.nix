@@ -42,6 +42,13 @@ let
   # disagreement would look like flakiness rather than like two pins.
   crap = import ./nix/crap.nix { inherit pkgs; };
 
+  # The stacked-branches tool, pinned to one upstream release rather than taken from nixpkgs -
+  # which carries 0.102.2 on both locks AND on master, so no input bump reaches a newer one. Its
+  # own file for the same reason the three above have one: the pin, the reason for it and the
+  # per-system hashes belong beside each other, not spread across a package list. Unlike those
+  # three, flake.nix does not import it: CI neither runs stax nor has an opinion about it.
+  stax = import ./nix/stax.nix { inherit pkgs; };
+
   # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
   # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
   rustToolchain = toolchains.nightly;
@@ -111,6 +118,15 @@ in
     # nix/crap.nix exists to remove.
     crap.cargoCrap
     crap.llvmCov
+
+    # Stacked branches - this plan is a chain of dependent changes by construction. `stax`
+    # rebases a stack (`gh-stack`, which describes one, is a nixpkgs package and stays below).
+    # Listed here rather than inside the `with pkgs` block for the same reason as the two above,
+    # and here it is not only tidiness: `stax` is a let-binding in this file AND a nixpkgs
+    # attribute, and a `with` binding loses to a `let` one - so the bare name inside that block
+    # would silently resolve to this derivation while reading as `pkgs.stax`. Naming the
+    # attribute is what makes which one is meant visible. See the `stacked-branches` skill.
+    stax.package
   ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
     # What `-liconv` resolves to on a mac. rustc emits it for every darwin link, the SDK does not
     # carry it under nix, and .cargo/config.toml routes the link through the clang wrapper so that
@@ -134,10 +150,9 @@ in
     # cites a task rather than a command line that drifts from the one people run.
     just
 
-    # Stacked branches - this plan is a chain of dependent changes by construction.
-    # `stax` rebases a stack; `gh-stack` describes one (PR bodies and cross-links) for a
-    # stack that was built by hand. See the `stacked-branches` skill.
-    stax
+    # `gh-stack` describes a stack (PR bodies and cross-links) for one that was built by hand.
+    # It is not a replacement for `st refresh`, which restacks. nixpkgs' version is the one we
+    # want, so unlike `stax` above it needs no pin of its own.
     gh-stack
 
     # For stax's `use_gh_cli` and for release commands that use `gh` rather than an action.
@@ -209,6 +224,11 @@ in
     # part of the answer, so seeing it is not a nicety.
     echo "  llvm-cov   $(cargo llvm-cov --version 2>/dev/null || echo MISSING)"
     echo "  cargo-crap $(cargo crap --version 2>/dev/null || echo MISSING)"
+    # stax, because this is the one tool in the shell whose version the DOCUMENTATION quotes -
+    # the `stacked-branches` skill cites its `--help` for what `sync` does and does not do, and
+    # `check-guidance` fails if that citation and nix/stax.nix disagree. Seeing the number on
+    # entry is what makes the third party to that agreement observable rather than assumed.
+    echo "  stax       $(stax --version 2>/dev/null || echo MISSING)"
     echo "  pixi       $(pixi --version 2>/dev/null || echo MISSING)"
     echo "  gh-axi     $(gh-axi --version 2>/dev/null || echo 'not installed')"
     # Presence only. Printing a token into a CI log is how tokens leak.
