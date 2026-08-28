@@ -144,85 +144,12 @@
           '';
         };
 
-        # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they fall
-        # behind; this is the fix it names, and the two must agree byte for byte, so both get their
-        # tools from here: `nightlyToolchain` above and a stdlib interpreter out of nixpkgs.
-        #
-        # An app rather than a check, because a check cannot write to the source tree - the point
-        # of this one is to leave the regenerated file in the worktree for review. It exists because
-        # `just api` called a BARE `cargo` and a BARE `pixi`, so it only worked where a dev shell
-        # was already active - the drift this flake exists to remove, and it bit. The recipe is now
-        # `nix run .#api-docs` and needs nothing but nix.
-        #
-        # `python3` and not pixi's, matching `checks.api-docs`: the generator imports json,
-        # pathlib, re and sys and nothing else. If it ever grows a third-party import, this and the
-        # check must become a pixi environment together or the gate disagrees with its own fix.
-        #
-        # Relative paths, so it must run at the repository root. Asserted rather than assumed - a
-        # silent miss writes nothing and reports success, the same failure shape as `repo::root()`
-        # returning the wrong directory.
-        apiDocsWriter = pkgs.writeShellApplication {
-          name = "sutura-api-docs";
-          # clang and lld because `.cargo/config.toml` selects them as the linker, and this app runs
-          # outside the dev shell that would otherwise have them. Without them every build script
-          # in the tree fails with "linker `clang` not found", which reads like a broken toolchain.
-          runtimeInputs = [ pkgs.python3 pkgs.clang pkgs.lld duckdb.package ];
-          text = ''
-            if [ ! -f flake.nix ] || [ ! -f Cargo.toml ]; then
-              echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
-              exit 1
-            fi
-            # Nightly for the `cargo rustdoc` child, reached as `checks.api-docs` reaches it, with
-            # a target directory of its own so it cannot invalidate the dev shell's `target/`.
-            export PATH="${nightlyToolchain}/bin:$PATH"
-            export CARGO_TARGET_DIR="''${CARGO_TARGET_DIR:-target}/api-docs"
-            # The cranelift backend is INHERITED when this app is run from inside the dev shell,
-            # and it cannot build this tree: `utoipa-swagger-ui`'s build script unzips its vendored
-            # asset bundle, and the CRC32 in `zip` uses `llvm.x86.pclmulqdq.256`, which cranelift
-            # does not implement - so the build script aborts with SIGABRT and the whole run dies
-            # after writing six of nine pages. Nothing here needs a fast codegen backend: this app
-            # emits rustdoc JSON and runs a Python renderer over it.
-            unset CARGO_PROFILE_DEV_CODEGEN_BACKEND CARGO_UNSTABLE_CODEGEN_BACKEND
-            # `--all-features` reaches the adapters, and one of them links libduckdb. This app runs
-            # OUTSIDE the dev shell - that is the point of it - so the three variables have to be
-            # here too, from the same nix/duckdb.nix the shell and the checks read.
-            export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
-            export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
-            export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}"
-
-            # DERIVED, not listed. `checks.api-docs` reads the library crates out of `cargo
-            # metadata`, so a hardcoded list here is a list that goes stale silently: the gate would
-            # ask for a page this writer never generates, and the fix it names would not produce it.
-            # This is the same query, so the two cannot disagree.
-            libs=$(cargo metadata --format-version 1 --no-deps | python3 -c '
-            import json, sys
-            meta = json.load(sys.stdin)
-            names = sorted(
-                p["name"]
-                for p in meta["packages"]
-                if any("lib" in t["kind"] for t in p["targets"])
-            )
-            print(" ".join(names))
-            ')
-            if [ -z "$libs" ]; then
-              echo "no library crates found: cargo metadata returned none" >&2
-              exit 1
-            fi
-            for lib in $libs; do
-              echo "api-docs: $lib"
-              # `--profile ci`: cargo's default `dev` optimises the closure at `opt-level = 3`.
-              cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
-                -Z unstable-options --output-format json
-              # rustdoc names its JSON after the crate's Rust identifier, so a package with a
-              # hyphen becomes a file with an underscore.
-              # The target directory variable, and not a literal `target/`: a developer who redirects the target
-              # directory - onto a faster volume, say - would otherwise get a "no such file" from
-              # the generator rather than the pages they asked for.
-              json="''${CARGO_TARGET_DIR:-target}/doc/$(printf '%s' "$lib" | tr - _).json"
-              python3 docs/.tools/rustdoc_to_markdown.py "$json"
-            done
-          '';
-        };
+        # WRITES the committed API pages, and `checks.api-docs` below is the gate that fails when
+        # they fall behind - the two must agree byte for byte, which is why one file defines the
+        # writer and the check names it as the fix. In `nix/api-docs.nix` because this file was at
+        # the 1000-line limit `cargo xtask max-lines` enforces; that module's header carries the
+        # rest, including why the seam is here rather than at the checks.
+        apiDocsWriter = import ./nix/api-docs.nix { inherit pkgs nightlyToolchain duckdb; };
 
 
         craneLibFor = sys:
@@ -238,32 +165,6 @@
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
 
-        # What cargo needs to LINK this workspace, outside a build sandbox, as shell lines.
-        #
-        # The checks do not need this: crane puts `duckdb.package` in `buildInputs` and the nix
-        # builder sets the linker search path from it. An app is a plain shell script outside
-        # any build sandbox, so it inherits nothing and has to say so itself.
-        #
-        # Two separate omissions, found one after the other, both in `apps.causality`:
-        #
-        #   - It exported only `PATH`, and `--all-features` pulls `sutura-exec-duckdb`, which
-        #     links `-lduckdb`: `ld.lld: error: unable to find library -lduckdb`. Only visible
-        #     after a disk fix let the gate run far enough to reach the linker, which is why a
-        #     pre-existing gap looked like a new regression.
-        #   - `.cargo/config.toml` sets `linker = "clang"` with `-fuse-ld=lld` and neither was on
-        #     PATH. The dev shell's `runtimeInputs` comment says precisely what that looks like -
-        #     "every build script fails with linker `clang` not found" - and the apps never got
-        #     the same treatment. It PASSED in CI and failed locally, which is the wrong way
-        #     round: `ubuntu-latest` ships clang, so the gate was depending on ambient tooling
-        #     in the one place this flake exists to make ambient tooling irrelevant.
-        #
-        # One binding, so the next app that shells out to cargo cannot omit half of it.
-        cargoLinkEnv = ''
-          export PATH="${pkgs.clang}/bin:${pkgs.lld}/bin:$PATH"
-          export DUCKDB_LIB_DIR="${duckdb.env.DUCKDB_LIB_DIR}"
-          export DUCKDB_INCLUDE_DIR="${duckdb.env.DUCKDB_INCLUDE_DIR}"
-          export LD_LIBRARY_PATH="${duckdb.env.LD_LIBRARY_PATH}''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-        '';
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
         # CI cannot score with two different versions. See nix/crap.nix for which one comes from
@@ -279,18 +180,18 @@
           pname = "sutura";
           version = "0.1.0";
           strictDeps = true;
-          # .cargo/config.toml selects clang + lld for the linux targets. The Nix build
-          # sandbox has neither unless we say so, and a flake that linked differently from
-          # the dev shell would reintroduce exactly the drift this flake exists to remove.
+          # .cargo/config.toml routes EVERY target through clang + lld, the two apple ones included, and the
+          # Nix sandbox has neither unless we say so: linking differently here than in the dev shell is the drift.
           nativeBuildInputs = [ pkgs.clang pkgs.lld ];
-          # `buildInputs` and not `nativeBuildInputs`: this is a library the built artifact links
-          # against, not a tool that runs during the build, and `strictDeps = true` above makes the
+          # `buildInputs` and not `nativeBuildInputs`: a library the built artifact links against,
+          # not a tool that runs during the build, and `strictDeps = true` above makes the
           # distinction load-bearing rather than stylistic.
           #
-          # Only the NATIVE args carry it. The cross builds below deliberately do not: nixpkgs has
-          # no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature so
-          # the musl artifacts never ask for one.
-          buildInputs = [ duckdb.package ];
+          # Only the NATIVE args carry either. The cross builds below deliberately do not: nixpkgs
+          # has no musl libduckdb, and `sutura-cli` keeps the adapter behind a default-off feature
+          # so the musl artifacts never ask for one. `libiconv` is what `-liconv` resolves to on a
+          # mac, where rustc emits it for every link and nix keeps it out of the SDK.
+          buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
         } // duckdb.env;
 
         # The two profiles we ship.
@@ -328,113 +229,30 @@
         ciArgs = commonArgs // { CARGO_PROFILE = "ci"; };
         ciArtifacts = craneLib.buildDepsOnly ciArgs;
 
+        # What a BARE cargo needs before it can build this workspace, as shell lines: the linker
+        # and the libraries an app inherits from nothing, plus the warm start that lets it reuse
+        # the dependency closure the checks already built. In `nix/cargo-env.nix` because this
+        # file was at the 1000-line limit; that module's header carries the reasoning, and it is
+        # where to look when an app fails at the linker or recompiles the world.
+        #
+        # `cargoVendorDir` is crane's own vendor directory for `ciArgs`, so the app resolves out
+        # of the SAME registry the artifacts were built against - which is the half of the warm
+        # start that is easy to omit and silently useless without.
+        inherit (import ./nix/cargo-env.nix {
+          inherit pkgs duckdb;
+          cargoArtifacts = ciArtifacts;
+          cargoVendorDir = craneLib.vendorCargoDeps ciArgs;
+        }) cargoLinkEnv cargoWarmStart;
+
+        # The allocator's C as a derivation per target, and the opt level that HAS to match what
+        # cc-rs computes for the cargo profile it is linked into. In `nix/mimalloc.nix` because
+        # this file was at the 1000-line limit; of the three seams taken out of here that module
+        # is the cleanest - it reads neither crane, nor the flake inputs, nor the source filter.
+        inherit (import ./nix/mimalloc.nix { inherit pkgs; }) mimallocFor optLevelFor;
+
         # A native build for one profile. For `release` the deps derivation is identical to
         # `cargoArtifacts` above, so Nix dedupes it and the checks' work is reused. A
         # performance build necessarily compiles its own, since the profile is what changed.
-        # The allocator's C, compiled in its own derivation rather than by the build script.
-        #
-        # WHY A DERIVATION. `vendor/mimalloc_rust` is a PATH dependency, so crane's shared
-        # dependency build does not shield it the way it shields a registry crate: without
-        # this, every edit to our own Rust recompiled mimalloc's C, once per target. Here it
-        # is hash-addressed by version, target and optimisation level, so it is built once per
-        # combination and then reused from the store and from CI's cache. Our source changes
-        # cannot invalidate it. The first build per target is still from source, because
-        # nothing upstream caches a musl cross of mimalloc.
-        #
-        # WHY NOT CMAKE, which would have been the obvious way to build a C library. Upstream's
-        # `CMakeLists.txt` decides three things behind our back. `MI_OVERRIDE` defaults ON, which
-        # compiles `alloc-override.c` and exports `malloc`, `free` and `operator new` - a
-        # semantic change, and the thing issue #5 turns on. `MI_OPT_ARCH` defaults ON for arm64
-        # and raises the architecture floor implicitly, which is what Debian, Fedora and nixpkgs
-        # all patch out; we DO raise that floor below, but as a stated decision rather than a
-        # default nobody chose. And `MI_LIBC_MUSL=ON` appends `-ftls-model=local-dynamic`,
-        # against the reasoning in `crates/sutura-cli/src/main.rs`. Compiling `src/static.c` -
-        # the single translation unit upstream maintains for exactly this purpose, and the one
-        # the build script itself compiles - means none of those defaults exist to override.
-        #
-        # THE FLAGS ARE A MEASUREMENT, not a design: they are what cc-rs passes today, captured
-        # with `CC_ENABLE_DEBUG_OUTPUT=1`. The one addition is `-DMI_PADDING_CHECK_BYTES=1`,
-        # because 3.5.0 redefined `MI_SECURE=4` to mean level 3 and moved byte-precise
-        # buffer-overflow checking to level 5; without it a `secure level: 4` line would be
-        # quietly weaker than the one it replaces. See issue #5.
-        mimallocVersion = "3.5.0";
-        mimallocFor = { targetPkgs, optLevel, isMusl }:
-          let
-            # ARMv8.3 FLOOR for the aarch64 targets, deliberately. mimalloc 3.5.0 gains from
-            # `LDAPR` (FEAT_LRCPC, v8.3) for its C11 acquire loads, and the level also brings
-            # `FEAT_LSE` (v8.1), so atomics become `cas`/`ldadd` rather than `ldxr`/`stxr`
-            # retry loops. Measured on the real translation unit: 58 acquire loads move from
-            # `ldar` to `ldapr`, with the object file the same size. The aarch64 artifacts
-            # therefore REQUIRE ARMv8.3-A or later, and `.cargo/config.toml` sets matching
-            # Rust features so the C and the Rust agree on that floor.
-            isAarch64 = targetPkgs.stdenv.hostPlatform.isAarch64;
-          in
-          targetPkgs.stdenv.mkDerivation {
-            pname = "mimalloc-static";
-            version = mimallocVersion;
-            # `fetchurl` on the release tarball, not `fetchFromGitHub`: this way the recorded
-            # hash is the hash of the artifact upstream published, which anyone can check with
-            # `curl` and `sha256sum`. `fetchFromGitHub` would record a NAR hash of the unpacked
-            # tree instead, which is checkable only by nix.
-            src = pkgs.fetchurl {
-              name = "mimalloc-${mimallocVersion}.tar.gz";
-              url = "https://codeload.github.com/microsoft/mimalloc/tar.gz/refs/tags/v${mimallocVersion}";
-              sha256 = "1e432f0559a4ab512143b9bff7a700541a2c8d4712b26a72de3e0222790da305";
-            };
-            dontConfigure = true;
-            # Matches cc-rs, which sets it for the same reason: a timestamp in the archive
-            # would make the output differ between builds.
-            env.ZERO_AR_DATE = "1";
-            buildPhase = ''
-              runHook preBuild
-              $CC -O${optLevel} -ffunction-sections -fdata-sections -fPIC \
-                -I include -I src \
-                -Wall -Wextra -Wno-error=date-time \
-                -ftls-model=initial-exec \
-                -DMI_SECURE=4 -DMI_PADDING_CHECK_BYTES=1 \
-                -DMI_DEBUG=0 -DMI_BUILD_RELEASE -DNDEBUG \
-                ${pkgs.lib.optionalString isMusl "-DMI_LIBC_MUSL=1"} \
-                ${pkgs.lib.optionalString isAarch64 "-march=armv8.3-a"} \
-                -c src/static.c -o static.o
-              $AR cqD libmimalloc.a static.o
-              runHook postBuild
-            '';
-            installPhase = ''
-              runHook preInstall
-              mkdir -p $out/lib
-              cp libmimalloc.a $out/lib/
-              runHook postInstall
-            '';
-          };
-
-        # The C tracks the cargo profile, so the derivation has to as well. Measured rather
-        # than assumed: `release` compiles the allocator at `-O1` and `release-performance` at
-        # `-O3`, because cc-rs reads cargo's `OPT_LEVEL`. Freezing one number here would
-        # silently decouple the allocator from the profile, so this is a pure caching change
-        # and not a performance one.
-        #
-        # `dev` lands on `-O3` and that is NOT an oversight: the allocator is a DEPENDENCY, and
-        # `[profile.dev.package."*"] opt-level = 3` in Cargo.toml is what cc-rs sees for it - the
-        # `opt-level = 0` on `[profile.dev]` applies to our own crates, not to this. Reading the
-        # wrong one of those two keys is the easy mistake here. It also means `dev` reuses the
-        # `release-performance` archive rather than adding a third C build to the cache.
-        # EXPLICIT per profile, and an unknown one is an error rather than a default. It was
-        # `if profile == "release" then "1" else "3"` while there were two profiles, and when a
-        # third arrived it inherited `3` by falling through the `else` - silently, and nobody
-        # chose it. `throw` is the whole point: a fourth profile has to state its own number
-        # here, because the value has to match what cc-rs computes for that profile or the
-        # allocator decouples from the code it is linked into.
-        optLevelFor = profile:
-          {
-            # cc-rs reads cargo's OPT_LEVEL, and for a DEPENDENCY that is
-            # `[profile.<p>.package."*"]` rather than the profile's own `opt-level`.
-            release = "1";
-            release-performance = "3";
-            # `[profile.ci.package."*"] opt-level = 0` - the point of that profile is compile
-            # speed, so its allocator is compiled to match rather than shared with a shipped one.
-            ci = "0";
-          }.${profile} or (throw "optLevelFor: no opt level declared for profile '${profile}'");
-
         nativeFor = profile:
           let args = commonArgs // {
             CARGO_PROFILE = profile;
@@ -567,45 +385,10 @@
         # `releaseTargets` and must not.
         imageTargets = builtins.filter (t: pkgs.lib.hasInfix "-linux-" t) releaseTargets;
 
-        # The OCI `architecture` field for a target triple. Not cosmetic: an image built from an
-        # aarch64 binary that claims `amd64` gets scheduled onto a node that cannot run it, and
-        # the failure surfaces as a crash loop rather than as a rejected placement.
-        ociArch = target: if pkgs.lib.hasPrefix "aarch64-" target then "arm64" else "amd64";
-
-        # Contents are the binary, CA certificates and tzdata. NO shell and NO package
-        # manager: the attack surface of a governed service should be one executable, and it
-        # is also the mechanical proof that no interpreter is in the query path.
-        #
-        # `cacert` and `tzdata` come from the NATIVE package set even in a cross image, and
-        # deliberately: both outputs are data only - PEM text and endian-fixed TZif files - so
-        # cross-building them would add a toolchain closure per architecture for a byte-for-byte
-        # identical result. The binary is the only architecture-dependent thing in here.
-        ociFor = { bin, architecture }: pkgs.dockerTools.streamLayeredImage {
-          name = "sutura";
-          tag = "latest";
-          inherit architecture;
-          # Pinned, not `now`: an image whose digest changes on every build cannot be the
-          # thing a deployment pins.
-          created = "1970-01-01T00:00:01Z";
-          contents = [ bin pkgs.cacert pkgs.tzdata ];
-          config = {
-            Entrypoint = [ "/bin/sutura" ];
-            Cmd = [ "--version" ];
-            Env = [ "SSL_CERT_FILE=/etc/ssl/certs/ca-bundle.crt" ];
-            # Non-root by default. The binary needs no privilege, and a cluster policy of
-            # `runAsNonRoot` should be satisfied by the image rather than by a deployment
-            # someone has to remember to write. 65532 is the conventional `nonroot` uid.
-            User = "65532:65532";
-            # `docker inspect` should answer "which commit is this" without a lookup table.
-            Labels = {
-              "org.opencontainers.image.title" = "sutura";
-              "org.opencontainers.image.description" = "identity-aware semantic data runtime for AI agents";
-              "org.opencontainers.image.licenses" = "Apache-2.0";
-              "org.opencontainers.image.source" = "https://github.com/telekom/sutura";
-              "org.opencontainers.image.version" = commonArgs.version;
-            };
-          };
-        };
+        # A shipped binary becomes a container image. In `nix/oci.nix` for the line limit;
+        # `ociImages` below and `packages.oci` stay HERE, so the `packages = ` block
+        # `xtask/src/workflows.rs` scans out of this file is untouched by the split.
+        inherit (import ./nix/oci.nix { inherit pkgs; inherit (commonArgs) version; }) ociArch ociFor;
 
         # One image per shipped target, named after the RUST triple like the binaries are, so a
         # published image and a published tarball can be traced back to the same build.
@@ -901,6 +684,12 @@
         # cannot do the job - it runs `cargo test` to compare the two behaviours, so handing
         # it whatever cargo the runner ships would compare using a different compiler than
         # the one everything else is pinned to.
+        #
+        # `cargoWarmStart` is what stops it compiling the closure a third time. It shells out to
+        # `cargo nextest` TWICE, and a bare cargo reads neither /nix/store nor the artifacts
+        # `checks.nextest` built minutes earlier in the same CI job - 9m48s of the last run's
+        # 12m16s was exactly that. See `nix/cargo-env.nix`, including the directory name it has
+        # to agree with `xtask/src/causality.rs` about.
         apps.causality = {
           type = "app";
           program = builtins.toString (pkgs.writeShellScript "sutura-causality" ''
@@ -909,6 +698,7 @@
             export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:${pkgs.git}/bin:$PATH"
 
             ${cargoLinkEnv}
+            ${cargoWarmStart}
             exec cargo run -q --profile ci -p xtask -- test-causality "$@"
           '');
         };

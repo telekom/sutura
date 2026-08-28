@@ -111,6 +111,12 @@ in
     # nix/crap.nix exists to remove.
     crap.cargoCrap
     crap.llvmCov
+  ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+    # What `-liconv` resolves to on a mac. rustc emits it for every darwin link, the SDK does not
+    # carry it under nix, and .cargo/config.toml routes the link through the clang wrapper so that
+    # this package being present is what puts it on the search path. Absent on linux, where glibc
+    # provides iconv and adding a second one is how a build finds the wrong symbols.
+    pkgs.libiconv
   ] ++ (with pkgs; [
     # Linking dominates the inner loop; .cargo/config.toml points at these.
     clang

@@ -18,10 +18,20 @@ rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 linker = "clang"
 rustflags = ["-C", "link-arg=-fuse-ld=lld", "-C", "target-feature=+lse,+rcpc"]
 
+# The apple targets go through clang TOO, and for a reason a bare `lld` did not survive: rustc
+# emits `-liconv` for a darwin host, libiconv is its own store path under nix rather than part of
+# the SDK, and an unwrapped lld has no search path for it. Every link failed with
+# `lld: error: library not found for -liconv` - in the dev shell and in the nix sandbox alike, so
+# `cargo check` passed and `cargo test` could not link. clang here is nixpkgs' cc WRAPPER: it
+# supplies the -L flags for whatever the build inputs are and hands the link to the same lld, which
+# is exactly the arrangement the two linux targets above already had.
 [target.aarch64-apple-darwin]
-linker = "lld"
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
 [target.x86_64-apple-darwin]
-linker = "lld"
+linker = "clang"
+rustflags = ["-C", "link-arg=-fuse-ld=lld"]
 
 [target.x86_64-pc-windows-msvc]
 linker = "rust-lld.exe"
