@@ -12,7 +12,7 @@
 //!
 //! # Two visibilities, and the reason for the split
 //!
-//! [`Capture`] is `pub` under `cfg(test)` **or** the `test-capture` feature, because `sutura-http`
+//! `Capture` is `pub` under `cfg(test)` **or** the `test-capture` feature, because `sutura-http`
 //! has the same problem and a second copy of a writer is a second thing to keep in step. The
 //! helpers that build a subscriber around it stay `cfg(test)`: they use `expect`, which is denied
 //! outside test code, so a feature that exposed them would make `--all-features` fail to lint.
