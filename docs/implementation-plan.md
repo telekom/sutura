@@ -27,13 +27,14 @@ internal that a stable surface can grow behind.
 | 8 | `feat/two-source-execution` | 3, 7 | after 7 |
 | 9 | `feat/conformance-packs` | 8 for the execute half, nothing for the compile half | partly |
 | 10 | `feat/credential-port` | 4, 7 | after 7 |
-| 11 | `feat/compose-tier` | nothing in this repo - docker and worktree-aware provisioning | **yes** |
-| 12 | `feat/postgres-adapter` | 7, 11, and the artifact question | after 11 |
-| 13 | `feat/postgres-oauth` | 10, 12, and the SASL verification | after 12 |
-| 14 | `feat/source-mtls` | 7, 12 | after 12 |
-| 15 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
-| 16 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 17 | `ci/prose-change-cost` | nothing - measure first | **yes** |
+| 11 | `feat/compose-tier` | nothing in this repo - docker, per-worktree instances, derived ports | **yes** |
+| 12 | `ci/service-category-selection` | 11 for the jobs to select, 9 for the registry to emit from | after 11 |
+| 13 | `feat/postgres-adapter` | 7, 11, and the artifact question | after 11 |
+| 14 | `feat/postgres-oauth` | 10, 13, and the SASL verification | after 13 |
+| 15 | `feat/source-mtls` | 7, 13 | after 13 |
+| 16 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
+| 17 | `build/supply-chain` | nothing - orthogonal | **yes** |
+| 18 | `ci/prose-change-cost` | nothing - measure first | **yes** |
 
 **Three orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:**
@@ -51,6 +52,9 @@ arrangement that would have gone wrong:**
   cannot do; and it means the SASL OAUTHBEARER verification, if it fails, blocks one step instead of
   the whole network story.
 - **The agent surface is split, and slice one is deliberately thin.** See below.
+- **CI service-category selection is its own branch, after the compose tier rather than inside it.** The
+  tier has to exist before there is anything to select, and the selection is `xtask` code with its own
+  tests rather than a paragraph of YAML inside a docker task.
 ## The original thesis, and where each piece stands
 
 Audited against the tree rather than remembered, because a thesis quietly losing a leg is how a
@@ -361,12 +365,23 @@ identical across adapters). A macro generating one named test per behaviour per 
 select a tier and a failure names the behaviour. Declared capabilities select the packs, and a
 capability declared unsupported that turns out to work FAILS.
 
+**Also adds two things about snapshots, because a corpus multiplied by adapters rots quietly.**
+`cargo-insta` is **pinned in `devenv.nix`** - the snapshot tool's version decides whether an orphan is
+reported, which is the class AGENTS.md says nix is the only pin for, and `check-pins` fails if it also
+appears in pixi. It is pinned for `cargo insta review`, the interactive accept a developer actually
+needs. The orphan CHECK is a gate in `xtask` rather than `cargo insta test --unreferenced`, because the
+macro knows the exact case list and can be more precise than "unreferenced", and because a dev-shell
+tool is not on a flake check's path.
+[Conformance packs](adr/0012-conformance-packs-for-inputs-and-adapters.md) has the reasoning and the
+route not taken.
+
 **Tests.** The packs are the tests. Plus:
 - `a_declared_unsupported_capability_that_works_is_a_failure`.
 - `adding_an_adapter_touches_a_registration_and_no_pack_body` - asserted by the macro's expansion.
+- `a_snapshot_no_case_references_fails_the_gate`, and its twin `every_generated_case_has_a_snapshot`.
 
 **Done when** the semantic compiler is conformance-tested across catalogs with no container anywhere,
-and the compile half runs on every push.
+the compile half runs on every push, and an orphaned snapshot fails a gate rather than accumulating.
 
 ## The credential port
 
@@ -389,8 +404,8 @@ static credentials.
 
 ## The compose tier
 
-**Goal.** Oracle, Postgres, Datahub and OpenMetadata brought up on demand, provisioned through
-`xtask`, worktree-aware.
+**Goal.** Oracle, Postgres, Datahub and OpenMetadata brought up on demand, **one independent instance
+per worktree**, provisioned through `xtask`.
 
 **It comes BEFORE the first network adapter, and that is a change from an earlier version of this
 plan** which had it depend on Postgres-over-OAuth. That was inverted: this tier exists to stand up the
@@ -402,17 +417,144 @@ repository and can start immediately.
 CLI. Docker orchestration in a release artifact is test scaffolding shipped to users, and the repo
 already has the place for it: `xtask` is the repo-inspection and gate tool, it is never packaged, and
 `classify` / `check-changed` already own the "what does this change require" decision this tier keys
-off. The CLI keeps no docker knowledge.
+off. The CLI keeps no docker knowledge. Commands are cited as `just` tasks over `xtask` subcommands, the
+way every other gate is, because `check-guidance` fails a citation of a task that does not exist.
 
-**Adds.** Deterministic ports derived from the worktree identity, a compose project name per worktree so
-volumes cannot collide, discovery so no test hardcodes a port, readiness as a health gate rather than a
-sleep, teardown scoped so it cannot kill a neighbour, and SKIPPED-and-exit-0 when docker is absent.
+### Per-worktree instances, and why a port cannot be a constant
+
+**The requirement, stated as the thing that must never happen:** two worktrees of this repository -
+an agent's and a human's, or two agents' - run the service tier at the same time and neither notices
+the other. Not "usually works": a port collision here does not fail cleanly. Docker binds the first
+claimant and the second gets a connection refused that looks like a broken adapter, or worse, connects
+to the *neighbour's* container and passes against the wrong fixture. **A test that silently talked to
+another worktree's database is the failure this section exists to make impossible.**
+
+Four things collide, and every one of them needs a per-worktree value - which is why "just pick a
+different port" is not the fix:
+
+| What collides | Per-worktree value | What it prevents |
+| --- | --- | --- |
+| Published ports | A base port derived from a **hash of the worktree's absolute path**, one contiguous block per worktree | A bind failure, or a connection to the neighbour's service |
+| Compose project name | The same derivation, as the project name | Shared networks and, critically, **shared named volumes** - a stale Postgres data directory from another branch is a fixture nobody can debug |
+| Container and network names | Derived from the project name, never literal | `docker compose down` in one worktree stopping the other's containers |
+| The provisioned state a test reads | A discovery file written **inside that worktree**, gitignored | A test hardcoding a port, which is the way this whole mechanism gets bypassed one PR at a time |
+
+**Derivation, not allocation.** The base port is a pure function of the worktree path, so the same
+worktree gets the same ports on every run - which is what makes a failure reproducible and lets a
+developer point a client at it - and two worktrees get different ones without a registry, a lock file
+or a coordination service. The collision risk is a hash collision in the chosen range rather than a
+race, and the range is checked at provision time: `xtask` **refuses to provision** if any port in its
+block is already bound, naming the port and the block, rather than letting docker fail halfway through
+a compose file. Failing at the start beats failing at service four of five.
+
+**Discovery, so no test hardcodes anything.** Provisioning writes the endpoints it actually bound into
+a file the test harness reads, in that worktree. A test that reads a constant port is a test that works
+alone and fails in parallel, and it passes review easily, so the mechanism has to be the *only* way to
+learn an endpoint - if the harness offers no constant, none gets written.
+
+**CI is a worktree too, and this is why the derivation must not be a git-only trick.** A CI runner has
+one checkout and no sibling worktrees, so the derivation there is degenerate and correct. But CI runs
+several jobs per commit, and a matrix job per service category (below) means several service tiers on
+possibly the same runner class. The same per-worktree derivation covers it as long as the input is the
+checkout path rather than something like the branch name, which is identical across a matrix.
+
+**Adds.** The port derivation and its block reservation, the compose project name, discovery, readiness
+as a health gate rather than a sleep, teardown scoped so it cannot kill a neighbour, and
+SKIPPED-and-exit-0 when docker is absent.
 
 **Note it cannot be a nix check** - the sandbox has no network and no docker socket - so it is a CI job
 and a `just` task that consume nix-built artifacts. The strongest version runs the OCI image that ships.
 
-**Done when** two worktrees provision simultaneously without collision, and a missing service cannot
-produce a silent pass.
+**Tests.** These are testable without docker, and the ones that matter are:
+
+- `two_worktree_paths_derive_disjoint_port_blocks` - the property, over a corpus of paths, including
+  two paths differing in one character and two differing only in case.
+- `the_same_path_derives_the_same_block_every_time` - determinism, because reproducibility is half the
+  reason for derivation over allocation.
+- `a_bound_port_in_the_block_refuses_to_provision` - bind a port, assert the refusal names it.
+- `the_harness_exposes_no_way_to_read_a_constant_endpoint` - the discovery file is the only path, which
+  is the one that stops the mechanism eroding.
+
+**Done when** two worktrees provision simultaneously without collision - demonstrated, not asserted -
+and a missing service cannot produce a silent pass.
+## CI runs the service tier one category at a time
+
+**Goal.** A pull request that touches the Datahub adapter stands up Datahub and nothing else. A push to
+`main` stands up everything. Today neither exists, because there is no service tier - and deciding it
+now is what stops the tier arriving as one monolithic job that every PR waits sixteen minutes for.
+
+**The requirement, precisely.** One CI job per **service category**, selected from the diff:
+
+| Diff touches | Categories that run |
+| --- | --- |
+| One adapter and its tests | That adapter's category only |
+| The semantic core - the domain, the compiler, the generator | **Every** category, because the corpus they all share is what changed |
+| The conformance packs or the shared harness | **Every** category, same reason |
+| Docs only | None, and no runner starts |
+| `main`, a tag, or a manual dispatch | **Every** category, unconditionally |
+
+### It extends the table that already exists, and does not add a second selector
+
+`xtask/src/changes.rs` is already this mechanism. It holds one `Area { name, patterns, consumers }` per
+area of the repo, maps a diff onto them, and writes `GITHUB_OUTPUT` so a workflow can gate a step on
+the result. So a service category is **an `Area`, not a new subsystem**, and three properties come for
+free rather than being re-earned:
+
+- **"Core changed, so run everything" is already expressible**, and as the right shape: `consumers` is
+  documented as *a dependency edge, not a category*, which is exactly what this rule is. The semantic
+  core's areas list every service category as a consumer, and the edge does the fan-out. No negation
+  pattern, no second filter step with inverted quantifier semantics.
+- **The fail-open property is already there and is the one that matters here.** A path matching no area
+  sets `run_all` and says which path caused it. So a **new adapter nobody added to the table runs
+  everything** rather than silently running nothing. That is the opposite of the obvious
+  implementation, where an unknown category name resolves to *false* and the adapter's tests quietly
+  never run on the PR that adds them - green, and blind. The reference project this pattern comes from
+  has that exact gap: an integration missing from its path filters is skipped rather than run.
+- **It is unit-tested Rust rather than YAML.** `xtask`'s gates each have tests, because a gate with no
+  test is one nobody has seen fail, and a selection rule is precisely the code whose bugs are invisible
+  - it fails by *not* running something.
+
+### The matrix comes from the registry, not from the workflow
+
+The list of categories a workflow fans out over is **emitted by `xtask`**, read from the same
+`tests/adapters` registry the conformance packs register into, and consumed as JSON by the matrix. It is
+never typed into a workflow file.
+
+The reason is a specific failure this repo already guards elsewhere: two owners for one artefact. A
+category list in YAML plus a registry in Rust means a new adapter can be registered, conformance-tested
+locally, and absent from CI's matrix - and nothing fails, because a matrix that omits an entry is not an
+error. Emitting the list from the registry makes registration the single act, which is what AGENTS.md's
+*adding a data system is a registration, not a test edit* row already promises for the test corpus, and
+this extends to CI.
+
+**And the selection has to be visible in the run.** The job prints which categories were selected and
+which rule selected them - the area that matched, or the consumer edge that pulled it in, or `run_all`
+and the path that triggered it. A selective CI that does not say what it skipped is a CI whose green is
+uninterpretable, and this is the same reasoning as *whether a leg was pushed or pulled must be
+observable*: silence is the failure mode.
+
+**Touches.** `xtask/src/changes.rs` for the new areas and the consumer edges; a new `xtask` subcommand
+that emits the matrix; `.github/workflows/ci.yml` for the fan-out; the justfile for the local
+equivalent, since a developer must be able to run one category.
+
+**Tests.** In `xtask`, against fixture diffs, and each is red before its rule exists:
+
+- `a_diff_touching_one_adapter_selects_that_category_only`.
+- `a_diff_touching_the_semantic_core_selects_every_category` - through the consumer edge, not a special
+  case.
+- `a_diff_touching_the_shared_harness_selects_every_category`.
+- `an_unmapped_path_under_a_new_adapter_selects_every_category` - the fail-open property, asserted, so a
+  future refactor cannot quietly turn it into fail-closed.
+- `the_emitted_matrix_equals_the_registry` - the two-owners guard.
+- `a_docs_only_diff_selects_none` - and separately that this does not regress the existing `DOCS_ONLY`
+  behaviour, which an area match is already tested before.
+
+**Done when** a PR touching one adapter runs one service job, a PR touching the compiler runs all of
+them, `main` runs all of them unconditionally, and the run says which rule decided.
+
+**Note this is the same shape as the prose-change cost work below** - both are "stop paying for what the
+diff cannot affect" - but they are separate branches because one selects service containers and the
+other selects gates, and the measurement that justifies each is different.
 
 ## A Postgres adapter, on a static credential
 

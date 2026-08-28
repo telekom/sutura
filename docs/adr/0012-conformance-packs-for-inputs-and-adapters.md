@@ -122,17 +122,39 @@ declaration. Neither touches a pack body, and that is the property the requireme
 
 ## Two mechanics to get right, because both are how a suite rots
 
-- **Orphaned snapshots.** The reference project runs its snapshot tool with unused-snapshot warnings
-  on, which is what stops a corpus accumulating pins nothing reads. The equivalent here is insta's
-  unreferenced check - `cargo insta test --unreferenced` - and the honest statement of its status is
-  that **nothing in this workspace runs it and no gate mentions it**: `cargo-insta` is not a pinned
-  tool in `devenv.nix`, not on the dev shell's path, and not installed in any flake check. An earlier
-  draft of this record attributed that to a note in AGENTS.md; there is no such note, and the
-  correction matters because "recorded as unavailable" and "nobody has set it up" call for different
-  work. With a corpus multiplied by adapters an orphan is a real gap rather than a nicety, so pinning
-  the tool and adding the check belongs with this work - and if it turns out not to run in the
-  sandboxed checks, the fallback is a gate of our own that reads the snapshot directory against the
-  cases the macro generates, which is a thing `xtask` already knows how to do.
+- **Orphaned snapshots, and the tool that has to be installed before any of this is checkable.** The
+  reference project runs its snapshot tool with unused-snapshot warnings on, which is what stops a
+  corpus accumulating pins nothing reads. The equivalent here is insta's unreferenced check -
+  `cargo insta test --unreferenced` - and the honest statement of its status is that **nothing in this
+  workspace runs it and no gate mentions it**: `insta` is a normal dev-dependency, but `cargo-insta`,
+  the CLI subcommand that check needs, is **not installed anywhere**. Not in `devenv.nix`, not on the
+  dev shell's path, not in any flake check. An earlier draft of this record attributed that to a note in
+  AGENTS.md; there is no such note, and the correction matters because "recorded as unavailable" and
+  "nobody has installed it" call for different work.
+
+  **So the first task is an installation, and where it goes is already decided by a rule.** AGENTS.md:
+  *nix is the only pin for a tool whose version changes what it reports; pixi holds only `prek` and
+  `python`, and `cargo xtask check-pins` fails if a tool appears in both.* A snapshot tool's version
+  decides whether an orphan is reported, so it is exactly that class of tool. **`cargo-insta` is pinned
+  in `devenv.nix`** - not pixi, which `check-pins` would fail, and not `cargo install`, which pins
+  nothing.
+
+  **And pinning it in the dev shell is necessary but not sufficient, which is the part worth deciding
+  now.** `flake.nix` already records the general case: a dev-shell tool is not on a flake check's path,
+  and installing one in CI just to reach a check adds a dependency the pipeline does not otherwise need.
+  Two routes, and this record picks the second:
+
+  1. Add `cargo-insta` to the `nextest` check's inputs and run the unreferenced check there. It reads
+     the unfiltered tree already, so the snapshots are visible. The cost is a tool in the CI closure.
+  2. **A gate of our own in `xtask`**, which reads the snapshot directory and compares it against the
+     cases the conformance macro generates. Chosen, for three reasons: `xtask` gates are unit-tested and
+     already walk repo files, the comparison is *more* precise than "unreferenced" because the macro
+     knows the exact case list, and it adds nothing to the closure. `cargo-insta` stays pinned in the
+     dev shell for `cargo insta review`, which is what a developer actually needs it for - accepting a
+     changed snapshot interactively.
+
+  With a corpus multiplied by adapters an orphan is a real gap rather than a nicety, so both halves -
+  the pin and the gate - belong with this work.
 - **Timing.** A conformance matrix grows multiplicatively, and the tier that is supposed to be fast
   stops being fast quietly. Worth reporting per-pack timings from the start, as the reference project
   does with its own timing analyser, so the fast tier can be defended with a number.
@@ -150,6 +172,9 @@ declaration. Neither touches a pack body, and that is the property the requireme
   duplication. Cheaper than the draft claimed, and worth correcting in the other direction too: a
   record that invents the debt it is paying off cannot be checked by a reader.
 - The existing `tests/adapters` registry becomes the place an adapter is registered for the matrix,
-  and the macro invocation is what registers it for the packs. One registration, not two.
+  and the macro invocation is what registers it for the packs. One registration, not two - and that
+  registry becomes the source CI's own job matrix is EMITTED from, rather than a category list typed into
+  a workflow file. A registered adapter absent from CI's matrix is not an error in YAML, which is the
+  quiet way a new adapter ends up conformance-tested locally and untested in CI.
 - Compile packs make the semantic compiler testable against N catalogs with no data system, which is
   the tier most of the value lives in and the one that can run on every push.

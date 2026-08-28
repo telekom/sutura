@@ -215,7 +215,7 @@ Two tiers, and the boundary between them is structural rather than a preference:
 
 - **Fast and hermetic:** in-memory DuckDB, **several connections rather than several attachments**,
   because two connections are the shape that ships and cost nothing more in a test.
-- **Compose:** Oracle, Postgres, Datahub, OpenMetadata, brought up on demand, provisioned through
+- **Compose:** Oracle, Postgres, Datahub, OpenMetadata, brought up on demand, ONE INSTANCE PER WORKTREE, provisioned through
   `xtask` rather than the shipped binary - docker orchestration in a release artifact is test
   scaffolding shipped to users, and `xtask` is never packaged - and **worktree-aware** so concurrent worktrees never collide on ports, project names or
   volumes. Docker is a host dependency and is deliberately not pinned by nix.
@@ -292,7 +292,8 @@ section keeps only what is a *decision* and names each step by the branch that c
 | `feat/two-source-execution` | Rows equal to the single-source corpus; each leg's statement snapshotted; a filtered remote dimension over an orphan key correct; a `CountDistinct` across sources correct or refused |
 | `feat/conformance-packs` | Adding a source touches a registry and a declaration, never a test function. The compile half needs no data system and lands early |
 | `feat/credential-port` | No signature exists that can run as the process; a declared impersonation the deployment cannot perform refuses at boot |
-| `feat/compose-tier` | Two worktrees provision simultaneously without collision; absent docker prints SKIPPED and exits 0. It comes BEFORE the first network adapter, because it stands up the source that adapter is tested against |
+| `feat/compose-tier` | Two worktrees provision simultaneously without collision - one instance per worktree, ports DERIVED from the worktree path rather than allocated, compose project name and volumes per worktree, endpoints read from a discovery file so no test holds a constant; absent docker prints SKIPPED and exits 0. It comes BEFORE the first network adapter, because it stands up the source that adapter is tested against |
+| `ci/service-category-selection` | A PR touching one adapter runs one service job; one touching the semantic core or the shared harness runs all of them; `main` runs all unconditionally; and the run prints which rule decided. Extends `xtask`'s existing `Area` table, so "core changed" is a `consumers` edge and an unmapped path still FAILS OPEN to running everything |
 | `feat/postgres-adapter` | The whole existing corpus green against a containerised Postgres on a static credential, and the artifact question - which shipped binary links a native driver - answered in code. [Track 1](0007-federating-across-different-data-systems.md), and it de-risks the step after it |
 | `feat/postgres-oauth` | Two subjects, different rows, in the compose tier |
 | `feat/demo-tasks` | Every deployment variant has a working example, and one that drifts fails a test rather than misleading a reader |
