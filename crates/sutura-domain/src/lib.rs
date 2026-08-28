@@ -26,6 +26,10 @@
 //!   [`expression::Computation`] is what makes "this metric is authored SQL" a word rather than an
 //!   absence.
 //! - [`plan`] is what we decided to execute, and the artifact the execution port speaks in.
+//! - [`federation`] is how a measure survives being computed in pieces: which aggregates descend
+//!   into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
+//!   it yet - there is no splitter and no combiner - so it is a classification with no production
+//!   caller, and its own header says so.
 //! - [`catalog`] is what a catalog says, and where its cross-references are checked.
 //! - [`knowledge`] is what a catalog says ABOUT what it defines - the glossary, the caveats, the
 //!   terms deliberately left undefined, the worked questions - checked against a [`catalog`] and read
@@ -47,6 +51,7 @@ pub mod calendar;
 pub mod catalog;
 pub mod definitions;
 pub mod expression;
+pub mod federation;
 pub mod identity;
 pub mod knowledge;
 pub mod measure;
