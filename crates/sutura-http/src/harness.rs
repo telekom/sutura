@@ -620,3 +620,218 @@ async fn the_interface_description_is_behind_the_token_when_one_is_configured() 
         StatusCode::OK
     );
 }
+
+// ------------------------------------------------------------------ the log ----
+//
+// **The defect these were written for.** `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`,
+// and pinned `tower-http` 0.6.11 seeds it from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`,
+// while `telemetry.filter` defaults to `info`. So the ONE production span was disabled in the
+// shipped default: `JsonStorageLayer` had nothing to attach, every machine-readable line carried an
+// empty span context, and the documentation promised the opposite.
+//
+// It is only testable as bytes. There is no return value that says "a span existed", and the whole
+// property is about what a collector receives - so these drive the real router with a subscriber
+// over a buffer and read the buffer.
+//
+// `SUTURA_TEST_LOG=1` also prints it, which is what makes a failure here readable. See
+// `sutura_runtime::testing::Capture`.
+
+/// Runs one request through `app` with a subscriber over a buffer, and returns what was written.
+///
+/// A `Runtime` built here rather than `#[tokio::test]`, and that is load-bearing:
+/// `tracing::subscriber::with_default` is scoped to the calling thread, and `block_on` drives the
+/// future on the calling thread - so the whole request is inside the scope. An ambient
+/// `#[tokio::test]` runtime would leave the dispatcher and the future on two different threads.
+///
+/// The router is built by the CALLER, outside the scope, so the buffer holds the request's lines and
+/// not the startup announcements. That is what lets the sentinel assertion below be about the whole
+/// buffer.
+fn captured(format: sutura_config::LogFormat, app: &Router, request: Request<Body>) -> (StatusCode, String, String) {
+    let sink = sutura_runtime::testing::Capture::new();
+    let telemetry = sutura_config::TelemetrySettings::new(
+        sutura_config::ServiceName::parse("sutura-test").expect("a test service name is a name"),
+        // The CONFIGURED default. Using `trace` here would enable the very span whose absence at
+        // `info` is the defect, and the test would pass over the bug.
+        sutura_config::LogFilter::parse("info").expect("a test directive is a directive"),
+        format,
+        true,
+    );
+    let subscriber =
+        sutura_runtime::telemetry::subscriber(&telemetry, sink.clone()).expect("a valid directive builds a subscriber");
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .expect("a test runtime builds");
+    let (status, body) = tracing::subscriber::with_default(subscriber, || runtime.block_on(call(app, request)));
+    (status, body, sink.contents())
+}
+
+/// The lines of a captured buffer that are JSON objects, parsed.
+fn json_lines(rendered: &str) -> Vec<serde_json::Value> {
+    rendered
+        .lines()
+        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
+        .collect()
+}
+
+#[test]
+fn a_request_produces_one_info_span_carrying_the_route_and_a_correlation_id() {
+    // RED before the fix, and for two independent reasons: the span was `DEBUG` so at the configured
+    // `info` it did not exist at all, and `DefaultMakeSpan` names no route and mints no correlation.
+    //
+    // Asserted on the bunyan rendering because that is the one a collector reads, and on the SPAN
+    // lines specifically - `tracing-bunyan-formatter` emits `[request - START]` and
+    // `[request - END]` for a span it can see, so their presence is the span's existence.
+    let app = app(settings(Environment::Development, ""));
+    let (status, body, rendered) = captured(
+        sutura_config::LogFormat::Bunyan,
+        &app,
+        request("POST", "/v1/query", None, Body::from(QUESTION)),
+    );
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = json_lines(&rendered);
+    assert!(!lines.is_empty(), "nothing was logged at all: {rendered}");
+    let span_lines: Vec<&serde_json::Value> = lines
+        .iter()
+        .filter(|line| {
+            line["msg"]
+                .as_str()
+                .is_some_and(|msg| msg.contains("[REQUEST - START]") || msg.contains("[REQUEST - END]"))
+        })
+        .collect();
+    assert!(
+        !span_lines.is_empty(),
+        "no request span reached the log at the configured level: {rendered}"
+    );
+    for line in &span_lines {
+        // `level` 30 is bunyan's `info`. A `DEBUG` span filtered out at `info` is the defect; a
+        // `DEBUG` span that somehow survived would still be the wrong level to promise.
+        assert_eq!(line["level"], 30, "the request span is not at info: {line}");
+        assert_eq!(line["route"], "/v1/query", "the span does not name the route: {line}");
+        assert_eq!(line["method"], "POST", "the span does not name the method: {line}");
+        let correlation = line["correlation"]
+            .as_str()
+            .unwrap_or_else(|| panic!("the span carries no correlation id: {line}"));
+        assert!(
+            is_a_correlation_id(correlation),
+            "the correlation id is not one this surface would read back: {correlation}"
+        );
+    }
+    // And the raw path is NOT what is logged. `/v1/query` happens to be its own route template, so
+    // the assertion that means something is that no line carries a `path` field at all.
+    for line in &lines {
+        assert!(line.get("path").is_none(), "the raw request path reached the log: {line}");
+    }
+
+    // The other half of the same design point, and the one a caller controls: a path that matched
+    // nothing must NOT appear anywhere in the log. It reaches the catch-all fallback, which the same
+    // layer wraps, so there is still a span - and its route is the constant. Without that, the log's
+    // cardinality is something a caller chooses by probing, and a probed path with a secret in it is
+    // a secret in the log.
+    let (status, _, rendered) = captured(
+        sutura_config::LogFormat::Bunyan,
+        &app,
+        request("GET", "/v1/probing-for-SECRETish-paths", None, Body::empty()),
+    );
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert!(
+        !rendered.contains("probing-for-SECRETish-paths"),
+        "a path a caller invented reached the log: {rendered}"
+    );
+    assert!(
+        rendered.contains(r#""route":"unmatched""#),
+        "an unmatched request produced no span, or not the constant: {rendered}"
+    );
+    // So the assertion above cannot drift from the constant it is spelling out.
+    assert_eq!(crate::router::UNMATCHED_ROUTE, "unmatched");
+}
+
+/// Would this surface read its own correlation id back?
+///
+/// The span field is text by the time it is in the log, so this is the only way to check it is a
+/// value the type would accept - which is what stops the span from carrying something the header
+/// path would refuse.
+fn is_a_correlation_id(raw: &str) -> bool {
+    crate::correlation::CorrelationId::parse(raw).is_ok()
+}
+
+#[test]
+fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
+    // **The property an operator actually uses.** Not "a span exists" but "these three lines are
+    // the same request". RED before the fix twice over: there was no span at `info` for the
+    // handler's events to sit inside, and no correlation id to tie them with.
+    //
+    // The caller's own header is used, so the assertion is about ONE known value rather than about
+    // three unknown ones agreeing - and it also pins the ingress case, which is the reason for
+    // reading the header at all.
+    let app = app(settings(Environment::Development, ""));
+    let mut request = request("POST", "/v1/query", None, Body::from(QUESTION));
+    request
+        .headers_mut()
+        .insert(crate::correlation::HEADER, "Ingress-42_abc".parse().expect("a test header"));
+    let (status, body, rendered) = captured(sutura_config::LogFormat::Bunyan, &app, request);
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let lines = json_lines(&rendered);
+    for wanted in ["question received", "answered"] {
+        let line = lines
+            .iter()
+            .find(|line| line["msg"].as_str().is_some_and(|msg| msg.contains(wanted)))
+            .unwrap_or_else(|| panic!("no `{wanted}` line was written: {rendered}"));
+        assert_eq!(
+            line["correlation"], "Ingress-42_abc",
+            "the `{wanted}` line is not attributable to the request: {line}"
+        );
+        // The identifying fields moved onto the span, so they are on EVERY line of the request and
+        // not only on the one that first knew them.
+        assert_eq!(line["metric"], "revenue", "{line}");
+        assert_eq!(line["grain"], "month", "{line}");
+    }
+    // And the span itself, so all three carry it rather than the two events agreeing with each
+    // other and with nothing.
+    assert!(
+        lines
+            .iter()
+            .any(|line| line["msg"].as_str().is_some_and(|msg| msg.contains("[REQUEST - END]"))
+                && line["correlation"] == "Ingress-42_abc"),
+        "the span does not carry the id its events carry: {rendered}"
+    );
+}
+
+#[test]
+fn a_filter_value_never_reaches_the_log() {
+    // **A REGRESSION GUARD, not a bug fix, and it is worth saying which.** Nothing logs filter
+    // values today, so this test is GREEN against the unmodified code - it proves nothing about
+    // this change and everything about the next one. It is here because the discipline it protects
+    // is stated in a comment at one call site and enforced by nothing, and because moving fields
+    // onto a span is exactly the change that would break it: a span field is copied onto every line
+    // of the request, so a value put there by mistake leaks further than one put on an event.
+    //
+    // `sutura_domain::query`'s `a_rejected_filter_value_is_not_echoed_back` covers the refusal
+    // TYPE. Nothing covered the log.
+    const SENTINEL: &str = "SENTINEL-MUST-NOT-BE-LOGGED";
+
+    let app = app(settings(Environment::Development, ""));
+    let question = format!(
+        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},
+            "filters":[{{"dimension":"region","value":"{SENTINEL}"}}]}}"#
+    );
+    // Both renderings, because they are two different formatters and only one of them is what a
+    // collector reads. A leak in the other is still a leak.
+    for format in [sutura_config::LogFormat::Bunyan, sutura_config::LogFormat::Pretty] {
+        let (status, body, rendered) = captured(format, &app, request("POST", "/v1/query", None, Body::from(question.clone())));
+        // The value is outside the declared allowlist, so this is the `403` - which is the path
+        // where a value is most likely to be reflected somewhere, and the reason the fixture uses a
+        // refused value rather than an accepted one.
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert!(!body.contains(SENTINEL), "the response echoed the value: {body}");
+        assert!(
+            !rendered.contains(SENTINEL),
+            "a filter value reached the {format} log: {rendered}"
+        );
+        // The line that says a refusal happened is still there, so the assertion above is not
+        // passing because nothing was logged.
+        assert!(rendered.contains("refused"), "{rendered}");
+    }
+}

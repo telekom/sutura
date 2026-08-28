@@ -68,6 +68,13 @@ use crate::middleware::{self, LimiterHandle, LimiterNotBuilt};
 use crate::routes;
 use crate::state::ServiceState;
 
+/// What the span calls the route of a request that matched none.
+///
+/// A constant and not the request's own path, which is the whole point: a path that matched nothing
+/// is a caller-supplied string, and putting it on a span turns the log's own cardinality into
+/// something a caller chooses. One bucket instead. See [`request_span`].
+pub(crate) const UNMATCHED_ROUTE: &str = "unmatched";
+
 /// The documentation subtree, and the limiter tier it installed if it installed one.
 ///
 /// A named alias because the tuple is over the complexity threshold in `clippy.toml`, and naming it
@@ -209,8 +216,74 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
         // Outermost, so a request refused by any layer below still produces a span and a timing.
         // `TraceLayer` on the outside is the difference between a `401` you can find in a log and a
         // `401` that happened to somebody.
-        .layer(tower_http::trace::TraceLayer::new_for_http());
+        //
+        // CONFIGURED rather than defaulted, and that is a bug fix - see [`request_span`]. The
+        // response line is raised with it: without a status at `info` the span says a request
+        // happened and not how it ended, which is most of what "a `401` you can find" means.
+        .layer(
+            tower_http::trace::TraceLayer::new_for_http()
+                .make_span_with(request_span)
+                .on_response(
+                    tower_http::trace::DefaultOnResponse::new()
+                        .level(tracing::Level::INFO)
+                        .latency_unit(tower_http::LatencyUnit::Millis),
+                ),
+        );
     Ok(Assembled { router, limiters })
+}
+
+/// The span every request runs inside.
+///
+/// # Why this exists at all: the default span is switched off in the shipped default
+///
+/// `TraceLayer::new_for_http()` builds a `DefaultMakeSpan`, and pinned `tower-http` 0.6.11 seeds it
+/// from `DEFAULT_MESSAGE_LEVEL`, which is `Level::DEBUG`. `telemetry.filter` defaults to `info`. So
+/// the one span this service had was **disabled in every default deployment**: `JsonStorageLayer`
+/// had no span to collect fields from, every machine-readable line carried an empty span context,
+/// and `docs/serving.md` promised the opposite. An overstated claim is itself a defect, and this is
+/// the line that made it one.
+///
+/// `info_span!` is the fix. The level is not a verbosity preference here - it is the difference
+/// between the documented behaviour and no behaviour.
+///
+/// # The route comes from `MatchedPath`, and the raw path is deliberately never logged
+///
+/// **This is the important design point in this function.** A span carrying `uri().path()` needs a
+/// query redactor to keep secrets out of the log, and a correct redactor is not cheap: it has to
+/// percent-decode *before* it decides what is sensitive, because `to%6ben` is `token` and a naive
+/// name check reads it as an unremarkable parameter. It also has to be an allowlist, since the next
+/// sensitive parameter is one nobody has thought of yet.
+///
+/// This surface needs none of that: every question arrives in a JSON body, no route reads a query
+/// parameter, and what an operator groups by is the ROUTE rather than the path. So the cheaper and
+/// stronger answer is not to log the path at all. `MatchedPath` is the route template - `/v1/query`,
+/// `/health` - which is a value from this process's own routing table and not from the request.
+///
+/// It is available here because `Router::layer` applies a layer **per route**, inside routing, so
+/// the extension is already set by the time this runs. A request matching nothing reaches the
+/// catch-all fallback, which the same layer wraps and where there is no extension - hence
+/// [`UNMATCHED_ROUTE`], a constant, so that case is one bucket rather than one per probed path.
+///
+/// # The fields, and why these
+///
+/// `metric` and `grain` are declared `Empty` and filled in by the query handler once the body has
+/// parsed. Declared here because `tracing` cannot record a field a span was not opened with, and
+/// filled in there because that is where the value first exists. With `JsonStorageLayer` every line
+/// of that request then carries them, which is what an operator filters on. Counts and outcomes
+/// stay events: they are things that happened, not things the request *is*.
+fn request_span(request: &axum::extract::Request) -> tracing::Span {
+    let route = request
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map_or(UNMATCHED_ROUTE, axum::extract::MatchedPath::as_str);
+    tracing::info_span!(
+        "request",
+        method = %request.method(),
+        route,
+        correlation = %crate::correlation::CorrelationId::from_headers(request.headers()),
+        metric = tracing::field::Empty,
+        grain = tracing::field::Empty,
+    )
 }
 
 const fn limiter(cause: LimiterNotBuilt) -> RouterNotBuilt {

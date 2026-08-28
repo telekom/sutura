@@ -35,9 +35,12 @@
 //!
 //! * **No CORS layer.** A browser is not a client of this surface. An allow-list nobody needs is an
 //!   allow-list somebody widens.
-//! * **No request identifier.** It belongs in the failure body and there is nothing to put in it:
-//!   nothing in this service mints one yet, and a field that is always absent is worse than no
-//!   field.
+//! * **No request identifier on the wire.** One is minted now - [`correlation::CorrelationId`], on
+//!   the request span, so every line of one request carries it - and it is deliberately **not** in
+//!   the failure body. Putting it there is a change to the response contract and to the generated
+//!   document, and it buys nothing until somebody is asked to quote it; the honest state is that an
+//!   operator can find a request in the log and a caller cannot yet name one. If a caller ever
+//!   needs to, that is an additive field and this bullet is where it changes.
 //! * **No audit sink.** `AGENTS.md` records "every call is attributable, refusals included" as an
 //!   invariant enforced by one. There is none, and there is no principal to record if there were.
 //!   Every question and every outcome reaches the log, and the log is named for what it is.
@@ -65,6 +68,7 @@
 
 pub mod client_address;
 pub mod constants;
+pub mod correlation;
 pub mod middleware;
 pub mod openapi;
 pub mod problem;
@@ -84,6 +88,7 @@ mod testing;
 mod harness;
 
 pub use crate::client_address::ClientAddress;
+pub use crate::correlation::{CorrelationId, NotACorrelationId};
 pub use crate::problem::{Failure, ProblemBody};
 pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 #[cfg(feature = "tls")]
