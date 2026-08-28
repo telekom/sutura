@@ -33,13 +33,25 @@ where mistakes happen, and the mistakes are the expensive kind - a force-push th
 from the middle of a chain.
 
 **`sync` is not the restack command**, which this file previously said it was. Checked against
-stax 0.102.2's own `--help`: `sync` is "pull trunk, delete merged branches"; `refresh` is "sync
-trunk, restack current stack, then submit updates"; and the lower-level form is `st stack
-restack`. Running `sync` and expecting a rebase leaves the stack exactly as stale as it was.
+stax's own `--help`: `sync` is "pull trunk, delete merged branches"; `refresh` is "sync trunk,
+restack current stack, then submit updates"; and the lower-level form is `st stack restack`.
+Running `sync` and expecting a rebase leaves the stack exactly as stale as it was.
+
+**No version number is written here on purpose.** A skill that dates its quotes goes stale the
+next time the pin moves, and it goes stale SILENTLY, because nothing in this tree reads a version
+out of prose. The pin is `nix/stax.nix` and the dev shell echoes what it resolved to on entry, so
+`st --help` is the answer to "is this still true" - run it rather than trusting this paragraph.
 
 ## Rules here
 
 - **One reviewable idea per branch.** If a branch needs "and" to describe it, split it.
+- **Do not run `st update` or `st skills update`.** Both are real subcommands. `update` is
+  "upgrade the stax CLI and check for skill updates" - it would replace a nix-provided binary
+  with one nothing here pins, on one machine only, and nix is the only pin for a tool whose
+  version changes what it reports (`AGENTS.md`). A bump is an edit to `nix/stax.nix`.
+  `skills update` is "download the latest skills from GitHub and update installed skill files",
+  and a skill file that lands in this tree without a `skill-router.json` entry makes the router
+  and the tree disagree - which is exactly what `cargo xtask check-skills` fails on.
 - **Never force-push a shared branch unless asked** (`AGENTS.md`). `st refresh` rewrites history
   by design, so on a branch someone else has, ask first.
 - **Bottom-up.** Land the base before the branches on top; merging out of order recreates by
