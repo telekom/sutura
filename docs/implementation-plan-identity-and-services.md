@@ -13,7 +13,10 @@ service and no identity decision, and everything here needs one or both.
 
 **Goal.** No signature exists that can run as the process.
 
-**Blocked on `docs/inbound-identity`, and this is a hard block rather than a preference.**
+**WAS blocked on `docs/inbound-identity`, and that block is now lifted** - the record landed as
+[how a caller proves who it is](adr/0014-how-a-caller-proves-who-it-is.md), so this step can be written
+without guessing. The reason it was a hard block rather than a preference is worth keeping, because it is
+why the record came first:
 [The plan](adr/0009-the-plan-from-one-source-to-many.md)'s Decision 1 says in bold that who performs
 the RFC 8693 exchange and what audience the inbound token carries is the question to answer before this
 port is built, because guessing it produces a port with the wrong signature - and a port signature is
@@ -704,7 +707,7 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   Arrow major.
 - **A custom DataFusion planner or extension.** The most promising shape for keeping the pushdown unit
   as sutura's own plan, and unprototyped.
-- **Oracle impersonation, DEFERRED with the posture decided.** An Oracle source declares `Shared` only.
+- **Oracle impersonation, DEFERRED with the posture decided.** An Oracle source declares `SharedServiceUser` only.
   The capability exists in the database and no production-viable Rust crate exposes it, Oracle's own
   official driver included, so it is a missing safe wrapper rather than a missing capability -
   [a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md) has the full finding,

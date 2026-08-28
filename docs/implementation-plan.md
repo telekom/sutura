@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twenty-one steps, nine of which can start at once.** Both numbers are counted off the table below
+**Twenty-one steps, one done, eight of which can start at once.** Both numbers are counted off the table below
 rather than remembered, which is the third attempt at getting them right: a number typed by hand beside
 the table that owns it goes stale on the next row, and it has now gone stale twice - "eleven steps" in a
 pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
@@ -22,8 +22,8 @@ internal that a stable surface can grow behind.
 | Order | Branch | Depends on | Can start now |
 | --- | --- | --- | --- |
 | 1 | `feat/agent-surface` | nothing unshipped | **yes** |
-| 2 | `docs/inbound-identity` | nothing - it is a record, not code | **yes** |
-| 3 | `feat/agent-surface-scope` | 1, 2 | after 2 |
+| 2 | ~~`docs/inbound-identity`~~ | - | **DONE** - landed as [0014](adr/0014-how-a-caller-proves-who-it-is.md) |
+| 3 | `feat/agent-surface-scope` | 1 | after 1 |
 | 4 | `feat/federation-decomposability` | nothing | **yes** |
 | 5 | `feat/principal-chain` | nothing | **yes** |
 | 6 | `feat/query-bounds` | nothing | **yes** |
@@ -256,10 +256,10 @@ stated because one of them is a cost:
   rather than importing `sutura-http`'s. Two wire types kept equal by a test is the cost of that rule,
   and slice two is where the test that catches drift lives.
 
-`AGENTS.md`'s *Canonical Sources* table still lists `schemars` derives on the domain types as the
-planned owner of both the MCP schemas and the OpenAPI spec. That row is the one this decision
-contradicts, and it is not this file's to edit - flagged for the record's owner rather than quietly
-worked around.
+`AGENTS.md`'s *Canonical Sources* table used to name `schemars` derives on the DOMAIN types as the
+planned owner of both the MCP schemas and the OpenAPI spec, which this decision contradicted and which
+would also have put a macro crate inside the domain's allowlist. **That row was rewritten to the wire
+type earlier in this same change**, so the two now agree and nothing is owed here.
 
 **And one thing this step cannot inherit, because it does not exist.** `AGENTS.md`'s *changing the query
 path or the tool surface* table says a new or widened tool input is caught because "the dumped tool

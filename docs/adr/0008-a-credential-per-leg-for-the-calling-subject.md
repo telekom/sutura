@@ -408,7 +408,7 @@ on-premises deployment matrix and its exact driver method names.
 
 ### Oracle commits to the shared posture only, and the impersonation decision is DEFERRED
 
-**Decided: an Oracle source declares `Shared`. It does not offer `Impersonated`, and this record does not
+**Decided: an Oracle source declares `SharedServiceUser`. It does not offer `ImpersonationAtSource`, and this record does not
 choose between the two mechanisms that could.** The deferral is explicit rather than implied, because
 the sections above work out both mechanisms in detail and a reader would otherwise reasonably conclude
 that one of them is the plan.
@@ -416,9 +416,13 @@ that one of them is the plan.
 **Why, and it is not an Oracle limitation.** Everything above about token authentication holds: the
 database validates an externally-issued token, `AUTHENTICATED_IDENTITY` carries the person, global roles
 activate from the token's claims, and the unified audit trail records the individual in
-`EXTERNAL_USERID`. The capability is present in Oracle, in the C interface below it, and in the
-`odpic-sys` bindings this workspace's driver already depends on - `dpiCommonCreateParams.accessToken`
-is exposed there today.
+`EXTERNAL_USERID`. The capability is present in Oracle and in the C interface below it, where
+`dpiCommonCreateParams.accessToken` carries the token. **This workspace has no Oracle driver at all** -
+`Cargo.lock` on this branch contains no `oracle`, no `odpic-sys` and no Oracle client of any kind, and
+an earlier version of this section said otherwise. That was an invented dependency in a record whose
+whole argument is which claims are verified and which are reasoned, so it is corrected rather than
+softened: what follows is a reading of UPSTREAM crates, at the versions named, not a statement about
+anything this workspace links.
 
 **The gap is a Rust one, and it is a missing safe wrapper rather than a missing capability.** *Verified
 mechanically rather than from documentation:* the de-facto `oracle` crate's connection builder has no
@@ -436,7 +440,7 @@ deployment that configures it as impersonated does not boot.** Nothing new is ne
 meeting its first real case.
 
 **What follows for a multi-user deployment, stated plainly because it is the consequence somebody has to
-act on.** In multi-user mode a `Shared` source needs the per-source operator acknowledgement of part 5c,
+act on.** In multi-user mode a `SharedServiceUser` source needs the per-source operator acknowledgement of part 5c,
 naming the reason. And since sutura declares no data sensitivity and cannot see which dataset on a
 source is critical, **keeping critical data off an Oracle source in multi-user mode is an operator
 obligation, not something this system checks.** That is the same limit part 5c already states in
@@ -450,20 +454,29 @@ field was withdrawn.
 
 **What would close the deferral, in preference order:**
 
-1. **Contribute the token wrapper upstream.** `odpic-sys` already exposes the field, so this is a safe
-   wrapper over a binding that exists - small, and the only option that reaches real token
-   authentication without a fork. It also benefits every other consumer of that crate, which is the
-   right shape for a dependency gap.
+1. **Contribute the token wrapper upstream.** The `odpic-sys` crate exposes the field, so the missing
+   piece is a safe wrapper over a binding that already exists - small, and the only option that reaches
+   real token authentication without a fork. It benefits every other consumer of that crate, which is
+   the right shape for a dependency gap. **Note this is upstream work on a crate we do not currently
+   depend on**, so it is a contribution rather than a change here.
 2. **Oracle's official Rust driver implements it.** Indefinite, and outside our control.
 3. **Proxy authentication**, which works with today's drivers and is fully worked out above - carrying
    its own recorded limit that under a username proxy the caller's token never enters the database.
-4. **A REST transport instead of a native driver.** Oracle exposes SQL over HTTP through its REST data
-   service, which speaks OAuth2 and would need no native client at all - so it sidesteps the wrapper gap
-   rather than waiting for it, and would incidentally bear on two other open questions: which shipped
-   artifact links a native driver, and the musl cross-build that has no Oracle client any more than it
-   has a musl DuckDB. **Recorded and deliberately not investigated:** the committed transport is the
-   native driver, so this is the first thing to check if that commitment is revisited rather than work to
-   do now. Two things would decide it, and neither is known: whether the REST layer propagates the end
+4. **A REST transport instead of a native driver, which is where
+   [federating across different data systems](0007-federating-across-different-data-systems.md) already
+   points.** THE TRANSPORT IS NOT THIS RECORD'S TO COMMIT, and an earlier version of this section said
+   "the committed transport is the native driver", which contradicted an accepted record. 0007 owns
+   transport and its argument is the stronger one: there is no Oracle driver this workspace can take,
+   because every Rust option wraps Oracle's own client library, nixpkgs cannot supply it freely, so there
+   is no analogue of the single path `nix/duckdb.nix` gives DuckDB and **`just validate` could not build
+   it** - which is the only thing that counts as verified here. 0007 therefore adopts Arrow Flight SQL
+   uniformly, with the proprietary client living in a gateway process outside our artifact.
+
+   **So this is a second, independent blocker on Oracle impersonation, and it is the harder one.** The
+   wrapper gap above is a missing safe binding somebody could contribute; this one says a native Oracle
+   driver does not build in our sandbox at all. Whether Oracle's REST service or Flight SQL is the route,
+   both put the proprietary client outside the artifact, which is 0007's position rather than a
+   deviation from it. Two things would decide it, and neither is known: whether the REST layer propagates the end
    user's identity into the database session so row-level policies apply as that person - if it pools as
    a fixed schema user it is the shared posture with extra steps and buys nothing - and what it costs per
    query against the deadline and the working-set bound, row-by-row over HTTP rather than a native

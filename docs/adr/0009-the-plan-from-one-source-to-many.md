@@ -632,7 +632,7 @@ now and impossible to retrofit, and they are marked.
   pushdown unit as sutura's own plan, so bind parameters and the dialect goldens stay on this side of
   the boundary. It is the most promising shape and it is unprototyped.
 - ~~**Whether Oracle can execute as the asking subject.**~~ **DEFERRED, and the posture is decided:**
-  an Oracle source declares `Shared` only.
+  an Oracle source declares `SharedServiceUser` only.
   [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) carries the whole finding -
   the capability is present in the database, in the C interface and in the bindings this workspace
   already depends on, and **no production-viable Rust crate exposes it**, Oracle's own official driver
