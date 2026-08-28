@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Why the local execution path adopts DataFusion and generates no SQL at all, why the execution port now carries a plan instead of a statement, and why federation is still later.">
+        <meta name="description" content="Why a refused question now comes back with an explicit HTTP status as well as its code and its sentence, why the retry argument that justified the 200 does not hold, why the refusal keeps its own body rather than moving to the failure body, and the status chosen for each RefusalReason with the reason for it.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0003-datafusion-for-local-execution/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0005-a-refusal-carries-a-status/">
       
       
-        <link rel="prev" href="../0002-a-closed-vocabulary-for-measures/">
+        <link rel="prev" href="../0004-a-named-escape-hatch-for-authored-sql/">
       
       
-        <link rel="next" href="../0004-a-named-escape-hatch-for-authored-sql/">
+        <link rel="next" href="../../api/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>DataFusion for local execution - sutura</title>
+        <title>A refusal carries a status - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#datafusion-for-local-execution" class="md-skip">
+        <a href="#a-refusal-carries-a-status" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              DataFusion for local execution
+              A refusal carries a status
             
           </span>
         </div>
@@ -895,6 +895,62 @@
                 
   
   
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
     
   
   
@@ -914,7 +970,7 @@
   <span class="md-ellipsis">
     
   
-    DataFusion for local execution
+    A refusal carries a status
   
 
     
@@ -932,7 +988,7 @@
   <span class="md-ellipsis">
     
   
-    DataFusion for local execution
+    A refusal carries a status
   
 
     
@@ -981,10 +1037,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-made-it-possible-the-port-carries-a-plan" class="md-nav__link">
+  <a href="#the-statuses" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What made it possible: the port carries a plan
+        The statuses
       
     </span>
   </a>
@@ -992,10 +1048,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-this-costs" class="md-nav__link">
+  <a href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this costs
+        Two statuses are shared with something that is not a refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-retry-after-on-any-refusal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No Retry-After on any refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-body-keeps-its-own-envelope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The body keeps its own envelope
       
     </span>
   </a>
@@ -1004,17 +1082,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-does-not-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What does not change
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1044,62 +1111,6 @@
   
 </nav>
       
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A named escape hatch for authored SQL
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A refusal carries a status
-  
-
-    
-  </span>
-  
-  
-
-      </a>
     </li>
   
 
@@ -1569,10 +1580,10 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#what-made-it-possible-the-port-carries-a-plan" class="md-nav__link">
+  <a href="#the-statuses" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What made it possible: the port carries a plan
+        The statuses
       
     </span>
   </a>
@@ -1580,10 +1591,32 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#what-this-costs" class="md-nav__link">
+  <a href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What this costs
+        Two statuses are shared with something that is not a refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#no-retry-after-on-any-refusal" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        No Retry-After on any refusal
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-body-keeps-its-own-envelope" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The body keeps its own envelope
       
     </span>
   </a>
@@ -1592,17 +1625,6 @@
         
       </ul>
     </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-does-not-change" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What does not change
-      
-    </span>
-  </a>
   
 </li>
       
@@ -1648,172 +1670,237 @@
   
 
 
-<h1 id="datafusion-for-local-execution">DataFusion for local execution<a class="headerlink" href="#datafusion-for-local-execution" title="Permanent link">&para;</a></h1>
-<p>Status: accepted. It adds an execution adapter and changes what the execution port carries. It
-supersedes nothing: the dialect layer keeps the job of rendering SQL for a remote data system, and
-federation is still later rather than now.</p>
+<h1 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h1>
+<p>Status: accepted. It changes what the HTTP transport says about a refusal. It supersedes nothing and
+changes no domain type: <code>ToolOutcome::Refusal</code> is still a <em>result</em> and not an <code>Err</code>, which is the
+invariant <a href="../../architecture/">the tool surface</a> is built on and which this record does not touch.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p>The local path is the one a person is on the first time they try this: a file on the same machine, no
-server, no login. <a href="../0001-first-party-semantic-models/">The first-party models decision</a> is why that
-path exists at all, and the generator is what makes it work, producing the whole statement from a
-model in the dialect of whatever will run it.</p>
-<p>Building that generator against a local file produced one kind of bug over and over, and every one of
-them was a <em>SQL-generation</em> bug rather than a bug about what a metric means:</p>
-<ul>
-<li><code>DATE_TRUNC</code> over a date returned a <code>TIMESTAMP</code>, so the period column came back as a type the
-  adapter refused.</li>
-<li><code>GROUP BY</code> emitted <code>x AS y</code> when it was handed an aliased projection, which is not a grouping key.</li>
-<li>Aliases were emitted unquoted, because the dialect layer's force-quote flag does not cover them.</li>
-<li>Placeholders rendered as <code>?</code> for every dialect, including the one that needs <code>$1</code>.</li>
-</ul>
-<p>Not one of those is about semantics. They are all about turning a plan into text correctly for a
-target, and on this path the target is a process on the same machine as the caller. Which raises the
-question this decision answers: why is there any text?</p>
-<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p><strong>DataFusion is THE execution engine.</strong> Not a second one beside <code>DuckDB</code>: the intended end state is one
-cohesive engine, DataFusion for execution and <code>polyglot-sql</code> for rendering SQL when a query is pushed
-down to a remote data system, taking concepts from the projects already surveyed in
-<a href="../../architecture/#where-the-parts-come-from">Architecture</a> - a semantic layer that compiles to a
-plan, and a federation layer that decides where a subplan runs. Federation is explicitly later.</p>
-<p><strong><code>DuckDB</code>'s role changes accordingly, and it is worth being precise rather than polite about it.</strong> It
-is not a peer engine to be maintained in parallel; two engines to keep in step is a cost, not a
-feature. It is a <strong>data source</strong> - a place data already lives, that somebody wants queried - and its
-driver is a development dependency rather than something the binary ships. What it earns its keep for
-today is that it is the only thing in the repository that EXECUTES the SQL we render: the engine
-never produces a statement, so without a real SQL engine somewhere in the loop the whole rendering
-half of the compiler would be vouched for by parsing alone, which is weaker than it sounds. One plan
-computed locally and pushed down as SQL, rows compared, is a cheap regression net for one bug class -
-a statement that is valid SQL with different semantics. It caught two real disagreements the first
-time it ran, both shallow: column labels and row order.
-The argument that carries this is not that DataFusion is fast, or good. It is that <strong>for local
-execution DataFusion generates no SQL at all.</strong> You build a logical plan and execute it over Arrow.
-Every bug in the list above is a bug an adapter that never renders SQL <em>cannot have</em> - not one it is
-less likely to have. That is a whole class of defect removed from the path that actually runs, which
-is a different and better claim than a performance one.</p>
-<h3 id="what-made-it-possible-the-port-carries-a-plan">What made it possible: the port carries a plan<a class="headerlink" href="#what-made-it-possible-the-port-carries-a-plan" title="Permanent link">&para;</a></h3>
-<p>This is the part worth reading twice, because it is the actual change and the engine is the
-consequence of it.</p>
-<p><code>Warehouse</code> used to take a rendered statement. That signature quietly asserted <strong>that every data
-system speaks SQL</strong>, and one does not: an in-process engine executes a logical plan over Arrow and
-never sees a string. So the port takes a <code>QueryPlan</code>, and <em>how</em> to execute it is the adapter's own
-business - render a statement and send it, or build a plan of its own.</p>
-<p>The plan therefore moved into <code>sutura-domain</code>, because a port speaks domain types, and a port naming
-a compiler type would invert the direction
-<a href="../../architecture/#hexagonal-by-construction">the layout exists to keep</a>. <code>QueryPlan</code> and
-<code>Warehouse</code> there are the primary statement of this, and their module documentation says it at the
-length it deserves.</p>
-<p>Two smaller properties fall out, and they are what makes two adapters comparable at all:</p>
-<ul>
-<li>A plan still holds no SQL, and its serialized form is what a golden snapshot pins. What we decided
-  shows up as a reviewable diff rather than as a different number.</li>
-<li>The result labels are defined once, on the plan. An adapter that builds an Arrow schema and an
-  adapter that renders a projection cannot disagree about what the columns are called, because
-  neither of them decides.</li>
-</ul>
-<h3 id="what-this-costs">What this costs<a class="headerlink" href="#what-this-costs" title="Permanent link">&para;</a></h3>
-<p>Stated plainly, because the weight is real and a reader deciding whether to keep this should see it.</p>
-<p><strong>It is the heaviest thing in the repository.</strong> <code>Cargo.lock</code> held 206 packages before this adapter,
-and a bare <code>datafusion</code> measured at roughly 281, so one adapter adds about a third again as many
-packages as everything else in the workspace resolved to put together. It brings arrow and tokio with
-it.</p>
-<p><strong>It lives in an adapter crate only.</strong> The dependency-boundary check holds <code>sutura-domain</code> to serde,
-thiserror and the proc-macro chain their derives need, over the whole transitive tree, and that does
-not change: <code>datafusion</code>, <code>arrow</code> and <code>tokio</code> are three of the names it exists to fail on. So the
-domain still compiles nothing heavy, and its test suite is still the inner loop.</p>
-<p><strong>DataFusion's own SQL unparser has known dialect defects</strong>, <code>DATE_TRUNC</code> argument order and
-identifier quoting among them. That is not an argument against using it for local execution, where it
-emits no SQL. It is precisely why rendering for a remote data system stays with the dialect layer
-rather than moving to DataFusion. The reference implementation of this shape says the same thing from
-the other side: wren-core is DataFusion-based, and a prior investigation found its dialect
-correctness actually living downstream in Python rather than in its Rust core. Adopting DataFusion
-therefore buys an execution engine and not a dialect layer, and planning as though it bought both
-would be planning on somebody else's Python.</p>
-<p><strong>There is real version skew between DataFusion and <code>datafusion-federation</code>.</strong> One more reason
-federation is later, on top of the reason that already governed it: federation is a second identity
-to satisfy, and
-<a href="../../architecture/#the-engine-and-the-data-systems-behind-a-port">a plan that cannot run as one subject in both places</a>
-is refused rather than run partly as somebody else.</p>
-<h2 id="what-does-not-change">What does not change<a class="headerlink" href="#what-does-not-change" title="Permanent link">&para;</a></h2>
+<p><code>POST /v1/query</code> answered <code>200</code> for both outcomes. An answer and a refusal arrived with the same
+status, and the <code>outcome</code> field was what a caller branched on:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span><span class="w"> </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"metric_unknown"</span><span class="p">,</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<p>The argument written into <code>routes/v1/query.rs</code> was this: a refusal is a result, an error status
+invites a client library to retry, and retrying a governance decision until it succeeds is exactly
+the behaviour the refusal exists to prevent.</p>
+<p>The second half of that is right and is the reason this design has refusals at all. The first half is
+a claim about client libraries, and this repository's rule is to reproduce rather than assert. It was
+checked against the current documentation of four:</p>
 <table>
 <thead>
 <tr>
-<th>Guarantee</th>
-<th>Still held by</th>
+<th>Client</th>
+<th>What its documentation says about retrying</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td>A plan resolves to exactly one data system</td>
-<td>The plan stage's source set, which refuses <code>PlanSpansTwoSources</code> unless exactly one name is in it. A second data system reachable from one process is not federation and does not become it by being convenient</td>
+<td><code>urllib3.util.Retry</code> (what <code>requests</code> mounts via <code>HTTPAdapter</code>)</td>
+<td>Status-based retries come from <code>status_forcelist</code>, "a set of integer HTTP status codes that we should force a retry on", whose default is <code>None</code> - "By default, this is disabled with <code>None</code>." No status is retried until somebody names one</td>
 </tr>
 <tr>
-<td>We never re-parse SQL we did not generate</td>
-<td>Stronger here rather than weaker: an adapter that emits no SQL has none to re-parse, and the dialect layer's <code>transpile</code> feature is still not compiled, so a call to it does not build</td>
+<td><code>reqwest</code> 0.13</td>
+<td>Its <code>retry</code> module documents the default policy as "to only retry requests where an error or low-level protocol NACK is encountered that is known to be safe to retry" - a transport condition, not a response status</td>
 </tr>
 <tr>
-<td>No value from a question reaches the statement as text</td>
-<td>For an adapter that renders, <code>GeneratedQuery</code> keeps the statement and the parameters in separate fields with no constructor that merges them. For an adapter that renders nothing there is no text for a value to reach at all: the plan carries typed parameters and each predicate names the one it binds by index</td>
+<td><code>axios</code> + <code>axios-retry</code></td>
+<td><code>axios</code> retries nothing on its own. The plugin defaults <code>retryCondition</code> to <code>isNetworkOrIdempotentRequestError</code>: "By default, it retries if it is a network error or a 5xx error on an idempotent request (GET, HEAD, OPTIONS, PUT or DELETE)"</td>
 </tr>
 <tr>
-<td>The domain acquires no framework dependency</td>
-<td>The dependency-boundary check, over the whole transitive tree, unchanged. The plan moving into the domain moved a type, not a dependency: <code>QueryPlan</code> names no engine</td>
-</tr>
-<tr>
-<td>No result cache</td>
-<td>Nothing here adds one. Materializing into Arrow is a thing this class of engine is good at, and it is the half of the neighbouring project we decline - see below</td>
-</tr>
-<tr>
-<td>Refusal is a result, not an error</td>
-<td>Unchanged. An adapter's failure is its own typed error; a question that may not be asked is still refused before an adapter is reached</td>
-</tr>
-<tr>
-<td>Every generated statement is well formed in the dialect it was generated for</td>
-<td>Unchanged for the adapters that generate one: the goldens parse each statement with its target dialect, parse only, never re-emitting. Narrower than "the data system accepts it", and deliberately so - the dialect layer's parser is not gated on the dialect for every construct, so acceptance is vouched for by execution rather than by parsing. For an adapter that generates nothing there is no statement to parse, and what stands in its place is the differential test below: the same plan executed locally and pushed down as SQL, rows compared</td>
-</tr>
-<tr>
-<td>Every query runs as the calling principal</td>
-<td>Not held on this path, and this decision does not change that either way. A local file has no login, so there is nobody else to be, and <code>CredentialBroker</code> is still absent</td>
+<td>Go <code>net/http</code></td>
+<td>The <code>Client</code>, <code>Transport</code> and <code>RoundTripper</code> reference documents no status-driven retry at all</td>
 </tr>
 </tbody>
 </table>
+<p>Nothing mainstream retries a <code>4xx</code> by default. The two statuses retried by convention are <code>429</code> and
+<code>408</code>, and no refusal maps to either. <code>422</code>, where four of the eleven refusal codes now land, is
+documented the other way round from the premise: clients receiving a <code>422</code> "should expect that
+repeating the request without modification will fail with the same error".</p>
+<p><strong>And the <code>200</code> cost something the argument never priced.</strong> A governance refusal answered <code>200</code> is
+indistinguishable from an answer to everything that reads a status and not a body:</p>
+<ul>
+<li>an ingress or proxy access log, and every dashboard built on one;</li>
+<li>an error-rate alert, and therefore an on-call rotation;</li>
+<li>a client's <code>raise_for_status()</code>, <code>response.ok</code>, or a generated client whose success branch is <code>2xx</code>;</li>
+<li>anyone reading a <code>curl -i</code> transcript.</li>
+</ul>
+<p>A deployment refusing every question read as perfectly healthy. The refusal was legible only to code
+written against this specific envelope - which is the one reader that never needed convincing.</p>
+<p>The concrete case that forced the decision is <code>result_too_large</code>: an answer that exceeded the row cap
+was declined rather than truncated, because a partial total under a certified name is wrong in the one
+way nothing downstream can detect - and the caller was told about it with a <code>200</code>.</p>
+<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
+<p><strong>A refused question comes back with an explicit HTTP status, the machine-readable <code>code</code> it always
+carried, and a sentence saying what to change.</strong> All three, so a caller is told the same thing
+whether it reads the status, branches on the code, or shows the prose to a person.</p>
+<p><code>200</code> now means the question was <strong>answered</strong> and nothing else means that.</p>
+<h3 id="the-statuses">The statuses<a class="headerlink" href="#the-statuses" title="Permanent link">&para;</a></h3>
+<p>One exhaustive match in <code>sutura_http::wire::refusal</code>, no wildcard arm, deciding the status, the code
+and the sentence together. A <code>RefusalReason</code> variant added to the domain fails to compile there until
+somebody decides what it is on the wire - the same mechanism that already stopped a new governance
+outcome from reaching a caller as an unnamed one, extended to cover the status.</p>
+<table>
+<thead>
+<tr>
+<th><code>RefusalReason</code></th>
+<th>Status</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>MetricUnknown</code></td>
+<td><code>404</code></td>
+<td>The name does not resolve in this snapshot. <code>GET /v1/catalog</code> is where the ones that do resolve are listed</td>
+</tr>
+<tr>
+<td><code>GrainNotSupported</code></td>
+<td><code>422</code></td>
+<td>The metric exists and that grain is not rendered for it. Not <code>404</code>, which would send the caller looking for the wrong mistake</td>
+</tr>
+<tr>
+<td><code>TimeRangeTooLong</code></td>
+<td><code>422</code></td>
+<td>The range parsed and both endpoints are real dates. Well formed, out of bounds</td>
+</tr>
+<tr>
+<td><code>TooManyDimensions</code></td>
+<td><code>422</code></td>
+<td>Same, and the sentence carries the maximum so narrowing needs no second request</td>
+</tr>
+<tr>
+<td><code>DuplicateDimension</code></td>
+<td><code>422</code></td>
+<td>Same. Refused rather than deduplicated, because a caller who sent it twice believes something we do not</td>
+</tr>
+<tr>
+<td><code>DimensionNotPermitted</code></td>
+<td><code>403</code></td>
+<td>The metric declares no such dimension</td>
+</tr>
+<tr>
+<td><code>DimensionNotFilterable</code></td>
+<td><code>403</code></td>
+<td>The dimension can be grouped by and not filtered on</td>
+</tr>
+<tr>
+<td><code>DimensionValueNotAllowed</code></td>
+<td><code>403</code></td>
+<td>The value is outside the declared allowlist. The value itself is never echoed back</td>
+</tr>
+<tr>
+<td><code>PlanSpansTwoSources</code></td>
+<td><code>409</code></td>
+<td>Answerable in principle, and this deployment will not span two data systems: a second one is a second identity to satisfy. A conflict between what was asked and how the deployment is arranged, which is what no status about the request's own content would say</td>
+</tr>
+<tr>
+<td><code>ResultTooLarge</code></td>
+<td><code>413</code></td>
+<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not</td>
+</tr>
+<tr>
+<td><code>SourceUnavailable</code></td>
+<td><code>503</code></td>
+<td>The one refusal where retrying is reasonable</td>
+</tr>
+</tbody>
+</table>
+<p>Three groupings are deliberate rather than a shortage of numbers. The status is what a monitor counts
+and the <code>code</code> is what a client branches on, so variants are grouped by <strong>what the caller should do</strong>:
+narrow the question (<code>422</code>), ask something the catalog permits (<code>403</code>), or stop (<code>409</code>). <code>problem.rs</code>
+already took the same position, where <code>unavailable</code> and <code>at_capacity</code> share <code>503</code> and differ in code.</p>
+<p><strong>The <code>403</code>s are not a statement about a credential.</strong> This surface has no per-caller identity - the
+token authenticates the deployment - so no token widens a metric's dimension set. <code>403</code> is used in its
+"understood the request, refuses to fulfil it" sense, and each sentence names the metric and the
+dimension so a caller cannot read it as "go and get a better token".</p>
+<h3 id="two-statuses-are-shared-with-something-that-is-not-a-refusal">Two statuses are shared with something that is not a refusal<a class="headerlink" href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" title="Permanent link">&para;</a></h3>
+<p><code>code</code> separates them, and so does the body: only a refusal carries <code>outcome</code>.</p>
+<ul>
+<li><code>413</code> is <code>too_large</code> when the <strong>request body</strong> was over the configured limit, and
+  <code>result_too_large</code> when the <strong>answer</strong> was over the row cap.</li>
+<li><code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from the failure side, and <code>source_unavailable</code> from the
+  refusal side.</li>
+</ul>
+<h3 id="no-retry-after-on-any-refusal">No <code>Retry-After</code> on any refusal<a class="headerlink" href="#no-retry-after-on-any-refusal" title="Permanent link">&para;</a></h3>
+<p><code>Failure::retry_after</code> already set the rule for this surface: a number that is already known, or no
+header, because a guessed number is a promise. The only failure that carries one is <code>at_capacity</code>,
+where the number is the admission window the caller just spent waiting out. Nothing here knows when a
+data system will come back, so <code>source_unavailable</code> carries none - and neither does
+<code>Failure::Unavailable</code>, which is the same situation reached from the other side. A refusal that
+invented one would make the two disagree.</p>
+<h3 id="the-body-keeps-its-own-envelope">The body keeps its own envelope<a class="headerlink" href="#the-body-keeps-its-own-envelope" title="Permanent link">&para;</a></h3>
+<p><strong>A refusal keeps <code>crate::wire::OutcomeBody::Refusal</code> and is NOT moved to <code>ProblemBody</code>.</strong> Four
+reasons, in the order they decided it.</p>
+<p><strong>1. A refusal is not a <code>Failure</code>, and the type system should keep saying so.</strong> <code>ProblemBody</code> is
+reachable only through <code>Failure</code>, which is what an <code>Err</code> becomes. Routing a refusal through it needs a
+<code>Failure::Refused</code> variant, which would put a governance <em>result</em> into the error enum - and the whole
+point of <code>ToolOutcome::Refusal</code> being a variant of the result is that no code path can mistake it for
+a transport hiccup. The status changed; the type did not, and this is where that is kept true.</p>
+<p><strong>2. There is no RFC 9457 shape to move to.</strong> It is worth stating plainly, because the obvious
+consistency argument assumes one. <code>ProblemBody</code> is this repository's own three-field failure body -
+<code>code</code>, <code>status</code>, <code>detail</code> - served as <code>application/json</code>. It carries no <code>type</code>, <code>title</code> or <code>instance</code>
+member and is not served as <code>application/problem+json</code>; the string "9457" appears nowhere in the
+repository. So the choice was never "our envelope or the standard one". It was "our refusal envelope
+or our failure envelope".</p>
+<p><strong>3. The refusal envelope is the existing contract.</strong> Clients read <code>outcome</code> and <code>reason.code</code>, the
+interface description declares them, and the golden corpus and the example session show them. This
+change is additive: nothing was removed or renamed.</p>
+<p><strong>4. Discriminability is worth more than uniformity exactly where the statuses collide.</strong> With two
+body shapes, <code>outcome</code> is a one-field test for whether the governance layer decided or the transport
+failed - which is what a caller needs at <code>413</code> and at <code>503</code>, where the same number arrives from both
+sides.</p>
+<p>The cost, stated rather than waved away: a caller now parses two failure-ish shapes on one route. It
+is bounded, because both carry a <code>code</code> and a <code>detail</code> at a known place, and the OpenAPI document
+declares both per status with the codes that reach it.</p>
+<p>One field was added inside <code>reason</code>: <code>status</code>, the same <code>u16</code> the response carries. For the same
+reason <code>ProblemBody</code> has it - a client that logged only the body still has it - and it makes the two
+bodies near-identical in what they carry.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>The local path stops being where dialect bugs are found, and that is a loss as well as a gain.</strong>
-  Executing against a local file was the cheapest way to exercise the generator end to end. With the
-  local path no longer rendering SQL, the goldens carry that weight alone: they are what parse every
-  statement in its target dialect, and they are now the only thing that does before a real remote
-  data system is in the picture.</li>
-<li><strong>One plan, answered both ways, rows compared.</strong> Built, as
-  <code>crates/sutura-app/tests/differential.rs</code>: the same question over the same files, once executed
-  locally over Arrow by the engine and once rendered as SQL and pushed down to a data source. Worth
-  reading for what it does <em>not</em> claim - its own module doc calls it a cheap regression net rather
-  than a proof of correctness, because the two sides are not two implementations of one thing. What
-  it covers is the one class of bug nothing else here catches: a rendered statement that is valid
-  SQL with different semantics - a truncated date coming back as a timestamp, an integer division
-  silently truncating, a week starting on the wrong day. It caught two real disagreements the first
-  time it ran, both shallow: the column labels, and the row order.</li>
-<li><strong>The port is synchronous, so the adapter owns its runtime.</strong> DataFusion's execution is async and
-  tokio arrives with it; <code>Warehouse::execute</code> is a plain function, so the adapter blocks internally.
-  That keeps tokio out of the domain and out of the service, at the price of an adapter that has to
-  be careful about being called from inside somebody else's runtime.</li>
-<li><strong>Unlike DuckDB, it links no C library.</strong> So it does not constrain the musl artifacts the way
-  <code>libduckdb</code> does, and it needs no feature to sit behind: it is a plain dependency of <code>sutura-cli</code>
-  and ships in every artifact. <code>DuckDB</code> went the other way and is a <strong>development</strong> dependency, of
-  <code>sutura-app</code>'s test suite - present to prove the SQL we render actually runs, not to be linked
-  into an artifact that has no musl <code>libduckdb</code> to link against.</li>
+<li><strong>Nothing about the domain moves.</strong> <code>ToolOutcome</code>, <code>RefusalReason</code> and every rule about what may be
+  asked are untouched. This decision is a transport mapping and lives entirely in <code>sutura-http</code>.</li>
+<li><strong>The compile is the gate.</strong> A new <code>RefusalReason</code> variant does not build until it has a status, a
+  code and a sentence. There is no <code>_ =&gt;</code> arm and there must not be one: a default would hand a new
+  governance outcome to callers under whatever number happened to be chosen first.</li>
+<li><strong><code>413</code> is arguably wrong by the letter of the spec, and is used anyway.</strong> <code>413 Content Too Large</code>
+  is defined over the <em>request</em> content - "the request entity was larger than limits defined by
+  server" - and what is too large in <code>ResultTooLarge</code> is the answer. It is recorded here rather than
+  hidden. It is used because <code>413</code> is the status a person reading a dashboard reads as "too large",
+  which is precisely what this refusal has to be unmistakable about, and because the collision with
+  the body limit on the same route is resolved by <code>code</code> and by the body shape. If a reader disagrees,
+  <code>422</code> is the alternative and this paragraph is the argument to answer.</li>
+<li><strong><code>DimensionNotPermitted</code> at <code>403</code> was the other close call.</strong> The domain calls it "a name that does
+  not resolve", which reads like <code>422</code>. It stays at <code>403</code> because what the name is checked against is
+  the metric's <em>declared</em> dimension set - the same catalog statement <code>DimensionNotFilterable</code> and
+  <code>DimensionValueNotAllowed</code> read at finer grain - so a monitor counting attempts to ask outside the
+  catalog gets one number rather than two.</li>
+<li><strong><code>SourceUnavailable</code> is the only refusal a caller should retry, and today's cause is usually not
+  transient.</strong> The variant is documented as the one an identity failure will also use, and today it is
+  raised by a name comparison: the plan's data system against the adapter this process opened. So a
+  <code>503</code> here often means a deployment wired wrong rather than one briefly unwell. The status is right
+  for the variant's meaning; the sentence is what an operator reads.</li>
+<li><strong>The example session under <code>examples/single-player/README.md</code> shows captured <code>200 OK</code> transcripts
+  for refusals and is now stale.</strong> It has to be re-captured from a running process rather than
+  hand-edited, which is why it is named here instead of quietly corrected.</li>
+<li><strong>The agent prompt still tells an agent a refusal is a successful call.</strong> That is true at the tool
+  level, where <code>sutura_app::prompt</code> speaks; over HTTP it is no longer true of the status. Whether the
+  prompt should mention a transport at all is a separate decision.</li>
 </ul>
 <h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
-<p><strong>Keep the hand-written generator and DuckDB only.</strong> The least new weight by a wide margin, and the
-option that needs no defence on size. Rejected because it leaves dialect correctness for local
-execution as our burden, and that is exactly where the bugs were: four of them in one sitting, none
-of them about what a metric means. An engine that needs no dialect removes the burden instead of
-making us better at carrying it.</p>
-<p><strong>Adopt Spice as well.</strong> Rust, Apache-2.0, DataFusion-based, and its federation and connector layer
-is the most exercised implementation of the stage we want next, which makes this genuinely
-attractive. The acceleration half we cannot take, and not as a matter of configuration: a
-materialized copy is read under whoever refreshed it, so under row-level security it is a cross-user
-leak with a refresh schedule. Its front door is also SQL, where ours has no field for one. So it
-stays a reference for the federation stage rather than becoming a dependency.</p>
+<p><strong>Keep the <code>200</code> and document it harder.</strong> The status quo, and it needs no work. Rejected because the
+problem is not that callers were under-informed - it is that a whole class of reader never sees the
+body at all, and no amount of documentation reaches a proxy access log or an error-rate alert.</p>
+<p><strong>One status for every refusal, <code>422</code> for all of them.</strong> Simple, honest about "well formed and
+declined", and one number to document. Rejected because it throws away the part a caller can act on
+without parsing: <code>metric_unknown</code> and <code>result_too_large</code> need different responses, and collapsing them
+means the status carries no information beyond "not answered" - which is barely better than the <code>200</code>.</p>
+<p><strong>Move refusals to <code>ProblemBody</code>.</strong> One failure shape for the whole surface, which is a real
+consistency win. Rejected for the four reasons above, the first being decisive: it needs a
+<code>Failure::Refused</code> variant, and putting a governance result into the error enum is the exact confusion
+<code>ToolOutcome::Refusal</code> exists to prevent.</p>
+<p><strong>A <code>Retry-After</code> on <code>SourceUnavailable</code>.</strong> Cheap to add and it looks helpful. Rejected because the
+number would be invented, which is the one thing <code>Failure::retry_after</code> already refuses to do, and
+because the same situation reached from the failure side carries no header - two answers to one
+question is worse than one incomplete answer.</p>
 
 
 

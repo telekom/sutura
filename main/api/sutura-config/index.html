@@ -787,6 +787,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -900,6 +904,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1721,7 +1781,7 @@ a refusal needs a quota small enough to exhaust in two requests, so such a test 
 <code>rate_limit.enabled</code> and a tier down together - which is what
 <code>sutura-http</code>'s harness already does. So defaulting on here would buy no coverage, and would
 charge every unrelated test in the suite a limiter it never asked for, at a tier
-(<code>probe_burst: 5</code>) that a loop over fixtures can exhaust. A limiter nothing exercises is
+(<code>probe_burst: 5</code>) that a loop over a corpus of requests can exhaust. A limiter nothing exercises is
 untested code; the answer to that is a test that names the switch, not a default that fires
 during somebody else's assertion.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">enabled_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>

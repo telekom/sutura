@@ -874,6 +874,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -987,6 +991,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1516,8 +1576,10 @@ becomes decorative.</p>
 <p class="admonition-title">What is built, and what is a design target</p>
 <p>sutura today is <strong>a governed single-player semantic compiler and executor over local files.</strong>
 The half of the design that fixes the <em>second</em> failure above is not built: there is no request
-context, no credential broker, no audit sink, no Arrow result envelope, and neither an MCP nor
-an HTTP surface. Every claim on this site is marked <em>enforced today</em> or <em>design target</em> at the
+context, no credential broker, no audit sink, no Arrow result envelope and no MCP surface.
+There <strong>is</strong> an <a href="serving/">HTTP surface</a>, and its bearer token authenticates the <em>deployment</em>
+rather than the caller - so it serves the tool surface over a network and makes no per-caller
+claim true. Every claim on this site is marked <em>enforced today</em> or <em>design target</em> at the
 point it is made, and the identity claims are all design targets.</p>
 </div>
 <h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
@@ -1590,7 +1652,8 @@ is the table, and it is the section to read before assuming otherwise.</p>
 is no request context type, so no caller identity reaches the query path at all, and no credential
 broker, so "as the person or agent asking" holds here only because a file has nobody else to be.
 There is no audit sink either, so a refusal is a value the caller receives and is recorded nowhere.
-The MCP and HTTP surfaces, Arrow results and federation are also still ahead.
+The MCP surface, Arrow results and federation are also still ahead. <a href="serving/">The HTTP
+surface</a> is not, and its token authenticates the deployment rather than the caller.
 <a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <table>

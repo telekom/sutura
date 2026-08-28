@@ -787,6 +787,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -900,6 +904,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1385,9 +1445,11 @@
 <h1 id="sutura-sql">sutura-sql<a class="headerlink" href="#sutura-sql" title="Permanent link">&para;</a></h1>
 <p>The public API of <code>sutura-sql</code>, rendered from rustdoc JSON.</p>
 <p>Rendering: a <code>QueryPlan</code> becomes one statement in one dialect.</p>
-<p>Two modules, and they are the two halves of what a SQL-speaking adapter needs: <code>dialect</code> names
-the data systems we render for and owns the two decisions the dialect layer does not make for us,
-<code>generate</code> turns a plan into a statement and its bind parameters.</p>
+<p>Three modules and one type. <code>dialect</code> names the data systems we render for and owns the two
+decisions the dialect layer does not make for us; <code>generate</code> turns a plan into a statement and
+its bind parameters; <code>expression</code> compiles the one thing a catalog is allowed to author as SQL,
+at load, for every dialect at once. <code>GeneratedQuery</code> is what <code>generate</code> returns, and it is at
+the crate root because it is this crate's output rather than any one module's detail.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
 already off the compile path - <code>sutura_semantic::compile</code> stops at a plan, because the
@@ -1409,14 +1471,55 @@ decides what to execute, the other writes it down for a data system that speaks 
 other. <code>sutura-cli</code> calls it too, because <code>sutura compile</code> exists to print the statement for a
 dialect somebody named. The engine adapter calls nothing here, which is the whole point of the
 port taking a plan.</p>
-<p><strong>Nothing here parses SQL, and nothing here translates between dialects.</strong> There is no foreign
-SQL on this path to parse: the statement is generated from a model. Translation is banned
-separately, in <code>clippy.toml</code>, and the <code>transpile</code> feature is not even compiled - see the feature
+<p><strong>Nothing here translates between dialects, and exactly one thing here parses SQL.</strong> The
+statement is generated from a model, so there is no foreign SQL on the <em>query</em> path to parse.
+Translation is banned separately: the <code>transpile</code> feature is not even compiled - see the feature
 list in the workspace manifest for why not calling it was judged too weak.</p>
+<p>The one exception is <code>expression</code>, and it is an exception with a stated shape. A catalog may
+author a SQL fragment for a metric the closed measure vocabulary cannot express, and that
+fragment is parsed - <strong>at catalog-compile time, once, never on the query path</strong> - checked against
+a list of constructs this build refuses, qualified against the model's columns, and rendered for
+every dialect. What reaches a statement afterwards is our own generator's output. <code>docs/adr/0004</code>
+is the decision.</p>
+<h2 id="struct-generatedquery"><code>struct GeneratedQuery</code><a class="headerlink" href="#struct-generatedquery" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">GeneratedQuery</span>
+</span></code></pre></div>
+<p>A statement, its parameters, and the one data system it runs against.</p>
+<p><strong>Parameters are a separate field and there is no constructor that merges them.</strong> That is the
+mechanism behind "no value from a question reaches the statement as text": to inline a value an
+adapter would have to build the string itself, which is a diff rather than an oversight.</p>
+<p><code>source</code> rides along because a plan resolves to exactly one data system, and carrying it here is
+what lets the composition root check that the adapter it is about to call is the one the plan
+named.</p>
+<p><strong>It is in this crate rather than in <code>sutura-domain</code>, and that is the same argument this crate
+exists for.</strong> It sat beside the <code>Warehouse</code> port while the port took a rendered statement, on the
+reasoning that the port had to hand one to something. The port takes a <code>QueryPlan</code> now - an
+adapter that executes over Arrow renders nothing and never sees one of these - and once the port
+changed, nothing in the domain constructed or read one: the type was a concept the domain named
+and did not use. Its producer is <code>generate</code> one module over, and every consumer - the SQL
+adapters, and the CLI so <code>sutura compile</code> can print a statement - already depends on this crate.
+So the move added an edge nowhere and made the domain smaller by exactly the part of it that was
+not domain.</p>
+<h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">sql</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">,</span><span class="w"> </span><span class="n">params</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">ParamValue</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">ParamValue</span><span class="p">]</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sql</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
 <h2 id="module-dialect">Module <code>dialect</code><a class="headerlink" href="#module-dialect" title="Permanent link">&para;</a></h2>
 <p>Which data system a statement is rendered for, and the two things we do not delegate.</p>
 <p>The dialect layer we build on knows more about dialects than we do: it renders <code>DATE_TRUNC</code> as
@@ -1431,7 +1534,7 @@ is a reserved word, or the config says always. Our identifiers were never in any
 without forcing it a column called <code>order</code> would be emitted bare. We force it, and we force it
 for aliases too, which the config's own flag does not cover.</p>
 <h3 id="enum-dialect"><code>enum Dialect</code><a class="headerlink" href="#enum-dialect" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Dialect</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Dialect</span>
 </span></code></pre></div>
 <p>The data systems a statement can be rendered for.</p>
 <p>A closed set rather than a passthrough of the dialect layer's thirty-three, because each entry
@@ -1443,20 +1546,20 @@ a feature flag, a match arm and a snapshot.</p>
 <li><code>Postgres</code></li>
 <li><code>ClickHouse</code></li>
 </ul>
-<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The name used on a command line and in a snapshot suffix.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownDialect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownDialect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Parses a dialect name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">placeholder_style</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">placeholder_style</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
 </span></code></pre></div>
 <p>How this data system writes a bind parameter.</p>
-<h4 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h4>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
 <h3 id="enum-placeholderstyle"><code>enum PlaceholderStyle</code><a class="headerlink" href="#enum-placeholderstyle" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
 </span></code></pre></div>
 <p>How a bind parameter is written.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -1464,23 +1567,247 @@ a feature flag, a match arm and a snapshot.</p>
 <li><code>Question</code> - <code>?</code>, positional by order of appearance. <code>DuckDB</code> and <code>ClickHouse</code>.</li>
 <li><code>Numbered</code> - <code>$1</code>, <code>$2</code>, numbered from one. Postgres.</li>
 </ul>
-<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-unknowndialect"><code>struct UnknownDialect</code><a class="headerlink" href="#struct-unknowndialect" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownDialect</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownDialect</span>
 </span></code></pre></div>
 <p>Why a dialect name was not recognised.</p>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="constant-all"><code>constant ALL</code><a class="headerlink" href="#constant-all" title="Permanent link">&para;</a></h3>
 <p>Every dialect, for iterating a golden suite over all of them.</p>
 <p>A <code>const</code> rather than a derive, so a new variant that is not added here fails the exhaustiveness
 test below rather than being silently untested.</p>
+<h2 id="module-expression">Module <code>expression</code><a class="headerlink" href="#module-expression" title="Permanent link">&para;</a></h2>
+<p>Compile: an authored SQL fragment becomes one checked expression per target dialect.</p>
+<p><code>sutura_domain::expression</code> holds the fragment as text and knows nothing about SQL, because the
+domain has no parser and <code>cargo xtask check-boundaries</code> keeps it that way. This module is the
+other half: it parses what a catalog author wrote, refuses what it will not carry, qualifies the
+columns against the model, and renders the result for <strong>every</strong> dialect this build renders for -
+all of it at catalog-compile time, none of it on the query path.</p>
+<h1 id="parse-and-generate-never-transpile">Parse and generate, never transpile<a class="headerlink" href="#parse-and-generate-never-transpile" title="Permanent link">&para;</a></h1>
+<p><code>Dialect::parse</code> in one dialect, <code>Generator::generate</code> in another. <code>Dialect::transpile</code> is not
+called and its feature is not compiled, and that is a stronger reason than tidiness. Under
+<code>TranspileOptions::default()</code> the unsupported level is <code>Warn</code>: an unsupported construct returns
+<code>Ok(sql)</code> and pushes a diagnostic into <code>unsupported_messages</code>, which <code>Dialect::transpile</code> then
+<strong>discards</strong>. The default failure mode of the convenient call is therefore silent wrong output.
+Setting the level to <code>Raise</code> is not a usable net either - measured, it errors on every non-count
+aggregate targeting <code>ClickHouse</code> while staying silent on all four of the real breakages
+<code>Construct</code> refuses below.</p>
+<p>Parse-and-generate also turns out to be <em>more</em> faithful for the aggregation subset: measured
+byte-identical across all sixteen (read, write) pairs over <code>DuckDB</code>, Postgres, <code>ClickHouse</code> and
+<code>BigQuery</code> for the conditional sum, the guarded ratio, <code>COUNT(DISTINCT k)</code>, <code>AVG</code>, <code>COALESCE</code>, a
+bare <code>CASE</code>, <code>MIN</code>/<code>MAX</code> and <code>ARRAY_AGG(DISTINCT .. ORDER BY ..)</code>, with <code>CAST(.. AS DOUBLE)</code>
+retargeting correctly.</p>
+<h1 id="why-a-select-wrapper-and-not-the-fragment-api">Why a <code>SELECT</code> wrapper and not the fragment API<a class="headerlink" href="#why-a-select-wrapper-and-not-the-fragment-api" title="Permanent link">&para;</a></h1>
+<p>The obvious way to parse a fragment - <code>Parser::new(dialect.tokenize(x))</code> then
+<code>parse_expressions()</code> - <strong>panics</strong> on an empty token list, which is what <code>""</code>, whitespace-only
+and comment-only input all produce, in every one of our dialects. Under <code>panic = "abort"</code> that is
+a catalog file ending the process. So the fragment is parsed as <code>SELECT {fragment}</code> and the
+projection is taken back out, with a guard on each way that can go wrong: one statement, one
+projection, no <code>FROM</code>, no alias. <code>sutura_domain::expression::SqlFragment</code> refuses the empty
+cases before they get this far, and the guards here hold for everything else.</p>
+<p><strong>The authoring dialect is <code>DuckDB</code> and may not be <code>ClickHouse</code>.</strong> Measured: <code>ClickHouse</code>'s
+parser accepts <code>SUM(x))</code> and <code>x) FROM secret --</code>, silently dropping the tail. That is
+injection-shaped input passing validation. <code>DuckDB</code> rejects both.</p>
+<h1 id="what-the-compile-guarantees-and-what-it-does-not">What the compile guarantees, and what it does not<a class="headerlink" href="#what-the-compile-guarantees-and-what-it-does-not" title="Permanent link">&para;</a></h1>
+<p>It guarantees the fragment is one expression, over columns the metric's own model declares -
+<strong>every one of them carrying that model's table</strong>, asserted after the rewrite rather than assumed
+from it - reaching no table and no query it was not given; that every function it calls is one of
+the names in the allowlist <code>Construct::UnknownFunction</code> names; that it nests no deeper than the
+checks can walk without the stack; that none of the constructs in <code>Construct</code> is present; and
+that the rendering for each target is well-formed SQL that parses in that target's dialect.</p>
+<p>It does <strong>not</strong> guarantee the target has the function. <code>MEDIAN(x)</code>, <code>COUNT_IF(x)</code> and
+<code>PERCENTILE_CONT(..) WITHIN GROUP (..)</code> are emitted verbatim into Postgres and <code>ClickHouse</code> by
+the dialect layer, and two of those three do not exist there. No per-dialect function catalogue
+is compiled into this build, so nothing here can tell. That is precisely what the per-dialect
+variants of <code>AuthoredSql</code> are for: the author names the dialect and takes the claim, and a
+dialect with neither an exact fragment nor a <code>portable</code> one is refused rather than guessed at.</p>
+<h3 id="struct-rendering"><code>struct Rendering</code><a class="headerlink" href="#struct-rendering" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Rendering</span>
+</span></code></pre></div>
+<p>One authored fragment, compiled for one dialect.</p>
+<p><code>authored_for</code> is the traceability half and is not cosmetic: with a <code>portable</code> fragment and a
+<code>clickhouse</code> one in the same metric, "which one did this statement use" is otherwise a question
+answered by re-deriving the resolution rule in your head.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authored_for</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DialectTag</span>
+</span></code></pre></div>
+<p>The dialect word whose fragment was chosen: the target's own, or <code>portable</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sql</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The rendered expression, with every identifier already quoted.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="struct-compiledexpression"><code>struct CompiledExpression</code><a class="headerlink" href="#struct-compiledexpression" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CompiledExpression</span>
+</span></code></pre></div>
+<p>An authored expression, compiled for every dialect this build renders for.</p>
+<p>Complete by construction: <code>compile</code> returns one of these only when every entry in
+<code>crate::dialect::ALL</code> resolved and rendered. So there is no per-query moment at which a target
+turns out to have no expression - that failure has already happened, at load, naming the dialect.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Rendering</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The rendering for one target. Always <code>Some</code> for a dialect in <code>crate::dialect::ALL</code>.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">renderings</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">Dialect</span><span class="p">,</span><span class="w"> </span><span class="n">Rendering</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every rendering, for a snapshot a reviewer reads.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h3 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile</span><span class="p">(</span><span class="n">authored</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">AuthoredSql</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">ColumnName</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">CompiledExpression</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">refusal</span><span class="p">::</span><span class="n">ExpressionError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Compiles an authored expression for every dialect this build renders for.</p>
+<p><code>columns</code> is the metric's own model's declared column set and <code>table</code> its table. Both are
+required rather than optional, which is the decision worth writing down: <strong>an unknown column
+fails the load.</strong> Wren's cube path does not check them - its own documentation tells the agent to
+expect a runtime error from the warehouse - while its model path does, through a schema-driven
+AST rewrite. The model path is right. A metric whose fragment names a column that does not exist
+is broken whether or not anybody asks about it, and the difference between finding out at load
+and finding out at query time is the difference between a refusal an operator can fix and a stack
+trace an agent shows a user.</p>
+<h3 id="fn-embed"><code>fn embed</code><a class="headerlink" href="#fn-embed" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">embed</span><span class="p">(</span><span class="n">rendering</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Rendering</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">polyglot_sql</span><span class="p">::</span><span class="n">builder</span><span class="p">::</span><span class="n">Expr</span>
+</span></code></pre></div>
+<p>The compiled expression, as something the statement builder will accept.</p>
+<p><code>Expression::Raw</code> is a true verbatim passthrough - the generator writes <code>raw.sql</code> and consults no
+dialect flag - which is what makes it right here and wrong almost everywhere else: the text was
+produced by <code>compile</code> for this exact target, with identifiers already quoted, so re-parsing it
+would be re-parsing our own output for nothing.</p>
+<p>Wrapped in a <code>Paren</code>. <code>Raw</code> reports <code>is_statement()</code>, carries no precedence and has no children,
+so an unparenthesised one placed under an operator would bind by text rather than by structure.
+The parentheses cost two characters and make the embedding position-independent.</p>
+<h3 id="module-refusal">Module <code>refusal</code><a class="headerlink" href="#module-refusal" title="Permanent link">&para;</a></h3>
+<p>What a refusal says and what it carries: <code>refusal::Construct</code>, <code>refusal::Shape</code> and
+<code>refusal::ExpressionError</code>.</p>
+<p>Public, and a module rather than a <code>pub use</code> here, for two reasons that happen to agree.
+<code>cargo xtask max-lines</code> caps a file under <code>crates/</code> at a thousand lines and cannot exempt
+anything, and this file was at the cap; and the refusal vocabulary is the half of the compile a
+reader consults rather than follows, so it reads better as its own page than as the first third
+of this one. <code>crate::ExpressionError</code> and <code>crate::Construct</code> still name the same types, from the
+crate root, which is the path everything outside this crate uses.
+What a refusal from the compile says, and what it carries: the construct it found, the shape
+guard it failed, and the error itself.</p>
+<p>Its own module for two reasons. The plain one is size: <code>expression.rs</code> is a thousand-line file by
+the gate that measures it, and the refusal vocabulary is the half of it a reader consults rather
+than follows.</p>
+<p>The one worth stating is that this is where the shape rule lives. <strong>Every field here is the value
+and never prose about it.</strong> The dialect word is a <code>DialectTag</code>, which is what every construction
+site already holds; the two refusals that name a <em>set</em> carry the set. The joins below are how a
+message reads and not what it is - a caller wanting the sentence has <code>Display</code>, and a caller
+wanting the list has the list, where before it had to split a message on <code>", "</code>.</p>
+<h4 id="enum-construct"><code>enum Construct</code><a class="headerlink" href="#enum-construct" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Construct</span>
+</span></code></pre></div>
+<p>A construct an authored fragment may not contain, and why.</p>
+<p>Every variant is a refusal a compile can produce, and the reason is carried with it rather than
+left in a design document: a refusal that names a construct without saying why sends an author to
+read this file.</p>
+<h5 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Query</code> - A <code>SELECT</code>, a subquery, a set operation.</li>
+<li><code>TableReference</code> - A named table.</li>
+<li><code>SchemaStatement</code> - A schema or data statement inside an expression.</li>
+<li><code>Star</code> - <code>*</code>, either as a node or as <code>COUNT(*)</code>'s flag.</li>
+<li><code>BindParameter</code> - <code>?</code> or <code>$1</code>.</li>
+<li><code>Opaque</code> - A node the generator emits with no handling at all.</li>
+<li><code>QualifiedColumn</code> - <code>t.column</code>.</li>
+<li><code>QualifiedFunctionName</code> - A function name with a schema on it.</li>
+<li><code>DateTimeFunction</code> - Anything that reads a date or a time.</li>
+<li><code>UnknownFunction</code> - A called function whose name is not in the allowlist.</li>
+<li><code>AggregateFilter</code> - <code>FILTER (WHERE ..)</code> on an aggregate.</li>
+<li><code>Comment</code> - A comment inside the fragment.</li>
+<li><code>RowConstructor</code> - A row constructor, which is also how <code>COUNT(DISTINCT a, b)</code> parses.</li>
+<li><code>UnguardedDivision</code> - <code>/</code> whose divisor is not a <code>NULLIF</code>.</li>
+<li><code>IntegerDivision</code> - <code>//</code>, or any integer division node.</li>
+<li><code>IsTrue</code> - <code>x IS TRUE</code>, <code>x IS FALSE</code>, <code>x IS &lt;expr&gt;</code>.</li>
+<li><code>NotAggregated</code> - A fragment that aggregates nothing.</li>
+</ul>
+<h5 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The name a refusal prints.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">why</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Why it is refused. One sentence, and it is the whole value of the refusal.</p>
+<h5 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-shape"><code>enum Shape</code><a class="headerlink" href="#enum-shape" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Shape</span>
+</span></code></pre></div>
+<p>Which of the four shape guards a fragment failed.</p>
+<p>Named individually because each one is a different mistake: two projections is a comma somebody
+meant as an argument separator, a <code>FROM</code> is a whole query pasted into a measure, and an alias is
+a habit from writing <code>SELECT</code> lists. "Not one expression" would send all three to read a grammar.</p>
+<h5 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>ManyStatements</code> - More than one statement: a <code>;</code> in the fragment.</li>
+<li><code>NotASelect</code> - The wrapper did not come back as a <code>SELECT</code>. A set operation is the reachable case: <code>SUM(x) UNION SELECT 1</code> parses as a <code>Union</code>, not as a projection.</li>
+<li><code>ManyExpressions</code> - Not exactly one projected expression.</li>
+<li><code>CarriedFrom</code> - A <code>FROM</code> clause.</li>
+<li><code>CarriedAlias</code> - An <code>AS name</code>.</li>
+<li><code>CarriedClause</code> - Any other clause on the wrapper's <code>SELECT</code>, which taking the projection would DISCARD.</li>
+</ul>
+<h5 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<h5 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-expressionerror"><code>enum ExpressionError</code><a class="headerlink" href="#enum-expressionerror" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExpressionError</span>
+</span></code></pre></div>
+<p>Why an authored expression could not be compiled.</p>
+<p><strong>All of these are load failures.</strong> A catalog that produces one does not serve; there is no
+degraded mode in which the metric is skipped and the rest is answered, because a metric that is
+present in a bundle and unanswerable is a metric an agent will ask about.</p>
+<p><strong>Four of them cannot be produced by any fragment, and each says so on itself rather than here:</strong>
+<code>Self::Qualify</code>, <code>Self::Unrenderable</code>, <code>Self::Render</code> and <code>Self::RenderedDoesNotParse</code>
+each need a defect in the dialect layer, and <strong>not the same defect</strong> - which is why the argument
+is on the variant and not summarised here. <code>Self::Qualify</code> needs that layer's own transformer to
+violate one of its own invariants; <code>Self::Unrenderable</code> and <code>Self::Render</code> are ruled out by
+construction, because this module's caps sit under the layer's complexity guard and no dialect
+configuration raises its unsupported level; and <code>Self::RenderedDoesNotParse</code> is <strong>not</strong> ruled
+out by construction at all - it is the load-time net for a generator that emits text its own
+parser rejects, which is the reason it is a check here rather than a test. They exist
+because the calls they wrap return a <code>Result</code> and this crate may not <code>unwrap</code> one, and what is
+pinned about them is the wiring - the fields, and that the cause survives <code>#[source]</code> - not a
+refusal a catalog can provoke. <code>tests::the_four_refusals_only_a_dialect_layer_defect_can_produce</code>
+is that test, and it is named for what it is so that nobody reads it as coverage of an input.</p>
+<p><strong>Every field is the value, never prose about it</strong>, and that is this enum's one shape rule. The
+dialect word a refusal is about is a <code>DialectTag</code> and not a <code>String</code>, because that is what every
+construction site already holds; the two refusals that name a <em>set</em> carry the set rather than a
+sentence built from it. A caller that wants the sentence gets it from <code>Display</code>, and a caller that
+wants the list has it - where before, recovering "which dialects was this authored for" meant
+splitting a message on <code>", "</code>, which is a contract nothing checks and a format edit breaks.</p>
+<h5 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>UnknownDialect</code> - A dialect word that is not one this build renders for. Refused rather than ignored: a <code>postgresql:</code> beside a <code>portable:</code> would otherwise be a variant that is silently never chosen, and the author would never learn that Postgres got the portable fragment.</li>
+<li><code>NoFragment</code> - No exact fragment and no <code>portable</code> one. The refusal wren's importer does not have.</li>
+<li><code>Unparsable</code></li>
+<li><code>NotOneExpression</code></li>
+<li><code>Unrenderable</code> - The parse succeeded and the result could not be written back out, so it cannot be shown to be the projection and nothing else. Its own variant rather than a <code>Shape</code>, because a <code>Shape</code> carries no cause and this one has one worth keeping.</li>
+<li><code>Refused</code></li>
+<li><code>UnknownColumn</code></li>
+<li><code>UnknownFunction</code> - A called function that is not one of the names a measure may call.</li>
+<li><code>TooDeep</code> - A fragment nesting deeper than the checks can walk. See the guard in <code>super::parse</code>, in the parent module.</li>
+<li><code>NotQualified</code> - A column the qualification rewrite did not reach. See <code>super::require_qualified</code>, in the parent module.</li>
+<li><code>Qualify</code> - The qualification rewrite failed.</li>
+<li><code>Render</code> - The target's generator refused the tree.</li>
+<li><code>RenderedDoesNotParse</code> - The rendering came back as something its own target cannot parse. The same check the golden suite applies to every generated statement, applied here at load rather than in a test, because this is the one statement fragment whose text came from a file.</li>
+</ul>
+<h5 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h2 id="module-generate">Module <code>generate</code><a class="headerlink" href="#module-generate" title="Permanent link">&para;</a></h2>
 <p>Generate: a plan becomes one statement in one dialect.</p>
-<p>The only module that names the dialect layer, so a pre-1.0 API change upstream touches one file,
-and the only one that produces SQL. An adapter that executes a plan without rendering it - the
-in-process engine - never calls anything here.</p>
+<p>The module that turns a plan into SQL. An adapter that executes a plan without rendering it -
+the in-process engine - never calls anything here.</p>
+<p>It used to be the only module that names the dialect layer. <code>crate::expression</code> names it too
+now, because compiling a catalog-authored fragment is parsing rather than rendering and the two
+jobs share no code: this file builds an AST from a plan, that one takes an AST apart and refuses
+most of it. A pre-1.0 API change upstream therefore touches two files in this crate, both of them
+here rather than anywhere else.</p>
 <p>Five things about how the dialect layer is used, every one of them measured rather than assumed,
 and every one of them looking right until it was rendered:</p>
 <p><strong>The fluent builder, not the AST structs.</strong> <code>Expression::Select</code> has upwards of thirty fields
@@ -1502,21 +1829,21 @@ reject it. <code>crate::dialect::PlaceholderStyle</code> decides.</p>
 <p><code>transpile</code> is never called and is not compiled. See <code>clippy.toml</code> and the feature list in the
 workspace manifest.</p>
 <h3 id="enum-generateerror"><code>enum GenerateError</code><a class="headerlink" href="#enum-generateerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">GenerateError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">GenerateError</span>
 </span></code></pre></div>
 <p>Why a statement could not be rendered.</p>
 <p>Not a refusal: a caller cannot cause one of these and there is nothing they could ask
 differently. A plan that will not render is a bug here or upstream.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Render</code></li>
 <li><code>UnquotableAlias</code> - The builder produced something that is not an alias, so its identifier could not be quoted.</li>
 <li><code>NoPredicate</code> - A plan that carries no predicate at all.</li>
 </ul>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-generate"><code>fn generate</code><a class="headerlink" href="#fn-generate" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">warehouse</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Renders a plan as one statement, paired with its parameters.</p>
 

@@ -944,6 +944,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1057,6 +1061,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1660,8 +1720,10 @@ caller cannot mistake "you may not ask this" for a transport hiccup and loop unt
 answers. That part is enforced today, and the golden suite provokes every variant a question can
 reach.</p>
 <p>Recording each refusal with the whole principal chain, so that a refused call is as attributable as
-an answered one, is a <strong>design target</strong>. There is no audit sink in the workspace and no logging
-dependency at all, so a refusal today is a value handed to the caller and written down nowhere.</p>
+an answered one, is a <strong>design target</strong>. There is no audit sink in the workspace, so a refusal today
+is a value handed to the caller and written down as nothing that could attribute it. <code>sutura-runtime</code>
+does install a tracing subscriber, so a refusal can be <em>logged</em> - but a log line is not an audit
+record, because nothing correlates it to a caller and there is no caller identity to correlate it to.</p>
 <h2 id="why-does-the-tool-surface-take-no-table-name">Why does the tool surface take no table name?<a class="headerlink" href="#why-does-the-tool-surface-take-no-table-name" title="Permanent link">&para;</a></h2>
 <p>Because a refusal can be retried, reworded and eventually satisfied, and an absent field cannot.
 <code>Query</code> carries no SQL, no table, no filter expression and no row ids, so an uncertified question
@@ -1710,12 +1772,16 @@ single-core run; linking mimalloc brings it to 3.83s.
 <a href="../architecture/#what-ships">What ships</a> has the details, including the cost of <code>MI_SECURE=4</code>.</p>
 <h2 id="can-i-use-it-today">Can I use it today?<a class="headerlink" href="#can-i-use-it-today" title="Permanent link">&para;</a></h2>
 <p>For single-player work over local files, yes. <code>sutura compile</code> renders the statement for a question
-and <code>sutura query</code> answers it, over a catalogue of documents in git and a <code>DuckDB</code> file. That is the
-honest description: <strong>a governed single-player semantic compiler and executor over local files.</strong></p>
+and <code>sutura query</code> answers it, over a catalogue of documents in git and the CSV or Parquet files in
+a directory you name. That is the honest description: <strong>a governed single-player semantic compiler
+and executor over local files</strong>, served either from the command line or
+<a href="../serving/">over HTTP</a>.</p>
 <p>Not as the identity-aware runtime this site describes. There is no request context, no credential
-broker, no audit sink, no Arrow result envelope, no MCP server and no HTTP surface, and the only data
-system adapter is DuckDB - so the governance the design rests on is the narrow tool surface and the
-pinned bundle, not identity.
+broker, no audit sink, no Arrow result envelope and no MCP server; the HTTP surface exists, and its
+bearer token authenticates the deployment rather than the caller. The one data system the shipped
+binary opens is the in-process engine over those files - <code>sutura-exec-duckdb</code> renders and pushes
+down, and is a development dependency rather than something the binary links. So the governance the
+design rests on is the narrow tool surface and the pinned bundle, not identity.
 <a href="../architecture/#what-exists-today">What exists today</a> is the inventory.</p>
 <p>The environment, the gates and the release pipeline do work, because a mechanism is cheaper to build
 before there is code to retrofit it onto.</p>

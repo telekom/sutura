@@ -787,6 +787,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -900,6 +904,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1591,10 +1651,10 @@ the single-player credential is the process's own access. That is stated rather 
 adapter is not a stand-in for a data system with grants, and it is the one place in the design
 where "run as the calling subject" is trivially satisfied because there is nobody else to be.</p>
 <p>Two things this adapter deliberately does not offer:</p>
-<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes a
-<code>GeneratedQuery</code>, which carries its parameters separately, and there is no method that takes a
-string. A development affordance that ran a statement somebody typed would be the shortest path
-around every check upstream of here.</p>
+<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes a <code>QueryPlan</code> and renders
+the statement itself, into a <code>GeneratedQuery</code> that carries its parameters separately. There is
+no method that takes a string. A development affordance that ran a statement somebody typed would
+be the shortest path around every check upstream of here.</p>
 <p><strong>No result caching.</strong> Under row-level security a query-keyed cache is a cross-user leak, and
 although this adapter has no row-level security to leak through, adding a cache here would be the
 place the habit started.</p>
@@ -1611,6 +1671,7 @@ place the habit started.</p>
 <li><code>NotFinite</code> - A floating-point column came back as a value that is not a number.</li>
 <li><code>NotADate</code> - A day number came back that is not a date this build can represent.</li>
 <li><code>Shape</code></li>
+<li><code>NoSchema</code> - The driver handed back a result set with no statement behind it, so there are no column labels to read.</li>
 <li><code>Render</code> - The plan could not be rendered as SQL.</li>
 <li><code>Attach</code></li>
 </ul>

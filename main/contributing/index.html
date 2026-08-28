@@ -1005,6 +1005,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1118,6 +1122,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1947,8 +2007,10 @@ error rather than as a policy message.</p>
 <p>Read this before you believe a red <code>cargo clippy</code>.</p>
 <p>The dev shell's bare <code>cargo</code> is the pinned <strong>nightly</strong> (<code>devco/rust-toolchain-nightly.toml</code>), because
 the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. The
-pinned <strong>stable</strong> (<code>rust-toolchain.toml</code>) is what CI uses and what <code>nix/stable-env.sh</code> puts in
-front, with its own target directory.</p>
+pinned <strong>stable</strong> (<code>rust-toolchain.toml</code>) is what every gate that lints, tests or ships uses, and
+what <code>nix/stable-env.sh</code> puts in front, with its own target directory. The one exception is
+<code>checks.api-docs</code>, which prefixes nightly onto the <code>cargo rustdoc</code> child because
+<code>--output-format json</code> is unstable; it builds nothing another gate reads.</p>
 <p><strong>CI is the authority, and it is stable throughout.</strong> Locally the split is by what the channel
 can change, and it is not uniform - so here is the actual state rather than a tidier claim:</p>
 <table>

@@ -1011,6 +1011,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1124,6 +1128,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -2032,8 +2092,11 @@ produces the whole statement from them. This is the path that is built, and
 path below has a precondition - something upstream must already have rendered dialect-correct SQL -
 and on a laptop, or over a single file, there is no upstream to have done it.</p>
 <p>Its load-bearing constraint is that <strong>a model may not contain a free-text SQL expression.</strong> A measure
-is one of three closed shapes - one aggregate over a named column, a conditional count, or a ratio of
-two aggregates over possibly different columns; a relationship is a pair of columns and a join type; a
+is one of two closed shapes over a <code>Term</code> of two terms - a term is one aggregate over a named column
+or a conditional count, and a measure is either a single term or a ratio of two of them, which is what
+lets a conditional count be half of a ratio rather than only a whole measure
+(<a href="../adr/0002-a-closed-vocabulary-for-measures/">decision 0002</a> records why that was factored one level
+lower than it first was); a relationship is a pair of columns and a join type; a
 dimension is a column, optionally one declared relationship away. A metric may also carry required
 filters, predicates from a closed set of four operators that are <strong>part of what the metric means
 rather than something a caller asks for</strong>: they are applied to every question about it, and a caller
@@ -2042,8 +2105,19 @@ cannot see, choose or remove one.
 the vocabulary is a closed set of <em>shapes</em> rather than a single aggregate. The property being defended
 was always no free-text SQL, and one aggregate over one column was a narrow means to it that could
 express two of a real semantic layer's seven metrics.</p>
-<p>The cost is unchanged: an expression over two columns cannot be said, and neither can a window
-function. Those belong on the other path.</p>
+<p>The cost is unchanged for the closed vocabulary: an expression over two columns cannot be said in a
+<code>Measure</code>, and neither can a window function.</p>
+<p><strong>There is now a second, explicitly-named way to say them, and it is a separate shape rather than a
+widening of the one above.</strong> <code>Computation</code> has two variants - <code>measure:</code> for the closed vocabulary and
+<code>authored_sql:</code> for a fragment somebody wrote - so which metrics are governed by a closed set and
+which are text is a word in the document rather than a reading of it.
+<a href="../adr/0004-a-named-escape-hatch-for-authored-sql/">A named escape hatch for authored SQL</a> is the
+record: what the hatch is, what stays closed, which constructs are refused at load and why each one
+is on the list.</p>
+<p><strong>Partly built.</strong> The domain types and the compile - parse, refuse, qualify against the model's
+columns, render per dialect, all at catalog-compile time - exist in <code>sutura_domain::expression</code> and
+<code>sutura_sql::expression</code>. What does not exist yet is the wiring: no catalog document can write
+<code>authored_sql:</code> and no plan can carry a compiled one, so no metric uses the hatch today.</p>
 <p><strong>A pinned statement</strong>, rendered upstream and taken as given, spliced into a generated wrapper. Not
 built. The rest of this section is its design.</p>
 <h3 id="the-splice">The splice<a class="headerlink" href="#the-splice" title="Permanent link">&para;</a></h3>
@@ -2236,9 +2310,11 @@ framework with it.</p>
 <p>Two consequences follow from the direction rather than from taste. The domain names no framework, so
 its test suite compiles nothing heavy and runs in well under a second, which is what makes it the
 inner loop. And every lint and test entry point passes <code>--all-features</code>, so an adapter placed behind
-a feature is inspected from the day it lands rather than from the day somebody remembers the flag -
-no crate declares a <code>[features]</code> table today, which is exactly when a habit like that is cheap to
-keep; <a href="../contributing/">Contributing</a> has the commands.</p>
+a feature is inspected from the day it lands rather than from the day somebody remembers the flag.
+That habit was adopted while no crate declared a <code>[features]</code> table at all, which is when it is
+cheapest to adopt; it is load-bearing now, because <code>sutura-config</code>, <code>sutura-http</code> and <code>sutura-serve</code>
+each declare <code>tls</code> - see <a href="../serving/#tls">Serving over HTTP</a> - and code behind a flag nothing passed
+would be linted and tested by nothing. <a href="../contributing/">Contributing</a> has the commands.</p>
 <h2 id="what-ships">What ships<a class="headerlink" href="#what-ships" title="Permanent link">&para;</a></h2>
 <p>Four artifacts, two libc flavours on two architectures, each a distroless image holding one
 binary. <code>cargo xtask check-workflows</code> fails if a workflow names a build output that does not
@@ -2294,8 +2370,9 @@ holds the repo gates and <code>sutura-dev</code> the local development CLI.</p>
 <p>What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to a plan; the plan renders as one statement in <code>DuckDB</code>, Postgres or <code>ClickHouse</code>
 dialect when somebody asks for SQL, and it <strong>executes through the engine, over the CSV or Parquet
-files in the directory the caller named</strong>. A measure may be one aggregate over a column, a conditional
-count or a ratio of two aggregates, and a metric may carry required filters that every question about
+files in the directory the caller named</strong>. A measure is a single term or a ratio of two, where a term
+is an aggregate over a column or a conditional count - so a conditional count can be either a whole
+measure or half of a ratio - and a metric may carry required filters that every question about
 it is answered under. Every metric that declares a certified number re-executes and reproduces it
 before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
 path because there is no constructor that produces one.</p>

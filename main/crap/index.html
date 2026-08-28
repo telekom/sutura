@@ -663,13 +663,63 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-ratchet-is-a-number-not-a-baseline" class="md-nav__link">
+  <a href="#the-ratchet-is-a-number-and-a-delta" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The ratchet is a number, not a baseline
+        The ratchet is a number AND a delta
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The ratchet is a number AND a delta">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The number
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The delta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the baseline comes from, and what happens when there is none
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-pull-request-comment-and-what-it-costs-in-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pull request comment, and what it costs in permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -696,10 +746,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#current-state" class="md-nav__link">
+  <a href="#reading-the-current-state" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current state
+        Reading the current state
       
     </span>
   </a>
@@ -911,6 +961,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1024,6 +1078,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1511,13 +1621,63 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#the-ratchet-is-a-number-not-a-baseline" class="md-nav__link">
+  <a href="#the-ratchet-is-a-number-and-a-delta" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The ratchet is a number, not a baseline
+        The ratchet is a number AND a delta
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The ratchet is a number AND a delta">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-number" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The number
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-delta" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The delta
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the baseline comes from, and what happens when there is none
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-pull-request-comment-and-what-it-costs-in-permissions" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The pull request comment, and what it costs in permissions
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1544,10 +1704,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#current-state" class="md-nav__link">
+  <a href="#reading-the-current-state" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Current state
+        Reading the current state
       
     </span>
   </a>
@@ -1609,8 +1769,13 @@ that size the metric stops asking about tests and starts asking for a smaller fu
 </tr>
 <tr>
 <td><code>nix build .#checks.x86_64-linux.crap</code></td>
-<td>what CI runs</td>
+<td>what CI runs, and the only thing that measures</td>
 <td>10.2 s of instrumented compile on top of the dependency derivation the clippy and test checks already build</td>
+</tr>
+<tr>
+<td><code>just crap-delta &lt;base&gt; [head]</code></td>
+<td>did the CHANGE make anything worse</td>
+<td>milliseconds - two JSON files, no compiler and no tool</td>
 </tr>
 </tbody>
 </table>
@@ -1618,13 +1783,33 @@ that size the metric stops asking about tests and starts asking for a smaller fu
 is the AST analysis, and the rest is building <code>xtask</code> itself.</p>
 <p>The split is by cost. <code>check-crap</code> compiles nothing, so it sits in the <code>hygiene</code> sweep and runs
 on every commit and inside the Nix sandbox. <code>crap</code> compiles the scoped crates with
-<code>-C instrument-coverage</code>, so it is a task you ask for.</p>
+<code>-C instrument-coverage</code>, so it is a task you ask for. <code>crap-delta</code> compiles nothing either, but
+it needs a baseline from another commit, which a Nix sandbox cannot fetch - so it is neither a
+hygiene gate nor a flake check.</p>
 <p>The flake check shares <code>cargoArtifacts</code> with the clippy and nextest checks. Not because the
 coverage build can reuse them - it cannot, <code>-C instrument-coverage</code> changes the rustc invocation
 so every dependency is compiled fresh regardless - but because sharing the attribute means no
 SECOND dependency derivation is created. That is what keeps the marginal CI cost to the ten
 seconds above rather than to another full workspace dependency build, which is what the
-<code>api-docs</code> check pays for being on a different channel.</p>
+<code>api-docs</code> check USED to pay for being on a different channel - until it moved onto this same
+closure, measured: <code>nix-store -q --references</code> on both drvs now names one <code>sutura-deps</code>.</p>
+<p><strong>ONE MEASUREMENT, TWO CONSUMERS.</strong> The check writes a path-portable copy of its score report to
+<code>target/crap/baseline.json</code>, and inside a Nix build it publishes the same file to
+<code>$out/crap-baseline.json</code> - the only channel out of a build sandbox. The gate does that itself
+rather than through a <code>postInstall</code> hook in <code>flake.nix</code>, for two reasons that <code>publish_baseline</code>
+in <code>xtask/src/crap.rs</code> gives at length: a filename agreed between two files is a filename that
+drifts, and <code>flake.nix</code> sits at exactly the 1000-line limit <code>cargo xtask max-lines</code> enforces. The
+absolute threshold and the delta both read that one file, so delta control added no coverage run,
+no second dependency closure and no second cache entry - which is the property the whole pipeline
+was recently rebuilt around.</p>
+<p>Portable means every <code>file</code> is repo-relative and the file says so in a <code>"paths":
+"repo-relative"</code> key that the reader refuses to compare without. That is not tidiness. The
+sandbox source root is a per-build directory - one measured run had
+<code>/nix/var/nix/builds/nix-91840-1992088735/lzldwfdkxzbazqvfmmc5fagm3fcxfhkv-source</code> - so absolute
+paths differ between any two builds. Handed a baseline whose root does not match, <code>cargo crap</code>
+does not fail: it reported 181 unchanged, 4 new and 4 removed for a tree with no changes at all,
+losing exactly the functions that share a name inside one file. Four invented functions in a
+review comment is worse than a refusal.</p>
 <h2 id="scope-sutura-domain-and-why-only-that">Scope: <code>sutura-domain</code>, and why only that<a class="headerlink" href="#scope-sutura-domain-and-why-only-that" title="Permanent link">&para;</a></h2>
 <p>The gate scores <code>sutura-domain</code> and nothing else. Two reasons, and the second is the one that
 would not change if the machines got faster.</p>
@@ -1661,7 +1846,7 @@ separate profile, so DataFusion, Arrow and DuckDB are all recompiled and none of
 artifacts help. On a four-vCPU runner that is twenty minutes and up, added to a <code>ci</code> job whose
 timeout was already raised from 60 to 120 minutes because the tests alone were killing it.</p>
 <p><strong>Where the tests live.</strong> Coverage scoped to one package sees only that package's tests. For
-<code>sutura-domain</code> that is the whole truth - its 120 unit tests are its real test suite and they
+<code>sutura-domain</code> that is the whole truth - its unit tests are its real test suite and they
 are in the crate. For <code>sutura-semantic</code> it is not: its real tests are the golden corpus in
 <code>sutura-app</code>, which pulls both adapters. So a <code>-p sutura-semantic</code> coverage run reports <code>resolve</code>
 at 0% and scores it CRAP 210. Measured, not hypothesised, and seven such functions appear the
@@ -1673,6 +1858,20 @@ measured costs beside it.</p>
 <p><strong>What that misses, stated plainly:</strong> every dialect renderer, the resolver, the planner, the
 catalog loader and both adapters. This gate covers the invariant core and nothing else. It is
 not a coverage target for the workspace and does not pretend to be one.</p>
+<p><strong>What delta control changes about that, and what it does not.</strong> The blocker for widening was
+never only cost: adding <code>sutura-semantic</code> puts seven functions at CRAP 210 into the report on day
+one, and the absolute threshold fails all seven immediately. They are artefacts of where the
+tests live, not findings, and the only escape the number offers is an allowlist entry - which the
+policy refuses for untested code, correctly.</p>
+<p>A delta has an answer the number does not: gate that crate on "did YOU make it worse" and leave
+its inherited debt alone. That is what rules 2 and 3 below are for, and it is why they are
+written even though the number subsumes them today.</p>
+<p><strong>The scope has NOT been widened, and this page is not an argument that it should be.</strong> Two things
+still block it, and neither is about the ratchet. The cost is unchanged - 3 m 27 s wall and 15
+CPU-minutes for those two extra crates, measured, against a 12-second gate. And a widened scope
+needs the absolute threshold relaxed for the inherited set, which means a second policy concept -
+"debt admitted on entry" - that nothing here implements. Widening is a separate change with its
+own measurements; delta control is what makes it possible rather than what makes it done.</p>
 <h2 id="the-policy">The policy<a class="headerlink" href="#the-policy" title="Permanent link">&para;</a></h2>
 <p><code>.cargo-crap.toml</code> at the repo root. <code>cargo crap</code> reads it directly, so running the tool by hand
 applies the same thresholds CI does, with no flag to remember. <code>cargo xtask check-crap</code> is what
@@ -1689,29 +1888,78 @@ it, and nobody can tell later which entries were reasoned about.</p>
 <p><strong>What does not belong in <code>allow</code>:</strong> a function that scores badly because it is untested. The fix
 for that is a test. An entry is for code whose complexity the metric reads wrongly - a generated
 match table, a vendored port - not for code nobody has got round to covering.</p>
-<h2 id="the-ratchet-is-a-number-not-a-baseline">The ratchet is a number, not a baseline<a class="headerlink" href="#the-ratchet-is-a-number-not-a-baseline" title="Permanent link">&para;</a></h2>
-<p><code>cargo-crap</code> can diff against a JSON baseline from a previous run and fail on any regression.
-This gate does not, and the reason is structural rather than a preference.</p>
-<p>A ratchet needs a baseline from <code>main</code>. Fetching one needs the network and <code>git</code>, and a Nix build
-sandbox has neither - so a gate that downloaded a baseline could not run as a flake check at all.
-Committing the baseline instead trades that for a generated file that needs a coverage run to
-refresh and a second gate to keep honest, which is one more thing to get wrong.</p>
-<p>So the ratchet is <code>threshold</code> in <code>.cargo-crap.toml</code>: a single reviewed number. Lowering it is a
-diff. Raising it is a diff somebody has to defend.</p>
-<p><strong>What that gives up, and it is real:</strong> this gate cannot say "worse than <code>main</code>". A function that
-goes from CRAP 12 to CRAP 29 passes. It answers "is anything over the line", not "did anything
-get worse".</p>
-<p><strong>What it cannot do is pass by accident.</strong> There is no baseline to be absent, and the two ways a
-score-based gate normally fails open are both refused by name:</p>
-<ul>
-<li>the coverage run wrote no <code>SF:</code> records - refused, because every function would then read as
-  uncovered</li>
-<li>the report has no entries, or a scoped package contributed none - refused, because a package
-  that produced nothing was missed, not proven clean</li>
-</ul>
-<p>Both are failures with a message, never a silent pass. That shape is deliberate: this repo has
-already had a gate that "listed files via an absent tool and got an empty list", and reported
-success.</p>
+<h2 id="the-ratchet-is-a-number-and-a-delta">The ratchet is a number AND a delta<a class="headerlink" href="#the-ratchet-is-a-number-and-a-delta" title="Permanent link">&para;</a></h2>
+<p>Two independent rules, and the order matters: the number is the gate, the delta is a ratchet on
+top of it. The number is unconditional and runs on every commit. The delta is not: it needs a
+baseline for the exact merge base, and it warns and skips when there is none - see <em>Where the
+baseline comes from</em> below. So a branch whose merge base has no artifact is judged by the number
+alone, which is why the delta is a ratchet and not a guarantee.</p>
+<h3 id="the-number">The number<a class="headerlink" href="#the-number" title="Permanent link">&para;</a></h3>
+<p><code>threshold = 30.0</code> in <code>.cargo-crap.toml</code>, and it has not moved. A function above it fails, on
+every commit, with no baseline involved. This is the rule that still holds when there is nothing
+to compare against - a first run, a fork, a merge base whose artifact expired - and it is why the
+delta could be removed tomorrow without this gate becoming a report.</p>
+<p>What it cannot say is "worse than the base". A function that slides from CRAP 12 to CRAP 29
+passes, every time, and nothing anywhere records that it moved.</p>
+<h3 id="the-delta">The delta<a class="headerlink" href="#the-delta" title="Permanent link">&para;</a></h3>
+<p><code>cargo xtask crap-delta</code> compares this commit's report against the merge base's and applies three
+rules. <code>threshold</code> is the only number involved - no second knob, because a second number is a
+second thing to defend in review.</p>
+<ol>
+<li><strong>Crossed the line.</strong> <code>baseline &lt;= 30 &lt; head</code>. A function this branch pushed over.</li>
+<li><strong>Worse while over the line.</strong> <code>head &gt; 30</code> and the score rose.</li>
+<li><strong>The budget.</strong> The CRAP points added to PRE-EXISTING functions, summed, may not exceed 30.
+   One branch may not add as much rot to code that already existed as a whole new over-the-line
+   function is worth.</li>
+</ol>
+<p>Rules 1 and 2 are <strong>subsumed today</strong>: nothing may be over 30 at all, so nothing can cross the
+line or worsen while over it without the number failing first. They are written anyway, because
+they are the two rules that survive the one change that would let this gate cover more than one
+crate - see the scope section above. Rule 3 is the one that blocks something the number does not:
+slow rot that never crosses 30.</p>
+<p><strong>What deliberately does not fail: a single sub-threshold regression.</strong> Not leniency. At full
+coverage CRAP equals CC, so adding one covered branch to a fully-tested function moves it from 5
+to 6 permanently and no test can bring it back. A rule that failed that could only be escaped by
+an allowlist entry, which the policy forbids for exactly this case - so it would be bypassed or
+deleted rather than obeyed. Every regression is <strong>reported</strong>, in the job log and in the pull
+request comment, worst first, with its delta. Rule 3 is what stops a hundred of them from adding
+up unnoticed.</p>
+<p><code>epsilon</code> decides what counts as a change at all, and defaults to 0.01 - deliberately
+<code>cargo-crap</code>'s own default, so running <code>cargo crap --baseline</code> by hand agrees with the gate about
+which functions moved. <code>.cargo-crap.toml</code> may state one; it does not.</p>
+<h3 id="where-the-baseline-comes-from-and-what-happens-when-there-is-none">Where the baseline comes from, and what happens when there is none<a class="headerlink" href="#where-the-baseline-comes-from-and-what-happens-when-there-is-none" title="Permanent link">&para;</a></h3>
+<p>A push to <code>main</code> uploads that commit's report as the <code>crap-baseline</code> artifact, retained 30 days. A
+pull request resolves the artifact whose run was on the default branch <strong>and</strong> whose head SHA is
+this branch's exact merge base - the value <code>.github/workflows/ci.yml</code> already computes with <code>git
+merge-base</code>, not the base branch tip.</p>
+<p><strong>Exact, and a miss is a warning that skips the comparison rather than a failure.</strong> Both halves of
+that are deliberate.</p>
+<p>Exact, because an approximate baseline lies in both directions. Against "the latest baseline on
+main", work that landed on main after the branch point reads as this branch's regression, and
+improvements that landed there read as this branch's improvements. A gate that reports
+regressions somebody else caused is a gate that gets switched off.</p>
+<p>A warning rather than a failure, because the merge base is not guaranteed to have a baseline and
+that has nothing to do with the branch being reviewed. A push to <code>main</code> carrying several commits
+gets one CI run, so the middle commits never produced an artifact; artifacts expire; a
+docs-classified push runs no CRAP step at all. Failing there would fail pull requests for the
+shape of somebody else's push, and would train everybody to re-run the job until it went away.
+The number above has already run either way, so a skipped delta loses a ratchet, never the gate.</p>
+<h3 id="the-pull-request-comment-and-what-it-costs-in-permissions">The pull request comment, and what it costs in permissions<a class="headerlink" href="#the-pull-request-comment-and-what-it-costs-in-permissions" title="Permanent link">&para;</a></h3>
+<p>The rendered table goes to the job summary, which needs no token, and is posted as a pull request
+comment by the <code>crap-comment</code> job. That job holds <code>pull-requests: write</code> - the only write scope on
+any job a pull request can reach - because creating or editing a pull request comment has no
+read-only route. Other workflows do hold write scopes - publishing the site, cutting a release,
+the optimised release build, bumping a version and pruning the cache - eight of them across five
+files. None is on a job a pull request can start: four of those five do not run on a pull request
+at all, and <code>docs.yml</code>, which does, gates its publishing job on
+<code>github.event_name != 'pull_request'</code> and gives the pull request job <code>contents: read</code>.</p>
+<p>It is a separate job for that reason. It checks nothing out, compiles nothing, runs no code from
+the pull request, interpolates no pull request text into a shell body, and skips forks (whose
+token is read-only on a <code>pull_request</code> event regardless). The workflow-level grant is still
+<code>contents: read</code>; the <code>ci</code> job that builds and tests the branch has <code>contents: read</code> plus
+<code>actions: read</code>, the latter only so it can read the base commit's artifact. The reasoning is
+written out beside the grant in <code>ci.yml</code>, because a permission without a recorded reason is a
+permission the next person cannot audit.</p>
 <h2 id="tool-versions-and-how-they-are-pinned">Tool versions, and how they are pinned<a class="headerlink" href="#tool-versions-and-how-they-are-pinned" title="Permanent link">&para;</a></h2>
 <p><code>nix/crap.nix</code> is the one place either tool is resolved, imported by both <code>flake.nix</code> and
 <code>devenv.nix</code> - the same arrangement <code>nix/duckdb.nix</code> and <code>nix/toolchains.nix</code> use, and for a
@@ -1768,31 +2016,32 @@ keeping the linker and library flags beside it, pins <code>RUSTUP_TOOLCHAIN</cod
 <code>rust-toolchain.toml</code>, and gives the instrumented profile its own target directory under
 <code>target/crap</code>. A gate whose failure mode is a silently empty report must not depend on a <code>source</code>
 line somebody could forget.</p>
-<h2 id="current-state">Current state<a class="headerlink" href="#current-state" title="Permanent link">&para;</a></h2>
-<p>One function in <code>sutura-domain</code> is over the line:</p>
-<table>
-<thead>
-<tr>
-<th style="text-align: right;">CRAP</th>
-<th style="text-align: right;">CC</th>
-<th style="text-align: right;">Coverage</th>
-<th>Function</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td style="text-align: right;">42.0</td>
-<td style="text-align: right;">6</td>
-<td style="text-align: right;">0.0%</td>
-<td><code>Grain::as_str</code>, <code>crates/sutura-domain/src/model.rs</code></td>
-</tr>
-</tbody>
-</table>
-<p>It is a five-arm <code>const fn</code> that no test in <code>sutura-domain</code> calls; the dialect renderers in
-<code>sutura-semantic</code> are what exercise it, and a per-crate coverage run cannot see them. Two more
-sit exactly at 30.0 and therefore pass - <code>RequiredFilter::fmt</code> and <code>plan_required_filter</code>, both
-also at 0% from the crate's own tests.</p>
-<p>It is <strong>not</strong> allowlisted. The fix is a test.</p>
+<h2 id="reading-the-current-state">Reading the current state<a class="headerlink" href="#reading-the-current-state" title="Permanent link">&para;</a></h2>
+<p><strong>There is deliberately no report pasted here.</strong> There used to be one - a function count and the
+four highest-scoring functions with their <code>file:line</code> - and it rotted the way a pasted report
+always does. It was taken when the crate had twelve source files; three of its four line
+references had stopped resolving before this paragraph replaced it; and nothing regenerated or
+checked it, because
+<code>cargo xtask check-crap</code> verifies the tool VERSION this page states and not the numbers.</p>
+<p>So the page states how to get the current one instead, which is one command:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>just<span class="w"> </span>crap
+</span></code></pre></div>
+<p>It prints every scored function in <code>SCOPE</code>, the threshold it is judged against and the verdict, and
+leaves <code>target/crap/baseline.json</code> behind for <code>just crap-delta</code>.
+What is worth knowing about the output is the part that does not change with a re-run:</p>
+<ul>
+<li><strong><code>fail-above</code> is exclusive</strong>, so a function sitting exactly on the threshold passes. Those are
+  the ones the delta exists for: the number has no headroom left to give, and the only thing left
+  to say about them is whether they move.</li>
+<li><strong>Nothing over the line is allowlisted.</strong> For a function over it the fix is a test, not an entry
+  in a file.</li>
+<li><strong>A high score is not always a finding.</strong> Coverage scoped to one package sees only that
+  package's tests, so a function whose real tests live in another crate scores as uncovered - which
+  is the whole argument for <code>SCOPE</code> above being the crate whose suite is its own.</li>
+</ul>
+<p><code>Grain::as_str</code> is the worked example of a fix, and it is history rather than a current number: it
+headed the table at CRAP 42, a five-arm <code>const fn</code> no test in the crate called, and is now CC 6 at
+100% coverage scoring 6.0. The complexity did not change; the tests did.</p>
 
 
 

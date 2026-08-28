@@ -878,6 +878,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -991,6 +995,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1509,54 +1569,66 @@
 
 
 <h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
-<p>There is a catalogue, a data file and a question in the repository already - the fixtures the golden
-suite runs on - so the fastest way to see what this does is to point the binary at those.</p>
+<p>There is a catalogue, the data behind it and a directory of questions in the repository already -
+<code>examples/single-player</code>, the one corpus both test suites run on - so the fastest way to see what
+this does is to point the binary at those.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>catalog<span class="w"> </span>crates/sutura-app/tests/fixtures/catalog
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>catalog<span class="w"> </span>examples/single-player/catalog
 </span></code></pre></div>
 <p>No feature flag, and nothing to install. The engine is compiled into the binary and reads the CSVs
 itself, so <code>query</code> works in a plain <code>cargo run</code>. A data system's driver is a development dependency
 here - present to prove the SQL we render actually runs, not to answer your questions.</p>
 <h2 id="what-a-catalogue-says">What a catalogue says<a class="headerlink" href="#what-a-catalogue-says" title="Permanent link">&para;</a></h2>
+<p>Eleven metrics; five of them below, and the elision is this page's rather than the command's:</p>
 <div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>version local-working-tree
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>digest  c05bf3c529039924fb4abce95d1a2c4b7908308aec557dce2694f71283905e4e
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>digest  1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>average_order
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  measure    avg(amount_cents)
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  filters    none
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>active_subscriptions
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a>  measure    count_distinct(subscription_key)
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a>  filters    status = "active"
 </span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>  grains     month
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  dimensions none
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  anchor     none
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>average_order_value
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  measure    sum(amount_cents) / count_distinct(order_id), zero-safe
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a>  dimensions product_family, region, segment
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a>  anchor     59 over [2026-06-01, 2026-07-01)
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>churn_rate
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a>  measure    count_if(churned_in_month) / count_distinct(subscription_key), zero denominator yields_null
 </span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a>  filters    none
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  grains     day, month
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  dimensions none
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  anchor     none
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>revenue
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>  measure    sum(amount_cents)
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>  filters    none
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>  grains     day, month
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>  dimensions channel, region, segment
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>  anchor     470023 over [2026-06-01, 2026-07-01)
-</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>web_revenue
-</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>  measure    sum(amount_cents)
-</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>  filters    channel = "web"
-</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  grains     day, month
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a>  grains     month
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a>  dimensions product_family, region, segment
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a>  anchor     0.04838709677419355 over [2026-06-01, 2026-07-01)
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a>recurring_revenue
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a>  measure    sum(mrr_cents)
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a>  filters    status = "active"
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a>  grains     month
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a>  dimensions contract_term, product_family, product_name, region, segment
+</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a>  anchor     202121 over [2026-06-01, 2026-07-01)
+</span><span id="__span-1-22"><a id="__codelineno-1-22" name="__codelineno-1-22" href="#__codelineno-1-22"></a>revenue_per_churned_subscription
+</span><span id="__span-1-23"><a id="__codelineno-1-23" name="__codelineno-1-23" href="#__codelineno-1-23"></a>  measure    sum(mrr_cents) / count_if(churned_in_month), zero denominator fails
+</span><span id="__span-1-24"><a id="__codelineno-1-24" name="__codelineno-1-24" href="#__codelineno-1-24"></a>  filters    none
+</span><span id="__span-1-25"><a id="__codelineno-1-25" name="__codelineno-1-25" href="#__codelineno-1-25"></a>  grains     month
 </span><span id="__span-1-26"><a id="__codelineno-1-26" name="__codelineno-1-26" href="#__codelineno-1-26"></a>  dimensions none
 </span><span id="__span-1-27"><a id="__codelineno-1-27" name="__codelineno-1-27" href="#__codelineno-1-27"></a>  anchor     none
+</span><span id="__span-1-28"><a id="__codelineno-1-28" name="__codelineno-1-28" href="#__codelineno-1-28"></a>subscription_base
+</span><span id="__span-1-29"><a id="__codelineno-1-29" name="__codelineno-1-29" href="#__codelineno-1-29"></a>  measure    count_distinct(subscription_key)
+</span><span id="__span-1-30"><a id="__codelineno-1-30" name="__codelineno-1-30" href="#__codelineno-1-30"></a>  filters    none
+</span><span id="__span-1-31"><a id="__codelineno-1-31" name="__codelineno-1-31" href="#__codelineno-1-31"></a>  grains     month
+</span><span id="__span-1-32"><a id="__codelineno-1-32" name="__codelineno-1-32" href="#__codelineno-1-32"></a>  dimensions product_family, region, segment
+</span><span id="__span-1-33"><a id="__codelineno-1-33" name="__codelineno-1-33" href="#__codelineno-1-33"></a>  anchor     62 over [2026-06-01, 2026-07-01)
 </span></code></pre></div>
 <p>The digest is over the canonical form of the parsed definitions, so reformatting a document does not
 move it and changing what a metric means does. It travels with every answer.</p>
+<p>Two of those five are worth reading together. <code>active_subscriptions</code> and <code>subscription_base</code> are the
+same count over the same rows in the same month, with one definitional predicate between them, and
+their anchors are 59 and 62 - which is what a required filter buys, shown as two numbers rather than
+asserted in a sentence.</p>
 <p><code>describe</code> prints one metric in full, including the prose from the body of its document - which is
 what the markdown half of the format is for.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>describe<span class="w"> </span>crates/sutura-app/tests/fixtures/catalog<span class="w"> </span>revenue
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span>describe<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>recurring_revenue
 </span></code></pre></div>
 <h2 id="asking">Asking<a class="headerlink" href="#asking" title="Permanent link">&para;</a></h2>
 <p>A question is a small file. There is no field in it for SQL, a table, a predicate or a list of row
 ids, so an uncertified question is not something you can write down:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">metric</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">revenue</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="nt">metric</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">recurring_revenue</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="nt">grain</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">month</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="nt">range</span><span class="p">:</span>
 </span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">  </span><span class="nt">start</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">2026-06-01</span>
@@ -1566,90 +1638,112 @@ ids, so an uncertified question is not something you can write down:</p>
 <p><code>compile</code> turns it into a statement and stops. No data system is involved, which makes it the
 command to reach for when the question is what we would have run:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>compile<span class="w"> </span>crates/sutura-app/tests/fixtures/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">          </span>crates/sutura-app/tests/fixtures/questions/revenue-by-region.yaml
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span>compile<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">          </span>examples/single-player/questions/recurring-revenue-by-region.yaml
 </span></code></pre></div>
-<div class="language-sql highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">SELECT</span><span class="w"> </span><span class="ss">"customers"</span><span class="p">.</span><span class="ss">"region_code"</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"region"</span><span class="p">,</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">       </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"order_date"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"period"</span><span class="p">,</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">       </span><span class="k">SUM</span><span class="p">(</span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"amount_cents"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"revenue"</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="k">FROM</span><span class="w"> </span><span class="ss">"orders"</span><span class="w"> </span><span class="k">LEFT</span><span class="w"> </span><span class="k">JOIN</span><span class="w"> </span><span class="ss">"customers"</span><span class="w"> </span><span class="k">ON</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"customer_id"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ss">"customers"</span><span class="p">.</span><span class="ss">"id"</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">WHERE</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"order_date"</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="o">?</span><span class="w"> </span><span class="k">AND</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"order_date"</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="o">?</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"customers"</span><span class="p">.</span><span class="ss">"region_code"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"order_date"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
-</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"customers"</span><span class="p">.</span><span class="ss">"region_code"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"orders"</span><span class="p">.</span><span class="ss">"order_date"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
-</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10001</span>
+<div class="language-sql highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1">-- dialect duckdb</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">SELECT</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"region"</span><span class="p">,</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">       </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"period"</span><span class="p">,</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">       </span><span class="k">SUM</span><span class="p">(</span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"mrr_cents"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="ss">"recurring_revenue"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="k">FROM</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">     </span><span class="k">LEFT</span><span class="w"> </span><span class="k">JOIN</span><span class="w"> </span><span class="ss">"dim_customer"</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">       </span><span class="k">ON</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"customer_key"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"customer_key"</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="k">WHERE</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="w"> </span><span class="o">&gt;=</span><span class="w"> </span><span class="o">?</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="w"> </span><span class="o">&lt;</span><span class="w"> </span><span class="o">?</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">  </span><span class="k">AND</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"status"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="o">?</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="k">GROUP</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="k">ORDER</span><span class="w"> </span><span class="k">BY</span><span class="w"> </span><span class="ss">"dim_customer"</span><span class="p">.</span><span class="ss">"region"</span><span class="p">,</span><span class="w"> </span><span class="k">CAST</span><span class="p">(</span><span class="n">DATE_TRUNC</span><span class="p">(</span><span class="s1">'month'</span><span class="p">,</span><span class="w"> </span><span class="ss">"fct_subscription_monthly"</span><span class="p">.</span><span class="ss">"month"</span><span class="p">)</span><span class="w"> </span><span class="k">AS</span><span class="w"> </span><span class="nb">DATE</span><span class="p">)</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="k">LIMIT</span><span class="w"> </span><span class="mi">10001</span>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="c1">-- $1 = 2026-06-01</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="c1">-- $2 = 2026-07-01</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="c1">-- $3 = "active"</span>
 </span></code></pre></div>
-<p>(printed on one line; wrapped here to read). Both dates are bind parameters, and the plan behind the
-statement is printed after it. Pass a dialect as a third argument - <code>duckdb</code>, <code>postgres</code> or
-<code>clickhouse</code> - to see the same plan rendered for another data system: <code>ClickHouse</code> gets <code>dateTrunc</code>
-and <code>sum</code>, Postgres gets <code>$1</code> and <code>$2</code> instead of <code>?</code>.</p>
-<p>Two details in there are deliberate and easy to misread. The join is a <strong><code>LEFT JOIN</code></strong>, because an
-inner one drops fact rows that have no matching dimension row and so silently changes the measure it
-was only asked to break down. And the limit is <strong><code>10001</code>, not <code>10000</code></strong>: the cap is ten thousand rows,
-and asking for one more is how a result that <em>reached</em> the cap is told apart from one the cap <em>cut
-off</em>. If that extra row comes back, the question is refused as too wide to certify rather than
-answered with a total that is quietly missing its tail.</p>
+<p>(printed on one line; wrapped here to read). The plan behind the statement is printed after it. Pass
+a dialect as a third argument - <code>duckdb</code>, <code>postgres</code> or <code>clickhouse</code> - to see the same plan rendered
+for another data system: <code>ClickHouse</code> gets <code>dateTrunc</code> and <code>sum</code>, Postgres gets <code>$1</code> and <code>$2</code>
+instead of <code>?</code>.</p>
+<p>Three details in there are deliberate and easy to misread. <strong>Every value is a bind parameter,
+including <code>$3</code></strong> - that one is not something the caller sent, it is <code>recurring_revenue</code>'s own
+<code>status = "active"</code>, and it is bound rather than written into the statement so that there is one
+path for values and not two. The join is a <strong><code>LEFT JOIN</code></strong>, because an inner one drops fact rows
+that have no matching dimension row and so silently changes the measure it was only asked to break
+down. And the limit is <strong><code>10001</code>, not <code>10000</code></strong>: the cap is ten thousand rows, and asking for one
+more is how a result that <em>reached</em> the cap is told apart from one the cap <em>cut off</em>. If that extra
+row comes back, the question is refused as too wide to certify rather than answered with a total
+that is quietly missing its tail.</p>
 <p><code>query</code> answers it. It checks every declared anchor first, and will not serve a bundle whose anchors
 did not all match:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>query<span class="w"> </span>crates/sutura-app/tests/fixtures/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">        </span>crates/sutura-app/tests/fixtures/questions/revenue-by-region.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">        </span>crates/sutura-app/tests/fixtures/data
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">        </span>examples/single-player/questions/recurring-revenue-by-region.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">        </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>-- definitions local-working-tree c05bf3c529039924fb4abce95d1a2c4b7908308aec557dce2694f71283905e4e
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>region  period      revenue
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>north   2026-06-01  225072
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>south   2026-06-01  244950
-</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>west    2026-06-01  1
+<div class="language-text highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a>-- definitions local-working-tree 1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a>region  period  recurring_revenue
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a>central 2026-06-01  51739
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a>east    2026-06-01  32598
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a>north   2026-06-01  42157
+</span><span id="__span-7-6"><a id="__codelineno-7-6" name="__codelineno-7-6" href="#__codelineno-7-6"></a>south   2026-06-01  21203
+</span><span id="__span-7-7"><a id="__codelineno-7-7" name="__codelineno-7-7" href="#__codelineno-7-7"></a>west    2026-06-01  49425
+</span><span id="__span-7-8"><a id="__codelineno-7-8" name="__codelineno-7-8" href="#__codelineno-7-8"></a>null    2026-06-01  4999
 </span></code></pre></div>
+<p>That last row is the <code>LEFT JOIN</code> above, visible. One subscription in the data names a customer the
+customer table does not hold, so its revenue groups under a null region instead of vanishing: the six
+rows sum to 202121, which is what <code>recurring_revenue</code> answers for June ungrouped and what its anchor
+declares. An inner join would have answered 197122 here and 202121 there, under one metric name, with
+nothing raising an error.</p>
 <h2 id="being-refused">Being refused<a class="headerlink" href="#being-refused" title="Permanent link">&para;</a></h2>
 <p>A refusal is a result, not an error, and the exit status says so. Ask for a region the catalogue does
 not declare a value for:</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>query<span class="w"> </span>crates/sutura-app/tests/fixtures/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">        </span>crates/sutura-app/tests/fixtures/questions/refused-value-not-allowed.yaml<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">        </span>crates/sutura-app/tests/fixtures/data
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="w">  </span>query<span class="w"> </span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="w">        </span>examples/single-player/questions/refused-value-not-allowed.yaml<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">        </span>examples/single-player/data
 </span></code></pre></div>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>refused: DimensionValueNotAllowed { metric: MetricName("revenue"), dimension: DimensionName("region") }
+<div class="language-text highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a>refused: DimensionValueNotAllowed { metric: MetricName("recurring_revenue"), dimension: DimensionName("region") }
 </span></code></pre></div>
 <p>Note what the refusal does not say: the value you asked for. A rejected value is not echoed into a
 message that reaches a log, a terminal and an agent's context, because that is how a rejected value
 becomes somebody else's input.</p>
-<p>The other fixtures under <code>questions/</code> named <code>refused-*</code> reach the rest of the refusals, one per
-reason.</p>
+<p>The other question files under <code>examples/single-player/questions/</code> named <code>refused-*</code> reach the rest
+of the refusals, one per reason.</p>
 <h2 id="your-own-catalogue">Your own catalogue<a class="headerlink" href="#your-own-catalogue" title="Permanent link">&para;</a></h2>
 <p>A catalogue is a directory of markdown documents. Each one declares what it is, so a file in the
 wrong place is an error rather than a definition that was quietly never loaded.</p>
 <p>A model names a table and its columns:</p>
 <div class="language-markdown highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a>---
 </span><span id="__span-10-2"><a id="__codelineno-10-2" name="__codelineno-10-2" href="#__codelineno-10-2"></a>kind: model
-</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>name: orders
+</span><span id="__span-10-3"><a id="__codelineno-10-3" name="__codelineno-10-3" href="#__codelineno-10-3"></a>name: subscriptions
 </span><span id="__span-10-4"><a id="__codelineno-10-4" name="__codelineno-10-4" href="#__codelineno-10-4"></a>source: local
-</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>table: orders
-</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="gu">columns: [order_id, order_date, customer_id, channel, amount_cents]</span>
+</span><span id="__span-10-5"><a id="__codelineno-10-5" name="__codelineno-10-5" href="#__codelineno-10-5"></a>table: fct_subscription_monthly
+</span><span id="__span-10-6"><a id="__codelineno-10-6" name="__codelineno-10-6" href="#__codelineno-10-6"></a><span class="gu">columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_month]</span>
 </span><span id="__span-10-7"><a id="__codelineno-10-7" name="__codelineno-10-7" href="#__codelineno-10-7"></a><span class="gu">---</span>
-</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>One row per order, as booked. Money in minor units, so a total is exact.
+</span><span id="__span-10-8"><a id="__codelineno-10-8" name="__codelineno-10-8" href="#__codelineno-10-8"></a>One row per subscription per month. Money in minor units, so a total is exact.
 </span></code></pre></div>
 <p>A metric names a model, what it measures, the grains it answers at and the dimensions it may be
 broken down by:</p>
 <div class="language-markdown highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a>---
 </span><span id="__span-11-2"><a id="__codelineno-11-2" name="__codelineno-11-2" href="#__codelineno-11-2"></a>kind: metric
-</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>name: revenue
-</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>model: orders
+</span><span id="__span-11-3"><a id="__codelineno-11-3" name="__codelineno-11-3" href="#__codelineno-11-3"></a>name: recurring_revenue
+</span><span id="__span-11-4"><a id="__codelineno-11-4" name="__codelineno-11-4" href="#__codelineno-11-4"></a>model: subscriptions
 </span><span id="__span-11-5"><a id="__codelineno-11-5" name="__codelineno-11-5" href="#__codelineno-11-5"></a>measure:
-</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>  simple: { aggregate: sum, column: amount_cents }
-</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>time_column: order_date
-</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a>grains: [day, month]
-</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>dimensions:
-</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: channel
-</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>    column: channel
-</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a>    values: [web, store]
-</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>anchor:
-</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>  range:
-</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>    start: 2026-06-01
-</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>    end: 2026-07-01
-</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a><span class="gu">  value: 470023</span>
-</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a><span class="gu">---</span>
-</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a>Total booked order value, in minor units.
+</span><span id="__span-11-6"><a id="__codelineno-11-6" name="__codelineno-11-6" href="#__codelineno-11-6"></a>  simple: { aggregate: sum, column: mrr_cents }
+</span><span id="__span-11-7"><a id="__codelineno-11-7" name="__codelineno-11-7" href="#__codelineno-11-7"></a>required_filters:
+</span><span id="__span-11-8"><a id="__codelineno-11-8" name="__codelineno-11-8" href="#__codelineno-11-8"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>equals: { column: status, value: active }
+</span><span id="__span-11-9"><a id="__codelineno-11-9" name="__codelineno-11-9" href="#__codelineno-11-9"></a>time_column: month
+</span><span id="__span-11-10"><a id="__codelineno-11-10" name="__codelineno-11-10" href="#__codelineno-11-10"></a>grains: [month]
+</span><span id="__span-11-11"><a id="__codelineno-11-11" name="__codelineno-11-11" href="#__codelineno-11-11"></a>dimensions:
+</span><span id="__span-11-12"><a id="__codelineno-11-12" name="__codelineno-11-12" href="#__codelineno-11-12"></a><span class="w">  </span><span class="k">-</span><span class="w"> </span>name: contract_term
+</span><span id="__span-11-13"><a id="__codelineno-11-13" name="__codelineno-11-13" href="#__codelineno-11-13"></a>    column: contract_term
+</span><span id="__span-11-14"><a id="__codelineno-11-14" name="__codelineno-11-14" href="#__codelineno-11-14"></a>    values: [annual, monthly]
+</span><span id="__span-11-15"><a id="__codelineno-11-15" name="__codelineno-11-15" href="#__codelineno-11-15"></a>anchor:
+</span><span id="__span-11-16"><a id="__codelineno-11-16" name="__codelineno-11-16" href="#__codelineno-11-16"></a>  range:
+</span><span id="__span-11-17"><a id="__codelineno-11-17" name="__codelineno-11-17" href="#__codelineno-11-17"></a>    start: 2026-06-01
+</span><span id="__span-11-18"><a id="__codelineno-11-18" name="__codelineno-11-18" href="#__codelineno-11-18"></a>    end: 2026-07-01
+</span><span id="__span-11-19"><a id="__codelineno-11-19" name="__codelineno-11-19" href="#__codelineno-11-19"></a><span class="gu">  value: 202121</span>
+</span><span id="__span-11-20"><a id="__codelineno-11-20" name="__codelineno-11-20" href="#__codelineno-11-20"></a><span class="gu">---</span>
+</span><span id="__span-11-21"><a id="__codelineno-11-21" name="__codelineno-11-21" href="#__codelineno-11-21"></a>Recurring revenue recognised in the month, in minor units, from active subscriptions only.
 </span></code></pre></div>
 <p><code>measure</code> has two levels. A <strong>term</strong> is what one number is computed from, and there are two of
 them: <code>aggregate</code> with a <code>column</code>, as above, or <code>count_if</code> over a boolean column. A <strong>shape</strong> says
@@ -1663,8 +1757,8 @@ another. Either term goes in either position:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="c1"># A ratio: one term divided by another, over possibly different columns.</span>
 </span><span id="__span-13-2"><a id="__codelineno-13-2" name="__codelineno-13-2" href="#__codelineno-13-2"></a><span class="nt">measure</span><span class="p">:</span>
 </span><span id="__span-13-3"><a id="__codelineno-13-3" name="__codelineno-13-3" href="#__codelineno-13-3"></a><span class="w">  </span><span class="nt">ratio</span><span class="p">:</span>
-</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">sum</span><span class="p p-Indicator">,</span><span class="nt">            column</span><span class="p">:</span><span class="w"> </span><span class="nv">amount_cents</span><span class="w"> </span><span class="p p-Indicator">}</span>
-</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">order_id</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-13-4"><a id="__codelineno-13-4" name="__codelineno-13-4" href="#__codelineno-13-4"></a><span class="w">    </span><span class="nt">numerator</span><span class="p">:</span><span class="w">   </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">sum</span><span class="p p-Indicator">,</span><span class="nt">            column</span><span class="p">:</span><span class="w"> </span><span class="nv">mrr_cents</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-13-5"><a id="__codelineno-13-5" name="__codelineno-13-5" href="#__codelineno-13-5"></a><span class="w">    </span><span class="nt">denominator</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> aggregate</span><span class="p">:</span><span class="w"> </span><span class="nv">count_distinct</span><span class="p p-Indicator">,</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">customer_key</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span><span id="__span-13-6"><a id="__codelineno-13-6" name="__codelineno-13-6" href="#__codelineno-13-6"></a><span class="w">    </span><span class="nt">zero_denominator</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">yields_null</span>
 </span></code></pre></div>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="c1"># A conditional count as the numerator of a rate - the combination the vocabulary</span>
@@ -1678,7 +1772,7 @@ another. Either term goes in either position:</p>
 <p>A metric may also carry <code>required_filters</code>, which are part of what it <em>means</em> rather than something
 a caller chooses:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">required_filters</span><span class="p">:</span>
-</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">channel</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">web</span><span class="w"> </span><span class="p p-Indicator">}</span>
+</span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">active</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
 <p>Four things about all that are worth knowing before you write one:</p>
 <ul>
@@ -1691,21 +1785,24 @@ a caller chooses:</p>
   defensible and a definition should say which - which is also why it is a word (<code>yields_null</code> or
   <code>fails</code>) rather than a boolean that records only that somebody thought about it.</li>
 <li><strong>A <code>required_filter</code> is definitional, and a caller can neither see it nor turn it off.</strong>
-  <code>web_revenue</code> <em>means</em> the web number; a statement that left the predicate out would return total
-  revenue under a certified name. That is a wrong answer arrived at by omission rather than by
-  tampering, which is the more likely failure and the harder one to notice. Note the consequence for
-  modelling: a metric with a required filter on <code>channel</code> should not also declare <code>channel</code> as a
-  dimension, or grouping by it would be a way to ask the metric for the figure it excludes.</li>
+  <code>recurring_revenue</code> <em>means</em> the active figure; a statement that left the predicate out would
+  return revenue including terminated subscriptions under a certified name. That is a wrong answer
+  arrived at by omission rather than by tampering, which is the more likely failure and the harder
+  one to notice. Note the consequence for modelling: a metric with a required filter on <code>status</code>
+  should not also declare <code>status</code> as a dimension, or grouping by it would be a way to ask the
+  metric for the figure it excludes.</li>
 <li><strong><code>values</code> is what makes a dimension filterable.</strong> Without it the dimension can be grouped by and
   not filtered on, because a filter needs an allowlist - the alternative is comparing against
-  whatever the caller sent.</li>
+  whatever the caller sent. <code>recurring_revenue</code> declares <code>product_name</code> without one for exactly
+  that reason.</li>
 <li><strong>An <code>anchor</code> is a number this metric produced when somebody certified it.</strong> It is re-executed
   before the bundle is served, so a definition that has stopped meaning what it claimed fails
   readiness instead of answering. Declare one for any metric whose value you would act on.</li>
 </ul>
-<p>For the data, <code>query</code> expects one CSV per model, named after the model's table, in the directory you
-pass it. Nothing is written: the database is built in memory from the CSVs on every run, so it cannot
-drift from them.</p>
+<p>For the data, <code>query</code> expects one file per model, named after the model's table, in the directory you
+pass it - <code>&lt;table&gt;.parquet</code> if it is there, <code>&lt;table&gt;.csv</code> otherwise. Nothing is written and there is
+no database: the engine registers each file in process and reads it where it lies on every run, so
+the answer cannot drift from the files.</p>
 
 
 

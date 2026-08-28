@@ -889,6 +889,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1002,6 +1006,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1565,6 +1625,10 @@ pinned bundle, or from a file an operator named.</p>
 <td>Every <code>RefusalReason</code> variant, with what it means and what to change. The most load-bearing section in the document</td>
 </tr>
 <tr>
+<td>Terms this deployment records as NOT defined</td>
+<td><strong>The pinned bundle's knowledge</strong>, <code>not_defined</code> kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing</td>
+</tr>
+<tr>
 <td>The bounds a question is held to</td>
 <td><code>MAX_DIMENSIONS</code>, <code>MAX_RANGE_DAYS</code> and <code>MAX_ROWS</code>, read from the code rather than typed</td>
 </tr>
@@ -1577,8 +1641,20 @@ pinned bundle, or from a file an operator named.</p>
 <td><strong>The tool list</strong>, rendered from the same slice the workflow was composed from</td>
 </tr>
 <tr>
+<td>What this deployment records about its own definitions</td>
+<td><strong>The declared knowledge capabilities</strong>, and what is <em>not</em> declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from</td>
+</tr>
+<tr>
+<td>The words a question may arrive in</td>
+<td><strong>The pinned bundle's knowledge</strong>, <code>glossary</code> kind. Rendered so the <em>agent</em> does the resolving; there is no field on a question a phrase fits in</td>
+</tr>
+<tr>
 <td>The metrics this deployment defines</td>
-<td><strong>The pinned bundle.</strong> Name, grains, dimensions, permitted values, and the catalog author's own prose</td>
+<td><strong>The pinned bundle.</strong> Name, grains, dimensions, permitted values, the catalog author's own prose, and any <code>caveat</code> printed under the metric it is about</td>
+</tr>
+<tr>
+<td>Worked questions</td>
+<td><strong>The pinned bundle's knowledge</strong>, <code>example</code> kind. Each carries a <code>Query</code> the bundle would not load if this surface would decline it</td>
 </tr>
 <tr>
 <td>Provenance</td>
@@ -1608,12 +1684,18 @@ declared values, and there is no field for anything else - so the guidance would
 attempt something the surface refuses by construction. What replaces it is one short section saying
 the field does not exist and that there is no way to widen it. A long section about what is absent
 would hand an agent a long list of things to try.</p>
-<p><strong>No column, table, model or measure expression.</strong> The prompt renders exactly what
-<code>GET /v1/catalog</code> renders and not one field more. A caller needs a metric's name, prose, grains,
+<p><strong>No column, table, model or measure expression.</strong> Of what a metric <em>is</em>, the prompt renders what
+<code>GET /v1/catalog</code> renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
 column name in an agent's context is a name it will eventually try to use. This is asserted rather
 than intended: a test renders a bundle whose model, table and column names appear in no prose and
 checks that none of them reaches the output.</p>
+<p>That is a claim about <em>fields of a metric</em>, and not about the document being a rendering of the
+endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
+field for at all, listed in the table above: the glossary, the terms recorded as not defined, what
+this deployment records about its own definitions, and the worked questions - plus any caveat, under
+the metric it is about. All five are knowledge from the pinned bundle, all are descriptive, and none
+of them names a column, a table or a model either.</p>
 <p><strong>Nothing about identity.</strong> There is none. The bearer token authenticates the <em>deployment</em>, not the
 caller - see <a href="../serving/">Serving over HTTP</a> - and a prompt that described per-caller scoping would
 describe a control that does not exist.</p>

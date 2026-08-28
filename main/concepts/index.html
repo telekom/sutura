@@ -933,6 +933,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1046,6 +1050,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1672,6 +1732,14 @@ there is no field a catalogue could write an arbitrary expression into. <code>Me
 shapes over a <code>Term</code> enum of two terms, <code>RequiredFilter</code> an enum of four operators, and
 <code>deny_unknown_fields</code> applies at every depth. sutura generates the whole statement from that, in
 <code>sutura-semantic</code>, so neither caller-authored nor catalogue-authored SQL is on the path at all.</p>
+<p><strong>Partly built, and named so it cannot be quiet.</strong> A metric may instead carry <code>authored_sql:</code> - a SQL
+expression a catalogue author wrote, for what the closed vocabulary cannot say: a window function, a
+percentile, an expression over two columns. It is a <em>sibling</em> of <code>measure:</code> rather than a field on it,
+exactly one of the two may be present, and a fragment is parsed at load, checked against a list of
+refused constructs, checked against the model's declared columns and rendered for every dialect
+before anything serves. A caller still has no field for SQL, and the agent prompt still never sees
+any. <a href="../adr/0004-a-named-escape-hatch-for-authored-sql/">A named escape hatch for authored SQL</a> is
+the record. The types and the compile exist; no catalogue document can write the key yet.</p>
 <p><strong>Design target, not built.</strong> A definition may instead arrive as <strong>statement</strong> text authored
 upstream, spliced into a generated wrapper byte for byte, because re-emitting it would substitute
 our reading for the author's and the number would change quietly. Nothing implements that splice:
@@ -1743,10 +1811,13 @@ disagree with the original, with no way to tell which one is right.</p>
 <p>A <strong>catalogue</strong> supplies definitions: metrics, dimensions, the glossary, lineage. A directory of
 documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait. The
 first exists; the second is a design target.</p>
-<p>A <strong>data system</strong> executes. ClickHouse and Postgres are the near-term targets, with DuckDB for
-local and single-file work. The port is named <code>Warehouse</code>, which says nothing about what sits
-behind it. DuckDB is the one adapter that exists; the statement is rendered for the other two
-dialects and parse-checked without either being connected to.</p>
+<p>A <strong>data system</strong> executes. ClickHouse and Postgres are the near-term targets. The port is named
+<code>Warehouse</code>, which says nothing about what sits behind it. Two adapters exist and they are different
+kinds of thing: <code>sutura-exec-datafusion</code> is <strong>the engine</strong> - it reads the CSV and Parquet files
+itself, executes the plan over Arrow and generates no SQL, and it is what the shipped binary links;
+<code>sutura-exec-duckdb</code> is a <strong>data source</strong> - it renders the plan into <code>DuckDB</code> SQL and pushes the
+statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
+Postgres and ClickHouse are rendered for and parse-checked without either being connected to.</p>
 <p>A plan resolves to exactly <strong>one</strong> data system. Spanning two is not a bigger version of the same
 problem, it is a second identity to satisfy, and a plan whose legs cannot all run as one subject
 is refused rather than run partly as somebody else.</p>
@@ -1823,8 +1894,8 @@ an absence enforced are not the same thing:</p>
 <h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
 <p><strong>A governed single-player semantic compiler and executor over local files.</strong> That is what is here:
 <code>sutura compile</code> renders the statement for a question and <code>sutura query</code> answers it, over a
-catalogue of documents in git and a <code>DuckDB</code> file, with every certified number re-executed before
-the bundle may be served.</p>
+catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
+certified number re-executed before the bundle may be served.</p>
 <p>Everything marked <em>design target</em> above is unbuilt, and the identity claims are all of them. There
 is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.
 There IS an HTTP surface, and its bearer token authenticates the deployment rather than the caller -

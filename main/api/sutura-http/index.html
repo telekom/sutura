@@ -787,6 +787,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -900,6 +904,62 @@
     
   
     DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
   
 
     
@@ -1392,9 +1452,14 @@ into bytes. Nothing here decides whether a question may be answered - that is
 catalog directory or opens a data system. The one place either port is touched is
 <code>surface::LocalService::start</code>, which is called by the composition root.</p>
 <h1 id="the-three-properties-a-reader-should-check-first">The three properties a reader should check first<a class="headerlink" href="#the-three-properties-a-reader-should-check-first" title="Permanent link">&para;</a></h1>
-<p><strong>A refusal is a <code>200</code>.</strong> <code>POST /v1/query</code> answers <code>200</code> with <code>outcome: refusal</code> when a question
-is one the caller may not have. An error status would invite a client library to retry, and
-retrying a governance decision until it succeeds is the behaviour the refusal exists to prevent.</p>
+<p><strong>A refusal says so three ways.</strong> <code>POST /v1/query</code> answers a question the caller may not have
+with an explicit status - <code>403</code>, <code>404</code>, <code>409</code>, <code>413</code>, <code>422</code> or <code>503</code> depending on why - plus the
+stable <code>code</code> and the sentence it has always carried in <code>outcome: refusal</code>. It was a <code>200</code>, on the
+argument that an error status invites a client library to retry; the retry premise does not
+survive checking, and a <code>200</code> made a governance refusal indistinguishable from an answer to
+anything reading a status alone. <code>wire::refusal</code> holds the mapping, the citations and the reason
+for each status. The domain invariant is untouched: <code>ToolOutcome::Refusal</code> is still a result and
+not an <code>Err</code>.</p>
 <p><strong>There is no per-caller identity.</strong> No request context reaches the query path, no credential is
 minted per request, and the <code>CredentialBroker</code> port that would do it is deliberately absent
 because a port arrives with its adapter. Where an access token is configured, presenting it
@@ -1727,12 +1792,23 @@ that currently rests on.</p>
 <h2 id="module-problem">Module <code>problem</code><a class="headerlink" href="#module-problem" title="Permanent link">&para;</a></h2>
 <p>The one body every failure comes back as, and the one thing that turns a failure into a
 response.</p>
-<h1 id="a-refusal-is-not-in-here">A refusal is not in here<a class="headerlink" href="#a-refusal-is-not-in-here" title="Permanent link">&para;</a></h1>
-<p>Worth stating first, because it is the distinction the whole surface turns on. A <em>refusal</em> - the
-caller asked something they may not have - is a <code>200</code> carrying
-<code>crate::wire::OutcomeBody::Refusal</code>. A <em>failure</em> is everything else: a body that is not a
-question, a missing credential, a limit reached, a data system that did not answer. Only
-failures reach this module.</p>
+<h1 id="a-refusal-is-not-in-here-and-the-reason-is-not-the-status-any-more">A refusal is not in here, and the reason is not the status any more<a class="headerlink" href="#a-refusal-is-not-in-here-and-the-reason-is-not-the-status-any-more" title="Permanent link">&para;</a></h1>
+<p>Worth stating first, because it is the distinction the whole surface turns on and the obvious
+shorthand for it has stopped working. A <em>refusal</em> - the caller asked something they may not have -
+now carries an error status too, from <code>crate::wire::refusal</code>. A <em>failure</em> is everything else: a
+body that is not a question, a missing credential, a limit reached, a data system that did not
+answer. Only failures reach this module.</p>
+<p>So the two are no longer told apart by <code>2xx</code> against <code>4xx</code>. What tells them apart is the <strong>body</strong>,
+and that is the deliberate choice rather than a leftover: a refusal keeps
+<code>crate::wire::OutcomeBody::Refusal</code> with its <code>outcome</code> discriminator, and a failure keeps
+<code>ProblemBody</code>. <code>outcome</code> is the one-field test for which arrived, which matters most exactly
+where a status is shared - <code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from here, and
+<code>source_unavailable</code> from there; <code>413</code> is a request body over the limit from here, and an answer
+over the row cap from there.</p>
+<p><strong>A refusal is not routed through <code>Failure</code>, and must not be.</strong> <code>Failure</code> is what an <code>Err</code>
+becomes, and <code>ToolOutcome::Refusal</code> is a domain <em>result</em>: a <code>Failure::Refused</code> variant would put a
+governance outcome into the error enum and make the type system agree with the mistake this design
+exists to prevent. <code>docs/adr/0005</code> is the record.</p>
 <h1 id="what-a-failure-body-may-say">What a failure body may say<a class="headerlink" href="#what-a-failure-body-may-say" title="Permanent link">&para;</a></h1>
 <p><code>Failure::Internal</code> carries no detail, ever. The text of an internal error is a path, a table
 name, a column name or a driver message, and handing any of those to an unauthenticated caller
@@ -2242,6 +2318,7 @@ free text.</p>
 <li><code>Range</code></li>
 <li><code>Dimension</code></li>
 <li><code>FilterDimension</code></li>
+<li><code>FilterValue</code> - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than <code>sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS</code>.</li>
 </ul>
 <h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
@@ -2249,11 +2326,14 @@ free text.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeBody</span>
 </span></code></pre></div>
 <p>What a question produced.</p>
-<p><strong>Both variants come back with <code>200</code>, and that is the contract rather than an oversight.</strong> A
-refusal is a <em>result</em>: the caller asked something they may not have, and the answer is no. An
-error status would invite a client library to retry it, and retrying a governance decision until
-it succeeds is precisely the behaviour the refusal exists to prevent. The <code>outcome</code> field is
-what a caller branches on.</p>
+<p><strong>The two variants come back with different statuses</strong>, and the <code>outcome</code> discriminator is what a
+caller branches on within one of them. An answer is a <code>200</code>. A refusal is a <code>403</code>, <code>404</code>, <code>409</code>,
+<code>413</code>, <code>422</code> or <code>503</code> depending on why - <code>refusal</code> holds the mapping and the reasoning, and
+<code>Outcome</code> is what pairs the two.</p>
+<p>It used to be <code>200</code> for both, on the grounds that an error status invites a client library to
+retry. That was checked and does not hold; more to the point, a <code>200</code> made a governance refusal
+indistinguishable from an answer to every reader that sees a status and not a body. The body
+below is unchanged: same <code>outcome</code> tag, same <code>reason</code> object, one field added inside it.</p>
 <h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Answer</code> - The question was answered.</li>
@@ -2274,39 +2354,69 @@ different bundle is visibly a different answer.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalBody</span>
 </span></code></pre></div>
 <p>Why a question was refused.</p>
-<p>A stable <code>code</code> per refusal, plus a sentence. The code is what a caller branches on; the
-sentence is for a person.</p>
-<p><strong>Nothing here echoes a value the caller sent.</strong> The domain's refusal variants already stop
-short of that - a rejected filter value names the dimension and not the value, on purpose,
-because reflecting caller text into a message that reaches a log, a UI and an agent's context is
-how a rejected value becomes somebody else's input. The identifiers that <em>are</em> echoed are parsed
-newtypes over a bounded character set, and the numbers are derived from parsed dates.</p>
+<p>A stable <code>code</code> per refusal, the status it came back as, and a sentence. The code is what a
+caller branches on; the sentence is for a person; the status is repeated here for the same reason
+<code>crate::problem::ProblemBody</code> repeats it - a client that logged only the body still has it.
+Which status each refusal gets, and why, is in <code>refusal</code>.</p>
+<p><strong>Nothing here echoes a value the caller sent.</strong> The domain's refusal variants already stop short
+of that - a rejected filter value names the dimension and not the value, on purpose, because
+reflecting caller text into a message that reaches a log, a UI and an agent's context is how a
+rejected value becomes somebody else's input. The identifiers that <em>are</em> echoed are parsed
+newtypes over a bounded character set, and the numbers are derived from parsed dates or are this
+service's own limits.</p>
 <h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The code, for a test that asserts on the contract rather than on the prose.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+</span></code></pre></div>
+<p>The status, as the body carries it.</p>
 <h4 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
+<h3 id="struct-outcome"><code>struct Outcome</code><a class="headerlink" href="#struct-outcome" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Outcome</span>
+</span></code></pre></div>
+<p>An outcome, and the status the transport says it with.</p>
+<p><strong>The one conversion from a <code>ToolOutcome</code> to a response</strong>, and it is one rather than two
+because the status and the body are the same decision. An answer is a <code>200</code>; a refusal is the
+status <code>refusal::refused</code> gives it, which is never a <code>2xx</code> - see that module for the whole
+argument and for why this file used to claim the opposite.</p>
+<p>The <em>type</em> invariant is untouched by that. <code>ToolOutcome::Refusal</code> is still a domain result and
+not an <code>Err</code>: it arrives here through <code>Ok</code>, this handler cannot get one by mistake, and nothing
+on the way turned it into a <code>crate::problem::Failure</code>. What changed is only what the transport
+says about it.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">OutcomeBody</span>
+</span></code></pre></div>
+<p>The body, for a test that asserts on the JSON rather than on the response.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">status</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">axum</span><span class="p">::</span><span class="n">http</span><span class="p">::</span><span class="n">StatusCode</span>
+</span></code></pre></div>
+<p>The status this outcome comes back as.</p>
+<h4 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>IntoResponse</code></p>
 <h3 id="struct-catalogbody"><code>struct CatalogBody</code><a class="headerlink" href="#struct-catalogbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogBody</span>
 </span></code></pre></div>
 <p>What this catalog defines.</p>
-<h4 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h4>
+<h4 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-metricbody"><code>struct MetricBody</code><a class="headerlink" href="#struct-metricbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricBody</span>
 </span></code></pre></div>
 <p>One metric, as much of it as a caller needs to ask a valid question.</p>
 <p>Descriptive content only. Nothing here selects, widens or parameterizes what executes - the
 catalog port takes no request context and cannot - so this is a reader's view of a pinned
 bundle rather than an input to one.</p>
-<h4 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h4>
+<h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 <h3 id="struct-dimensionbody"><code>struct DimensionBody</code><a class="headerlink" href="#struct-dimensionbody" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionBody</span>
 </span></code></pre></div>
 <p>One dimension of one metric.</p>
-<h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>
+<h4 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h4>
 <p><code>ComposeSchema</code>, <code>Debug</code>, <code>Serialize</code>, <code>ToSchema</code></p>
 
 
