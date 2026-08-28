@@ -39,7 +39,7 @@
 //! disk state.
 //!
 //! Not wrapped in `TrackConsumersPool` either, though it would improve the engine's own message: what
-//! reaches a caller is [`RefusalReason::ResourcesExhausted`](sutura_domain::query::RefusalReason),
+//! reaches a caller is [`sutura_domain::query::RefusalReason::ResourcesExhausted`],
 //! which carries the configured ceiling and deliberately nothing about what the question demanded.
 
 use std::sync::Arc;
