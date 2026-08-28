@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Fourteen steps, six of which can start at once.** Every step is one branch, one pull request, and green
+**Fifteen steps, seven of which can start at once.** Every step is one branch, one pull request, and green
 before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill has the
 mechanics. Nothing in this plan is started.
 
@@ -26,6 +26,7 @@ mechanics. Nothing in this plan is started.
 | 12 | `feat/demo-tasks` | 10, and one example to demo | after 10 |
 | 13 | `build/supply-chain` | nothing - orthogonal | **yes** |
 | 14 | `ci/prose-change-cost` | nothing - measure first | **yes** |
+| 15 | `feat/agent-surface` | nothing already shipped | **yes** |
 
 **Verification for every step**, and none of it is optional: `just validate` is the only thing that
 counts, it now runs seven checks including `api-docs`, and every new test must be RED against the base
@@ -34,6 +35,67 @@ asks for stated evidence instead: the mutation, the command, the failure before,
 new FILE must be `git add -N`'d or the nix checks cannot see it.
 
 ---
+
+## The original thesis, and where each piece stands
+
+Audited against the tree rather than remembered, because a thesis quietly losing a leg is how a
+project becomes something else.
+
+| Piece | State | Gap |
+| --- | --- | --- |
+| Wren's semantic model and compiler | **present** - markdown and YAML catalog, `Query` to `QueryPlan`, and the wren element set adopted | fan-out arithmetic declined on purpose; calculated fields only through an unwired hatch |
+| Inspiration from Spice | **compared and declined as a dependency**, correctly - and nothing taken as SHAPE | the connector API, connection pooling and Arrow execution patterns are exactly what steps 5 to 9 need |
+| Execution from DataFusion | **present**, and it stays the combiner under federation | none |
+| Polyglot for rendering, transpilation if needed | **present for rendering**, three dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
+| Flexible sources and metadata systems | **decided, not built** | the eleven connectors and the declaration that carries them |
+| Security | **the strongest part of the record** | the credential port is designed and unbuilt |
+| The agent-facing surface | **MISSING FROM THIS PLAN** | there is no `sutura-mcp`, and until now no step for it |
+
+### What wren gives, and what was declined
+
+The model, the element set and the compile are here. What is NOT here is wren's fan-out arithmetic: a
+dimension reached through a relationship whose declared cardinality may duplicate rows is **refused**
+rather than computed safely. That is deliberate - a refusal beats a wrong number, and the cardinality
+declaration is a trusted precondition nothing checks against the data - but the consequence is worth
+stating plainly: **a question wren would answer, sutura declines.** Nobody should later file that as a
+bug. The closed measure vocabulary is narrower than wren's calculated fields for the same reason, and
+the authored-SQL hatch is the escape valve that exists and is not wired.
+
+### Spice is compared, never mined
+
+`docs/architecture.md` and ADR 0003 weigh Spice and decline adopting it as a dependency, which is the
+right call and is recorded. What never happened is the other half - taking the SHAPES. Three of them
+map directly onto steps in this plan, and reading them before designing costs less than after:
+
+- **The connector API and the connection pool**, for steps 5 and 8. This matters more than it sounds: a
+  DuckDB connection is `Send` and not `Sync` while the service requires `Sync`, and per-subject
+  credentials make pooling a correctness question rather than a throughput one. Somebody has solved
+  this shape already.
+- **Arrow execution patterns**, for the owed Arrow record.
+- **Its optimizer rules**, for step 6's combine and the pushdown decision.
+
+What to keep declining: the acceleration and cache layer, the inference surface, and the runtime as a
+runtime. Code and shapes, never a second control loop.
+
+### Transpilation, if needed
+
+**The position is not "never compile the feature". It is "never translate a third party's SQL."** One
+feature flag conflates those two, and today's Oracle finding is the case that exposes it: the
+per-dialect REWRITE layer - the thing that turns our own generated `DATE_TRUNC` into Oracle's `TRUNC` -
+lives behind `transpile`, alongside the parser we decline. So Oracle and BigQuery correctness needs
+either that layer or the same rewrites written here.
+
+If the feature is compiled to reach it, three things must hold and one must change:
+
+- The parser stays uncalled. Our generator's output is what is rewritten, not somebody's SQL.
+- The goldens and the per-dialect parse-check still guard every rendered statement, which is what makes
+  the rewrite auditable rather than trusted.
+- The two documented hazards get handled explicitly rather than inherited: the default level returns
+  `Ok` and **discards the diagnostic**, and the raising level errors on every non-count aggregate
+  targeting ClickHouse while staying silent on the four real breakages. Neither default is acceptable
+  as-is.
+- And the invariant row changes, because its stated mechanism is "the feature is not compiled". A row
+  whose mechanism moves gets rewritten, not reinterpreted.
 
 ## 1. Decomposability in the domain
 
@@ -384,6 +446,34 @@ economise.
 
 **Done when** an ADR-only change is gated in about a minute rather than seventeen, with `check-docs`
 and mkdocs `--strict` still running, and with the publish job's cache posture unchanged.
+
+## 15. The agent-facing surface
+
+**Goal.** The governed surface agents actually speak. `AGENTS.md` lists `sutura-mcp` among the planned
+crates and nothing else in this plan mentioned it, which for a runtime whose thesis is *for AI agents*
+was the largest omission in the record.
+
+**Depends on nothing that is not already shipped.** The tool surface exists: a typed `Query` with no
+field for SQL, a table, a predicate or row ids; refusals as results rather than errors; provenance in
+the payload. MCP is a transport over that, not a redesign of it.
+
+**Touches.** A new crate; `crates/sutura-http` for nothing, because the point is that both transports
+serve the same tools.
+
+**Adds.** A server exposing the tools the HTTP surface exposes, from **one schema source**, so the two
+cannot disagree. The invariants for it are already written and already enforced by the domain types -
+which is the reason this step is smaller than it looks.
+
+**Tests.**
+- `a_certified_question_is_answered_over_the_agent_surface`.
+- `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
+- `the_advertised_tools_differ_by_scope` - a tool a caller may not invoke is not advertised to it.
+- `both_transports_describe_the_same_tools` - one source, or a test asserting the two descriptions are
+  equal. This is the drift this step exists to prevent.
+
+**Done when** an agent client can ask a certified question and be REFUSED an uncertified one over the
+agent surface, with no client of ours in the loop. Note the demo step depends on this **or** on the
+OpenAPI route; this is the better one, and the demo must not wait for it.
 
 ## The examples are the demo, one per deployment variant
 
