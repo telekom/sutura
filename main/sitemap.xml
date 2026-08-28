@@ -37,6 +37,14 @@
          <lastmod>2026-08-28</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/implementation-plan-identity-and-services/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/implementation-plan/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/publishing/</loc>
          <lastmod>2026-08-28</lastmod>
     </url>
@@ -66,6 +74,46 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/adr/0005-a-refusal-carries-a-status/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0006-several-databases-behind-one-data-system/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0007-federating-across-different-data-systems/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0008-a-credential-per-leg-for-the-calling-subject/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0009-the-plan-from-one-source-to-many/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0010-transport-security-for-a-source/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0011-pluggable-by-declaration/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0012-conformance-packs-for-inputs-and-adapters/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0013-a-raw-sql-tool-off-by-default/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0014-how-a-caller-proves-who-it-is/</loc>
+         <lastmod>2026-08-28</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0015-an-authenticated-metrics-endpoint/</loc>
          <lastmod>2026-08-28</lastmod>
     </url>
     <url>

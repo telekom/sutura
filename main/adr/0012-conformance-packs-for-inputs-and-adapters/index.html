@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Why a refused question now comes back with an explicit HTTP status as well as its code and its sentence, why the retry argument that justified the 200 does not hold, why the refusal keeps its own body rather than moving to the failure body, and the status chosen for each RefusalReason with the reason for it.">
+        <meta name="description" content="How the semantic compiler gets tested across catalogs and data systems - test bodies written once as packs and bound to an adapter by a macro so each behaviour keeps its own name per adapter, a typed declaration that selects the packs and, for the capabilities whose absence has something to try, is exercised in that direction too, what "identical rows" actually means in canonical form and tolerance and ordering, a corpus of question files so a case is a file rather than code, and the split that lets the compiler be conformance-tested with no data source at all.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0005-a-refusal-carries-a-status/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0012-conformance-packs-for-inputs-and-adapters/">
       
       
-        <link rel="prev" href="../0004-a-named-escape-hatch-for-authored-sql/">
+        <link rel="prev" href="../0011-pluggable-by-declaration/">
       
       
-        <link rel="next" href="../0006-several-databases-behind-one-data-system/">
+        <link rel="next" href="../0013-a-raw-sql-tool-off-by-default/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>A refusal carries a status - sutura</title>
+        <title>Conformance packs for inputs and adapters - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#a-refusal-carries-a-status" class="md-skip">
+        <a href="#conformance-packs-for-inputs-and-adapters" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              A refusal carries a status
+              Conformance packs for inputs and adapters
             
           </span>
         </div>
@@ -1031,37 +1031,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    A refusal carries a status
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
         
   
   
@@ -1077,120 +1050,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Context
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Decision
-      
-    </span>
-  </a>
-  
-    <nav class="md-nav" aria-label="Decision">
-      <ul class="md-nav__list">
-        
-          <li class="md-nav__item">
-  <a href="#the-statuses" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The statuses
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Two statuses are shared with something that is not a refusal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#no-retry-after-on-any-refusal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        No Retry-After on any refusal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-body-keeps-its-own-envelope" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The body keeps its own envelope
-      
-    </span>
-  </a>
-  
-</li>
-        
-      </ul>
-    </nav>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Consequences
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#alternatives-considered" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Alternatives considered
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -1368,10 +1227,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1387,6 +1273,120 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-unit-is-a-pack-and-the-reason-is-where-the-assertions-live" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The unit is a pack, and the reason is where the assertions live
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-rust-makes-this-cost-and-where-the-shape-has-to-change" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What Rust makes this cost, and where the shape has to change
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-split-that-makes-the-compiler-cheap-to-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The split that makes the compiler cheap to test
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The split that makes the compiler cheap to test">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-identical-rows-means-defined-here-because-this-is-where-the-assertion-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What "identical rows" means, defined here because this is where the assertion is
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cases-the-corpus-must-contain-by-name-because-nothing-else-finds-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cases the corpus must contain by name, because nothing else finds them
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-corpus-is-files-not-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The corpus is files, not code
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#two-mechanics-to-get-right-because-both-are-how-a-suite-rots" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two mechanics to get right, because both are how a suite rots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1917,10 +1917,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#context" class="md-nav__link">
+  <a href="#the-unit-is-a-pack-and-the-reason-is-where-the-assertions-live" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Context
+        The unit is a pack, and the reason is where the assertions live
       
     </span>
   </a>
@@ -1928,22 +1928,33 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#decision" class="md-nav__link">
+  <a href="#what-rust-makes-this-cost-and-where-the-shape-has-to-change" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Decision
+        What Rust makes this cost, and where the shape has to change
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="Decision">
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-split-that-makes-the-compiler-cheap-to-test" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The split that makes the compiler cheap to test
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The split that makes the compiler cheap to test">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
-  <a href="#the-statuses" class="md-nav__link">
+  <a href="#what-identical-rows-means-defined-here-because-this-is-where-the-assertion-is" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The statuses
+        What "identical rows" means, defined here because this is where the assertion is
       
     </span>
   </a>
@@ -1951,32 +1962,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" class="md-nav__link">
+  <a href="#cases-the-corpus-must-contain-by-name-because-nothing-else-finds-them" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two statuses are shared with something that is not a refusal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#no-retry-after-on-any-refusal" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        No Retry-After on any refusal
-      
-    </span>
-  </a>
-  
-</li>
-        
-          <li class="md-nav__item">
-  <a href="#the-body-keeps-its-own-envelope" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The body keeps its own envelope
+        Cases the corpus must contain by name, because nothing else finds them
       
     </span>
   </a>
@@ -1989,10 +1978,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#consequences" class="md-nav__link">
+  <a href="#the-corpus-is-files-not-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Consequences
+        The corpus is files, not code
       
     </span>
   </a>
@@ -2000,10 +1989,21 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#alternatives-considered" class="md-nav__link">
+  <a href="#two-mechanics-to-get-right-because-both-are-how-a-suite-rots" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Alternatives considered
+        Two mechanics to get right, because both are how a suite rots
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
       
     </span>
   </a>
@@ -2030,237 +2030,344 @@
   
 
 
-<h1 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h1>
-<p>Status: accepted. It changes what the HTTP transport says about a refusal. It supersedes nothing and
-changes no domain type: <code>ToolOutcome::Refusal</code> is still a <em>result</em> and not an <code>Err</code>, which is the
-invariant <a href="../../architecture/">the tool surface</a> is built on and which this record does not touch.</p>
-<h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
-<p><code>POST /v1/query</code> answered <code>200</code> for both outcomes. An answer and a refusal arrived with the same
-status, and the <code>outcome</code> field was what a caller branched on:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span><span class="w"> </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"metric_unknown"</span><span class="p">,</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"..."</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<h1 id="conformance-packs-for-inputs-and-adapters">Conformance packs for inputs and adapters<a class="headerlink" href="#conformance-packs-for-inputs-and-adapters" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted as the shape. None of it is built.</strong></p>
+<p>The requirement is that every metadata input and every data adapter conforms to the <strong>same tests and
+functions</strong>, so a new connector proves itself by registering and declaring rather than by anyone
+editing a test. This record is the construction.</p>
+<h2 id="the-unit-is-a-pack-and-the-reason-is-where-the-assertions-live">The unit is a pack, and the reason is where the assertions live<a class="headerlink" href="#the-unit-is-a-pack-and-the-reason-is-where-the-assertions-live" title="Permanent link">&para;</a></h2>
+<p><strong>A pack is a group of test bodies for one behaviour, written ONCE against the port and never against
+an adapter.</strong> An adapter's test file then names the packs it must satisfy and supplies one fixture
+that constructs the adapter. Three properties, and each is the reason for a rule further down:</p>
+<ol>
+<li><strong>The test bodies are written once.</strong> An adapter contributes a constructor, not assertions. An
+   assertion that appears twice is an assertion that will disagree with itself, and the disagreement
+   will be read as a difference between two data systems rather than as a difference between two
+   copies of a test.</li>
+<li><strong>Which packs an adapter must satisfy is its capability declaration</strong>, in one place, so a missing
+   pack is a thing a reviewer can see rather than a skip nobody reads. The version of that below is
+   stronger: the declaration is TYPED and the macro selects from it, so it is not a list somebody
+   keeps in step by hand.</li>
+<li><strong>The packs live in their own crate with their own manifest</strong>, so the harness is a dependency
+   rather than a directory that test files reach into sideways. That is also what keeps it out of
+   every shipped artifact: a dev-only crate that depends on the domain's ports and on no adapter.</li>
+</ol>
+<h2 id="what-rust-makes-this-cost-and-where-the-shape-has-to-change">What Rust makes this cost, and where the shape has to change<a class="headerlink" href="#what-rust-makes-this-cost-and-where-the-shape-has-to-change" title="Permanent link">&para;</a></h2>
+<p>Rust has no test inheritance, and the naive substitute loses the thing that makes packs useful. A
+generic function per pack - <code>fn write_pack&lt;W: Warehouse&gt;(w: &amp;W)</code> - gives ONE test name per adapter, so
+a failure says "the postgres pack failed" and not which behaviour. Every behaviour has to keep its own
+identity per adapter, or the report is a worse diagnostic than the suite it replaced.</p>
+<p><strong>So a pack is a set of generic functions, and a macro binds a pack to an adapter by generating one
+named <code>#[test]</code> per behaviour.</strong> The pack bodies stay written once; the macro exists only to give each
+behaviour a name the runner can report and a filter can select:</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="c1">// In the packs crate, written once, against the port.</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows_match_the_reference</span><span class="o">&lt;</span><span class="n">W</span><span class="p">:</span><span class="w"> </span><span class="nc">Warehouse</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">,</span><span class="w"> </span><span class="n">case</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Case</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* ... */</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">a_refusal_names_the_same_variant</span><span class="o">&lt;</span><span class="n">W</span><span class="p">:</span><span class="w"> </span><span class="nc">Warehouse</span><span class="o">&gt;</span><span class="p">(</span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">W</span><span class="p">,</span><span class="w"> </span><span class="n">case</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Case</span><span class="p">)</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="cm">/* ... */</span><span class="w"> </span><span class="p">}</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="c1">// In the adapter's test file, once.</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="n">sutura_conformance</span><span class="p">::</span><span class="n">execute_packs</span><span class="o">!</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="n">adapter</span><span class="p">:</span><span class="w"> </span><span class="nc">duckdb</span><span class="p">,</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="n">build</span><span class="p">:</span><span class="w"> </span><span class="o">||</span><span class="w"> </span><span class="n">DuckDbWarehouse</span><span class="p">::</span><span class="n">in_memory</span><span class="p">(),</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="n">declares</span><span class="p">:</span><span class="w"> </span><span class="nc">DuckDbWarehouse</span><span class="p">::</span><span class="n">CAPABILITIES</span><span class="p">,</span>
+</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="p">}</span>
 </span></code></pre></div>
-<p>The argument written into <code>routes/v1/query.rs</code> was this: a refusal is a result, an error status
-invites a client library to retry, and retrying a governance decision until it succeeds is exactly
-the behaviour the refusal exists to prevent.</p>
-<p>The second half of that is right and is the reason this design has refusals at all. The first half is
-a claim about client libraries, and this repository's rule is to reproduce rather than assert. It was
-checked against the current documentation of four:</p>
+<p>That expands to <code>conformance::duckdb::rows_match_the_reference</code> and one name per behaviour, which is
+what <code>cargo nextest run -E 'test(conformance::duckdb)'</code> needs to select a tier and what a failure
+report needs to be readable.</p>
+<p><strong><code>adapter</code> is an IDENT and not a string, and that is the whole of what decides <code>macro_rules!</code> versus
+a proc-macro.</strong> An earlier draft of this record wrote <code>adapter: "duckdb"</code>, which does not build: a
+<code>literal</code> fragment in <code>mod $name</code> position is <code>error: expected identifier, found metavariable</code>, and
+getting from a string to a path segment needs a paste-style crate - a second dependency, in the test
+tree, to do something the language already does. With <code>adapter: duckdb</code> the expansion is
+<code>mod duckdb { #[test] fn rows_match_the_reference() { .. } }</code> and the reported name is
+<code>duckdb::rows_match_the_reference</code>. Both halves were checked by compiling them rather than reasoned
+about.</p>
+<p><strong>So it is <code>macro_rules!</code>, exported from the packs crate, and no second crate exists.</strong> The property
+that makes that sufficient is that the naming scheme NESTS rather than CONCATENATES: the adapter is a
+module and the behaviour is a function inside it, so nothing ever has to build an identifier out of
+two pieces - which is the one thing <code>macro_rules!</code> cannot do on stable and the only reason a
+proc-macro would have been needed. A scheme spelled <code>duckdb_rows_match_the_reference</code> would have
+forced the second crate for a worse filter expression.</p>
+<p><strong>The declaration selects the packs, and a skip is never silent.</strong> Naming packs by hand is a
+declaration a reviewer can read and nothing verifies. Selecting them from the adapter's typed
+capabilities per <a href="../0011-pluggable-by-declaration/">Pluggable by declaration</a> is verifiable, and it
+means a gap in the matrix is a test whose NAME says which declaration produced it rather than the
+absence of a line somebody would have to notice.</p>
+<p><strong>And where a declared absence has something to try, the pack tries it and the absence must hold.</strong> An
+earlier draft of this record put that as a general rule - "a behaviour an adapter declared it does not
+support must FAIL if it turns out to work" - and it is not general. For most capabilities there is
+nothing to perform, and a green test named <code>..._is_declared_unsupported_...</code> over nothing is
+coverage-shaped and measures nothing, which this repository holds to be worse than no test at all. So
+the capabilities are split, and the split is the decision:</p>
 <table>
 <thead>
 <tr>
-<th>Client</th>
-<th>What its documentation says about retrying</th>
+<th>Declared absence</th>
+<th>Is there an action?</th>
+<th>What the pack does</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>urllib3.util.Retry</code> (what <code>requests</code> mounts via <code>HTTPAdapter</code>)</td>
-<td>Status-based retries come from <code>status_forcelist</code>, "a set of integer HTTP status codes that we should force a retry on", whose default is <code>None</code> - "By default, this is disabled with <code>None</code>." No status is retried until somebody names one</td>
+<td>A pushed aggregate kind</td>
+<td><strong>yes</strong></td>
+<td>Hands the adapter a plan carrying a pushed aggregate of the undeclared kind and asserts a TYPED REFUSAL. Worth having precisely because the planner is supposed to never generate one: this is the only thing that exercises the adapter's own guard, and a guard that silently computed it locally instead would be the failure</td>
 </tr>
 <tr>
-<td><code>reqwest</code> 0.13</td>
-<td>Its <code>retry</code> module documents the default policy as "to only retry requests where an error or low-level protocol NACK is encountered that is known to be safe to retry" - a transport condition, not a response status</td>
+<td>A dialect</td>
+<td><strong>yes</strong></td>
+<td>Asks for the plan rendered in a dialect the adapter did not declare, and asserts a typed refusal. A compile-tier pack, so it needs no source</td>
 </tr>
 <tr>
-<td><code>axios</code> + <code>axios-retry</code></td>
-<td><code>axios</code> retries nothing on its own. The plugin defaults <code>retryCondition</code> to <code>isNetworkOrIdempotentRequestError</code>: "By default, it retries if it is a network error or a 5xx error on an idempotent request (GET, HEAD, OPTIONS, PUT or DELETE)"</td>
+<td>Mutual TLS</td>
+<td><strong>yes</strong></td>
+<td>Constructs the adapter with a <code>Mutual</code> transport it did not declare and asserts the construction refuses. It is the same shape <a href="../0010-transport-security-for-a-source/">transport security</a> already decides one variant down, where a driver that cannot verify at all offers no <code>Verified</code> construction and the deployment refuses - so this pack asserts the refusal exists rather than inventing it</td>
 </tr>
 <tr>
-<td>Go <code>net/http</code></td>
-<td>The <code>Client</code>, <code>Transport</code> and <code>RoundTripper</code> reference documents no status-driven retry at all</td>
+<td>Arrow-native access</td>
+<td><strong>no, not yet</strong></td>
+<td><code>Warehouse</code> has one result-bearing method and it returns a <code>RowSet</code>, so there is no Arrow entry point to call and nothing an absence could be observed at. Where an Arrow-typed boundary lives is undecided in <a href="../0009-the-plan-from-one-source-to-many/">the plan</a>; the pack arrives with the boundary and not before</td>
+</tr>
+<tr>
+<td>Impersonation</td>
+<td><strong>no, and this one is the instructive case</strong></td>
+<td>Nothing. See below</td>
 </tr>
 </tbody>
 </table>
-<p>Nothing mainstream retries a <code>4xx</code> by default. The two statuses retried by convention are <code>429</code> and
-<code>408</code>, and no refusal maps to either. <code>422</code>, where four of the eleven refusal codes now land, is
-documented the other way round from the premise: clients receiving a <code>422</code> "should expect that
-repeating the request without modification will fail with the same error".</p>
-<p><strong>And the <code>200</code> cost something the argument never priced.</strong> A governance refusal answered <code>200</code> is
-indistinguishable from an answer to everything that reads a status and not a body:</p>
-<ul>
-<li>an ingress or proxy access log, and every dashboard built on one;</li>
-<li>an error-rate alert, and therefore an on-call rotation;</li>
-<li>a client's <code>raise_for_status()</code>, <code>response.ok</code>, or a generated client whose success branch is <code>2xx</code>;</li>
-<li>anyone reading a <code>curl -i</code> transcript.</li>
-</ul>
-<p>A deployment refusing every question read as perfectly healthy. The refusal was legible only to code
-written against this specific envelope - which is the one reader that never needed convincing.</p>
-<p>The concrete case that forced the decision is <code>result_too_large</code>: an answer that exceeded the row cap
-was declined rather than truncated, because a partial total under a certified name is wrong in the one
-way nothing downstream can detect - and the caller was told about it with a <code>200</code>.</p>
-<h2 id="decision">Decision<a class="headerlink" href="#decision" title="Permanent link">&para;</a></h2>
-<p><strong>A refused question comes back with an explicit HTTP status, the machine-readable <code>code</code> it always
-carried, and a sentence saying what to change.</strong> All three, so a caller is told the same thing
-whether it reads the status, branches on the code, or shows the prose to a person.</p>
-<p><code>200</code> now means the question was <strong>answered</strong> and nothing else means that.</p>
-<h3 id="the-statuses">The statuses<a class="headerlink" href="#the-statuses" title="Permanent link">&para;</a></h3>
-<p>One exhaustive match in <code>sutura_http::wire::refusal</code>, no wildcard arm, deciding the status, the code
-and the sentence together. A <code>RefusalReason</code> variant added to the domain fails to compile there until
-somebody decides what it is on the wire - the same mechanism that already stopped a new governance
-outcome from reaching a caller as an unnamed one, extended to cover the status.</p>
+<p><strong>Why impersonation gets no negative pack.</strong> Two candidate actions, and both are wrong. Presenting a
+subject credential to an adapter that declared it cannot impersonate, and asserting that the adapter
+<em>ignored</em> it, asserts as correct the exact fallback
+<a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> forbids - the execution
+port takes a credential and there is no downgrade. And the direction the draft was actually worried
+about, a source that declares no impersonation and impersonates anyway, is not observable from the
+port at all: seeing it needs two subjects whose grants differ at the source and a way to tell whose
+rows came back, which is the test <code>AGENTS.md</code> already records as one that "does not exist and cannot,
+until a credential exists per leg". So the mechanism for impersonation is the <strong>boot refusal</strong>, and
+its test is one over the composition root - a deployment declaring an impersonation it cannot perform
+does not start - which lives beside the startup checks rather than in a pack over the port.</p>
+<p>An illustrative name, then, from a row that has an action rather than from the row that does not:
+<code>conformance::duckdb::a_pushed_median_is_refused_because_the_adapter_declares_it_cannot_receive_one</code>.</p>
+<h2 id="the-split-that-makes-the-compiler-cheap-to-test">The split that makes the compiler cheap to test<a class="headerlink" href="#the-split-that-makes-the-compiler-cheap-to-test" title="Permanent link">&para;</a></h2>
+<p><strong>The semantic compiler needs no data source to be conformance-tested</strong>, and that is the most valuable
+structural point here. Splitting the packs by what they require gives one tier that is hermetic and
+fast and one that is not:</p>
 <table>
 <thead>
 <tr>
-<th><code>RefusalReason</code></th>
-<th>Status</th>
-<th>Why</th>
+<th>Pack family</th>
+<th>Needs</th>
+<th>Pins</th>
 </tr>
 </thead>
 <tbody>
 <tr>
-<td><code>MetricUnknown</code></td>
-<td><code>404</code></td>
-<td>The name does not resolve in this snapshot. <code>GET /v1/catalog</code> is where the ones that do resolve are listed</td>
+<td><strong>Compile packs</strong></td>
+<td>A catalog. No data system at all</td>
+<td>The plan's serialized form, the rendered statement per dialect, the bind parameters, and the refusal variant</td>
 </tr>
 <tr>
-<td><code>GrainNotSupported</code></td>
-<td><code>422</code></td>
-<td>The metric exists and that grain is not rendered for it. Not <code>404</code>, which would send the caller looking for the wrong mistake</td>
-</tr>
-<tr>
-<td><code>TimeRangeTooLong</code></td>
-<td><code>422</code></td>
-<td>The range parsed and both endpoints are real dates. Well formed, out of bounds</td>
-</tr>
-<tr>
-<td><code>TooManyDimensions</code></td>
-<td><code>422</code></td>
-<td>Same, and the sentence carries the maximum so narrowing needs no second request</td>
-</tr>
-<tr>
-<td><code>DuplicateDimension</code></td>
-<td><code>422</code></td>
-<td>Same. Refused rather than deduplicated, because a caller who sent it twice believes something we do not</td>
-</tr>
-<tr>
-<td><code>DimensionNotPermitted</code></td>
-<td><code>403</code></td>
-<td>The metric declares no such dimension</td>
-</tr>
-<tr>
-<td><code>DimensionNotFilterable</code></td>
-<td><code>403</code></td>
-<td>The dimension can be grouped by and not filtered on</td>
-</tr>
-<tr>
-<td><code>DimensionValueNotAllowed</code></td>
-<td><code>403</code></td>
-<td>The value is outside the declared allowlist. The value itself is never echoed back</td>
-</tr>
-<tr>
-<td><code>PlanSpansTwoSources</code></td>
-<td><code>409</code></td>
-<td>Answerable in principle, and this deployment will not span two data systems: a second one is a second identity to satisfy. A conflict between what was asked and how the deployment is arranged, which is what no status about the request's own content would say</td>
-</tr>
-<tr>
-<td><code>ResultTooLarge</code></td>
-<td><code>413</code></td>
-<td>The answer did not fit the certifiable cap. Narrowing helps and repeating does not</td>
-</tr>
-<tr>
-<td><code>SourceUnavailable</code></td>
-<td><code>503</code></td>
-<td>The one refusal where retrying is reasonable</td>
+<td><strong>Execute packs</strong></td>
+<td>A live source</td>
+<td>The ROWS, and that they are identical to every other adapter's rows for the same case</td>
 </tr>
 </tbody>
 </table>
-<p>Three groupings are deliberate rather than a shortage of numbers. The status is what a monitor counts
-and the <code>code</code> is what a client branches on, so variants are grouped by <strong>what the caller should do</strong>:
-narrow the question (<code>422</code>), ask something the catalog permits (<code>403</code>), or stop (<code>409</code>). <code>problem.rs</code>
-already took the same position, where <code>unavailable</code> and <code>at_capacity</code> share <code>503</code> and differ in code.</p>
-<p><strong>The <code>403</code>s are not a statement about a credential.</strong> This surface has no per-caller identity - the
-token authenticates the deployment - so no token widens a metric's dimension set. <code>403</code> is used in its
-"understood the request, refuses to fulfil it" sense, and each sentence names the metric and the
-dimension so a caller cannot read it as "go and get a better token".</p>
-<h3 id="two-statuses-are-shared-with-something-that-is-not-a-refusal">Two statuses are shared with something that is not a refusal<a class="headerlink" href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" title="Permanent link">&para;</a></h3>
-<p><code>code</code> separates them, and so does the body: only a refusal carries <code>outcome</code>.</p>
+<p>So a metadata adapter - markdown today, Datahub or OpenMetadata later - is conformance-tested entirely
+by compile packs, against every question in the corpus, with no container anywhere. A data adapter runs
+the execute packs on top.</p>
+<p>What must be identical and what may differ, restated because it is the whole meaning of conformance:
+<strong>rows identical, refusals identical, rendered SQL different and snapshotted per dialect.</strong> No
+assertion inside a pack may hard-code dialect syntax; the moment one does, the pack has quietly become
+per-adapter.</p>
+<h3 id="what-identical-rows-means-defined-here-because-this-is-where-the-assertion-is">What "identical rows" means, defined here because this is where the assertion is<a class="headerlink" href="#what-identical-rows-means-defined-here-because-this-is-where-the-assertion-is" title="Permanent link">&para;</a></h3>
+<p><a href="../0009-the-plan-from-one-source-to-many/">The plan</a>'s fourth decision delegates the definition to
+this record, and the delegation is not a formality: <em>"identical" needs defining or the execute packs go
+red on the first network source for reasons that are not defects</em> - floating-point sums differ by
+summation order, decimal scale and rounding differ per system, tie order and NULL placement differ, and
+date truncation differs across date and timestamp types and time zones. <code>differential.rs</code> has met none
+of those because it compares two engines under one type mapping.</p>
+<p>So three rules, in one function in the packs crate and nowhere else. <strong>One function is part of the
+rule:</strong> a comparison written at two call sites compares differently at the second one, and the failure
+then reads as a difference between two data systems rather than as a difference between two copies of a
+comparison. This is the same argument the domain already makes for <code>Value::render</code> - <em>"one function so
+there is one answer"</em> - applied one level up.</p>
+<p><strong>Rule 1: the canonical form is CLASSED, and the class comparison comes before the value
+comparison.</strong> A <code>RowSet</code> is compared as the column labels in projection order, then the rows, then
+each cell against the cell in the same column position. Each cell is reduced to a class and a value,
+and the classes are:</p>
+<table>
+<thead>
+<tr>
+<th>Class</th>
+<th>Which <code>Value</code> variants</th>
+<th>Canonical value</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>null</td>
+<td><code>Null</code></td>
+<td>none. A null cell equals a null cell and nothing else</td>
+</tr>
+<tr>
+<td>exact number</td>
+<td><code>Integer</code></td>
+<td>the integer itself</td>
+</tr>
+<tr>
+<td>approximate number</td>
+<td><code>Real</code></td>
+<td>the digits rule 2 states</td>
+</tr>
+<tr>
+<td>text</td>
+<td><code>Text</code></td>
+<td>the bytes, unchanged</td>
+</tr>
+</tbody>
+</table>
+<p>Three things that shape is chosen to avoid, and the first is a defect in the harness this replaces.
+<strong><code>Value::render()</code> alone is not a canonical form for this comparison</strong>, because <code>Value::Null</code> renders
+as the string <code>null</code> and so does <code>Value::Text("null")</code> - <code>differential.rs</code>'s <code>rendered</code> therefore
+cannot tell a null cell from a cell containing that word, and copying it into the packs would carry the
+collision to every adapter. <strong>A cell that is <code>Integer</code> on one adapter and <code>Real</code> on another is a
+type-mapping difference and the packs refuse it, naming both sides.</strong> That is a decision with a cost,
+stated: the first network adapter will go red until its type mapping agrees, because <code>SUM</code> over a wide
+integer comes back as <code>NUMERIC</code> in one system and as <code>HUGEINT</code> in another and it is the adapter's job
+to land both on the same class. Tolerating it would mean an exact count on one source and an
+approximated one on another were "the same answer", which is the opposite of what a conformance suite
+is for. <strong>And a date is in the text class</strong>, because a date cell arrives as ISO text - the golden row
+snapshots record <code>Text(2026-01-01)</code> - so the date-truncation differences 0009 names show up as a text
+difference, which is the readable failure rather than a numeric one.</p>
+<p><strong>Rule 2: no tolerance for the exact classes, twelve significant digits for the approximate one.</strong>
+Null, text and <code>Integer</code> are compared exactly: byte for byte for text, value for value for an integer.
+<code>Real</code> is compared at twelve significant digits, written <code>{:.12e}</code> through <code>Real</code>'s <code>LowerExp</code>
+implementation, which exists for this comparison and says so in its own documentation. The argument is
+already in the tree and is not a loosening: summing the same rows in a different order changes the last
+place of an <code>f64</code>, so comparing the full binary expansion asserts that both sides summed in the same
+order, which is not a property any adapter promises. Twelve digits is far beyond any figure a metric
+reports and far short of the noise, and it has fired once for real on the example corpus.</p>
+<p>Four limits, next to the claim. <strong>Significant digits rather than an epsilon</strong>, because an epsilon has
+to be defended per column magnitude and significant digits are scale-free - and because the number
+already exists in three places in this repository, so adopting it adds no constant. <strong>A real difference
+in the twelfth significant digit of a reported number is invisible to these packs</strong>, deliberately;
+nothing in the corpus reports one, and a metric that did would need its own case rather than a tighter
+comparison. <strong>There is no NaN case to decide</strong>, because <code>Real::parse</code> refuses a non-finite value at the
+adapter boundary, so <code>NaN</code>-compares-unequal-to-itself cannot arise inside a comparison here. And
+<strong>text is compared without Unicode normalisation</strong>, because there is none anywhere in this workspace -
+so two spellings a reader cannot tell apart are two values, which is the same limit <code>Phrase</code> states
+about itself.</p>
+<p><strong>Rule 3: the packs impose a total order over the canonical form before comparing, and the assertion
+is over a MULTISET.</strong> The generated statement already carries an <code>ORDER BY</code> over every group column -
+the dimension columns first and the truncated time bucket last, which the SQL goldens show - so this is
+a re-sort rather than a sort of unordered rows, and it exists because the source executes that
+<code>ORDER BY</code> under its own <strong>collation</strong>
+and its own <strong>NULL placement</strong>, neither of which the plan states and both of which differ per system.
+The order imposed is: rows sorted by their canonical cells left to right in projection order, the null
+class sorting FIRST as a stated position rather than an inherited one, and text ordered by bytes,
+which is the C collation named rather than whatever the source's locale happens to be. Column labels
+are NOT reordered - projection order is part of what the plan decides, and an adapter that returned the
+columns in another order is a defect rather than a variation.</p>
+<p><strong>Multiset and not set, and that is load-bearing rather than pedantic:</strong> a duplicated row is exactly
+what a fan-out defect produces, and it is the failure the cardinality precondition in <code>AGENTS.md</code>
+rests on trust for, so a comparison that deduplicated would hide the one class of bug the corpus's own
+named cases are aimed at. <strong>The limit:</strong> re-sorting means the execute packs cannot see a row-ORDER
+defect - an adapter that returned the right rows in the wrong order passes them. That is deliberate,
+and the order is asserted elsewhere: the per-source row snapshot is not sorted, so a source whose
+collation orders <code>Business</code> before <code>business</code> differs there, in a diff a reviewer reads, rather than
+turning every case red for a reason that is not about the number.</p>
+<h3 id="cases-the-corpus-must-contain-by-name-because-nothing-else-finds-them">Cases the corpus must contain by name, because nothing else finds them<a class="headerlink" href="#cases-the-corpus-must-contain-by-name-because-nothing-else-finds-them" title="Permanent link">&para;</a></h3>
+<p>A corpus grown from whatever question somebody happened to ask converges on the easy cases. Three are
+named here because each was found by reasoning about the design rather than by a test, and each passes
+under a partial implementation:</p>
 <ul>
-<li><code>413</code> is <code>too_large</code> when the <strong>request body</strong> was over the configured limit, and
-  <code>result_too_large</code> when the <strong>answer</strong> was over the row cap.</li>
-<li><code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from the failure side, and <code>source_unavailable</code> from the
-  refusal side.</li>
+<li><strong>A filter on a remote dimension, together with an orphan key in the fact table.</strong> The join-kind
+  finding in <a href="../0007-federating-across-different-data-systems/">federating across different data systems</a>:
+  a filter pushed into a lookup leg plus a left join adds a null bucket instead of narrowing the answer.
+  Neither half alone catches it - an unfiltered question passes under either join kind, and a filtered
+  question with no orphans passes under an inner join everywhere - so it is one case with both halves
+  present, asserted against the single-source rows.</li>
+<li><strong>A ratio whose denominator is zero for one subgroup only.</strong> The zero guard applied per leg drops that
+  subgroup's numerator rather than nulling the subgroup, so the total is wrong and nothing errors. The
+  case needs a subgroup with a zero denominator and a non-zero numerator, which is the shape a
+  hand-written fixture does not happen to have.</li>
+<li><strong>A <code>CountDistinct</code> whose distinct key spans two join keys.</strong> The one that cannot be re-aggregated at
+  all: two customer keys sharing a subscription makes two exact distinct counts over-count when summed.
+  A fixture whose keys never overlap passes with the wrong implementation.</li>
 </ul>
-<h3 id="no-retry-after-on-any-refusal">No <code>Retry-After</code> on any refusal<a class="headerlink" href="#no-retry-after-on-any-refusal" title="Permanent link">&para;</a></h3>
-<p><code>Failure::retry_after</code> already set the rule for this surface: a number that is already known, or no
-header, because a guessed number is a promise. The only failure that carries one is <code>at_capacity</code>,
-where the number is the admission window the caller just spent waiting out. Nothing here knows when a
-data system will come back, so <code>source_unavailable</code> carries none - and neither does
-<code>Failure::Unavailable</code>, which is the same situation reached from the other side. A refusal that
-invented one would make the two disagree.</p>
-<h3 id="the-body-keeps-its-own-envelope">The body keeps its own envelope<a class="headerlink" href="#the-body-keeps-its-own-envelope" title="Permanent link">&para;</a></h3>
-<p><strong>A refusal keeps <code>crate::wire::OutcomeBody::Refusal</code> and is NOT moved to <code>ProblemBody</code>.</strong> Four
-reasons, in the order they decided it.</p>
-<p><strong>1. A refusal is not a <code>Failure</code>, and the type system should keep saying so.</strong> <code>ProblemBody</code> is
-reachable only through <code>Failure</code>, which is what an <code>Err</code> becomes. Routing a refusal through it needs a
-<code>Failure::Refused</code> variant, which would put a governance <em>result</em> into the error enum - and the whole
-point of <code>ToolOutcome::Refusal</code> being a variant of the result is that no code path can mistake it for
-a transport hiccup. The status changed; the type did not, and this is where that is kept true.</p>
-<p><strong>2. There is no RFC 9457 shape to move to.</strong> It is worth stating plainly, because the obvious
-consistency argument assumes one. <code>ProblemBody</code> is this repository's own three-field failure body -
-<code>code</code>, <code>status</code>, <code>detail</code> - served as <code>application/json</code>. It carries no <code>type</code>, <code>title</code> or <code>instance</code>
-member and is not served as <code>application/problem+json</code>; the string "9457" appears nowhere in the
-repository. So the choice was never "our envelope or the standard one". It was "our refusal envelope
-or our failure envelope".</p>
-<p><strong>3. The refusal envelope is the existing contract.</strong> Clients read <code>outcome</code> and <code>reason.code</code>, the
-interface description declares them, and the golden corpus and the example session show them. This
-change is additive: nothing was removed or renamed.</p>
-<p><strong>4. Discriminability is worth more than uniformity exactly where the statuses collide.</strong> With two
-body shapes, <code>outcome</code> is a one-field test for whether the governance layer decided or the transport
-failed - which is what a caller needs at <code>413</code> and at <code>503</code>, where the same number arrives from both
-sides.</p>
-<p>The cost, stated rather than waved away: a caller now parses two failure-ish shapes on one route. It
-is bounded, because both carry a <code>code</code> and a <code>detail</code> at a known place, and the OpenAPI document
-declares both per status with the codes that reach it.</p>
-<p>One field was added inside <code>reason</code>: <code>status</code>, the same <code>u16</code> the response carries. For the same
-reason <code>ProblemBody</code> has it - a client that logged only the body still has it - and it makes the two
-bodies near-identical in what they carry.</p>
+<p>Each is a directory like any other case. Naming them here is not a substitute for writing them - it is
+what stops the corpus from being complete-looking and blind in exactly the places the design is hard.</p>
+<h2 id="the-corpus-is-files-not-code">The corpus is files, not code<a class="headerlink" href="#the-corpus-is-files-not-code" title="Permanent link">&para;</a></h2>
+<p>A case is a directory entry, not a function. That is already how the repository works - questions are
+files under an example's <code>questions/</code>, read and iterated - and the conformance corpus extends it:
+a catalog, a set of question files, and the expected rows for the reference run.</p>
+<p>Adding a case is adding a file. Adding an adapter is one macro invocation and a capability
+declaration. Neither touches a pack body, and that is the property the requirement asks for.</p>
+<h2 id="two-mechanics-to-get-right-because-both-are-how-a-suite-rots">Two mechanics to get right, because both are how a suite rots<a class="headerlink" href="#two-mechanics-to-get-right-because-both-are-how-a-suite-rots" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>Orphaned snapshots, and the tool that has to be installed before any of this is checkable.</strong> A
+  corpus multiplied by adapters accumulates pins nothing reads unless something reports them, and the
+  report is what keeps a snapshot suite honest: an orphan is a case that was renamed or deleted while
+  its expected output stayed behind, so the suite is green about a question nobody asks any more. The
+  mechanism here is insta's unreferenced check -
+  <code>cargo insta test --unreferenced</code> - and the honest statement of its status is that <strong>nothing in this
+  workspace runs it and no gate mentions it</strong>: <code>insta</code> is a normal dev-dependency, but <code>cargo-insta</code>,
+  the CLI subcommand that check needs, is <strong>not installed anywhere</strong>. Not in <code>devenv.nix</code>, not on the
+  dev shell's path, not in any flake check. An earlier draft of this record attributed that to a note in
+  AGENTS.md; there is no such note, and the correction matters because "recorded as unavailable" and
+  "nobody has installed it" call for different work.</li>
+</ul>
+<p><strong>So the first task is an installation, and where it goes is already decided by a rule.</strong> AGENTS.md:
+  <em>nix is the only pin for a tool whose version changes what it reports; pixi holds only <code>prek</code> and
+  <code>python</code>, and <code>cargo xtask check-pins</code> fails if a tool appears in both.</em> A snapshot tool's version
+  decides whether an orphan is reported, so it is exactly that class of tool. <strong><code>cargo-insta</code> goes into
+  <code>devenv.nix</code></strong> - not pixi, which <code>check-pins</code> would fail, and not <code>cargo install</code>, which pins
+  nothing. Future tense on purpose: <code>grep -rn cargo-insta devenv.nix nix/ flake.nix</code> returns nothing
+  today, so this is the decision about where it goes and not a description of where it is.</p>
+<p><strong>And pinning it in the dev shell is necessary but not sufficient, which is the part worth deciding
+  now.</strong> <code>flake.nix</code> already records the general case: a dev-shell tool is not on a flake check's path,
+  and installing one in CI just to reach a check adds a dependency the pipeline does not otherwise need.
+  Two routes, and this record picks the second:</p>
+<ol>
+<li>Add <code>cargo-insta</code> to the <code>nextest</code> check's inputs and run the unreferenced check there. It reads
+     the unfiltered tree already, so the snapshots are visible. The cost is a tool in the CI closure.</li>
+<li><strong>A gate of our own in <code>xtask</code></strong>, which reads the snapshot directory and compares it against the
+     cases the conformance macro generates. Chosen, for three reasons: <code>xtask</code> gates are unit-tested and
+     already walk repo files, the comparison is <em>more</em> precise than "unreferenced" because the macro
+     knows the exact case list, and it adds nothing to the closure. <code>cargo-insta</code> is then pinned in the
+     dev shell and nowhere else, for <code>cargo insta review</code> - accepting a changed snapshot interactively,
+     which is what a developer actually needs it for. <strong>Future tense, like the sentence above it:</strong> it
+     is not pinned anywhere today, and "stays pinned" is what this line said until review caught the
+     two halves of one paragraph disagreeing about whether the tool exists.</li>
+</ol>
+<p>With a corpus multiplied by adapters an orphan is a real gap rather than a nicety, so both halves -
+  the pin and the gate - belong with this work.
+- <strong>Timing.</strong> A conformance matrix grows multiplicatively, and the tier that is supposed to be fast
+  stops being fast quietly. So per-pack timings are reported from the start, and the reason is the same
+  one that governs every other number in this repository: the fast tier is defended with a measurement
+  or it is defended with a feeling. <code>cargo nextest</code> already reports per-test durations, so the missing
+  half is aggregating them per pack and per adapter rather than instrumenting anything.</p>
 <h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Nothing about the domain moves.</strong> <code>ToolOutcome</code>, <code>RefusalReason</code> and every rule about what may be
-  asked are untouched. This decision is a transport mapping and lives entirely in <code>sutura-http</code>.</li>
-<li><strong>The compile is the gate.</strong> A new <code>RefusalReason</code> variant does not build until it has a status, a
-  code and a sentence. There is no <code>_ =&gt;</code> arm and there must not be one: a default would hand a new
-  governance outcome to callers under whatever number happened to be chosen first.</li>
-<li><strong><code>413</code> is arguably wrong by the letter of the spec, and is used anyway.</strong> <code>413 Content Too Large</code>
-  is defined over the <em>request</em> content - "the request entity was larger than limits defined by
-  server" - and what is too large in <code>ResultTooLarge</code> is the answer. It is recorded here rather than
-  hidden. It is used because <code>413</code> is the status a person reading a dashboard reads as "too large",
-  which is precisely what this refusal has to be unmistakable about, and because the collision with
-  the body limit on the same route is resolved by <code>code</code> and by the body shape. If a reader disagrees,
-  <code>422</code> is the alternative and this paragraph is the argument to answer.</li>
-<li><strong><code>DimensionNotPermitted</code> at <code>403</code> was the other close call.</strong> The domain calls it "a name that does
-  not resolve", which reads like <code>422</code>. It stays at <code>403</code> because what the name is checked against is
-  the metric's <em>declared</em> dimension set - the same catalog statement <code>DimensionNotFilterable</code> and
-  <code>DimensionValueNotAllowed</code> read at finer grain - so a monitor counting attempts to ask outside the
-  catalog gets one number rather than two.</li>
-<li><strong><code>SourceUnavailable</code> is the only refusal a caller should retry, and today's cause is usually not
-  transient.</strong> The variant is documented as the one an identity failure will also use, and today it is
-  raised by a name comparison: the plan's data system against the adapter this process opened. So a
-  <code>503</code> here often means a deployment wired wrong rather than one briefly unwell. The status is right
-  for the variant's meaning; the sentence is what an operator reads.</li>
-<li><strong>The example session under <code>examples/single-player/README.md</code> shows captured <code>200 OK</code> transcripts
-  for refusals and is now stale.</strong> It has to be re-captured from a running process rather than
-  hand-edited, which is why it is named here instead of quietly corrected.</li>
-<li><strong>The agent prompt still tells an agent a refusal is a successful call.</strong> That is true at the tool
-  level, where <code>sutura_app::prompt</code> speaks; over HTTP it is no longer true of the status. Whether the
-  prompt should mention a transport at all is a separate decision.</li>
+<li>A new dev-only workspace crate holds the packs and the macro. It is never shipped, and it depends on
+  the domain's ports rather than on any adapter.</li>
+<li><strong>The harness duplication this would have extracted does not exist on this branch yet.</strong> An earlier
+  draft cited <code>crates/sutura-cli/tests/federation.rs</code> and about ninety duplicated lines "at two
+  corpora, so this is the third". That file is not here - <code>crates/sutura-cli/tests</code> holds <code>example.rs</code>
+  and its snapshots - and the claim came from a branch that was never merged. What is true: the golden
+  and refusal corpora in <code>sutura-app/tests</code> are the first corpora, the packs are the second consumer of
+  the same fixtures, and the shared module is therefore written ONCE here rather than extracted from a
+  duplication. Cheaper than the draft claimed, and worth correcting in the other direction too: a
+  record that invents the debt it is paying off cannot be checked by a reader.</li>
+<li>The existing <code>tests/adapters</code> registry becomes the place an adapter is registered for the matrix,
+  and the macro invocation is what registers it for the packs. One registration, not two - and that
+  registry becomes the source CI's own job matrix is EMITTED from, rather than a category list typed into
+  a workflow file. A registered adapter absent from CI's matrix is not an error in YAML, which is the
+  quiet way a new adapter ends up conformance-tested locally and untested in CI.</li>
+<li>Compile packs make the semantic compiler testable against N catalogs with no data system, which is
+  the tier most of the value lives in and the one that can run on every push.</li>
 </ul>
-<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
-<p><strong>Keep the <code>200</code> and document it harder.</strong> The status quo, and it needs no work. Rejected because the
-problem is not that callers were under-informed - it is that a whole class of reader never sees the
-body at all, and no amount of documentation reaches a proxy access log or an error-rate alert.</p>
-<p><strong>One status for every refusal, <code>422</code> for all of them.</strong> Simple, honest about "well formed and
-declined", and one number to document. Rejected because it throws away the part a caller can act on
-without parsing: <code>metric_unknown</code> and <code>result_too_large</code> need different responses, and collapsing them
-means the status carries no information beyond "not answered" - which is barely better than the <code>200</code>.</p>
-<p><strong>Move refusals to <code>ProblemBody</code>.</strong> One failure shape for the whole surface, which is a real
-consistency win. Rejected for the four reasons above, the first being decisive: it needs a
-<code>Failure::Refused</code> variant, and putting a governance result into the error enum is the exact confusion
-<code>ToolOutcome::Refusal</code> exists to prevent.</p>
-<p><strong>A <code>Retry-After</code> on <code>SourceUnavailable</code>.</strong> Cheap to add and it looks helpful. Rejected because the
-number would be invented, which is the one thing <code>Failure::retry_after</code> already refuses to do, and
-because the same situation reached from the failure side carries no header - two answers to one
-question is worse than one incomplete answer.</p>
 
 
 
