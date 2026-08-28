@@ -459,6 +459,30 @@ mechanism, and it reads **dependency direction** - not intent, and not which cra
   the product, and adding a metadata provider or a data system is a registration rather than a test
   edit, which is a row above.
 
+### Borrowing, And What Deserves An `Arc`
+
+Security and performance are decided together here, and both are decided early. A needless copy on the
+federated path multiplies the working set against a memory bound that REFUSES, so an allocation in a
+leg is a correctness question rather than a style one.
+
+- **Prefer borrowing. A clone is a decision with a reason, never a way past the borrow checker.** If a
+  lifetime is hard, the shape is usually wrong: something is being held across an await it does not
+  need to cross, or a value is being owned where a reference would do.
+- **`Arc` is for state that is genuinely shared across tasks and immutable once built** - the pinned
+  bundle, the certified key the TLS resolver hands out. It is not a lifetime escape hatch, and
+  `Arc<Mutex<_>>` around per-request state is the shape to stop and rethink.
+- **The scoped view BORROWS the pinned definitions** rather than copying them, and that is not an
+  optimisation: it is what keeps `load()` off the request path and makes visibility filtering
+  incapable of acquiring I/O.
+- **A port takes `&self` and holds no request state.** That is an invariant above, and it is also what
+  makes sharing an adapter across tasks free rather than something to engineer.
+- **Know which clones are cheap.** Arrow buffers are reference-counted by construction, so cloning a
+  batch moves no data; treating it as a copy produces worse code, not safer code. The opposite mistake
+  is cloning a `String` per row because the signature asked for one.
+- **Measure rather than assert.** The numbers that decided the federation shape were wall clock and
+  peak resident set on a real corpus, not reasoning about allocations. A claim about cost in a review
+  is worth what its measurement is worth.
+
 ### Secure By Design
 
 A control that holds by construction is the only kind this file counts. The three sections above are
