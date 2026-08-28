@@ -181,6 +181,7 @@ nav:
       - sutura-config: api/sutura-config.md
       - sutura-runtime: api/sutura-runtime.md
       - sutura-http: api/sutura-http.md
+      - sutura-mcp: api/sutura-mcp.md
   - Changelog: changelog.md
 
 extra:
