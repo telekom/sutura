@@ -157,6 +157,7 @@ nav:
       - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
       - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
       - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
+      - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
