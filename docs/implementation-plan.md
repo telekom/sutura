@@ -4,37 +4,33 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Fifteen steps, seven of which can start at once.** Every step is one branch, one pull request, and green
-before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill has the
+**Fifteen steps, seven of which can start at once.** Every step is one branch, one pull request, and
+green before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill has the
 mechanics. Nothing in this plan is started.
 
 ## The stack
 
-| # | Branch | Depends on | Can start now |
+**Steps are named, not numbered, because the order moves and headings should not.** This table is the
+order. The agent-facing surface is first because it is the API we expose: everything else is an
+internal that a stable surface can grow behind.
+
+| Order | Branch | Depends on | Can start now |
 | --- | --- | --- | --- |
-| 1 | `feat/federation-decomposability` | nothing | **yes** |
-| 2 | `feat/principal-chain` | nothing | **yes** |
-| 3 | `feat/query-bounds` | nothing | **yes** |
-| 4 | `test/startup-source-refusals` | nothing | **yes** |
-| 5 | `feat/source-registry` | 3 | after 3 |
-| 6 | `feat/two-source-execution` | 1, 5 | after 5 |
-| 7 | `feat/conformance-packs` | 6 for the execute half; nothing for the compile half | partly |
-| 8 | `feat/credential-port` | 2, 5 | after 5 |
-| 9 | `feat/postgres-oauth` | 8, and the driver question | after 8 |
-| 10 | `feat/compose-tier` | 9 | after 9 |
-| 11 | `feat/source-mtls` | 5, 9 | after 9 |
-| 12 | `feat/demo-tasks` | 10, and one example to demo | after 10 |
-| 13 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 14 | `ci/prose-change-cost` | nothing - measure first | **yes** |
-| 15 | `feat/agent-surface` | nothing already shipped | **yes** |
-
-**Verification for every step**, and none of it is optional: `just validate` is the only thing that
-counts, it now runs seven checks including `api-docs`, and every new test must be RED against the base
-behaviour and GREEN with the change. Where impl and tests share a file, `test-causality` says so and
-asks for stated evidence instead: the mutation, the command, the failure before, the pass after. Any
-new FILE must be `git add -N`'d or the nix checks cannot see it.
-
----
+| 1 | `feat/agent-surface` | nothing unshipped | **yes** |
+| 2 | `feat/federation-decomposability` | nothing | **yes** |
+| 3 | `feat/principal-chain` | nothing | **yes** |
+| 4 | `feat/query-bounds` | nothing | **yes** |
+| 5 | `test/startup-source-refusals` | nothing | **yes** |
+| 6 | `feat/source-registry` | 4 | after 4 |
+| 7 | `feat/two-source-execution` | 2, 6 | after 6 |
+| 8 | `feat/conformance-packs` | 7 for the execute half, nothing for the compile half | partly |
+| 9 | `feat/credential-port` | 3, 6 | after 6 |
+| 10 | `feat/postgres-oauth` | 9, and the driver question | after 9 |
+| 11 | `feat/compose-tier` | 10 | after 10 |
+| 12 | `feat/source-mtls` | 6, 10 | after 10 |
+| 13 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
+| 14 | `build/supply-chain` | nothing - orthogonal | **yes** |
+| 15 | `ci/prose-change-cost` | nothing - measure first | **yes** |
 
 ## The original thesis, and where each piece stands
 
@@ -97,7 +93,89 @@ If the feature is compiled to reach it, three things must hold and one must chan
 - And the invariant row changes, because its stated mechanism is "the feature is not compiled". A row
   whose mechanism moves gets rewritten, not reinterpreted.
 
-## 1. Decomposability in the domain
+## Operating inside a platform we do not own
+
+This section is written **generically on purpose.** This repository is public, and the systems these
+constraints come from are not ours to name. Each is written as the capability and its constraint, which
+is the rule the root-of-trust file states and which usually improves the point anyway: a requirement
+that survives being stripped of the product name is a requirement about architecture rather than about
+a vendor.
+
+Sutura will eventually run beside three shapes of thing: **a central API gateway fronted by an
+enterprise identity front door**, **an agent platform that supplies a client and a review-and-deploy
+plane**, and **third-party chat clients acting as callers**. None of them is in the data path. All of
+them constrain the surface, and most of the constraints land on the step that is now first.
+
+### What the agent surface must survive
+
+- **Only TOOLS may be load-bearing.** A gateway of this kind surfaces tools and **ignores resources and
+  prompts**. So a glossary, a catalog description or a "how to ask" hint may improve a cooperative
+  client and must never be the thing that makes an answer correct. That matches what the prompt already
+  is - advisory - but it becomes enforced by the transport rather than by our discipline, which is a
+  stronger position and worth designing for deliberately.
+- **Two authentication adapters behind one port.** Direct callers need the full resource-server dance:
+  metadata discovery, a challenge, an audience-bound token we validate ourselves. Behind a gateway, all
+  of that is dead code on that route while remaining mandatory on the other. Implement both behind one
+  subject port **so the tool surface cannot tell the difference** - that is the most concrete
+  justification the hexagon has been given, and it is a real cost rather than a free abstraction.
+- **A forwarded user token is credential forwarding, not identity proof.** It is acceptable only if it
+  is a signed token from a discoverable issuer that sutura verifies itself: issuer, audience,
+  signature, expiry. It is unacceptable if the front door re-mints an opaque string only it can
+  interpret. **This single question decides whether such a route can ever serve per-subject data**, and
+  it is a question to ask rather than to assume.
+- **Never accept a plain user-id header as identity.** Behind a service token, anything holding that
+  token could obtain a credential for ANY user - a confused deputy, and with a per-user credential
+  store it turns our own API into a mass-exfiltration surface. Audit entries naming individual people
+  would then be fiction, which is worse than an honest shared-identity record because it will be
+  trusted.
+- **No auth-bearing tool parameter.** A credential in a tool argument is a credential in the model's
+  context, and it makes the model a credential carrier. Authentication is transport-level, and the tool
+  surface exposes no field for it - which the typed `Query` already guarantees by having no such field.
+- **A timeout may change the surface's SHAPE, not just a setting.** A gateway of this kind enforces a
+  request timeout in the tens of seconds, and streaming does not exempt a connection from it. If a
+  governed turn can exceed it, the surface has to become submit-and-poll - a design change, decided
+  before the tools are written rather than after. Measure a real turn first; and note that without push
+  notifications the obvious asynchronous pattern is foreclosed.
+
+### Two rules that outrank any of the above
+
+- **Do not weaken an invariant to fit a platform.** If the only identity a route can offer is one
+  sutura cannot verify, the honest outcome is that the route serves non-per-subject data only. That is a
+  smaller product on that path, not a softer invariant.
+- **Defence in depth is never a substitute.** A gateway token proving a request transited the gateway
+  makes "assume nothing about the client" cheaper on that route, and gateway-level quota and audit
+  complement ours. Neither replaces the check we make ourselves, because the platform is not ours to
+  rely on.
+
+## The agent-facing surface
+
+**Goal.** The governed surface agents actually speak. `AGENTS.md` lists `sutura-mcp` among the planned
+crates and nothing else in this plan mentioned it, which for a runtime whose thesis is *for AI agents*
+was the largest omission in the record.
+
+**Depends on nothing that is not already shipped.** The tool surface exists: a typed `Query` with no
+field for SQL, a table, a predicate or row ids; refusals as results rather than errors; provenance in
+the payload. MCP is a transport over that, not a redesign of it.
+
+**Touches.** A new crate; `crates/sutura-http` for nothing, because the point is that both transports
+serve the same tools.
+
+**Adds.** A server exposing the tools the HTTP surface exposes, from **one schema source**, so the two
+cannot disagree. The invariants for it are already written and already enforced by the domain types -
+which is the reason this step is smaller than it looks.
+
+**Tests.**
+- `a_certified_question_is_answered_over_the_agent_surface`.
+- `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
+- `the_advertised_tools_differ_by_scope` - a tool a caller may not invoke is not advertised to it.
+- `both_transports_describe_the_same_tools` - one source, or a test asserting the two descriptions are
+  equal. This is the drift this step exists to prevent.
+
+**Done when** an agent client can ask a certified question and be REFUSED an uncertified one over the
+agent surface, with no client of ours in the loop. Note the demo step depends on this **or** on the
+OpenAPI route; this is the better one, and the demo must not wait for it.
+
+## Decomposability in the domain
 
 **Goal.** A federated query cannot compute an aggregate that does not survive being computed per leg
 and re-aggregated. No plumbing, no adapters, no federation: just the classification and the rule.
@@ -121,7 +199,7 @@ the division happens once, above.
 leg is unrepresentable rather than discouraged. Six of the eleven shipped metrics are affected by this
 step, so the fixtures exercise it immediately.
 
-## 2. The principal chain
+## The principal chain
 
 **Goal.** Human, then agent, then task - ordered - present from the first record, while both tail
 positions are always absent. This is the step that cannot be deferred: a stored row naming only the
@@ -143,7 +221,7 @@ being translated into.
 **Done when** anything that records a call records the chain, and the budget key includes it even
 though the tail is always absent.
 
-## 3. The three bounds
+## The three bounds
 
 **Goal.** A result-size ceiling, a query timeout, and a per-leg row bound. Each a typed refusal, never
 a truncation.
@@ -166,7 +244,7 @@ globally and overridable **per source**. Three refusal variants, each provokable
 described, and a partial answer is impossible. `panic = "abort"` is why the memory one matters: an
 allocation failure is process death for every caller, not an error for one.
 
-## 4. The startup refusals that already hold
+## The startup refusals that already hold
 
 **Goal.** Test what is already true. The more-than-one-source arm of `open_engine` has no test in
 either binary, and it is the refusal that actually protects a deployment today.
@@ -180,7 +258,7 @@ wrong-name arm, so it cannot pass on the wrong branch.
 **Done when** both are red against a build with the branch removed. This is the cheapest step in the
 plan and it closes a real gap.
 
-## 5. The source registry, the mode, and the boot check
+## The source registry, the mode, and the boot check
 
 **Goal.** More than one source becomes configurable, each declaring its mode and its capabilities.
 
@@ -202,7 +280,7 @@ impersonation the deployment cannot perform. Provenance gains the mode per leg.
 **Done when** two sources can be configured, each says what it is, and an answer says which mode
 produced it.
 
-## 6. Two sources, one question, end to end
+## Two sources, one question, end to end
 
 **Goal.** The real machinery, with two DuckDB files as its first instance: split by source, render each
 leg, combine above.
@@ -229,7 +307,7 @@ observable.
 memory bound are shown refusing on an oversized intermediate, and **the two-source example flips from a
 refusal to an answer** - the same corpus, so the diff is the behaviour change.
 
-## 7. Conformance packs
+## Conformance packs
 
 **Goal.** One set of test bodies, bound to each adapter by a macro, so a new connector proves itself by
 registering and declaring.
@@ -251,7 +329,7 @@ capability declared unsupported that turns out to work FAILS.
 **Done when** the semantic compiler is conformance-tested across catalogs with no container anywhere,
 and the compile half runs on every push.
 
-## 8. The credential port
+## The credential port
 
 **Goal.** No signature exists that can run as the process.
 
@@ -270,7 +348,7 @@ cannot impersonate when the deployment requires it.
 **Done when** the fallback is removed rather than forbidden, and the single-user path still works with
 static credentials.
 
-## 9. Postgres over OAuth
+## Postgres over OAuth
 
 **Goal.** The first network source, and the first real impersonation.
 
@@ -293,7 +371,7 @@ source, different rows, asserted. Compose tier by nature.
 demonstrates exactly that end to end**, and the artifact question from the ADRs is answered rather than
 deferred - which of the shipped binaries links a native driver.
 
-## 10. The compose tier
+## The compose tier
 
 **Goal.** Oracle, Postgres, Datahub and OpenMetadata brought up on demand, provisioned through the
 sutura CLI, worktree-aware.
@@ -308,7 +386,7 @@ and a `just` task that consume nix-built artifacts. The strongest version runs t
 **Done when** two worktrees provision simultaneously without collision, and a missing service cannot
 produce a silent pass.
 
-## 11. Mutual TLS per source
+## Mutual TLS per source
 
 **Goal.** Optional client certificates to a metadata source and to a data source.
 
@@ -321,7 +399,7 @@ the middle one, the one that gets forgotten, has a test of its own.
 
 ---
 
-## 12. `just demo`, and a chat interface for development
+## `just demo`, and a chat interface for development
 
 **Goal.** One task per deployment variant that brings up a fully working demo: sutura serving that
 variant's example, and a chat interface pointed at it. `just demo single-user`,
@@ -361,7 +439,7 @@ in a client we said has no governance role.
 docker, with the ports derived from the worktree; when a missing docker prints SKIPPED and exits 0
 rather than failing; and when the README for each example says which `just demo` runs it.
 
-## 13. Supply chain: SBOM, provenance, signatures, licence report
+## Supply chain: SBOM, provenance, signatures, licence report
 
 **Orthogonal to everything above.** It touches the release path and no crate, so it can start at any
 time and blocks nothing.
@@ -406,7 +484,7 @@ saying which artifact it describes.
 attestation, and a signature - **and when verification is exercised in CI rather than assumed.** An
 attestation nobody verifies is a file. The smoke test is the deliverable, not the generation.
 
-## 14. The CI cost of a prose change
+## The CI cost of a prose change
 
 **Measured before touching anything**, on a real run, because the intuitive answer was wrong:
 
@@ -446,34 +524,6 @@ economise.
 
 **Done when** an ADR-only change is gated in about a minute rather than seventeen, with `check-docs`
 and mkdocs `--strict` still running, and with the publish job's cache posture unchanged.
-
-## 15. The agent-facing surface
-
-**Goal.** The governed surface agents actually speak. `AGENTS.md` lists `sutura-mcp` among the planned
-crates and nothing else in this plan mentioned it, which for a runtime whose thesis is *for AI agents*
-was the largest omission in the record.
-
-**Depends on nothing that is not already shipped.** The tool surface exists: a typed `Query` with no
-field for SQL, a table, a predicate or row ids; refusals as results rather than errors; provenance in
-the payload. MCP is a transport over that, not a redesign of it.
-
-**Touches.** A new crate; `crates/sutura-http` for nothing, because the point is that both transports
-serve the same tools.
-
-**Adds.** A server exposing the tools the HTTP surface exposes, from **one schema source**, so the two
-cannot disagree. The invariants for it are already written and already enforced by the domain types -
-which is the reason this step is smaller than it looks.
-
-**Tests.**
-- `a_certified_question_is_answered_over_the_agent_surface`.
-- `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
-- `the_advertised_tools_differ_by_scope` - a tool a caller may not invoke is not advertised to it.
-- `both_transports_describe_the_same_tools` - one source, or a test asserting the two descriptions are
-  equal. This is the drift this step exists to prevent.
-
-**Done when** an agent client can ask a certified question and be REFUSED an uncertified one over the
-agent surface, with no client of ours in the loop. Note the demo step depends on this **or** on the
-OpenAPI route; this is the better one, and the demo must not wait for it.
 
 ## The examples are the demo, one per deployment variant
 
