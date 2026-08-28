@@ -26,12 +26,25 @@
 //!
 //! A gate that quietly downgraded to "no opinion" here would be worse than no gate: it would
 //! report green over exactly the cases most likely to hide a vacuous test.
+//!
+//! WHICH FILE IS WHICH. [`diff`] reads the diff into added lines that carry their post-image
+//! line numbers; [`regions`] decides which of those lines are test code, by where they sit in
+//! the file rather than by what the added set happens to contain. That second module's own doc
+//! records the defect the earlier shape produced and the limits of what replaced it - a
+//! tests-only branch reported as "changes behaviour and adds tests in one file", which is a
+//! different message asking for a different thing.
 
 use std::path::Path;
 use std::process::Command;
 
 use crate::Verdict;
 use crate::repo;
+
+mod diff;
+mod regions;
+
+use diff::{ChangedFile, changed_with_additions};
+use regions::{AddedLine, PostImage, has_non_test_additions, scope};
 
 /// What the gate concluded, so the shape is testable without git or cargo.
 #[derive(Debug, PartialEq, Eq)]
@@ -59,9 +72,9 @@ pub(crate) enum Plan {
 /// Deliberately syntactic and deliberately generous: `#[test]`, `#[tokio::test]`,
 /// `#[rstest]`, a new `mod tests`. A false positive costs a slower gate; a false negative
 /// lets a vacuous test through, so the bias goes one way on purpose.
-fn adds_test(added_lines: &[String]) -> bool {
+fn adds_test(added_lines: &[AddedLine]) -> bool {
     added_lines.iter().any(|l| {
-        let t = l.trim();
+        let t = l.text.trim();
         t.starts_with("#[test]")
             || t.starts_with("#[tokio::test")
             || t.starts_with("#[rstest")
@@ -82,22 +95,22 @@ fn is_rust(path: &str) -> bool {
 /// Changed files split by whether they exist at the base commit.
 type Partitioned<'a> = (Vec<&'a String>, Vec<&'a String>);
 
-/// A changed file and the lines the diff added to it.
-pub(crate) type ChangedFile = (String, Vec<String>);
-
 /// Split changed Rust files into "added tests" and "changed implementation only".
-pub(crate) fn plan(files: &[ChangedFile]) -> Plan {
+///
+/// `read` returns a file's POST-IMAGE by repo-relative path - the working tree in the gate, a
+/// fixed map in the tests. It is what makes the test-region question answerable at all.
+pub(crate) fn plan(files: &[ChangedFile], read: &PostImage<'_>) -> Plan {
     let mut test_files = Vec::new();
     let mut impl_only = Vec::new();
 
-    for (path, added) in files {
-        if !is_rust(path) {
+    for file in files {
+        if !is_rust(&file.path) {
             continue;
         }
-        if adds_test(added) {
-            test_files.push(path.clone());
+        if adds_test(&file.added) {
+            test_files.push(file.path.clone());
         } else {
-            impl_only.push(path.clone());
+            impl_only.push(file.path.clone());
         }
     }
 
@@ -106,11 +119,11 @@ pub(crate) fn plan(files: &[ChangedFile]) -> Plan {
     }
 
     // A file that gained BOTH a test and non-test changes cannot be split by reverting whole
-    // files. Detect it by asking whether the file has added lines outside a test context.
+    // files. Detect it by asking whether any added line lands outside the file's test regions.
     let inseparable: Vec<String> = files
         .iter()
-        .filter(|(path, added)| test_files.contains(path) && !is_dedicated_test_target(path) && has_non_test_additions(added))
-        .map(|(path, _)| path.clone())
+        .filter(|file| test_files.contains(&file.path) && has_non_test_additions(&file.added, &scope(&file.path, read)))
+        .map(|file| file.path.clone())
         .collect();
 
     // A test in an inseparable file cannot be proven by reverting OTHER files: its own
@@ -135,77 +148,6 @@ pub(crate) fn plan(files: &[ChangedFile]) -> Plan {
         test_files: provable,
         held_back: inseparable,
     }
-}
-
-/// Is this file a dedicated test target, where every line is test code?
-///
-/// Cargo compiles `tests/` as separate integration binaries, so such a file has no
-/// implementation to revert - the whole file is the test. `has_non_test_additions` cannot tell:
-/// it looks for a `#[cfg(test)]` or `mod tests` marker, which an integration test has no reason
-/// to write, so a plain `fn t() {}` there reads as an implementation change. Without this the
-/// canonical good case - an impl file plus a separate integration test - was misfiled as
-/// inseparable and the gate declined to prove the very shape it exists for.
-fn is_dedicated_test_target(path: &str) -> bool {
-    path.contains("/tests/") || path.starts_with("tests/")
-}
-
-/// Are there added lines that are plainly not test code?
-///
-/// Heuristic and conservative: an added line inside a `#[cfg(test)]` region is test code, and
-/// anything before the first such marker is not. It cannot be exact without parsing, so it
-/// errs toward "not separable", which asks a human rather than guessing.
-fn has_non_test_additions(added: &[String]) -> bool {
-    let mut seen_test_marker = false;
-    for line in added {
-        let t = line.trim();
-        if t.starts_with("#[cfg(test)]") || t.starts_with("mod tests") {
-            seen_test_marker = true;
-            continue;
-        }
-        if seen_test_marker {
-            continue;
-        }
-        // Blank lines, comments and attributes carry no behaviour.
-        if t.is_empty() || t.starts_with("//") || t.starts_with("#[") || t.starts_with("#!") {
-            continue;
-        }
-        return true;
-    }
-    false
-}
-
-/// Added lines per changed file, from `git diff`.
-fn changed_with_additions(base: &str) -> Option<Vec<ChangedFile>> {
-    let out = Command::new("git")
-        .args(["diff", "--unified=0", "--no-color", base, "--"])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
-    }
-    let text = String::from_utf8_lossy(&out.stdout);
-
-    let mut files: Vec<ChangedFile> = Vec::new();
-    let mut current: Option<ChangedFile> = None;
-    for line in text.lines() {
-        if let Some(rest) = line.strip_prefix("+++ b/") {
-            if let Some(done) = current.take() {
-                files.push(done);
-            }
-            current = Some((String::from(rest), Vec::new()));
-            continue;
-        }
-        if let Some(added) = line.strip_prefix('+')
-            && !line.starts_with("+++")
-            && let Some((_, lines)) = current.as_mut()
-        {
-            lines.push(String::from(added));
-        }
-    }
-    if let Some(done) = current.take() {
-        files.push(done);
-    }
-    Some(files)
 }
 
 /// Run the test suite in `dir` with nextest, building into `target`.
@@ -606,7 +548,12 @@ pub(crate) fn run(args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    match plan(&files) {
+    // The POST-IMAGE of a changed file is what says which of its lines are test code, and
+    // `git diff <base> --` compares base against the WORKING TREE - so the working tree is the
+    // post-image, and reading it needs no second git call.
+    let working_tree = |path: &str| std::fs::read_to_string(root.join(path)).ok();
+
+    match plan(&files, &working_tree) {
         Plan::NotRequired => {
             println!("xtask test-causality: no changed tests - nothing to prove");
             Verdict::Pass
@@ -638,34 +585,61 @@ fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{BaseOutcome, BaseState, Plan, adds_test, apply, has_non_test_additions, plan, retry_with_held_back};
+    use super::regions::AddedLine;
+    use super::{BaseOutcome, BaseState, ChangedFile, Plan, adds_test, apply, plan, retry_with_held_back};
 
-    fn lines(list: &[&str]) -> Vec<String> {
-        list.iter().map(|s| String::from(*s)).collect()
+    /// A post-image reader over a fixed set of files, standing in for the working tree.
+    fn tree(files: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> + use<> {
+        let owned: Vec<(String, String)> = files
+            .iter()
+            .map(|&(path, text)| (String::from(path), String::from(text)))
+            .collect();
+        move |wanted: &str| owned.iter().find(|(path, _)| path == wanted).map(|(_, text)| text.clone())
+    }
+
+    /// A changed file whose added lines run consecutively from `first`.
+    fn changed(path: &str, first: usize, texts: &[&str]) -> ChangedFile {
+        ChangedFile {
+            path: String::from(path),
+            added: added_from(first, texts),
+        }
+    }
+
+    /// Added lines numbered consecutively from `first`.
+    fn added_from(first: usize, texts: &[&str]) -> Vec<AddedLine> {
+        texts
+            .iter()
+            .enumerate()
+            .map(|(offset, text)| AddedLine::new(first + offset, *text))
+            .collect()
     }
 
     #[test]
     fn recognises_added_tests() {
-        assert!(adds_test(&lines(&["    #[test]"])));
-        assert!(adds_test(&lines(&["#[tokio::test]"])));
-        assert!(adds_test(&lines(&["#[cfg(test)]"])));
-        assert!(adds_test(&lines(&["mod tests {"])));
-        assert!(!adds_test(&lines(&["fn thing() {}", "// a comment"])));
+        assert!(adds_test(&added_from(1, &["    #[test]"])));
+        assert!(adds_test(&added_from(1, &["#[tokio::test]"])));
+        assert!(adds_test(&added_from(1, &["#[cfg(test)]"])));
+        assert!(adds_test(&added_from(1, &["mod tests {"])));
+        assert!(!adds_test(&added_from(1, &["fn thing() {}", "// a comment"])));
     }
 
     #[test]
     fn no_changed_tests_means_nothing_to_prove() {
-        let files = vec![(String::from("src/a.rs"), lines(&["fn f() {}"]))];
-        assert_eq!(plan(&files), Plan::NotRequired);
+        let files = vec![changed("src/a.rs", 1, &["fn f() {}"])];
+        assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
     }
 
     #[test]
     fn separates_impl_from_test_file() {
         let files = vec![
-            (String::from("crates/x/src/a.rs"), lines(&["fn fixed() -> u8 { 2 }"])),
-            (String::from("crates/x/tests/t.rs"), lines(&["#[test]", "fn t() {}"])),
+            changed("crates/x/src/a.rs", 2, &["fn fixed() -> u8 { 2 }"]),
+            changed("crates/x/tests/t.rs", 1, &["#[test]", "fn t() {}"]),
         ];
-        match plan(&files) {
+        let read = tree(&[
+            ("crates/x/src/a.rs", "// header\nfn fixed() -> u8 { 2 }\n"),
+            ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
+        ]);
+        match plan(&files, &read) {
             Plan::Separable { revert, test_files, .. } => {
                 assert_eq!(revert, vec![String::from("crates/x/src/a.rs")]);
                 assert_eq!(test_files, vec![String::from("crates/x/tests/t.rs")]);
@@ -677,12 +651,18 @@ mod tests {
     #[test]
     fn one_file_with_both_is_reported_not_guessed() {
         // The honest case: a fix and its test in one file cannot be split by reverting the
-        // file, so the gate must say so rather than pass or fail arbitrarily.
-        let files = vec![(
-            String::from("crates/x/src/a.rs"),
-            lines(&["fn fixed() -> u8 { 2 }", "#[cfg(test)]", "mod tests {", "    #[test]"]),
+        // file, so the gate must say so rather than pass or fail arbitrarily. Line 1 is the fix
+        // and sits outside the test module that lines 2..6 hold.
+        let files = vec![changed(
+            "crates/x/src/a.rs",
+            1,
+            &["fn fixed() -> u8 { 2 }", "#[cfg(test)]", "mod tests {", "    #[test]"],
         )];
-        match plan(&files) {
+        let read = tree(&[(
+            "crates/x/src/a.rs",
+            "fn fixed() -> u8 { 2 }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+        )]);
+        match plan(&files, &read) {
             Plan::NotSeparable { files } => {
                 assert_eq!(files, vec![String::from("crates/x/src/a.rs")]);
             }
@@ -697,13 +677,21 @@ mod tests {
         // file, then failed the author because the new module's tests still passed - which they
         // could not help doing, since their own implementation was never reverted.
         let files = vec![
-            (
-                String::from("xtask/src/workflows.rs"),
-                lines(&["fn collect() {}", "#[cfg(test)]", "mod tests {", "    #[test]"]),
+            changed(
+                "xtask/src/workflows.rs",
+                1,
+                &["fn collect() {}", "#[cfg(test)]", "mod tests {", "    #[test]"],
             ),
-            (String::from("xtask/src/main.rs"), lines(&["mod workflows;"])),
+            changed("xtask/src/main.rs", 1, &["mod workflows;"]),
         ];
-        match plan(&files) {
+        let read = tree(&[
+            (
+                "xtask/src/workflows.rs",
+                "fn collect() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            ),
+            ("xtask/src/main.rs", "mod workflows;\n"),
+        ]);
+        match plan(&files, &read) {
             Plan::NotSeparable { files } => {
                 assert_eq!(files, vec![String::from("xtask/src/workflows.rs")]);
             }
@@ -715,13 +703,21 @@ mod tests {
     fn a_test_only_addition_in_one_file_is_separable() {
         // Only test code added: nothing to revert in that file, so it is not "inseparable".
         let files = vec![
-            (
-                String::from("crates/x/src/a.rs"),
-                lines(&["#[cfg(test)]", "    #[test]", "    fn t() {}"]),
+            changed(
+                "crates/x/src/a.rs",
+                2,
+                &["#[cfg(test)]", "mod tests {", "    #[test]", "    fn t() {}", "}"],
             ),
-            (String::from("crates/x/src/b.rs"), lines(&["fn fixed() {}"])),
+            changed("crates/x/src/b.rs", 1, &["fn fixed() {}"]),
         ];
-        match plan(&files) {
+        let read = tree(&[
+            (
+                "crates/x/src/a.rs",
+                "pub fn existing() {}\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            ),
+            ("crates/x/src/b.rs", "fn fixed() {}\n"),
+        ]);
+        match plan(&files, &read) {
             Plan::Separable { revert, .. } => {
                 assert_eq!(revert, vec![String::from("crates/x/src/b.rs")]);
             }
@@ -730,15 +726,73 @@ mod tests {
     }
 
     #[test]
-    fn non_test_additions_are_detected_before_the_test_marker() {
-        assert!(has_non_test_additions(&lines(&["fn f() {}", "#[cfg(test)]"])));
-        assert!(!has_non_test_additions(&lines(&["#[cfg(test)]", "fn t() {}"])));
-        // Comments and attributes carry no behaviour.
-        assert!(!has_non_test_additions(&lines(&[
-            "// note",
-            "#[derive(Debug)]",
-            "#[cfg(test)]"
-        ])));
+    fn tests_appended_to_existing_test_modules_are_not_an_implementation_change() {
+        // THE DEFECT, at the level a caller sees. Two files gain tests INSIDE `#[cfg(test)] mod
+        // tests` blocks that already existed, and no production line is touched. The markers are
+        // unchanged diff context, so they never appear among the added lines - and the old
+        // classifier, which read only those, called both files "changes behaviour and adds tests
+        // in one file" and sent the author to the stated-evidence path. The correct answer is a
+        // Separable plan with NOTHING to revert, which is `run`'s own tests-only branch: a
+        // different message asking for a different thing.
+        let commands = concat!(
+            "pub fn open_engine() -> u8 {\n",             // 1
+            "    1\n",                                    // 2
+            "}\n",                                        // 3
+            "#[cfg(test)]\n",                             // 4
+            "mod tests {\n",                              // 5
+            "    use super::open_engine;\n",              // 6
+            "    #[test]\n",                              // 7
+            "    fn existing() {}\n",                     // 8
+            "    use sutura_domain::model::TableName;\n", // 9
+            "    #[test]\n",                              // 10
+            "    fn added() {\n",                         // 11
+            "        let _ = TableName::parse(\"t\");\n", // 12
+            "    }\n",                                    // 13
+            "}\n",                                        // 14
+        );
+        let serve = concat!(
+            "fn main() {}\n",         // 1
+            "#[cfg(test)]\n",         // 2
+            "mod tests {\n",          // 3
+            "    #[test]\n",          // 4
+            "    fn existing() {}\n", // 5
+            "    #[test]\n",          // 6
+            "    fn added() {}\n",    // 7
+            "}\n",                    // 8
+        );
+        let files = vec![
+            changed(
+                "crates/sutura-cli/src/commands.rs",
+                9,
+                &[
+                    "    use sutura_domain::model::TableName;",
+                    "    #[test]",
+                    "    fn added() {",
+                    "        let _ = TableName::parse(\"t\");",
+                    "    }",
+                ],
+            ),
+            changed("crates/sutura-serve/src/main.rs", 6, &["    #[test]", "    fn added() {}"]),
+        ];
+        let read = tree(&[
+            ("crates/sutura-cli/src/commands.rs", commands),
+            ("crates/sutura-serve/src/main.rs", serve),
+        ]);
+        match plan(&files, &read) {
+            Plan::Separable {
+                revert,
+                test_files,
+                held_back,
+            } => {
+                assert!(revert.is_empty(), "no implementation changed: {revert:?}");
+                assert!(
+                    held_back.is_empty(),
+                    "nothing carries an implementation change: {held_back:?}"
+                );
+                assert_eq!(test_files.len(), 2, "both files are provable test files: {test_files:?}");
+            }
+            other => panic!("expected Separable with nothing to revert, got {other:?}"),
+        }
     }
 
     #[test]
@@ -791,8 +845,8 @@ mod tests {
 
     #[test]
     fn non_rust_files_are_ignored() {
-        let files = vec![(String::from("README.md"), lines(&["#[test]"]))];
-        assert_eq!(plan(&files), Plan::NotRequired);
+        let files = vec![changed("README.md", 1, &["#[test]"])];
+        assert_eq!(plan(&files, &tree(&[])), Plan::NotRequired);
     }
 
     #[test]
@@ -803,19 +857,28 @@ mod tests {
         // prove is NAMED rather than dropped, because reconstructing a tree that compiles needs
         // it. Dropping it is what left base and HEAD versions of one API in the same tree.
         let files = vec![
-            (
-                String::from("crates/x/src/pinned.rs"),
-                lines(&[
+            changed(
+                "crates/x/src/pinned.rs",
+                1,
+                &[
                     "fn of(a: u8, b: u8) -> u8 { a }",
                     "#[cfg(test)]",
                     "mod tests {",
                     "    #[test]",
-                ]),
+                ],
             ),
-            (String::from("crates/x/src/definitions.rs"), lines(&["fn changed() {}"])),
-            (String::from("crates/x/tests/t.rs"), lines(&["#[test]", "fn t() {}"])),
+            changed("crates/x/src/definitions.rs", 1, &["fn changed() {}"]),
+            changed("crates/x/tests/t.rs", 1, &["#[test]", "fn t() {}"]),
         ];
-        match plan(&files) {
+        let read = tree(&[
+            (
+                "crates/x/src/pinned.rs",
+                "fn of(a: u8, b: u8) -> u8 { a }\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn t() {}\n}\n",
+            ),
+            ("crates/x/src/definitions.rs", "fn changed() {}\n"),
+            ("crates/x/tests/t.rs", "#[test]\nfn t() {}\n"),
+        ]);
+        match plan(&files, &read) {
             Plan::Separable {
                 revert,
                 test_files,
