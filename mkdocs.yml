@@ -161,6 +161,8 @@ nav:
       - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
       - A credential per leg, for the calling subject: adr/0008-a-credential-per-leg-for-the-calling-subject.md
       - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
+      - Transport security for a source: adr/0010-transport-security-for-a-source.md
+      - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
