@@ -95,7 +95,7 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::Grain;
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS};
+use sutura_domain::query::{MAX_DIMENSIONS, MAX_RANGE_DAYS, RefusalReason};
 
 // The four sections derived from what a catalog says ABOUT what it defines. Their own module because
 // this file is at four fifths of the limit `cargo xtask max-lines` enforces and cannot be exempted,
@@ -359,6 +359,51 @@ const GUIDES: &[&Guide] = &[
     &PLAN_SPANS_TWO_SOURCES,
     &SOURCE_UNAVAILABLE,
 ];
+
+/// The guide for one refusal.
+///
+/// **This match exists in order not to compile.** It is total, so a variant added to
+/// [`RefusalReason`] is a compile error here until somebody writes the guidance for it - which is
+/// what makes the refusal section unable to fall silently behind the domain.
+///
+/// It used to live in [`tests`] under `#[cfg(test)]`, on the reasoning that nothing in the rendered
+/// output needs an instance of a refusal. That stopped being true when a composition root needed the
+/// same two sentences to print a refused question with: a second match in the binary would have been
+/// a second table to keep in step, and a third copy of prose that already exists here and on the HTTP
+/// surface. Moved rather than copied, so there is still exactly one match.
+const fn guide_for(reason: &RefusalReason) -> &'static Guide {
+    match *reason {
+        RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
+        RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
+        RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
+        RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
+        RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
+        RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
+        RefusalReason::TooManyDimensions { .. } => &TOO_MANY_DIMENSIONS,
+        RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
+        RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
+        RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
+        RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
+    }
+}
+
+/// What a refusal means and what to do about it: `(meaning, remedy)`, in the order the prompt renders
+/// them.
+///
+/// **The accessor a composition root prints from, and it publishes no new prose.** `sutura-cli` used
+/// to hand a person the Rust `Debug` of a governance decision, which names the variant and says
+/// nothing about what to do; the wording it needed was already written twice - here for the
+/// agent-facing prompt, and on the HTTP surface for a client - so this is a third READER of the first
+/// table rather than a third table.
+///
+/// `&'static str` because [`GUIDES`] owns the wording: nothing here composes a message and nothing
+/// here reads the refusal's own fields. A caller that wants those still has the [`RefusalReason`] it
+/// passed in.
+#[must_use]
+pub const fn guidance(reason: &RefusalReason) -> (&'static str, &'static str) {
+    let guide = guide_for(reason);
+    (guide.meaning, guide.remedy)
+}
 
 /// The whole prompt, as markdown.
 ///

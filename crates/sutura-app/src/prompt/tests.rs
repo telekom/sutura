@@ -23,11 +23,12 @@ use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricNa
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 use sutura_domain::query::{Filter, MAX_DIMENSIONS, MAX_RANGE_DAYS, Query, RefusalReason};
 
-use super::{
-    CatalogProse, DIMENSION_NOT_FILTERABLE, DIMENSION_NOT_PERMITTED, DIMENSION_VALUE_NOT_ALLOWED, DUPLICATE_DIMENSION,
-    GRAIN_NOT_SUPPORTED, GUIDES, Guide, METRIC_UNKNOWN, PLAN_SPANS_TWO_SOURCES, PromptInputs, RESULT_TOO_LARGE,
-    SOURCE_UNAVAILABLE, TIME_RANGE_TOO_LONG, TOO_MANY_DIMENSIONS, Tool, WIDTH, quote, render, wrap,
-};
+// `guide_for` is imported rather than declared here. It used to live in this file under
+// `#[cfg(test)]`; it moved to `prompt.rs` when `sutura-cli` needed the same table to print a refused
+// question with, and the mechanism is unchanged by the move - the match is still total and still the
+// only one, so a variant added to `RefusalReason` still fails to compile until somebody writes its
+// guidance. The eleven guide constants came with it, which is why they are no longer named here.
+use super::{CatalogProse, GUIDES, PromptInputs, Tool, WIDTH, guide_for, quote, render, wrap};
 
 /// The structured names that must never reach the output.
 ///
@@ -295,34 +296,11 @@ fn everything() -> String {
     rendered_with(KnowledgeCapabilities::all(), CatalogProse::Quoted)
 }
 
-/// Every refusal variant, mapped to the guide the prompt renders for it.
-///
-/// **This function exists in order not to compile.** The match is total, so a variant added to
-/// `RefusalReason` is a compile error here until somebody writes the guidance for it - which is what
-/// makes the refusal section unable to fall silently behind the domain. `#[cfg(test)]` on purpose:
-/// nothing in the rendered output needs an instance of a refusal, so a non-test copy of this would
-/// be dead code, and the gates compile the test targets.
-fn guide_for(reason: &RefusalReason) -> &'static Guide {
-    match *reason {
-        RefusalReason::MetricUnknown { .. } => &METRIC_UNKNOWN,
-        RefusalReason::GrainNotSupported { .. } => &GRAIN_NOT_SUPPORTED,
-        RefusalReason::DimensionNotPermitted { .. } => &DIMENSION_NOT_PERMITTED,
-        RefusalReason::DimensionNotFilterable { .. } => &DIMENSION_NOT_FILTERABLE,
-        RefusalReason::DimensionValueNotAllowed { .. } => &DIMENSION_VALUE_NOT_ALLOWED,
-        RefusalReason::DuplicateDimension { .. } => &DUPLICATE_DIMENSION,
-        RefusalReason::TooManyDimensions { .. } => &TOO_MANY_DIMENSIONS,
-        RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
-        RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
-        RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
-        RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
-    }
-}
-
 /// One instance of every refusal variant.
 ///
-/// The second net rather than the first: what forces an author to open this file is `guide_for`
-/// failing to compile. What this list adds is that once they have, the set of guides the prompt
-/// renders and the set `guide_for` can return are asserted to be the same.
+/// The second net rather than the first: what forces an author to write a guide is `guide_for` in
+/// `prompt.rs` failing to compile. What this list adds is that once they have, the set of guides the
+/// prompt renders and the set `guide_for` can return are asserted to be the same.
 fn every_refusal() -> Vec<RefusalReason> {
     vec![
         RefusalReason::MetricUnknown {
@@ -391,6 +369,36 @@ fn every_refusal_a_caller_can_be_given_has_guidance_in_the_prompt() {
 /// One line, single-spaced. For asserting on a sentence the renderer hard-wrapped.
 fn flatten(text: &str) -> String {
     text.split_whitespace().collect::<Vec<&str>>().join(" ")
+}
+
+#[test]
+fn what_a_composition_root_prints_is_what_the_prompt_renders() {
+    // Why `guidance` is an accessor over `GUIDES` and not a second table. `sutura-cli` prints a
+    // refused question with these two sentences; before it existed the command printed the Rust
+    // `Debug` of the reason, and the wording an operator saw and the wording an agent was given had
+    // nothing in common to compare. A third table would have made them able to disagree, which is
+    // the state this asserts they are not in.
+    //
+    // Both directions per variant: the pair comes from this refusal's own guide, and both halves of
+    // it appear in the document. Flattened, for the reason the test above gives - the renderer
+    // hard-wraps, and asserting on the wrapped form would test the wrapping.
+    let flat = flatten(&rendered(Tool::ALL, CatalogProse::Quoted, None));
+    for reason in every_refusal() {
+        let (meaning, remedy) = super::guidance(&reason);
+        let guide = guide_for(&reason);
+        assert_eq!(meaning, guide.meaning, "{} got another guide's meaning", guide.reason);
+        assert_eq!(remedy, guide.remedy, "{} got another guide's remedy", guide.reason);
+        assert!(
+            flat.contains(&flatten(meaning)),
+            "{} means something the prompt does not say",
+            guide.reason
+        );
+        assert!(
+            flat.contains(&flatten(remedy)),
+            "{} has a remedy the prompt does not give",
+            guide.reason
+        );
+    }
 }
 
 #[test]

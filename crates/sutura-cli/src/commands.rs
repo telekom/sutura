@@ -17,7 +17,7 @@ use sutura_catalog_local::LocalCatalog;
 use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::{ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
-use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::Value;
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_semantic::Compiled;
@@ -206,6 +206,12 @@ pub(crate) fn prompt(args: &[String]) -> ExitCode {
             args.get(1).map(PathBuf::from),
         ))
         .map_err(|e| render(&e))?;
+        // **Standard error, and that is not a detail.** This command's standard output is piped into
+        // an agent's configuration, so a provenance line on it would become part of the prompt. The
+        // same text the startup report logs, for the same reason: this command renders what a
+        // deployment WOULD hand out, and a prompt rendered from a configuration directory that was
+        // never found is the failure it exists to make visible.
+        eprintln!("sutura: configuration from {}", settings.layers());
         let (prose, instructions) = prompt_inputs(settings.prompt())?;
         let pinned = load(Path::new(&root))?;
         // Every operation, because the HTTP surface mounts every operation. A transport that hid one
@@ -266,7 +272,7 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
         let question = read_question(Path::new(&question_path))?;
         match sutura_semantic::compile(&question, &pinned).map_err(|e| render(&e))? {
             Compiled::Refused { reason } => {
-                println!("refused: {reason:?}");
+                println!("{}", render_refusal(&reason)?);
             }
             Compiled::Planned { plan } => {
                 let query = sutura_sql::generate(&plan, dialect).map_err(|e| render(&e))?;
@@ -306,7 +312,7 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 
         let question = read_question(Path::new(&question_path))?;
         let outcome = sutura_app::answer(&validated, &question, &engine).map_err(|e| render(&e))?;
-        print_outcome(&outcome);
+        print_outcome(&outcome)?;
         Ok(())
     })())
 }
@@ -365,10 +371,51 @@ fn attach(engine: &DataFusionWarehouse, model: &ModelName, table: &TableName, da
     ))
 }
 
+/// A refused question, for a person: what it means, what to do about it, and the refusal's own
+/// fields.
+///
+/// **The wording is not written here and is not written in this crate.**
+/// [`sutura_app::prompt::guidance`] is an accessor over the one table the agent-facing prompt renders
+/// from, so a person at a terminal and an agent reading that document are told the same thing about
+/// the same refusal. What this replaced was `println!("refused: {reason:?}")` - the Rust `Debug` of a
+/// governance decision, which names the variant and says nothing an operator can act on.
+///
+/// **The typed fields stay, and are not what was wrong.** `TimeRangeTooLong`'s remedy says outright
+/// that both day counts are carried so the split can be computed rather than guessed, so a rendering
+/// that dropped them would leave the remedy pointing at nothing. They arrive through `serde_norway`,
+/// the way the plan does in [`compile`] and the way the example suite pins them - not as a `Debug`
+/// dump, which is the part that goes.
+///
+/// A `Result`, because the serialization is fallible and this is a binary where the alternative is a
+/// silently missing detail line. Nothing in a `RefusalReason` can actually fail to serialize today;
+/// the branch is here so that a variant carrying something that could does not lose the field
+/// quietly.
+fn render_refusal(reason: &RefusalReason) -> Result<String, String> {
+    let (meaning, remedy) = sutura_app::prompt::guidance(reason);
+    let fields = serde_norway::to_string(reason).map_err(|e| format!("the refusal could not be rendered: {e}"))?;
+    let mut lines = fields.lines();
+    // The first line is the variant, which this serializer writes as the YAML type tag `!Variant`;
+    // the fields follow it at column zero. Both are reshaped here rather than taken as they come: the
+    // tag marker is noise to a person, and the fields are indented so the block reads as one refusal.
+    //
+    // The variant name itself is kept. It is the machine-readable identity of the refusal - what the
+    // HTTP surface sends as `code` and what the prompt tells an agent to expect - and it is the one
+    // part of the old `Debug` output that was worth anything.
+    let variant = lines.next().unwrap_or_default().trim_start_matches('!').trim_end_matches(':');
+    let mut out = format!("refused: {variant}\n  {meaning}");
+    for field in lines {
+        out.push_str("\n  ");
+        out.push_str(field);
+    }
+    out.push_str("\n  remedy: ");
+    out.push_str(remedy);
+    Ok(out)
+}
+
 /// Prints an outcome as a table, or as the refusal it is.
-fn print_outcome(outcome: &ToolOutcome) {
+fn print_outcome(outcome: &ToolOutcome) -> Result<(), String> {
     match *outcome {
-        ToolOutcome::Refusal { ref reason } => println!("refused: {reason:?}"),
+        ToolOutcome::Refusal { ref reason } => println!("{}", render_refusal(reason)?),
         ToolOutcome::Answer {
             ref provenance,
             ref rows,
@@ -381,6 +428,7 @@ fn print_outcome(outcome: &ToolOutcome) {
             }
         }
     }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -391,10 +439,12 @@ mod tests {
     use sutura_domain::catalog::{Definitions, Description, Metric, Model};
     use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+    use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-    use super::{ENGINE_SOURCE, load, open_engine, prompt_inputs};
+    use sutura_domain::query::{MAX_RANGE_DAYS, RefusalReason};
+
+    use super::{ENGINE_SOURCE, load, open_engine, prompt_inputs, render_refusal};
 
     fn example() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player")
@@ -525,5 +575,54 @@ mod tests {
         .expect("a readable file is read");
         assert_eq!(instructions.as_deref(), Some("Prefer the month grain.\n"));
         drop(std::fs::remove_dir_all(&dir));
+    }
+
+    #[test]
+    fn a_refused_question_is_printed_as_a_sentence_and_a_remedy_and_not_as_a_debug_dump() {
+        // THE BUG. Both refusal paths - `compile` and `query` - printed `refused: {reason:?}`, so what
+        // a person got for a governance decision was
+        // `DimensionValueNotAllowed { metric: MetricName("recurring_revenue"), .. }`: the variant's
+        // name, the newtype wrappers, and nothing about what to do next. Two renderings of this exact
+        // set already existed in the workspace, which is what makes it a duplication bug rather than a
+        // missing feature.
+        //
+        // Asserted against `sutura_app::prompt::guidance` rather than against pasted text, on purpose:
+        // a copy of the wording here would be the fourth one, and would let this test pass while the
+        // command and the prompt disagreed.
+        let reason = RefusalReason::DimensionValueNotAllowed {
+            metric: MetricName::parse("recurring_revenue").expect("a test metric is a metric"),
+            dimension: DimensionName::parse("region").expect("a test dimension is a dimension"),
+        };
+        let rendered = render_refusal(&reason).expect("a refusal renders");
+        let (meaning, remedy) = sutura_app::prompt::guidance(&reason);
+        assert!(rendered.contains(meaning), "the sentence is missing:\n{rendered}");
+        assert!(rendered.contains(remedy), "the remedy is missing:\n{rendered}");
+        // The variant survives as the identity a client branches on, and the newtype wrappers around
+        // it do not: `MetricName("..")` in the output is the `Debug` dump coming back.
+        assert!(rendered.starts_with("refused: DimensionValueNotAllowed\n"), "{rendered}");
+        assert!(!rendered.contains("MetricName("), "the Debug dump is back:\n{rendered}");
+    }
+
+    #[test]
+    fn the_whole_block_is_pinned_including_the_day_counts_a_split_is_computed_from() {
+        // The layout, end to end, and the reason the typed fields are kept rather than replaced by
+        // the sentence: `TimeRangeTooLong`'s remedy tells the caller the refusal carries both day
+        // counts so the split can be computed rather than guessed, so a rendering that printed only
+        // the sentence and the remedy would leave that remedy pointing at nothing.
+        //
+        // `assert_eq!` over the whole string rather than four `contains` calls, deliberately. The
+        // `Debug` dump this replaced ALSO contains `days: 3652058` and `limit: 3653` - it is
+        // `TimeRangeTooLong { days: 3652058, limit: 3653 }` - so a test built from `contains` on the
+        // fields passes against the bug it exists to catch. The expected text is assembled from
+        // `guidance` for the same reason the test above is: the wording is not copied here.
+        let reason = RefusalReason::TimeRangeTooLong {
+            days: 3_652_058,
+            limit: MAX_RANGE_DAYS,
+        };
+        let (meaning, remedy) = sutura_app::prompt::guidance(&reason);
+        assert_eq!(
+            render_refusal(&reason).expect("a refusal renders"),
+            format!("refused: TimeRangeTooLong\n  {meaning}\n  days: 3652058\n  limit: {MAX_RANGE_DAYS}\n  remedy: {remedy}")
+        );
     }
 }

@@ -112,12 +112,12 @@ regeneration is checked rather than trusted.
 | Artefact | Owner | Rule |
 | --- | --- | --- |
 | Metric definitions and anchors | the catalog | Arrive as `PinnedDefinitions` + `DefinitionVersion` + `DefinitionDigest`. `docs/adr/0001` is the decision |
-| MCP tool schemas, the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both. Not built; `schemars` returns with the tool surface |
+| MCP tool schemas, the OpenAPI spec | *(planned)* a `schemars` derive on a WIRE type per transport, kept equal to the domain type by a test | Not built - there is no `docs/generated/`, no dumping task and no byte-compare, and `schemars` is in neither `Cargo.toml` nor `Cargo.lock`. **This row said "derives on the domain types" and that was the wrong plan**, not merely an unbuilt one: a macro crate on a domain type enters `ALLOWED_IN_DOMAIN` and `check-boundaries` walks the whole transitive tree, which *Newtypes And Domain Primitives* below calls an architecture decision rather than a convenience. The transport already ships the alternative - `sutura_http::wire`'s `QuestionBody` with `TryFrom<QuestionBody> for Query` as the only way in - and `docs/implementation-plan.md` decides that shape for the agent surface |
 | The executed SQL | `sutura-sql` | Goldens per dialect, regenerated and reviewed as a diff, never typed. The plan's serialized form is pinned too. `differential.rs` runs one plan both ways and compares rows |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
 | Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Two narrow uses. Locally: the cranelift backend. In CI: `checks.api-docs` only, and only to EMIT RUSTDOC JSON - `--output-format json` is unstable and has no stable equivalent. It builds no artifact any gate reads: the `xtask` binary that drives the check is compiled by `rust-toolchain.toml` on the same `ci` closure the other five checks and `packages.xtask` reuse, and nightly is a command prefix around the `cargo rustdoc` child alone. THE REUSE IS CHECKABLE, and was checked rather than asserted: `nix-store -q --references` on each of those seven derivations names ONE `sutura-deps`, and the flake declares nightly as a PACKAGE - `nightlyToolchain` - so there is no second `crane.mkLib` for it to hang a second closure off. **Not "nightly never compiles first-party code":** it compiles the `cargo rustdoc` child's INPUTS, which are ~313 third-party crates PLUS six of our own libs as `rmeta` dependencies of the ten that get documented - `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`, `sutura-semantic`, `sutura-sql` - all at `--profile ci`. Re-measure with `cargo rustdoc -p <lib> --all-features --profile ci -Z unstable-options --unit-graph`, which lists the units WITHOUT building them: 482 distinct units over the ten crates, ten of which are the `doc` units themselves. None of it is linted, tested, linked, shipped or read by another gate, and the child gets its own `CARGO_TARGET_DIR` so the two channels never share artifacts. Every gate that lints, tests or ships is `rust-toolchain.toml`. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
-| Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
+| Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate keeps the obligation from rotting: an exact allowlist, with `unused-allowed-license = "deny"` so an allowed licence nothing uses is itself a failure. **There is NO `NOTICE` check** - this row claimed one, and `NOTICE` appears in `xtask` only in `classify`'s docs-only path list, which checks nothing. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
 
 ## Invariants
@@ -127,13 +127,13 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 
 | Invariant | Enforced by |
 | --- | --- |
-| No SQL, table name, filter expression or row-id list on the tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it |
+| No SQL, table name, filter expression or row-id list on the tool surface | `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it. **Unqualified, because the surface that exists is the whole surface.** A previous version of this row narrowed it to the *certified* surface and cited a raw tool's result type - and `docs/adr/0013` decides such a tool while saying plainly that nothing of it is built, so the row was describing an unwritten type and pre-weakening a live mechanism for it. Which is this table's own deletion rule pointed the other way: a row does not get *widened* by an unbuilt feature either. When a raw tool is built, the diff that builds it is the one that re-scopes this row, with the new outcome type in front of a reviewer |
 | Refusal is a result, not an error | `ToolOutcome::Refusal`; a golden provokes every variant a question can reach |
 | A question's time range is bounded, and bounded to a size | `TimeRange` has no unbounded form; `resolve` refuses a span over `MAX_RANGE_DAYS` (3653) as `TimeRangeTooLong`. Goldens stand one day either side |
 | A catalog edit cannot change what executes | Definitions arrive as `PinnedDefinitions` with a digest over their canonical form; the digest travels with the answer |
 | A result cannot be separated from what defined it | `PinnedDefinitions::pin` computes the digest from the definitions it stores - no digest parameter, no hasher parameter. `ToolOutcome::Answer` carries `Provenance` with no constructor that omits it |
-| An unvalidated bundle is never served | `sutura_app::verify_and_validate` is the only constructor of `Validated`, lives in a private module, and takes the `Warehouse`. Two `compile_fail` doctests, each with a compiling twin |
-| We never TRANSLATE SQL, and the one thing we parse is parsed at load | The dialect layer's `transpile` feature is not compiled, so a call to it does not build. NOT a lint for that: an unresolvable path in `disallowed-methods` is silently ignored by clippy, verified, so such an entry would read as enforcement and do nothing. The single exception to "we do not parse" is `sutura_sql::expression`, and that module has no caller - see *Built And Not Wired* below, which is why it is not a row here. `transpile` stays uncompiled because its default `unsupported_level: Warn` returns `Ok(sql)` and discards the diagnostic, and `Raise` errors on every non-count aggregate targeting ClickHouse while staying silent on the four real breakages |
+| An unvalidated bundle is never served | `sutura_app::verify_and_validate` is the only constructor of `Validated`, lives in a private module, and takes the `Warehouse`. Two `compile_fail` doctests, each with a compiling twin. **Narrower than "the certified number is the number a caller sees", and the limit is worth stating before a network source arrives:** the port takes no identity, so an anchor certifies whatever identity the adapter is configured with - the process, for the file engine that ships. Where a source filters rows per subject, that distinction becomes load-bearing; `docs/adr/0008` decides an anchor runs under a declared per-source verification identity through a port method that cannot take a caller's credential, and a bundle with an anchor on a source declaring none does not boot. **Unbuilt** - it is a decision, not a row here |
+| We never TRANSLATE SQL, and the one thing we parse is parsed at load | The dialect layer's `transpile` feature is not compiled, so a call to it does not build. NOT a lint for that: an unresolvable path in `disallowed-methods` is silently ignored by clippy AT THE PINNED VERSION, verified, so such an entry would read as enforcement and do nothing. Measured boundary: the clippy that ships with the PINNED toolchain ignores it silently, while a later one warns `does not refer to a reachable function` and offers an `allow-invalid` opt-out - so writing the call is still the only check that holds, and it stops being necessary when the pin moves past that. A verified claim with no version attached is one that quietly expires. The single exception to "we do not parse" is `sutura_sql::expression`, and that module has no caller - see *Built And Not Wired* below, which is why it is not a row here. `transpile` stays uncompiled because its default `unsupported_level: Warn` returns `Ok(sql)` and discards the diagnostic, and `Raise` errors on every non-count aggregate targeting ClickHouse while staying silent on the four real breakages |
 | No value from a question reaches the statement as text | Every value becomes a bind parameter; `GeneratedQuery` keeps statement and parameters in separate fields with no merging constructor. A golden asserts no question literal appears in its statement |
 | No identifier reaches the statement unquoted | Forced quoting for identifiers and aliases; a golden asserts it over the corpus with quoted spans stripped first |
 | Every generated statement is well formed SQL, and parses under its target dialect | The golden suite parses each statement with the dialect it was generated for. **Narrower than "the data system accepts it":** the dialect layer's parser is not gated per dialect for every construct. Acceptance is vouched for by the anchors and by `differential.rs`, which runs a real DuckDB. Postgres and ClickHouse are rendered and parse-checked, nothing more |
@@ -169,6 +169,8 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | Note prose is bounded, and refused at load rather than cut at render | `NoteBody::parse` caps bytes and lines and refuses a body that would render as nothing; `MAX_KNOWLEDGE_BYTES` caps the aggregate, so N conforming notes cannot do what one oversized note cannot; `Phrase::parse` bounds one line and normalises it - invisible code points removed, every run of whitespace one space, trimmed, and case folded for the identity only - so two phrases differing in *those* cannot both load. **Not a Unicode-normalisation claim:** there is no NFC/NFD anywhere in the workspace, so a decomposed spelling and a Cyrillic homoglyph are each a second phrase. Nothing anywhere shortens a body |
 | A worked example is a question this surface would accept | `Knowledge::assemble` checks each example's `Query` against the metric, its grains, its dimensions and its allowlists, and against `MAX_RANGE_DAYS` and `MAX_DIMENSIONS` read from `sutura_domain::query`. The prompt tells an agent an example is a question this deployment answers, and a bundle carrying one it would decline does not load |
 | The knowledge declaration is under the definition digest | `PinnedDefinitions::pin` hashes the `Knowledge` alongside the definitions, the `KnowledgeCapabilities` included. A deployment that quietly stopped declaring `not_defined` has changed what its prompt claims, and provenance that did not move would certify the old claim |
+| Work handed to the blocking pool carries the request's span | `clippy.toml` bans `tokio::task::spawn_blocking`, VERIFIED to resolve by writing the call and watching clippy reject it. `sutura_runtime::spawn_carrying_span` is the one caller, holding the single expectation, and `crates/sutura-runtime/tests/blocking_span.rs` asserts the span survives the thread boundary - an integration test rather than a unit one, because a pool thread reads the GLOBAL dispatcher and a thread-scoped subscriber cannot see it |
+| No caller-supplied text reaches the log unbounded or unvalidated | `CorrelationId::parse` bounds the length and restricts the character set, and mints a fresh id rather than erroring, so a malformed header cannot fail an answerable question. Its refusal carries a position and never the value. **The limit:** this is the one inbound field read into a log today; nothing generalises it to a field added later |
 
 ### Built And Not Wired
 
@@ -213,10 +215,10 @@ whether it feels safe - it is which mechanism would fail if it were not.
 
 | Change | Must still hold | What fails if it does not |
 | --- | --- | --- |
-| A new or widened tool input | No field carries SQL, a table, a predicate or row ids | The dumped tool schemas change and the byte-compare fails until they are re-dumped, which puts the new surface in the diff |
-| A new failure mode | It is a `RefusalReason` variant inside `ToolOutcome`, not an `Err` | The missing per-variant test, then the schema drift check |
+| A new or widened tool input | No field carries SQL, a table, a predicate or row ids | `deny_unknown_fields` on the wire shape, which makes an undeclared field an error naming it. **This row used to say "the dumped tool schemas change and the byte-compare fails", and that mechanism does not exist:** there is no `docs/generated/`, no schema-dumping task in `xtask` or the justfile, and `schemars` is in neither `Cargo.toml` nor `Cargo.lock` - which *Canonical Sources* above already records as planned. So what actually catches a widened input is the deserializer, and the schema byte-compare is work the agent surface owes rather than a gate standing today |
+| A new failure mode | It is a `RefusalReason` variant inside `ToolOutcome`, not an `Err` | `sutura_http::wire::refusal` is one exhaustive match with no wildcard arm deciding status, code and detail together, so a variant added to the domain **fails to compile** until somebody assigns all three; plus the per-variant list in that module's own tests. **Not "the schema drift check"**, which is the same absent mechanism as the row above |
 | Reading from the catalog at request time | Descriptive content only - nothing that selects, widens or parameterizes what executes | `load()` has no `RequestContext` to pass it; dimension validation reads `PinnedDefinitions`, not the scoped view |
-| A second execution leg | Every leg runs as the same subject, or the plan is refused rather than downgraded | The plan stage's one-source set, which refuses `PlanSpansTwoSources` today. Beyond that, nothing: a test that asserts two subjects get different rows does not exist and cannot, until a credential exists per leg. Adding a second leg without it is an architecture decision, not a feature |
+| A second execution leg | One answer has one asker, and no leg runs as a third identity: each leg runs as the asker, or under that source's acknowledged shared identity, and the answer records which. **"Every leg runs as the same subject" was the wording here and it was overstated** - a source configured to serve everyone as one identity does not run as the asker, and a shape that made the labels agree would not have made the identities agree | The plan stage's one-source set, which refuses `PlanSpansTwoSources` today. Beyond that, nothing: a test that asserts two subjects get different rows does not exist and cannot, until a credential exists per leg. Adding a second leg without it is an architecture decision, not a feature |
 | A change to a definition or its anchor | It was authored upstream, not here | The digest moves and the anchor test re-executes the statement |
 | A new knowledge kind, or a second consumer of one | The prompt stays the only consumer, and nothing a note carries selects, widens or parameterizes what executes | For the kind: `Capability::next`, `Capability::previous` and `prompt::knowledge::claim` are three exhaustive matches it has to pass through, plus the `const` assertion that holds the seed of the walk `Knowledge::assemble` guards with. For the consumer: **nothing mechanical.** `Query` having no field a phrase fits in is what makes the glossary descriptive, so reading a note anywhere else is an architecture decision - flag it in the handoff |
 | Anything that stores or forwards rows | - | **Nothing mechanical.** A human review question, not an agent's to certify: flag it in the handoff |
@@ -237,9 +239,14 @@ small files rather than every skill in the repo:
 and the tree disagree in either direction. **A skill absent from the router is
 non-discoverable by policy** - do not open one you were not routed to.
 
-Current groups: `engineering/` (Rust here, debugging, OAuth and token exchange) and
-`reasoning/` (autoreason). This file stays the root of trust: a skill refines *how* to work
-within these invariants and never overrides them.
+Current groups: `agent-system/` (how skills themselves are written and policed), `engineering/`
+(Rust here, debugging, OAuth and token exchange), `git-ops/` (stacked branches, which the ADRs
+route to) and `reasoning/` (autoreason). **This sentence was wrong until review caught it** - it
+listed two of the four, so a reader following it would not have known `git-ops/` existed while two
+accepted records cited it. `cargo xtask check-skills` compares the router against the tree in both
+directions and does not read this line, which is why it drifted; the fix for that class is to keep
+the prose to what the tree says and let the gate own the router. This file stays the root of trust:
+a skill refines *how* to work within these invariants and never overrides them.
 
 ## Finishing A Change
 
@@ -458,6 +465,30 @@ mechanism, and it reads **dependency direction** - not intent, and not which cra
   logic, a path where the transformation cost is the product. This is none of those: the boundary is
   the product, and adding a metadata provider or a data system is a registration rather than a test
   edit, which is a row above.
+
+### Borrowing, And What Deserves An `Arc`
+
+Security and performance are decided together here, and both are decided early. A needless copy on the
+federated path multiplies the working set against a memory bound that REFUSES, so an allocation in a
+leg is a correctness question rather than a style one.
+
+- **Prefer borrowing. A clone is a decision with a reason, never a way past the borrow checker.** If a
+  lifetime is hard, the shape is usually wrong: something is being held across an await it does not
+  need to cross, or a value is being owned where a reference would do.
+- **`Arc` is for state that is genuinely shared across tasks and immutable once built** - the pinned
+  bundle, the certified key the TLS resolver hands out. It is not a lifetime escape hatch, and
+  `Arc<Mutex<_>>` around per-request state is the shape to stop and rethink.
+- **The scoped view BORROWS the pinned definitions** rather than copying them, and that is not an
+  optimisation: it is what keeps `load()` off the request path and makes visibility filtering
+  incapable of acquiring I/O.
+- **A port takes `&self` and holds no request state.** That is an invariant above, and it is also what
+  makes sharing an adapter across tasks free rather than something to engineer.
+- **Know which clones are cheap.** Arrow buffers are reference-counted by construction, so cloning a
+  batch moves no data; treating it as a copy produces worse code, not safer code. The opposite mistake
+  is cloning a `String` per row because the signature asked for one.
+- **Measure rather than assert.** The numbers that decided the federation shape were wall clock and
+  peak resident set on a real corpus, not reasoning about allocations. A claim about cost in a review
+  is worth what its measurement is worth.
 
 ### Secure By Design
 

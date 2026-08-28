@@ -64,6 +64,12 @@ utoipa-swagger-ui = { workspace = true }
 # committed pair cannot express "this key does not match this certificate", which is the case the
 # reload path has to refuse.
 rcgen = { workspace = true }
+# The SAME dependency as above, with the log-capture writer turned on. The router's span is
+# observable only as bytes, so the harness builds a subscriber over a buffer and asserts on them -
+# and the writer comes from `sutura-runtime` rather than being copied here, because a second copy is
+# a second thing to keep in step. The feature carries no dependency and is off in every shipped
+# build; see the comment on it in that crate's manifest.
+sutura-runtime = { workspace = true, features = ["test-capture"] }
 # The router tests drive the real router with `oneshot`, which needs a multi-threaded runtime
 # because a query handler moves its work onto the blocking pool.
 #

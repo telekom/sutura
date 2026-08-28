@@ -44,9 +44,12 @@ build, no configuration, no catalog. A test asserts the body byte for byte.
 
 * **No CORS layer.** A browser is not a client of this surface. An allow-list nobody needs is an
   allow-list somebody widens.
-* **No request identifier.** It belongs in the failure body and there is nothing to put in it:
-  nothing in this service mints one yet, and a field that is always absent is worse than no
-  field.
+* **No request identifier on the wire.** One is minted now - `correlation::CorrelationId`, on
+  the request span, so every line of one request carries it - and it is deliberately **not** in
+  the failure body. Putting it there is a change to the response contract and to the generated
+  document, and it buys nothing until somebody is asked to quote it; the honest state is that an
+  operator can find a request in the log and a caller cannot yet name one. If a caller ever
+  needs to, that is an additive field and this bullet is where it changes.
 * **No audit sink.** `AGENTS.md` records "every call is attributable, refusals included" as an
   invariant enforced by one. There is none, and there is no principal to record if there were.
   Every question and every outcome reaches the log, and the log is named for what it is.
@@ -71,6 +74,10 @@ serve(router(&state)?, address, Shutdown::new()).await?;
 # Ok(())
 # }
 ```
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -238,6 +245,139 @@ What this catalog defines.
 #### `constant QUERY`
 
 Asking one certified question.
+
+## Module `correlation`
+
+One identifier per request, so a request's lines can be found together.
+
+# What this is, and the limits of it
+
+A counter seeded at process start, rendered as hex. That is enough for the one job it has:
+grouping the lines **one process** wrote for **one request**. It is deliberately not more.
+
+* **It is not globally unique.** Two replicas started at the same nanosecond can mint the same
+  value, and nothing here coordinates. A collector query wants this *and* the pod, not this
+  alone.
+* **It is not a distributed trace id.** There is no propagation to a downstream call, no
+  sampling decision, no parent-child relationship and no exporter - `sutura-runtime`'s crate
+  documentation records that exporting a trace is a decision about a backend, a sampling rate
+  and an egress path, and that none of those has been made.
+* **It is not an authentication or ordering signal.** The value is monotonic within a process,
+  which makes two lines comparable and makes nothing else true.
+
+No `uuid` dependency, on purpose: a random 128-bit value would buy global uniqueness this
+surface has no use for, and it is not worth a dependency in a workspace that has none.
+
+# The inbound header is untrusted text on its way to a log
+
+Reading a caller's identifier is what makes one line in an ingress log and one line here the
+same request, so it is worth doing. It is also **log injection** if it is taken as given: a
+newline in the value is a log line an attacker writes. `sutura_config::InvalidLogFilter`'s
+`ControlCharacter` variant exists for exactly that reason about exactly that class of value, and
+this is the same treatment - bound the length, then accept a strict character set and nothing
+else.
+
+**A malformed header does not fail the request.** `CorrelationId::from_headers` mints a fresh
+value instead, because refusing would let a caller turn a header they control into a `4xx` on a
+question that was otherwise fine - and the thing being protected is the *log*, which a fresh id
+protects just as well. The refusal is reported at `debug`, by reason and never by value.
+
+### `struct CorrelationId`
+
+```rust
+pub struct CorrelationId
+```
+
+An identifier for one request, within one process's log.
+
+If a value of this type exists it is at most `MAX_LENGTH` characters of ASCII letters, digits,
+`-` and `_`, and is not empty - so it can be written into a log line without escaping and cannot
+forge one.
+`Ord` is deliberately not derived. Generated values sort by mint order because they are
+fixed-width hex; a caller-supplied one does not, so an ordering over the type as a whole would
+mean something on half the values and nothing on the other half.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn fresh() -> Self
+```
+
+A value nothing else in this process will produce.
+
+Infallible, and it has to be: it is the fallback for every way of getting one, including a
+caller's header being refused.
+
+Sixteen hex digits, which is inside what `Self::parse` accepts - asserted by a test rather
+than argued, because the two drifting apart would mean this process mints ids it would
+itself decline to read back.
+
+```rust
+pub fn from_headers(headers: &HeaderMap) -> Self
+```
+
+The caller's identifier if it sent a usable one, and a fresh one otherwise.
+
+Never fails. See the module documentation: a header a caller controls must not be able to
+turn an otherwise answerable question into a refusal, and a fresh id protects the log
+exactly as well as a rejection would.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, NotACorrelationId>
+```
+
+Reads a caller-supplied identifier.
+
+Sanitize then validate, in that order and both inside the constructor: the value is trimmed
+first so a derived `PartialEq` and `Hash` agree about which id this is without any call site
+having to normalise. The length is checked against the *trimmed* value for the same reason.
+
+**Length before character set, deliberately, and this is the ordering the classic advice
+asks for**: the expensive check is per-character and the cheap one bounds how many
+characters there are.
+
+#### Implements
+
+`AsRef<str>`, `Clone`, `Debug`, `Display`, `Eq`, `Hash`, `PartialEq`
+
+### `enum NotACorrelationId`
+
+```rust
+pub enum NotACorrelationId
+```
+
+Why a string is not a correlation identifier.
+
+**No variant carries the offending text**, and that is the point of the type rather than an
+omission: the value came from a caller, the error's `Display` reaches a log, and echoing it
+there is the injection this is guarding against. A position is enough to debug a client with,
+and a position cannot forge a line.
+
+#### Variants
+
+- `Empty` - Empty, or only whitespace.
+- `TooLong` - Longer than `MAX_LENGTH`.
+- `UnacceptableCharacter` - A character outside the accepted set - in practice a newline, a space or a quote.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `constant HEADER`
+
+The header a caller may set to name the request in its own logs too.
+
+### `constant MAX_LENGTH`
+
+The longest value accepted from a caller.
+
+Generous rather than tight, and sized off what a caller plausibly already has: a UUID is 36
+characters and a W3C `traceparent` is 55. Anything longer is not an identifier somebody is
+correlating with, and an unbounded one is a log line of a size a caller chooses.
 
 ## Module `middleware`
 

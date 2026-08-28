@@ -516,6 +516,25 @@ pub const fn tools(&self) -> &'a [Tool]
 
 `Clone`, `Copy`, `Debug`
 
+### `fn guidance`
+
+```rust
+pub const fn guidance(reason: &sutura_domain::query::RefusalReason) -> (&'static str, &'static str)
+```
+
+What a refusal means and what to do about it: `(meaning, remedy)`, in the order the prompt renders
+them.
+
+**The accessor a composition root prints from, and it publishes no new prose.** `sutura-cli` used
+to hand a person the Rust `Debug` of a governance decision, which names the variant and says
+nothing about what to do; the wording it needed was already written twice - here for the
+agent-facing prompt, and on the HTTP surface for a client - so this is a third READER of the first
+table rather than a third table.
+
+`&'static str` because `GUIDES` owns the wording: nothing here composes a message and nothing
+here reads the refusal's own fields. A caller that wants those still has the `RefusalReason` it
+passed in.
+
 ### `fn render`
 
 ```rust

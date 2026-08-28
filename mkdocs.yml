@@ -151,12 +151,23 @@ nav:
   - Reference:
     - Architecture: architecture.md
     - Serving over HTTP: serving.md
+    - The implementation plan: implementation-plan.md
+    - The plan, identity and services: implementation-plan-identity-and-services.md
     - Decisions:
       - First-party semantic models: adr/0001-first-party-semantic-models.md
       - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
       - DataFusion for local execution: adr/0003-datafusion-for-local-execution.md
       - A named escape hatch for authored SQL: adr/0004-a-named-escape-hatch-for-authored-sql.md
       - A refusal carries a status: adr/0005-a-refusal-carries-a-status.md
+      - Several databases behind one data system, declined: adr/0006-several-databases-behind-one-data-system.md
+      - Federating across different data systems: adr/0007-federating-across-different-data-systems.md
+      - A credential per leg, for the calling subject: adr/0008-a-credential-per-leg-for-the-calling-subject.md
+      - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
+      - Transport security for a source: adr/0010-transport-security-for-a-source.md
+      - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
+      - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
+      - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
+      - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

@@ -15,9 +15,15 @@ enum-variant-name-threshold = 2       # default 3
 # A ban without a reason gets reverted by the next person who trips over it.
 #
 # VERIFIED TO RESOLVE, which for this file is the whole question. An unresolvable path in
-# `disallowed-methods` is silently ignored by clippy - measured, not assumed - so an entry that
-# reads as enforcement and does nothing is worse than no entry. Each of these was confirmed by
-# writing the banned call and watching clippy reject it.
+# `disallowed-methods` is silently ignored by the pinned clippy - measured, not assumed - so an
+# entry that reads as enforcement and does nothing is worse than no entry. Each of these was
+# confirmed by writing the banned call and watching clippy reject it.
+#
+# **Do not read the silence as permanent.** clippy 0.1.99 warns - "does not refer to a reachable
+# function", with an `allow-invalid = true` opt-out - measured on that version against a deliberate
+# nonsense path. `rust-toolchain.toml` pins 0.1.98, which does not, so writing the call remains the
+# only check that holds today. When the pin moves past that, the warning becomes the mechanism and
+# this paragraph is where that gets recorded.
 disallowed-methods = [
   # The obvious way to parse a catalog-authored SQL fragment, and it PANICS. `Parser::new` over an
   # empty token list hits an `expect` in the parser, which is what `""`, whitespace-only and
@@ -26,6 +32,12 @@ disallowed-methods = [
   # with a guard on each way that can come back as something other than one expression.
   { path = "polyglot_sql::parser::Parser::parse_expressions", reason = "panics on empty input, which is reachable from a catalog file; use sutura_sql::expression::compile" },
   { path = "polyglot_sql::parser::Parser::new", reason = "the only reason to build a parser by hand is the panicking fragment API; use sutura_sql::expression::compile" },
+  # A bare spawn drops the request. `tracing`'s current span is a thread-local, so the pool thread
+  # has none - every line the closure writes lands outside the span the transport opened, and the
+  # defect is invisible: it compiles, it runs, the answer is right, and one request's lines are not
+  # findable together. `sutura_runtime::spawn_carrying_span` is the same call with the span carried
+  # across, and it holds the single `#[expect]` for this entry.
+  { path = "tokio::task::spawn_blocking", reason = "the pool thread has no current span, so the request's context is lost; use sutura_runtime::spawn_carrying_span" },
 ]
 
 disallowed-types = [

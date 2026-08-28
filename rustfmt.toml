@@ -1,2 +1,12 @@
 edition = "2024"
 max_width = 130
+
+# NOT `ignore = ["vendor"]`. It reads as a way to keep the vendored allocator un-reformatted and it
+# is not one: the option is NIGHTLY-only, so on the pinned stable rustfmt prints `can't set ignore
+# ... unstable features are only available in nightly channel` and formats vendor regardless -
+# enforcement that does nothing, which is the shape this repository refuses.
+#
+# The real mechanism already exists and is enforced elsewhere: the formatting task derives the
+# member list rather than passing a flag that follows path dependencies out of the workspace.
+# `cargo xtask check-guidance` fails a citation of the flag form, which is how this comment was
+# corrected in the first place.

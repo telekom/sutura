@@ -40,6 +40,49 @@ pub(crate) struct Service {
 ///
 /// They are declared before they are implemented on purpose: the port scheme has to be right
 /// from the start, because changing it later moves every developer's ports at once.
+///
+/// # The teardown contract the first provisioning command inherits
+///
+/// **Written here because this list is what a `dev up` will read, and every rule below is a lesson
+/// somebody already paid for.** None of it is enforced by anything today - nothing in this
+/// repository runs a container - so this is a note to whoever writes that command, not an invariant,
+/// and it may not be cited as one.
+///
+/// 1. **Destructive cleanup is dry-runnable.** A command that removes containers, networks, volumes
+///    or state directories can say what it *would* remove and exit without removing it. The reason is
+///    not caution in the abstract: the selection logic is the part that goes wrong, and a dry run is
+///    the only way to inspect the selection without living with it. A destroy whose only mode is
+///    "do it" is a destroy nobody can review.
+///
+/// 2. **Eligibility is re-checked at destroy time, under a lock held across the destroy, and what is
+///    deliberately spared is reported as its own category.** Deciding a container is stale and then
+///    removing it are two moments, and another worktree can start between them - so the check that
+///    said "nobody is using this" has to be re-run inside the lock that the removal happens under,
+///    not before it. The lock is held for the whole destroy rather than taken per item, because the
+///    window is what is being closed.
+///
+///    And the candidates that survived the re-check are **printed as a category of their own** -
+///    "in use, left alone" - never omitted. Silence there is indistinguishable from "there was
+///    nothing to consider", which is precisely the case where a reader needs to know the safety
+///    mechanism fired. **A spared item is a success of the check and has to read as one.**
+///
+/// 3. **One function supplies the compose project name to both start and stop, and it supplies it
+///    the same way.** [`Scope::project`] is that function, so this rule lands on the code above
+///    rather than on a hypothetical. The trap is specific: passing the project by command-line flag
+///    alone does NOT populate the variable an override file interpolates, so a compose file that
+///    interpolates the project name into a network, a volume or a container name resolves it from an
+///    unset variable at destroy time - and the destroy then targets the wrong network, or nothing at
+///    all, while reporting success. Whatever start relies on, stop has to be given identically:
+///    the flag AND the environment, from one call site.
+///
+/// # Signalling a process
+///
+/// **A PID is signalled only if its working directory is under this repository.** Ports are derived
+/// from a path digest inside a fixed range, so a collision with something unrelated is possible by
+/// construction - and "whatever is listening on the port I derived" is not an identity. The check is
+/// the process's own working directory, resolved and compared against this repository's root, because
+/// that is the one property a colliding stranger cannot accidentally have. Without it, a derived port
+/// that happens to be taken lets this tool kill a process it has nothing to do with.
 pub(crate) const SERVICES: &[Service] = &[
     Service {
         name: "postgres",

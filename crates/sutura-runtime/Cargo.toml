@@ -8,6 +8,20 @@ repository.workspace = true
 publish = false
 description = "Process-lifecycle concerns for a sutura service: the log, the panic hook and the shutdown signal."
 
+[features]
+# Exposes the log-capture writer in `src/testing.rs` to ANOTHER crate's tests.
+#
+# It exists because everything a transport crate does to the log is observable only as bytes, and
+# `Capture` is what reads them back. The alternative was a second copy of the writer in
+# `sutura-http`, and a second copy is the failure this repo already argues against for
+# `identifier_newtype!`: one implementation cannot drift from itself.
+#
+# **Only the writer, and that is not tidiness.** The helpers that build a subscriber around it stay
+# `cfg(test)` because they use `expect`, which is DENIED outside test code - so exposing them
+# through a feature would make `--all-features` fail to lint. A caller gets the writer and builds
+# its own subscriber through `telemetry::subscriber`, which is public already.
+test-capture = []
+
 [dependencies]
 sutura-config = { workspace = true }
 thiserror = { workspace = true }
@@ -25,6 +39,12 @@ tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "time"
 # enough. Test-only on purpose - it is what makes `tokio`'s timer controllable, which is not
 # something a shipped binary should be able to do.
 tokio = { workspace = true, features = ["macros", "rt", "signal", "sync", "test-util", "time"] }
+
+# `Capture` reaches an integration test only through the feature, so the target declares it rather
+# than failing to compile without it. `--all-features` - what CI lints and tests with - builds it.
+[[test]]
+name = "blocking_span"
+required-features = ["test-capture"]
 
 [lints]
 workspace = true

@@ -19,7 +19,19 @@
 # markdown documents but they are not prose - a metric's `measure:` decides generated SQL - so
 # `ci.yml` re-includes them and the `!**/catalog/**/*.md` pair below takes them back out here.
 # Exactly one workflow starts for any given edit, which is what makes "checked by the cheaper
-# workflow" a statement about this repository rather than a hope.
+# workflow" a statement about this repository rather than a hope. THAT CLAIM WAS FALSE UNTIL IT WAS
+# CHECKED: `mkdocs.yml` and this file itself are in the filter below AND matched `ci.yml`'s leading
+# `**`, so an ADR-only pull request that added a nav entry started both workflows. `ci.yml` now
+# excludes `mkdocs.yml` by name, with the reasoning at its own filter. The lesson is the one this
+# repository keeps relearning: a complement asserted in a comment is not a complement, and the check
+# that would have caught it is comparing the two lists rather than reading either.
+#
+# **THIS FILE IS DELIBERATELY NOT A COMPLEMENT, and that is the one exception.** An edit to this
+# workflow starts `ci.yml` too. The reason is that the only static analysis any workflow gets -
+# `zizmor`, `actionlint`, `shellcheck` - lives in `ci.yml`'s steps rather than in `hygiene`, so
+# excluding this path bought a run at the price of letting workflow code merge unanalysed. "Exactly
+# one workflow" is a cost claim, and it does not outrank linting the thing that decides what gets
+# linted.
 #
 # Two jobs, split by what they are allowed to do rather than by what they compute. `verify` runs
 # on a pull request with a read-only token; `publish` runs only from `main` or a `v*` tag and is
@@ -117,6 +129,23 @@ jobs:
       # The gates judge prose too, and this is the only workflow a prose-only change starts.
       # `check-docs` is in here: it rejects a nav entry with no file, a page in no nav entry, and
       # an asset `mkdocs.yml` references but does not have.
+      #
+      # UNCONDITIONAL AS OF THIS COMMIT, and the reason is one objection rather than a reversal.
+      # A previous commit on this branch skipped this step for a prose-only pull request, on the
+      # measurement that the site build is 3 seconds and this step is 15m45s - a real cost, and
+      # the skip was asked for deliberately. What the skip got wrong is narrow: `check-guidance`
+      # is the ONLY gate that fails a citation of a `just` task that does not exist, ADR prose
+      # does cite them, and deferring it to the `main` push moves the failure from a pull request
+      # to the default branch, where it blocks the publish instead of the merge. A post-merge
+      # failure is not a pull-request gate.
+      #
+      # That objection does not need the whole cost back, and the synthesis is the one this
+      # comment named in its previous form: keep the skip, and give the pull request a CHEAP
+      # text-only equivalent of the citation check - grep the changed markdown for `just <task>`
+      # and check each name against `just --summary`, which is seconds of shell and needs no Rust
+      # closure. The step is unconditional only until that check exists, and
+      # `ci/prose-change-cost` in the implementation plan owns both it and the open measurement
+      # of whether 15m45s was a cold-cache miss rather than a floor.
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 

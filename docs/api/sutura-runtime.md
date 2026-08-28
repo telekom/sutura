@@ -74,6 +74,8 @@ thing.
 
 ## `use None`
 
+## `use None`
+
 ## Module `admission`
 
 How many questions may be executing at once, and how long a caller waits for a turn.
@@ -259,6 +261,72 @@ running as - which is the same reason the refusals in `sutura-config` read the l
 The whole tree goes out as one `Debug` field. That is safe because the only credential-shaped
 value in it is held in a type whose `Debug` redacts, and `sutura-config` has a test asserting
 that at the outermost struct - not because this function was careful.
+
+## Module `blocking`
+
+Handing synchronous work to the blocking pool without losing the request it belongs to.
+
+# Why a helper rather than a convention
+
+`tokio::task::spawn_blocking` runs its closure on a thread that has no idea which request it is
+serving. `tracing`'s current span is a thread-local, so every line the closure emits lands
+outside the span the transport opened - which is exactly the context an operator filters on. The
+fix is three lines and it was already written correctly at the one call site that existed.
+Nothing made the *next* one write it, and a missing span is invisible: the code compiles, the
+work runs, the answer is right, and one request's lines are simply not findable together.
+
+So the three lines live here and `tokio::task::spawn_blocking` is on the `disallowed-methods`
+list in `clippy.toml`, with this module's own call carrying the one `#[expect]` for it. That
+turns "remember to carry the span" into a lint, which is what the *Agent Operating Contract*
+asks for: a rule with no mechanism is a wish.
+
+# Why it lives in this crate
+
+The same reason `crate::admission` does: **the resource is the process.** The blocking pool is
+one pool per runtime, shared by every transport, and a second transport would need the same
+span-carrying spawn over the same pool. A copy per transport is two conventions that can differ.
+
+# What it does not do, stated because the name invites the assumption
+
+It does not bound anything and it does not cancel anything. `tokio` documents that a started
+blocking task cannot be aborted and that runtime shutdown waits for one, so a caller who has
+given up does not stop the work. `crate::Admission` is what bounds how many of these run at
+once; this only decides which span they are attributed to.
+
+# The one thing that has to be true of the deployment
+
+Carrying the span works because the span's own `Dispatch` and the pool thread's default
+dispatcher are the *same* subscriber - the process-global one that
+`crate::telemetry::install` sets. Entering the span registers it on the pool thread inside
+that subscriber; the event then finds it there. Under a subscriber scoped to one thread with
+`tracing::subscriber::with_default` the two are different, and the pool thread's line goes to
+whatever global default exists instead. That is why the test for this is an integration test
+that installs a global subscriber, and not a unit test in this file.
+
+### `fn spawn_carrying_span`
+
+```rust
+pub fn spawn_carrying_span<Work, Answer>(work: Work) -> tokio::task::JoinHandle<Answer>
+```
+
+Spawns `work` on the blocking pool, entered in the caller's current span.
+
+The span is captured *here*, on the caller's thread, and entered inside the closure - which is
+the only order that works: reading the current span from the blocking thread would read that
+thread's span, which is none.
+
+Everything the closure does is inside the span, its own `Drop`s included. That matters where a
+permit or a guard is released at the end of the closure: the release happens inside the span
+too, so a diagnostic emitted while dropping is still attributable to the request.
+
+# Example
+
+```
+# async fn call() -> Result<u8, tokio::task::JoinError> {
+// A synchronous port call. Anything traced inside belongs to the caller's request.
+sutura_runtime::spawn_carrying_span(|| 7_u8).await
+# }
+```
 
 ## Module `panics`
 
@@ -517,3 +585,67 @@ A subscriber built for one set of settings.
 A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
 naming it is the better half of that trade: what matters about the type is that it is *one*
 type, which is the whole reason the box is there.
+
+## Module `testing`
+
+The log-capture writer.
+
+`cfg(test)` for this crate's own suite, and behind `test-capture` for another crate's. The
+feature's comment in `Cargo.toml` says why only the writer is exposed and not the helpers
+around it.
+Reading the log back, for a test that has to assert on what was logged.
+
+It exists because everything this crate does is observable only as log output: a subscriber that
+renders the wrong format, a panic hook that emits nothing, a shutdown that does not say why -
+none of those has a return value to assert on. So the tests install a subscriber over a buffer
+and assert on the bytes.
+
+Scoped and not global for this crate's own unit tests, on purpose:
+`tracing::subscriber::set_global_default` succeeds once per process, and this crate's tests need
+several different subscribers. `tests/blocking_span.rs` is the deliberate exception, and its
+header says why a global one is the only thing that can prove what it proves.
+
+# Two visibilities, and the reason for the split
+
+`Capture` is `pub` under `cfg(test)` **or** the `test-capture` feature, because `sutura-http`
+has the same problem and a second copy of a writer is a second thing to keep in step. The
+helpers that build a subscriber around it stay `cfg(test)`: they use `expect`, which is denied
+outside test code, so a feature that exposed them would make `--all-features` fail to lint.
+
+### `struct Capture`
+
+```rust
+pub struct Capture
+```
+
+A writer that keeps what was written.
+
+`std::sync::Mutex` is on the workspace's disallowed list, and the reason recorded there is that
+an async task holding one across an `await` can deadlock the executor. Neither half applies
+here: `MakeWriter` and `io::Write` are synchronous traits that cannot await, the guard is taken
+and dropped inside one statement, and no runtime is involved in the tests that use this.
+
+#### Methods
+
+```rust
+pub fn contents(&self) -> String
+```
+
+Everything written so far, as text.
+
+```rust
+pub fn new() -> Self
+```
+
+An empty buffer, teeing to standard output if `TEE_VARIABLE` is set.
+
+#### Implements
+
+`Clone`, `Default`, `MakeWriter<'a>`, `Write`
+
+### `constant TEE_VARIABLE`
+
+Set this to anything non-empty to have a captured log also reach standard output.
+
+`cargo nextest` shows a failing test's output, so this is what makes the log of the request
+under test readable without making every other run louder.

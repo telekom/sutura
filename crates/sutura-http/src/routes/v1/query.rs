@@ -38,7 +38,11 @@
 //! `spawn_blocking` is not an optimisation here; it is the only correct way to call this port.
 //!
 //! The current span is carried across, so the lines the engine emits belong to the same request as
-//! the lines this handler emits.
+//! the lines this handler emits. That is `sutura_runtime::spawn_carrying_span` rather than three
+//! lines written here, and `tokio::task::spawn_blocking` is banned in `clippy.toml` to keep the
+//! next call site from having to remember: a pool thread has no current span, and a line emitted
+//! outside the request's span is a line nothing ties to the request - which is invisible, because
+//! the code compiles and the answer is right.
 //!
 //! # The slot, and exactly what it bounds
 //!
@@ -177,12 +181,26 @@ pub(crate) async fn ask(
         detail: describe(&cause),
     })?;
 
+    // WHICH question, onto the span, so every subsequent line of this request carries it.
+    //
+    // The two identifying fields go on the span and the two counts stay on the event, and the split
+    // is not cosmetic: `metric` and `grain` are what the request IS, and they are what an operator
+    // filters a log by - with `JsonStorageLayer` a field on the span appears on every line inside
+    // it, including the answer, a refusal, and anything the data system says on the way. A count is
+    // something that happened once and belongs where it happened.
+    //
+    // The fields are declared on the span in `crate::router::request_span`, as `Empty`, because
+    // `tracing` cannot record a field a span was not opened with - and they are filled in here
+    // because this is the first line at which the body has parsed and the values exist.
+    let span = tracing::Span::current();
+    span.record("metric", tracing::field::display(query.metric()));
+    span.record("grain", tracing::field::display(query.grain()));
+
     // What was asked, before it is answered. Deliberately not the filter values: a rejected or
     // accepted value reflected into a log is a value that outlives the request, and the surface
-    // already refuses to echo one back to the caller.
+    // already refuses to echo one back to the caller. The counts say how many there were, which is
+    // what sizing a question needs and is not a value anybody wrote down.
     tracing::info!(
-        metric = %query.metric(),
-        grain = %query.grain(),
         dimensions = query.dimensions().len(),
         filters = query.filters().len(),
         "question received"
@@ -193,12 +211,19 @@ pub(crate) async fn ask(
     let slot = state.admission().admit().await.map_err(|shed| refused(&shed))?;
 
     let surface = state.surface();
-    let span = tracing::Span::current();
-    let joined = tokio::task::spawn_blocking(move || {
-        let answered = span.in_scope(|| surface.answer(&query));
+    // `spawn_carrying_span` rather than `tokio::task::spawn_blocking`, and the bare call is now on
+    // the `disallowed-methods` list in `clippy.toml`: the pool thread has no current span, so a
+    // bare spawn writes every line the engine emits outside this request. The three lines that fix
+    // it were correct here and nothing made the NEXT call site write them - see
+    // `sutura_runtime::blocking`.
+    let joined = sutura_runtime::spawn_carrying_span(move || {
+        let answered = surface.answer(&query);
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, which is what makes the bound a bound on execution. Dropping it earlier
         // would let a second question start on top of this one.
+        //
+        // Inside the span as well, because the helper scopes the whole closure: a diagnostic
+        // emitted while releasing is still attributable to this request.
         drop(slot);
         answered
     })
