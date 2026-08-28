@@ -112,6 +112,24 @@ pub enum InvalidBound {
     /// Above the ceiling this type declares.
     #[error("{name} is {found} and the maximum is {limit}")]
     TooLarge { name: &'static str, found: u64, limit: u64 },
+    /// Above the memory this process can actually reach.
+    ///
+    /// **A variant of its own rather than a [`Self::TooLarge`] with the machine's number as the
+    /// limit, because the two send an operator to different places.** `TooLarge` means "this type
+    /// does not accept a number that big"; this means "the type would, and your machine will not".
+    /// One is a key to change and the other is a container to resize or a key to lower, and a message
+    /// saying only *the maximum is N* cannot tell which of the two produced it.
+    ///
+    /// The reason it refuses rather than clamping is `panic = "abort"`: a ceiling above what the
+    /// process can reach is not a generous bound, it is the unbounded case with a number written next
+    /// to it, and the allocation failure it permits ends the process for every caller in flight.
+    #[error(
+        "{name} is {found} bytes and this process can reach {available} bytes. A ceiling above the \
+         memory actually available is not a bound at all: shipped profiles compile `panic = \
+         \"abort\"`, so the allocation it permits ends the process for every caller in flight rather \
+         than refusing one question. Lower the key, or give the container more memory"
+    )]
+    AboveAvailableMemory { name: &'static str, found: u64, available: u64 },
 }
 
 impl RequestTimeout {

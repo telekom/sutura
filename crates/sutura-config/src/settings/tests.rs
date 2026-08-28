@@ -14,6 +14,7 @@ use std::path::PathBuf;
 
 use super::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 use crate::proxy::ClientAddressSource;
+use crate::runtime::WorkingSetCeiling;
 use crate::security::TlsTermination;
 use crate::server::{BodyLimit, RequestTimeout};
 use crate::telemetry::LogFormat;
@@ -139,6 +140,53 @@ fn the_environment_is_not_a_configuration_key() {
     assert!(matches!(Settings::load(&sources), Err(SettingsError::Source { .. })));
     let sources = Sources::defaults(Environment::Development).with_variables(variables(&[("SUTURA__ENVIRONMENT", "production")]));
     assert!(matches!(Settings::load(&sources), Err(SettingsError::Source { .. })));
+}
+
+#[test]
+fn a_per_source_working_set_ceiling_is_refused_at_parse() {
+    // 0009 Decision 3, mechanised. The working-set ceiling is QUERY-wide: there is one working set,
+    // so a per-source ceiling would be a number with nothing to bound - and the decision is that a
+    // source declaration carrying one is REFUSED rather than ignored, because somebody will tune a
+    // setting that silently does nothing and believe the result.
+    //
+    // **What "per source" means today, stated rather than implied.** There is no source registry yet;
+    // `catalog` is the group that names where the data is, so it is the nearest thing a deployment
+    // has to a source declaration, and `runtime` is the only group the key belongs to. The mechanism
+    // is `deny_unknown_fields` on every shape in `raw.rs`, which is why this holds for the registry
+    // too when it arrives - a new shape gets the same attribute or it is not one of these shapes.
+    for group in ["catalog", "server", "prompt"] {
+        let sources =
+            Sources::defaults(Environment::Development).with_overlay(format!("{group}:\n  working_set_max_bytes: 2048\n"));
+        let error = Settings::load(&sources).expect_err("a ceiling on anything but the runtime group is not a setting");
+        assert!(matches!(error, SettingsError::Source { .. }), "{group}: {error:?}");
+        let rendered = format!("{:?}", core::error::Error::source(&error));
+        assert!(
+            rendered.contains("working_set_max_bytes"),
+            "{group}: the error should name the key: {rendered}"
+        );
+    }
+    // And the one place it IS a setting still is, so this test cannot pass by the key being unknown
+    // everywhere.
+    let sources = Sources::defaults(Environment::Development).with_overlay("runtime:\n  working_set_max_bytes: 2048\n");
+    let settings = Settings::load(&sources).expect("the runtime group is where the ceiling lives");
+    assert_eq!(settings.runtime().working_set().bytes().get(), 2048);
+}
+
+#[test]
+fn the_embedded_default_ceiling_is_the_number_the_type_declares() {
+    // Two places hold this number - `defaults.yaml` and `WorkingSetCeiling::DEFAULT_BYTES` - and one
+    // of them is what a composition root with no settings to read uses. Asserted rather than trusted,
+    // because a drift between them would mean the command-line tool and the service bound the same
+    // engine differently while both looked configured.
+    let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
+    let ceiling = settings.runtime().working_set();
+    assert_eq!(
+        u64::try_from(ceiling.bytes().get()).expect("a gibibyte fits a u64"),
+        WorkingSetCeiling::DEFAULT_BYTES
+    );
+    // A gibibyte, spelled out, so a change to the constant is visible in the diff of this test
+    // rather than only in the constant.
+    assert_eq!(WorkingSetCeiling::DEFAULT_BYTES, 1024 * 1024 * 1024);
 }
 
 // ------------------------------------------------------ per-value refusals ----

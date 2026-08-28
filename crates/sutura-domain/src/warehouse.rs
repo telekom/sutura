@@ -315,6 +315,31 @@ pub trait Warehouse {
 
     /// Runs the plan and returns its rows.
     fn execute(&self, plan: &crate::plan::QueryPlan) -> Result<RowSet, Self::Error>;
+
+    /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
+    ///
+    /// **The domain naming what it needs, because it cannot look.** `Self::Error` is the adapter's
+    /// own type, so nothing above this port can tell "the pool would not grow" from "the connection
+    /// dropped" - and those two are a governance refusal and a transport failure respectively. This
+    /// is the one question the domain has to be able to ask about an adapter's error, and it is a
+    /// predicate rather than a conversion so that an adapter cannot mint an arbitrary
+    /// [`RefusalReason`](crate::query::RefusalReason) from a failure of its own.
+    ///
+    /// `Some(bytes)` is the ceiling in bytes that the reservation was refused against, which is a
+    /// number an operator configured; `None` is every other failure, including a failure whose cause
+    /// happens to mention memory. An adapter that cannot tell the difference must answer `None`,
+    /// because the cost of the two mistakes is not symmetric: a transport failure reported as
+    /// exhaustion tells a caller not to retry something a retry would have answered.
+    ///
+    /// Defaulted to `None`, which is the honest answer for an adapter with no pool to bound - and
+    /// for one whose engine has an unbounded one, since a ceiling that cannot be exceeded cannot be
+    /// the thing that refused.
+    ///
+    /// Takes `&self` because the ceiling belongs to the adapter rather than to the error, and the
+    /// error's own text is not where a bound belongs.
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        None
+    }
 }
 
 #[cfg(test)]

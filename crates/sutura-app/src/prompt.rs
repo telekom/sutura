@@ -319,6 +319,15 @@ const TIME_RANGE_TOO_LONG: Guide = Guide {
              day counts, so the split can be computed rather than guessed.",
 };
 
+const RESOURCES_EXHAUSTED: Guide = Guide {
+    reason: "ResourcesExhausted",
+    meaning: "answering would have needed more working memory than this deployment allows, so it was \
+              refused rather than allowed to exhaust the process",
+    remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same \
+             question returns the same refusal: the ceiling is a configured number, not a passing \
+             condition, so this is not an outage to wait out.",
+};
+
 const PLAN_SPANS_TWO_SOURCES: Guide = Guide {
     reason: "PlanSpansTwoSources",
     meaning: "answering would need to read from two data systems, and a question is answered from \
@@ -356,6 +365,9 @@ const GUIDES: &[&Guide] = &[
     &TOO_MANY_DIMENSIONS,
     &RESULT_TOO_LARGE,
     &TIME_RANGE_TOO_LONG,
+    // Actionable, and last of the actionable ones: the remedy is the same narrowing
+    // `ResultTooLarge` asks for, and an agent reaching this one has already read that.
+    &RESOURCES_EXHAUSTED,
     &PLAN_SPANS_TWO_SOURCES,
     &SOURCE_UNAVAILABLE,
 ];
@@ -382,6 +394,7 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TooManyDimensions { .. } => &TOO_MANY_DIMENSIONS,
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
+        RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
     }
