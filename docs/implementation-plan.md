@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twenty-one steps, one done, eight of which can start at once.** Both numbers are counted off the table below
+**Twenty-two steps, one done, eight of which can start at once.** Both numbers are counted off the table below
 rather than remembered, which is the third attempt at getting them right: a number typed by hand beside
 the table that owns it goes stale on the next row, and it has now gone stale twice - "eleven steps" in a
 pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
@@ -42,6 +42,7 @@ internal that a stable surface can grow behind.
 | 19 | `feat/demo-tasks` | 14, and one example to demo | after 14 |
 | 20 | `build/supply-chain` | nothing - orthogonal | **yes** |
 | 21 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
+| 22 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
 
 **Rows 1 to 11 have their branch sections on this page. Rows 12 to 21 are in
 [identity, services and the operational work](implementation-plan-identity-and-services.md)**, which is
@@ -272,6 +273,29 @@ boundary rather than for the transport: without it, "no field carries SQL, a tab
 ids" is enforced by `Query`'s own `deny_unknown_fields` and by review, and not by a diff a reviewer
 cannot miss.
 
+**The tool result carries ROWS, inline. Decided, and a finding was withdrawn to get here.** An audit of
+an older private record set surfaced a rule reading *"rows must not enter the model's context window - the
+tool result is provenance plus a handle, and the client fetches the data"*, and it was raised here as a
+gap this branch should close before slice one fixed the result shape.
+
+**Withdrawn, because it was a misreading of what that rule protects.** The substance is that in
+federation mode **the join is done by the engine and its SQL, not by the model** - a language model must
+never be the thing combining two sources' rows. That is already decided, in
+[federating across different data systems](adr/0007-federating-across-different-data-systems.md): each leg
+is a whole plan rendered by `sutura-sql`, and the combine happens in DataFusion above the port. So the
+property was never about the context window, and it is already held by the architecture rather than owed
+by this step.
+
+Read as a context-window rule it would have bought a handle-based result shape that costs real
+capability: an agent asked for a number could not answer without a second fetch, and a plain client
+would show its user nothing. **So: one result shape, rows inline, and no handle.**
+
+**What that leaves open, stated rather than assumed away:** the answer row cap is `max_rows + 1` with a
+default in the thousands, which is far above what any model's context tolerates. Whether the agent
+surface takes its own lower cap - and what number - is a real question and **nobody has measured it**, so
+it is not answered here. The hard bound stays where it is; an advisory cap for this surface is a decision
+for whoever builds slice one, with a measurement rather than a guess.
+
 **Tests.**
 - `a_certified_question_is_answered_over_the_agent_surface`.
 - `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
@@ -436,6 +460,19 @@ megabytes and its answer is twelve rows. Bytes are the bound; the answer keeps i
 
 **Touches.** `crates/sutura-config/src/limits.rs` for the settings,
 `crates/sutura-domain/src/query.rs` for the refusal variants.
+
+**Adds, and the engine half is the substance of this step:** there is no memory pool today - no
+`RuntimeEnv` is constructed anywhere, so DataFusion installs its unbounded one, which under
+`panic = "abort"` makes a large enough join process death for every concurrent caller rather than an
+error for the one who asked. So this step builds: a byte newtype for the ceiling; a `RuntimeEnvBuilder`
+at both `SessionContext` construction sites, without disturbing `with_target_partitions`; the
+`Arc<dyn MemoryPool>` retained on the warehouse behind an accessor, since its fields are private and its
+hand-written `Debug` exposes only the source; **fail-immediately rather than spill**, per 0009 Decision
+3; and a new `RefusalReason`, because exhaustion currently leaves as `503 unavailable` and is therefore
+indistinguishable from a dead data system - a caller told to retry against a bound that will fire again.
+`ResourcesExhausted` appears nowhere in the workspace today. `sutura_http::wire::refusal`'s
+wildcard-free match will refuse to compile until the new variant is given a status, a code and a
+sentence, which is also what makes it safe as a metric label.
 
 **Adds.** Two newtypes with **provisional** defaults - **1 GB working set, three-minute deadline**.
 Provisional is the operative word: nobody has measured them, so this step measures them on the corpus
