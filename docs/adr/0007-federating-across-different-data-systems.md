@@ -1,6 +1,6 @@
 ---
 title: Federating across different data systems
-description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source subplans rendered by sutura-sql and combined by DataFusion - why the combiner is ours and not an unparser, why a compiled dialect is a golden and not a feature flag, which of the six single-source assumptions each track forces in what order, and why the attach milestone is tactical rather than the first step.
+description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source subplans rendered by sutura-sql and combined by DataFusion - why the combiner is ours and not an unparser, why a compiled dialect is a golden and not a feature flag, which of the six single-source assumptions each track forces in what order, and why attaching several databases was declined outright rather than sequenced.
 ---
 
 # Federating across different data systems
@@ -8,9 +8,8 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 Status: accepted, and **nothing here is built.** It decides a shape and an order; it adds no code and
 no dependency. It amends nothing.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md) decided
-the several-DuckDB-files milestone and declined a federation crate. This record decides the goal that
-milestone does not reach - BigQuery, Postgres and Oracle, which are three logins - and it moves the
-attach milestone **off the critical path** without withdrawing it.
+declined both a federation crate and attaching several databases below the port. This record decides
+what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
 
 ## The decision
 
@@ -36,12 +35,12 @@ closure, because nothing parses and `datafusion`'s `sql` feature stays off. `pol
 the position `sqlglot` occupies in comparable systems: **generation per dialect, never
 transpilation.**
 
-**The attach route is tactical and is not first.** Several DuckDB *files* remain a legitimate
-capability delivered below the port. It builds none of the track-2 machinery, and the cheapest
-continuation of it - attaching a Postgres instead of a file - is the composing-adapter-with-a-synthetic-source-name
-that ADR 0006 refused in advance. **Two DuckDB files as two `SourceName`s are the first instance of
-track 2**, and that is where the machinery gets built. The argument, including the one condition that
-would reverse it, is in its own section below.
+**Attaching several databases is declined, DuckDB included.** Every source reaches the semantic
+compiler and standard credentialed access; there is no shape in which one connection stands in for
+several sources. It builds none of the track-2 machinery, and the cheapest continuation of it -
+attaching a Postgres instead of a file - is the composing-adapter-with-a-synthetic-source-name that
+ADR 0006 refused in advance. **Two DuckDB files as two `SourceName`s are the first instance of
+track 2**, and that is where the machinery gets built. The argument is in its own section below.
 
 **And the first thing built is neither track.** It is a decision about which aggregates survive being
 computed at a finer grouping and added back up, because two of the six in the vocabulary do not, and
@@ -302,7 +301,7 @@ What is genuinely new, stated as cost rather than hidden in the shape:
   returns a `RowSet` or its error and `answer` holds one warehouse; a failing leg has to refuse the
   whole question, and saying *which* leg failed is a diagnostic the refusal enum does not carry.
 
-## The attach route: still accepted, and not first
+## The attach route, declined
 
 The direct answer, because it is the question this record was asked to settle.
 
@@ -331,10 +330,13 @@ member and passes, and *a plan cannot silently span two sources* reads green ove
 question. **Attaching two files is fine. Attaching a Postgres is the refused shape, and the distance
 between them is one line of configuration.**
 
-The one condition that would reverse this: if several-DuckDB-files is a committed near-term
-deliverable, attaching ships it for a fraction of the work and track 2 does not become cheaper by
-waiting. Absent that commitment, the attach affordance and its one-view-per-model registration are
-work that track 2 throws away.
+There is no longer a condition that reverses this. Attaching was held open against one case - several
+DuckDB files as a committed near-term deliverable - and that case is now declined explicitly: every
+source uses the semantic compiler and standard access, DuckDB no differently from the rest. The
+attach affordance and its one-view-per-model registration are therefore work nobody should start.
+ADR 0006 records the same decline from the other side, including why it is not a good test fixture
+either: two connections need no new adapter code, while attaching needs `attach_database`, a view
+registration and a collision refusal - production code for a shape nothing ships.
 
 Three things survive the attach milestone either way, and they are the expensive ones, needed
 identically by track 2 because every network adapter is a connection-holding warehouse with the same
