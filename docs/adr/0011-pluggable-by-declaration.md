@@ -191,3 +191,49 @@ Two things this list is meant to make obvious. The metadata side is where most o
 none of it touches the query path: a metadata connector answers what a metric MEANS. And the data side
 is four connectors and one mode declaration each, which is the whole security surface of pluggability -
 not four adapters each with an opinion about authorization.
+
+## The RDBMS catalog, which is the connector that needs specifying
+
+One entry in that table behaves unlike the rest, and it is worth being concrete because a working
+version of it exists elsewhere and the useful half is reproducible here while the other half is not.
+
+**What such a catalog is.** A documentation source over a relational database: searchable descriptions
+of what tables and columns MEAN, often with a way to sample an interface, sitting beside the database
+it describes. What it does **not** carry is a certified metric. It documents fields; it does not define
+`revenue`.
+
+**What that implies here, and it is not a small thing.** Sutura's surface takes a metric name. A source
+with no metrics cannot answer a question on the governed surface at all - not because the connector is
+weak but because there is nothing certified to compute. So the connector's declaration is:
+
+| Provides | Declared |
+| --- | --- |
+| Descriptions of what a field means | **yes** - this is its purpose |
+| Sample values for an interface | optional |
+| Guidance on how to use the source, as prose the prompt renders | **yes** - this is the extra obligation |
+| Certified metrics | **no** |
+
+**The guidance is the interesting part, and it is descriptive content like any other.** A working
+example of the genre, generically: which search to run before selecting anything, that a name must be
+schema-qualified or the database rejects it, and - stated plainly to the agent - that this source
+carries no certified metric layer. That is exactly the shape the knowledge layer already renders:
+bounded, refused at load rather than truncated at render, attached to something the bundle declares,
+and **descriptive only**. It selects nothing, widens nothing, parameterises nothing. A source's own
+usage instructions are one more kind of note, not a new channel.
+
+**And the half that cannot be reproduced, said plainly.** The working version of this pattern pairs
+catalog search with a general select, and an agent composes the two: read what a column means, then run
+SQL against it. **That second tool is precisely what this surface does not have**, and not by
+oversight - "no general SQL tool" is the rule that makes an uncertified answer unavailable *because no
+tool exists* rather than because a prompt asked for restraint. Adding it to the governed surface would
+remove the property everything else here is arranged to protect.
+
+So with the right configuration and prompt, sutura reproduces the half that survives governance: the
+agent knows what the fields mean, knows how this source must be addressed, and knows that nothing here
+is certified. What it cannot do is answer from an undefined metric. **That refusal is the product
+working**, and the guidance should say what to ask for instead - a metric declared, by whoever owns the
+number.
+
+If a deployment genuinely wants the exploratory path, it is **a separate surface with its own scope**,
+never a widening of this one. Read and write, governed and ungoverned, stay separate surfaces; a
+free-form path lives behind its own separately-scoped tool or it does not exist.
