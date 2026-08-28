@@ -1,15 +1,12 @@
 edition = "2024"
 max_width = 130
 
-# NOT `ignore = ["vendor"]`, and the attempt is recorded because it reads as a fix and is not one.
-# `cargo fmt --all` follows `vendor/mimalloc_rust` even though `Cargo.toml` excludes it from
-# workspace MEMBERS - `exclude` governs membership, and rustfmt reaches it as a path dependency
-# anyway. One run reformatted 20 lines of third-party code, semantically identical, which is a
-# diff to explain at re-vendoring time for nothing. But rustfmt's `ignore` is a NIGHTLY-ONLY
-# option: on the pinned stable it prints `can't set ignore ... unstable features are only
-# available in nightly channel` and formats vendor regardless - enforcement that does nothing,
-# which is the shape this repository refuses.
+# NOT `ignore = ["vendor"]`. It reads as a way to keep the vendored allocator un-reformatted and it
+# is not one: the option is NIGHTLY-only, so on the pinned stable rustfmt prints `can't set ignore
+# ... unstable features are only available in nightly channel` and formats vendor regardless -
+# enforcement that does nothing, which is the shape this repository refuses.
 #
-# So the mechanism is in `just fmt`, which names the members instead of passing `--all`. Measured:
-# the nix `fmt` gate is GREEN with vendor at its upstream state, so the gate never saw this; it is
-# a local papercut only, and `cargo fmt --all` by hand is what reintroduces it.
+# The real mechanism already exists and is enforced elsewhere: the formatting task derives the
+# member list rather than passing a flag that follows path dependencies out of the workspace.
+# `cargo xtask check-guidance` fails a citation of the flag form, which is how this comment was
+# corrected in the first place.
