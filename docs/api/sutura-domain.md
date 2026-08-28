@@ -78,6 +78,17 @@ Construct it with `Date::parse` or `Date::new`. The fields are private and order
 year-month-day so the derived `Ord` is chronological: a reordering of the declaration would
 silently invert every comparison, which is why the ordering is asserted in a test.
 
+**`try_from` and `into` are a pair, and one without the other was a real asymmetry.** This type
+carried `try_from = "String"` alone, and `serde(try_from)` affects `Deserialize` only - so the
+derived `Serialize` wrote the STRUCT, and a date this crate serialized was a date this crate's
+own `Deserialize` rejected. Two places depend on the two halves agreeing: the digest in
+`crate::definitions` is taken over the serialized form, so it has to be taken over the ISO text
+a catalog author actually wrote rather than over a field layout that never appears in a file; and
+a schema generated from this type describes a wire value the surface accepts as a string. Every
+other type here with a canonical text form is written the same way - `TermRepr` in
+`crate::measure` pairs them so that what a digest covers and what a catalog wrote are the same
+text.
+
 #### Methods
 
 ```rust
@@ -211,6 +222,15 @@ here would make a governance decision about requests by constraining authorship.
 Half-open rather than inclusive because a month is `[2026-06-01, 2026-07-01)` at every grain and
 in every dialect, while an inclusive end needs a different last day per month and per grain. One
 of those two conventions produces off-by-one bugs at month boundaries and the other does not.
+
+**No `into` beside the `try_from`, unlike `Date`, and that is not the same omission.** A range's
+wire form is a two-field mapping - `start` and `end`, which is how a catalog author writes one -
+and both halves already agree on it: `Serialize` derives that mapping and `try_from` reads it back
+through `TimeRange::new`. What this type does NOT have is a canonical text form to convert into.
+[`Display`](core::fmt::Display) renders `[2026-06-01, 2026-07-01)` for a human reading a refusal,
+and nothing parses that shape, so serializing into it would produce exactly the asymmetry the
+`into` on `Date` exists to remove. The round trip that has to hold here is the mapping one, and it
+is asserted as such.
 
 #### Methods
 
@@ -3436,17 +3456,23 @@ scanned, which needs something from the data system that no port asks for yet.
 
 ## Module `warehouse`
 
-The execution port: the statement that goes out, and the rows that come back.
+The execution port: the plan that goes out, and the rows that come back.
 
 The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
 it. A file read by an in-process engine and a cluster with a login are both implementations.
 
-This is the one module in the domain that names SQL, and the distinction is worth being precise
-about. `crate::query` is the *tool* surface, where SQL must be unrepresentable because the text
-would come from a caller. Here the text is something sutura generated a moment ago from a pinned
-definition, and the port has to hand it to something. What the port does *not* accept is a
-statement with values pasted into it: `GeneratedQuery` keeps them apart, so an adapter cannot
-receive a query whose parameters have already been flattened into the text.
+**No statement appears in this module, and its absence is the decision rather than an omission.**
+A rendered statement used to live here, on the argument that the port had to hand one to
+something. The port takes a `crate::plan::QueryPlan` now - `Warehouse` below says why that is
+what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
+statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
+it. A domain holding a rendered statement has acquired a concept no domain operation uses.
+
+What stays is `ParamValue`, and it stays because the type the port *does* take is built out of
+it: a `crate::plan::QueryPlan` carries a vector of them. It is also where the rule lives - a
+value is a closed set of typed variants an adapter binds, never text somebody concatenated.
+`crate::query` is the *tool* surface, where SQL must be unrepresentable because the text would
+come from a caller; here there is no text for a value to reach at all.
 
 ### `enum ParamValue`
 
@@ -3494,44 +3520,6 @@ A human-readable form, for showing a plan to a person.
 produced one would be the thing somebody reaches for the day they want to inline a parameter,
 and inlining a parameter is the one move this type exists to prevent. Text is quoted the way
 `Debug` quotes it, which makes an empty or space-padded value visible rather than SQL-shaped.
-
-#### Implements
-
-`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
-
-### `struct GeneratedQuery`
-
-```rust
-pub struct GeneratedQuery
-```
-
-A statement, its parameters, and the one data system it runs against.
-
-**Parameters are a separate field and there is no constructor that merges them.** That is the
-mechanism behind "no value from a question reaches the statement as text": to inline a value an
-adapter would have to build the string itself, which is a diff rather than an oversight.
-
-`source` rides along because a plan resolves to exactly one data system, and carrying it here is
-what lets the composition root check that the adapter it is about to call is the one the plan
-named.
-
-#### Methods
-
-```rust
-pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self
-```
-
-```rust
-pub fn params(&self) -> &[ParamValue]
-```
-
-```rust
-pub const fn source(&self) -> &SourceName
-```
-
-```rust
-pub fn sql(&self) -> &str
-```
 
 #### Implements
 

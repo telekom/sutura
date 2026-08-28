@@ -9,10 +9,11 @@ The public API of `sutura-sql`, rendered from rustdoc JSON.
 
 Rendering: a `QueryPlan` becomes one statement in one dialect.
 
-Three modules. `dialect` names the data systems we render for and owns the two decisions the
-dialect layer does not make for us; `generate` turns a plan into a statement and its bind
-parameters; `expression` compiles the one thing a catalog is allowed to author as SQL, at load,
-for every dialect at once.
+Three modules and one type. `dialect` names the data systems we render for and owns the two
+decisions the dialect layer does not make for us; `generate` turns a plan into a statement and
+its bind parameters; `expression` compiles the one thing a catalog is allowed to author as SQL,
+at load, for every dialect at once. `GeneratedQuery` is what `generate` returns, and it is at
+the crate root because it is this crate's output rather than any one module's detail.
 
 # Why this is its own crate and not the compiler's last stage
 
@@ -52,6 +53,54 @@ fragment is parsed - **at catalog-compile time, once, never on the query path** 
 a list of constructs this build refuses, qualified against the model's columns, and rendered for
 every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
 is the decision.
+
+## `struct GeneratedQuery`
+
+```rust
+pub struct GeneratedQuery
+```
+
+A statement, its parameters, and the one data system it runs against.
+
+**Parameters are a separate field and there is no constructor that merges them.** That is the
+mechanism behind "no value from a question reaches the statement as text": to inline a value an
+adapter would have to build the string itself, which is a diff rather than an oversight.
+
+`source` rides along because a plan resolves to exactly one data system, and carrying it here is
+what lets the composition root check that the adapter it is about to call is the one the plan
+named.
+
+**It is in this crate rather than in `sutura-domain`, and that is the same argument this crate
+exists for.** It sat beside the `Warehouse` port while the port took a rendered statement, on the
+reasoning that the port had to hand one to something. The port takes a `QueryPlan` now - an
+adapter that executes over Arrow renders nothing and never sees one of these - and once the port
+changed, nothing in the domain constructed or read one: the type was a concept the domain named
+and did not use. Its producer is `generate` one module over, and every consumer - the SQL
+adapters, and the CLI so `sutura compile` can print a statement - already depends on this crate.
+So the move added an edge nowhere and made the domain smaller by exactly the part of it that was
+not domain.
+
+### Methods
+
+```rust
+pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self
+```
+
+```rust
+pub fn params(&self) -> &[ParamValue]
+```
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+```rust
+pub fn sql(&self) -> &str
+```
+
+### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ## `use None`
 
@@ -526,7 +575,7 @@ differently. A plan that will not render is a bug here or upstream.
 ### `fn generate`
 
 ```rust
-pub fn generate(plan: &sutura_domain::plan::QueryPlan, dialect: crate::dialect::Dialect) -> Result<sutura_domain::warehouse::GeneratedQuery, GenerateError>
+pub fn generate(plan: &sutura_domain::plan::QueryPlan, dialect: crate::dialect::Dialect) -> Result<crate::GeneratedQuery, GenerateError>
 ```
 
 Renders a plan as one statement, paired with its parameters.

@@ -401,8 +401,11 @@ fn a_note_body_with_an_invisible_character_mixed_into_prose_is_refused() {
     );
 }
 
-/// Deserialize without a format crate: the boundary gate allowlists none for this crate, and this
-/// tests the wiring rather than a YAML parser.
+/// Deserialize through the domain-side shape rather than through a YAML parser.
+///
+/// NOT because the boundary gate forbids one - `serde_json` is allowlisted and present. Because
+/// of scope: this asserts the serde wiring, and the on-disk format belongs to
+/// `sutura-catalog-local`.
 fn deserialize_phrase(raw: &str) -> Result<Phrase, serde::de::value::Error> {
     use serde::Deserialize as _;
     use serde::de::IntoDeserializer as _;

@@ -163,7 +163,7 @@ mod tests {
     /// because the interesting property is the relationship between the two halves: every value the
     /// question carried is in the list below the statement and none of them is in the statement
     /// itself, and that is only readable when both are on the screen at once.
-    fn rendered(query: &sutura_domain::warehouse::GeneratedQuery) -> String {
+    fn rendered(query: &sutura_sql::GeneratedQuery) -> String {
         use core::fmt::Write as _;
         let mut out = String::from(query.sql());
         out.push('\n');

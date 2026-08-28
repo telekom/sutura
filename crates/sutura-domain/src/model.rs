@@ -377,8 +377,11 @@ mod tests {
         assert_eq!(name.as_str(), "revenue");
     }
 
-    /// Deserialize without pulling a format crate into the domain's dependency tree: the boundary
-    /// gate allowlists none, and this tests the wiring rather than a YAML parser.
+    /// Deserialize through the domain-side shape rather than through a YAML parser.
+    ///
+    /// NOT because the boundary gate forbids a format crate - `serde_json` is allowlisted and
+    /// present. Because of scope: this asserts the serde wiring, and what the ON-DISK format
+    /// accepts is asserted where that format lives, in `sutura-catalog-local`.
     fn deserialize_column(raw: &str) -> Result<ColumnName, serde::de::value::Error> {
         use serde::Deserialize as _;
         use serde::de::IntoDeserializer as _;

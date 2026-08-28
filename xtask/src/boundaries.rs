@@ -156,8 +156,9 @@ const FORBIDDEN_EDGES: &[ForbiddenEdge] = &[
         why: "it is the same edge one hop further out: `sutura-sql` carries the generator, so \
               reaching it puts the generator back in the core's closure",
         instead: "the two crates are siblings and neither needs the other. If a type genuinely \
-                  belongs to both, it belongs in `sutura-domain`, which is where `QueryPlan`, \
-                  `ParamValue` and `GeneratedQuery` already are",
+                  belongs to both, it belongs in `sutura-domain`, which is where `QueryPlan` and \
+                  `ParamValue` already are. A type only the renderer uses belongs in `sutura-sql`, \
+                  which is where `GeneratedQuery` went",
     },
 ];
 

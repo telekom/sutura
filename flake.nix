@@ -131,6 +131,10 @@
         # crane derivation around it.
         rustToolchain = pkgs.rust-bin.fromRustupToolchainFile rustToolchainFile;
 
+        # The NIGHTLY pin as a PACKAGE, never a crane toolchain: the only read of it here, and only
+        # ever for the `cargo rustdoc` child that emits the JSON. See `checks.api-docs` below.
+        nightlyToolchain = (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly;
+
         # The pinned cargo, for the one workflow that has to touch Cargo.lock.
         cargoWrapper = pkgs.writeShellApplication {
           name = "sutura-cargo";
@@ -140,27 +144,23 @@
           '';
         };
 
-        # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they
-        # fall behind; this is the fix it names, and the two must agree byte for byte, so both
-        # get their tools from here: the nightly out of `nix/toolchains.nix` and a stdlib
-        # interpreter out of nixpkgs.
+        # WRITES the committed API pages. `checks.api-docs` is the gate that fails when they fall
+        # behind; this is the fix it names, and the two must agree byte for byte, so both get their
+        # tools from here: `nightlyToolchain` above and a stdlib interpreter out of nixpkgs.
         #
-        # An app rather than a check, because a check cannot write to the source tree - the
-        # point of this one is to leave the regenerated file in the worktree for review.
+        # An app rather than a check, because a check cannot write to the source tree - the point
+        # of this one is to leave the regenerated file in the worktree for review. It exists because
+        # `just api` called a BARE `cargo` and a BARE `pixi`, so it only worked where a dev shell
+        # was already active - the drift this flake exists to remove, and it bit. The recipe is now
+        # `nix run .#api-docs` and needs nothing but nix.
         #
-        # It exists because `just api` called a BARE `cargo` and a BARE `pixi`, so it only
-        # worked where a dev shell was already active. That is the drift this flake exists to
-        # remove, and it bit: regenerating a page needed the devenv profile put on PATH by
-        # hand. Now the recipe is `nix run .#api-docs` and needs nothing but nix.
+        # `python3` and not pixi's, matching `checks.api-docs`: the generator imports json,
+        # pathlib, re and sys and nothing else. If it ever grows a third-party import, this and the
+        # check must become a pixi environment together or the gate disagrees with its own fix.
         #
-        # `python3` and not pixi's, matching `checks.api-docs` and for the same reason: the
-        # generator imports json, pathlib, re and sys and nothing else. If it ever grows a
-        # third-party import, this and the check both have to become a pixi environment
-        # together, or the gate starts disagreeing with its own fix.
-        #
-        # Relative paths, so it must run at the repository root. Asserted rather than assumed -
-        # a silent miss here writes nothing and reports success, which is the same failure
-        # shape as `repo::root()` returning the wrong directory.
+        # Relative paths, so it must run at the repository root. Asserted rather than assumed - a
+        # silent miss writes nothing and reports success, the same failure shape as `repo::root()`
+        # returning the wrong directory.
         apiDocsWriter = pkgs.writeShellApplication {
           name = "sutura-api-docs";
           # clang and lld because `.cargo/config.toml` selects them as the linker, and this app runs
@@ -172,7 +172,10 @@
               echo "run this from the repository root: it resolves docs/ and target/ relatively" >&2
               exit 1
             fi
-            export PATH="${(import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly}/bin:$PATH"
+            # Nightly for the `cargo rustdoc` child, reached as `checks.api-docs` reaches it, with
+            # a target directory of its own so it cannot invalidate the dev shell's `target/`.
+            export PATH="${nightlyToolchain}/bin:$PATH"
+            export CARGO_TARGET_DIR="''${CARGO_TARGET_DIR:-target}/api-docs"
             # The cranelift backend is INHERITED when this app is run from inside the dev shell,
             # and it cannot build this tree: `utoipa-swagger-ui`'s build script unzips its vendored
             # asset bundle, and the CRC32 in `zip` uses `llvm.x86.pclmulqdq.256`, which cranelift
@@ -207,7 +210,8 @@
             fi
             for lib in $libs; do
               echo "api-docs: $lib"
-              cargo rustdoc -q -p "$lib" --all-features -- \
+              # `--profile ci`: cargo's default `dev` optimises the closure at `opt-level = 3`.
+              cargo rustdoc -q -p "$lib" --all-features --profile ci -- \
                 -Z unstable-options --output-format json
               # rustdoc names its JSON after the crate's Rust identifier, so a package with a
               # hyphen becomes a file with an underscore.
@@ -784,47 +788,43 @@
           });
 
           # The committed API reference pages under `docs/api/` are GENERATED from the library
-          # crates' doc comments. This is what FAILS when they fall behind the sources: it
-          # regenerates them into a temporary directory and byte-compares against what is
-          # committed. The gate is `cargo xtask check-api-docs` and the fix it asks for is
-          # `just api`.
+          # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
+          # temporary directory and byte-compares. The fix it names is `just api`.
           #
-          # NIGHTLY, and the only check here that is. `--output-format json` is an unstable
-          # rustdoc option, so the stable pin every other check uses rejects `-Z` outright.
-          # `nix/toolchains.nix` is the one place either pin becomes a compiler, so the nightly
-          # comes from there rather than being resolved a second way in this file.
-          #
-          # Its own crane instance and its own dependency build. The shared `cargoArtifacts` is
-          # compiled by stable, and alternating compilers in one target directory invalidates
-          # every artifact in it.
-          #
-          # `src = ./.` and not the filtered source, for the same reason as `hygiene` above:
-          # this check reads `docs/.tools/rustdoc_to_markdown.py` and the committed pages, and
-          # crane's filter keeps only Cargo inputs.
-          #
-          # SUTURA_API_DOCS_PYTHON: the generator is a stdlib-only script. `apiDocsWriter` above
-          # is the fix this gate names, and it runs the same script on the same `pkgs.python3`,
-          # which is what stops the gate from disagreeing with its own fix. Named through the
-          # environment because a build sandbox has no network and could not materialise a pixi
-          # environment even if one were wanted here.
-          api-docs =
-            let
-              nightlyCrane = (crane.mkLib pkgs).overrideToolchain
-                (_: (import ./nix/toolchains.nix { rustPkgs = pkgs; }).nightly);
-            in
-            nightlyCrane.mkCargoDerivation (commonArgs // {
-              # Unscoped, like `cargoArtifacts` above: scoping it to one package would stop the
-              # dependency build being shared with the xtask compile in the build phase.
-              cargoArtifacts = nightlyCrane.buildDepsOnly commonArgs;
-              src = ./.;
-              pnameSuffix = "-api-docs";
-              doCheck = false;
-              nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.python3 ];
-              SUTURA_API_DOCS_PYTHON = "${pkgs.python3}/bin/python3";
-              buildPhaseCargoCommand = ''
-                cargo run --release -q -p xtask -- check-api-docs
-              '';
-            });
+          # THE SHARED STABLE `ci` CLOSURE, like every other check here, because nightly is needed
+          # only to EMIT THE JSON and `xtask/src/api_docs.rs` reaches it by SHELLING OUT - that
+          # module's header carries the argument. It replaced a nightly `crane.mkLib` with a second
+          # full DataFusion/Arrow/DuckDB `buildDepsOnly` at `release`, and is also why CI read
+          # `devco/rust-toolchain-nightly.toml` on every push while AGENTS.md said it never did.
+          # Three things keep the channels apart: `ciArtifacts`, as `hygiene` and `crap` use it, so
+          # `nix-store -q --references` names ONE `sutura-deps` across seven consumers; nightly as
+          # a command PREFIX with its own `CARGO_TARGET_DIR`, because alternating compilers in one
+          # target directory invalidates every artifact in it; and `SUTURA_API_DOCS_PROFILE`, since
+          # cargo's default `dev` optimises every dependency and build script at `opt-level = 3`.
+          # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the worse
+          # half, as crane does not even export `CARGO_PROFILE`. `src = ./.` for `hygiene`'s
+          # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. The win is
+          # BOUNDED: nightly still builds every documented crate's dependencies as `rmeta` - 467 of them - and that floor is 170 s of the 190.
+          api-docs = craneLib.mkCargoDerivation (ciArgs // {
+            cargoArtifacts = ciArtifacts;
+            src = ./.;
+            pnameSuffix = "-api-docs";
+            doCheck = false;
+            nativeBuildInputs = commonArgs.nativeBuildInputs ++ [ pkgs.python3 ];
+            SUTURA_API_DOCS_PYTHON = "${pkgs.python3}/bin/python3";
+            buildPhaseCargoCommand = ''
+              cargo build -q --profile "$CARGO_PROFILE" -p xtask
+              # Read, not assumed, and resolved BEFORE the prefix below overrides it for the child.
+              xtask="''${CARGO_TARGET_DIR:-target}/$CARGO_PROFILE/xtask"
+              # The binary directly: `cargo run` would have to BE the nightly cargo for the child
+              # to inherit nightly, and then nightly would compile `xtask`.
+              CARGO="${nightlyToolchain}/bin/cargo" \
+              PATH="${nightlyToolchain}/bin:$PATH" \
+              CARGO_TARGET_DIR="$TMPDIR/api-docs-rustdoc" \
+              SUTURA_API_DOCS_PROFILE="$CARGO_PROFILE" \
+                "$xtask" check-api-docs
+            '';
+          });
 
           # The CRAP gate: cyclomatic complexity weighted by the tests that cover it.
           #
@@ -834,12 +834,12 @@
           # sandboxed, and being sandboxed is what makes it reproducible.
           #
           # THE SHARED `cargoArtifacts`, and the reasoning is the opposite of what it looks like.
-          # The coverage build cannot reuse them at all: `-C instrument-coverage` changes the
-          # rustc invocation, so every dependency it needs is compiled fresh whatever is passed.
-          # What the shared attribute buys is that no SECOND dependency derivation is created -
-          # `api-docs` needs one because it is on a different channel, and it costs a full extra
-          # workspace build. Here the artifacts are only what makes `cargo run -p xtask` cheap,
-          # and they are already built for clippy and nextest.
+          # The coverage build cannot reuse them at all: `-C instrument-coverage` changes the rustc
+          # invocation, so every dependency it needs is compiled fresh whatever is passed. What the
+          # shared attribute buys is that no SECOND dependency derivation is created. `api-docs`
+          # used to need one, being on a different channel, at the cost of a full extra workspace
+          # build; it does not any more, so every check here names one closure. Here the artifacts
+          # only make `cargo run -p xtask` cheap, and clippy and nextest already built them.
           #
           # The instrumented compile itself is the scope: `sutura-domain`, whose dependency set is
           # serde and thiserror. 11 s cold, measured. `SCOPE` in xtask/src/crap.rs carries the

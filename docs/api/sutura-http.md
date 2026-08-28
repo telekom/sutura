@@ -1291,6 +1291,7 @@ free text.
 - `Range`
 - `Dimension`
 - `FilterDimension`
+- `FilterValue` - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than `sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS`.
 
 #### Implements
 

@@ -1,9 +1,10 @@
 //! Rendering: a `QueryPlan` becomes one statement in one dialect.
 //!
-//! Three modules. `dialect` names the data systems we render for and owns the two decisions the
-//! dialect layer does not make for us; `generate` turns a plan into a statement and its bind
-//! parameters; `expression` compiles the one thing a catalog is allowed to author as SQL, at load,
-//! for every dialect at once.
+//! Three modules and one type. `dialect` names the data systems we render for and owns the two
+//! decisions the dialect layer does not make for us; `generate` turns a plan into a statement and
+//! its bind parameters; `expression` compiles the one thing a catalog is allowed to author as SQL,
+//! at load, for every dialect at once. [`GeneratedQuery`] is what `generate` returns, and it is at
+//! the crate root because it is this crate's output rather than any one module's detail.
 //!
 //! # Why this is its own crate and not the compiler's last stage
 //!
@@ -21,7 +22,7 @@
 //! crate or `polyglot-sql`.
 //!
 //! So the direction is one way only. This crate depends on `sutura-domain` - a plan comes in, a
-//! `GeneratedQuery` goes out - and on the dialect layer. It does **not** depend on
+//! [`GeneratedQuery`] goes out - and on the dialect layer. It does **not** depend on
 //! `sutura-semantic`, and `sutura-semantic` does not depend on it. Neither needs the other: one
 //! decides what to execute, the other writes it down for a data system that speaks SQL.
 //!
@@ -43,6 +44,9 @@
 //! a list of constructs this build refuses, qualified against the model's columns, and rendered for
 //! every dialect. What reaches a statement afterwards is our own generator's output. `docs/adr/0004`
 //! is the decision.
+use sutura_domain::model::SourceName;
+use sutura_domain::warehouse::ParamValue;
+
 pub mod dialect;
 pub mod expression;
 pub mod generate;
@@ -51,3 +55,76 @@ pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
 pub use crate::generate::{GenerateError, generate};
+
+/// A statement, its parameters, and the one data system it runs against.
+///
+/// **Parameters are a separate field and there is no constructor that merges them.** That is the
+/// mechanism behind "no value from a question reaches the statement as text": to inline a value an
+/// adapter would have to build the string itself, which is a diff rather than an oversight.
+///
+/// `source` rides along because a plan resolves to exactly one data system, and carrying it here is
+/// what lets the composition root check that the adapter it is about to call is the one the plan
+/// named.
+///
+/// **It is in this crate rather than in `sutura-domain`, and that is the same argument this crate
+/// exists for.** It sat beside the `Warehouse` port while the port took a rendered statement, on the
+/// reasoning that the port had to hand one to something. The port takes a `QueryPlan` now - an
+/// adapter that executes over Arrow renders nothing and never sees one of these - and once the port
+/// changed, nothing in the domain constructed or read one: the type was a concept the domain named
+/// and did not use. Its producer is `generate` one module over, and every consumer - the SQL
+/// adapters, and the CLI so `sutura compile` can print a statement - already depends on this crate.
+/// So the move added an edge nowhere and made the domain smaller by exactly the part of it that was
+/// not domain.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct GeneratedQuery {
+    source: SourceName,
+    sql: String,
+    params: Vec<ParamValue>,
+}
+
+impl GeneratedQuery {
+    pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self {
+        Self { source, sql, params }
+    }
+
+    #[inline]
+    pub const fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    #[inline]
+    pub fn sql(&self) -> &str {
+        &self.sql
+    }
+
+    #[inline]
+    pub fn params(&self) -> &[ParamValue] {
+        &self.params
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GeneratedQuery;
+    use sutura_domain::calendar::Date;
+    use sutura_domain::model::SourceName;
+    use sutura_domain::warehouse::ParamValue;
+
+    #[test]
+    fn a_generated_query_keeps_its_parameters_out_of_its_text() {
+        // The mechanism behind the no-injection claim, asserted at the type level: an adapter
+        // receives the statement and the values separately, so inlining one would be its own code
+        // rather than an accident here.
+        let query = GeneratedQuery::new(
+            SourceName::parse("local").expect("a test source is a source"),
+            String::from("SELECT 1 WHERE d >= ? AND d < ?"),
+            vec![
+                ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date")),
+                ParamValue::Date(Date::parse("2026-07-01").expect("a test date is a date")),
+            ],
+        );
+        assert!(!query.sql().contains("2026"), "{}", query.sql());
+        assert_eq!(query.params().len(), 2);
+        assert_eq!(query.source().as_str(), "local");
+    }
+}

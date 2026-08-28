@@ -76,7 +76,7 @@ three, so a caller is told the same thing whether it reads the status, the code 
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "9c1287efd8299fba28eefcc15d810b2ddadcac92cc1ab31eaad848e52038f5ac"
+    "definition_digest": "1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [

@@ -164,14 +164,8 @@ examples:
       metric: recurring_revenue
       grain: month
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       dimensions: []
       filters:
         - dimension: segment
@@ -188,14 +182,8 @@ examples:
       metric: churn_rate
       grain: month
       range:
-        start:
-          year: 2026
-          month: 1
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-01-01
+        end: 2026-07-01
       dimensions: []
       filters: []
     body: "A question about a trend is one question covering the whole trend, not six questions covering a\nmonth each.\n\nThe grain decides the shape of the answer: `month` over six months returns six rows, one per month.\n`churn_rate` declares no other grain, so there is no finer version of this question - a weekly churn\nrate is not a narrower cut of the same number, it is a number nobody certified, and asking for one\nis declined with `GrainNotSupported`.\n\nNothing to group by here. Adding `segment` would answer a different and equally reasonable question,\nwhich is worth confirming before choosing between them."
@@ -208,14 +196,8 @@ examples:
       metric: recurring_revenue
       grain: month
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       dimensions:
         - segment
       filters: []

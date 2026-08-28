@@ -348,10 +348,12 @@ mod tests {
 
     // The two governance properties of this type that need a real format parser to provoke -
     // `deny_unknown_fields` refusing a `sql:` field, and a range with no `end` failing to
-    // deserialize at all - are asserted in `sutura-catalog-local`, which has one. They are not
-    // asserted here because `serde_json` would have to join `ALLOWED_IN_DOMAIN` in
-    // `xtask/src/boundaries.rs` to do it, and widening that allowlist to reach a test is exactly
-    // the trade the boundary gate exists to make visible.
+    // deserialize at all - are asserted in `sutura-catalog-local`, against the YAML. They are
+    // asserted there rather than here because that is the format a catalog is actually written in,
+    // so the assertion covers the read path a typo arrives through; asserting them over a second
+    // format would restate serde rather than the catalog. Not for want of a parser here:
+    // `serde_json` is on `ALLOWED_IN_DOMAIN` in `xtask/src/boundaries.rs`, because the definition
+    // digest is taken over the serialized form and has to be computed by code the domain trusts.
 
     #[test]
     fn a_value_a_catalog_could_not_declare_never_becomes_a_filter() {

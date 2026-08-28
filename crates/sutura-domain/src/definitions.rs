@@ -278,8 +278,12 @@ mod tests {
         assert_eq!(digest.as_str(), VALID);
     }
 
-    /// Deserialize without pulling a format crate into the domain's dependency tree - the
-    /// boundary gate allowlists neither, and this tests the wiring, not the JSON parser.
+    /// Deserialize through the domain-side shape rather than through a JSON parser.
+    ///
+    /// NOT a boundary-gate constraint: `serde_json` is a dependency of this crate and IS
+    /// allowlisted (`xtask/src/boundaries.rs`), which is what makes the digest's canonical form
+    /// possible at all. The reason is scope - this asserts the serde WIRING, which attribute
+    /// routes which direction, and a format parser would add a second thing that could fail.
     fn deserialize(raw: &str) -> Result<DefinitionDigest, serde::de::value::Error> {
         use serde::Deserialize as _;
         use serde::de::IntoDeserializer as _;

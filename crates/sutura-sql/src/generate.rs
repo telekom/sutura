@@ -42,8 +42,8 @@ use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placehold
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType};
 use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
-use sutura_domain::warehouse::GeneratedQuery;
 
+use crate::GeneratedQuery;
 use crate::dialect::{Dialect, PlaceholderStyle};
 
 /// Why a statement could not be rendered.

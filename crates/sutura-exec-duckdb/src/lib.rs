@@ -7,10 +7,10 @@
 //!
 //! Two things this adapter deliberately does not offer:
 //!
-//! **No arbitrary SQL entry point.** [`DuckDbWarehouse::execute`] takes a
-//! [`GeneratedQuery`], which carries its parameters separately, and there is no method that takes a
-//! string. A development affordance that ran a statement somebody typed would be the shortest path
-//! around every check upstream of here.
+//! **No arbitrary SQL entry point.** [`DuckDbWarehouse::execute`] takes a [`QueryPlan`] and renders
+//! the statement itself, into a [`GeneratedQuery`] that carries its parameters separately. There is
+//! no method that takes a string. A development affordance that ran a statement somebody typed would
+//! be the shortest path around every check upstream of here.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and
 //! although this adapter has no row-level security to leak through, adding a cache here would be the
@@ -22,9 +22,9 @@ use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::QueryPlan;
-use sutura_domain::warehouse::{GeneratedQuery, MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
-use sutura_sql::{Dialect, GenerateError};
+use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 /// Why this data system could not answer.
 #[derive(Debug, thiserror::Error)]
@@ -383,7 +383,8 @@ mod tests {
     use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
     use sutura_domain::calendar::Date;
     use sutura_domain::model::SourceName;
-    use sutura_domain::warehouse::{GeneratedQuery, RowSet, Value};
+    use sutura_domain::warehouse::{RowSet, Value};
+    use sutura_sql::GeneratedQuery;
 
     fn real(value: f64) -> Real {
         Real::parse(value).expect("a test literal is finite")

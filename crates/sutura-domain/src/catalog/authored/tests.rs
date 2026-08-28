@@ -152,7 +152,7 @@ fn the_length_bound_is_checked_at_both_ends() {
 fn the_deserialization_path_is_the_one_constructor() {
     // `#[serde(try_from = "String")]` names this impl, so a catalog document's `values:` list goes
     // through `parse` rather than straight into the private field. Asserted through `TryFrom`
-    // because `serde_json` is not in this crate's dependency allowlist - `sutura-catalog-local` has
+    // because the on-disk format belongs to `sutura-catalog-local`, which has
     // a real format parser and asserts the same thing over YAML.
     assert_eq!(
         DimensionValue::try_from(String::from("north"))

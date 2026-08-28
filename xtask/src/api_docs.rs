@@ -23,12 +23,21 @@
 //!     disagree with `just api`, and then the fix its own message asks for would not make it
 //!     pass. Never inline the rendering here.
 //!
-//! WHY IT IS SPECIAL-CASED ONTO NIGHTLY: `--output-format json` is an unstable rustdoc option,
-//! so stable rejects `-Z` outright. Every other gate is run with `nix/stable-env.sh` sourced
-//! first, because clippy's lint set differs between channels and this workspace gates on the
-//! whole `restriction` category. This one must NOT be wrapped that way - wrapping it is the one
-//! thing that breaks it. It is `Kind::Standalone` for the same reason: `cargo xtask hygiene` is
-//! a cheap sweep that runs on hosts with no Rust nightly at all.
+//! WHAT EXACTLY NEEDS NIGHTLY, because the answer is narrower than it looks and the difference is
+//! worth minutes of CI. `--output-format json` is an unstable rustdoc option, so stable rejects
+//! `-Z` outright and there is no stable route to the JSON - verified on the 1.98.0 pin, whose
+//! `rustdoc --help` offers `--output-format [html]` and nothing else. But this crate has no
+//! `#![feature]` in it, so THIS BINARY compiles on stable, and [`rustdoc_json`] reaches the JSON
+//! by spawning a child. The requirement is the child's. `flake.nix` acts on that: the check that
+//! runs this shares the stable dependency closure with every other gate and hands the child a
+//! nightly `$CARGO`, a `CARGO_TARGET_DIR` of its own so two channels never share artifacts, and
+//! `SUTURA_API_DOCS_PROFILE` so its compile is at opt-level 0.
+//!
+//! Every other gate is run with `nix/stable-env.sh` sourced first, because clippy's lint set
+//! differs between channels and this workspace gates on the whole `restriction` category. The
+//! `cargo rustdoc` line here must NOT be wrapped that way - wrapping it is the one thing that
+//! breaks it. It is `Kind::Standalone` for the same reason: `cargo xtask hygiene` is a cheap sweep
+//! that runs on hosts with no Rust nightly at all.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -56,6 +65,24 @@ const GENERATED_MARKER: &str = "<!-- GENERATED FILE - do not edit.";
 /// For the one caller that cannot use pixi: a Nix build sandbox has no network, so it cannot
 /// materialise a pixi environment. See [`python_command`].
 const PYTHON_ENV: &str = "SUTURA_API_DOCS_PYTHON";
+
+/// Names the cargo profile the `cargo rustdoc` child compiles under.
+///
+/// For the same caller as [`PYTHON_ENV`]: the Nix check. Unset means "say nothing", which leaves
+/// cargo on its default `dev` - the right answer in a dev shell, where `target/` is already warm
+/// under that profile and a second one would be a second full closure on the developer's disk.
+///
+/// Set, it is worth a lot. The DEFAULT is not cheap here: Cargo.toml carries `opt-level = 3` in
+/// both `[profile.dev.package."*"]` and `[profile.dev.build-override]`, and `debug = true` over
+/// the whole closure, so `dev` asks for optimised, debuginfo-carrying builds of every dependency
+/// and every build script on the way to a JSON file. Documenting a crate needs its dependencies
+/// as `rmeta`, not as codegen, and `ci` is the profile this repo already keeps for exactly that
+/// bargain.
+///
+/// A profile NAME and not a boolean: naming it here and in `flake.nix` is what lets the gate and
+/// the `just api` writer compile into the same place under the same settings, and the two
+/// disagreeing is the failure this module's header is about.
+const PROFILE_ENV: &str = "SUTURA_API_DOCS_PROFILE";
 
 /// How much of a differing line to print. Long enough to recognise, short enough that a
 /// hundred-column signature does not wrap the verdict into unreadability.
@@ -217,9 +244,15 @@ fn cargo_bin() -> String {
 
 /// Produce one crate's rustdoc JSON.
 ///
-/// The arguments are the ones in the justfile's `api` recipe, in the same order, for the
+/// The arguments are the ones the `api` recipe's writer uses, in the same order, for the
 /// same-code-path reason in this module's header.
+///
+/// THE ONE STEP THAT NEEDS NIGHTLY, and it is a CHILD PROCESS. `cargo` here is whichever cargo
+/// the caller named - `$CARGO`, which the Nix check sets to the nightly and nothing else in that
+/// build sees. This binary itself is compiled by the stable pin every other gate uses, which is
+/// why the check can share their dependency closure.
 fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
+    let profile = std::env::var(PROFILE_ENV).ok();
     let status = std::process::Command::new(cargo)
         .current_dir(root)
         // The cranelift backend is INHERITED from the dev shell, and it cannot build this tree:
@@ -231,6 +264,7 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
         .env_remove("CARGO_PROFILE_DEV_CODEGEN_BACKEND")
         .env_remove("CARGO_UNSTABLE_CODEGEN_BACKEND")
         .args(["rustdoc", "-q", "-p", package, "--all-features"])
+        .args(profile_args(profile.as_deref()))
         .args(["--", "-Z", "unstable-options", "--output-format", "json"])
         .status()
         .map_err(|error| format!("could not run `{cargo} rustdoc`: {error}"))?;
@@ -244,6 +278,22 @@ fn rustdoc_json(cargo: &str, root: &Path, package: &str) -> Result<(), String> {
          Every other gate sources nix/stable-env.sh; this one must not, because stable \
          rejects `-Z` outright."
     ))
+}
+
+/// `--profile <name>`, or nothing at all.
+///
+/// A PARAMETER and not a read of the environment, for the same reason as [`python_command`]: a
+/// function that reads a process-global is a function the tests can only exercise by mutating one,
+/// and these tests run in parallel threads.
+///
+/// An empty value counts as unset. Not defensive decoration - a caller that expands an unset shell
+/// variable would otherwise hand cargo a bare `--profile` and get "expected a value", which reads
+/// as a cargo problem rather than as the plumbing mistake it is.
+fn profile_args(profile: Option<&str>) -> Vec<String> {
+    match profile {
+        Some(name) if !name.is_empty() => vec![String::from("--profile"), String::from(name)],
+        _ => Vec::new(),
+    }
 }
 
 /// How to run the generator, as a program and its leading arguments.
@@ -460,7 +510,7 @@ fn report(problems: &[String]) {
 
 #[cfg(test)]
 mod tests {
-    use super::{excerpt, first_difference, is_lib_target, json_file_name, library_packages, python_command};
+    use super::{excerpt, first_difference, is_lib_target, json_file_name, library_packages, profile_args, python_command};
 
     #[test]
     fn identical_files_have_no_first_difference() {
@@ -546,6 +596,19 @@ mod tests {
         });
         let error = library_packages(&metadata).expect_err("no lib target must be an error");
         assert!(error.contains("no workspace package with a `lib` target"), "{error}");
+    }
+
+    #[test]
+    fn a_profile_is_passed_only_when_one_is_named() {
+        // Unset is the dev-shell answer: cargo's default `dev` keeps the developer's `target/`
+        // warm. The Nix check names `ci`, and it must arrive as a FLAG - `CARGO_PROFILE` is
+        // crane's convention and a spawned child sees nothing that turns it into one.
+        assert!(profile_args(None).is_empty());
+        assert!(
+            profile_args(Some("")).is_empty(),
+            "an empty value gives cargo a bare --profile"
+        );
+        assert_eq!(profile_args(Some("ci")), ["--profile", "ci"]);
     }
 
     #[test]

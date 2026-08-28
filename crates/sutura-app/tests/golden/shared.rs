@@ -35,7 +35,7 @@ pub(crate) fn settings(suffix: &str) -> insta::Settings {
 /// of the split: a golden that pins SQL is asking for a rendering, and says so. It is also a
 /// different CRATE now - `sutura-sql`, a dev-dependency here - so a test that wants SQL declares
 /// that it wants SQL and nothing in `src/` pulls a generator in on its behalf.
-pub(crate) fn sql_for(plan: &sutura_domain::plan::QueryPlan, dialect: Dialect) -> sutura_domain::warehouse::GeneratedQuery {
+pub(crate) fn sql_for(plan: &sutura_domain::plan::QueryPlan, dialect: Dialect) -> sutura_sql::GeneratedQuery {
     sutura_sql::generate(plan, dialect).expect("a planned question renders")
 }
 
