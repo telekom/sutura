@@ -59,26 +59,50 @@ is allowed because a typed, exhaustive error enum already is the documentation.
 `sutura-domain` is the hexagon's interior. Everything else is an adapter that depends on it,
 and nothing depends on an adapter.
 
-**There are no port traits yet, and that is deliberate.** A port exists to invert a dependency
-on something outside the hexagon, and no adapter exists to invert. A trait with no implementor
-and no caller is a guess at a signature only the first real adapter can settle - and in a
-library crate `pub` hides it from `dead_code`, which is how an unused item survives review. Do
-not add one speculatively.
+**Three ports exist, and each arrived with its implementor.** That is the rule - `AGENTS.md`'s
+*Layout* states it as "a port trait arrives with its first implementor" - and it is also why there
+is no fourth. A trait with no implementor and no caller is a guess at a signature only the first
+real adapter can settle, and in a library crate `pub` hides it from `dead_code`, which is how an
+unused item survives review. `CredentialBroker` is the live example: module comments in
+`sutura-domain`, `sutura-config` and `sutura-http` name it as the port that would mint a credential
+per request, and it is deliberately **absent** rather than sketched. Do not add one speculatively.
 
-When the first adapter does arrive:
+| Port | Declared in | Implemented by |
+| --- | --- | --- |
+| `Warehouse` - driven | `sutura-domain`, `warehouse.rs` | `DataFusionWarehouse`, the engine that ships; `DuckDbWarehouse` on the dev-dependency leg; the fakes |
+| `SemanticCatalog` - driven | `sutura-domain`, `pinned.rs` | `LocalCatalog` in `sutura-catalog-local`; the fakes, and the hand-written oracle the goldens compare against |
+| `Surface` - driving | `sutura-app`, `surface.rs` | `LocalService<W>`, and nothing else |
+
+**Driven and driving are not the same rule, and the difference decides which crate declares the
+trait.** A driven port is dependency inversion: the interior declares what it needs and an adapter
+outside implements it, so the trait sits inside the hexagon or the direction reverses. A driving
+port inverts nothing - the caller is already outside and the implementation is already the
+application - so it has no adapter to arrive with, and `LocalService` is not an adapter but this
+crate's own service with the warehouse's generic parameter erased. `Surface` was declared in
+`sutura-http` once, and a review was right that a transport is the wrong crate for it: a second
+transport would have had to reach the application's interface through the HTTP one, and nothing here
+depends on an adapter. The whole argument - including why deleting a one-implementation trait was
+the weaker option - is in `sutura_app::surface`'s own module documentation. Read that before moving
+a port or adding one.
+
+The rules, now that there are ports to apply them to:
 
 | Rule | Caught by |
 | --- | --- |
 | No framework type reaches the domain - no `tokio`, `axum`, `rmcp`, `datafusion`, `arrow` in its tree | `check-boundaries` - a transitive **allowlist**, so a framework arriving through an innocuous crate fails too. The strongest of the three: a type cannot appear without its crate |
-| The **domain** declares the trait, named for what the domain needs (`Warehouse`, `SemanticCatalog`, `CredentialBroker`) | *review* |
-| A port's methods take and return domain types and domain errors only | *review* |
+| A **driven** port is declared by the domain, named for what the domain needs | *review* |
+| A **driving** port is declared by the application, never by one of its callers | *review*. `AGENTS.md` carries this one as an invariant and says plainly that it is not gated: `check-boundaries` reads dependency direction, not which crate declares a trait |
+| A port's methods take and return domain types and domain errors only | *review*. `Surface` is where that costs something: erasing the warehouse's generic parameter erases the adapter's error TYPE, so `SurfaceFailure` keeps the error itself, owned, as a `#[source]` - the reasoning is under *Design Principles* in `AGENTS.md` |
+| A port's methods stay synchronous for as long as `Warehouse` is | *review*. The engine drives its own runtime and blocks on it, so an `async` port would hide the requirement that a transport move the call onto a blocking pool - a runtime cannot be entered from within a runtime |
 | The adapter wraps the third-party library and maps its errors to the domain's at the boundary | *review* |
-| Composition happens once, in `sutura-cli`; generics with trait bounds, not `dyn` | *review* |
+| Composition happens in a composition root and nowhere else - `sutura-cli` for the CLI, `sutura-serve` for the HTTP surface | *review*. Both consume both driven ports, which is what lets a transport be transport-only: it never reads a catalog directory and never opens a data system |
+| Generics with trait bounds for a driven port; `dyn` exactly once, and only for the driving one | *review*. `LocalService<W>` is generic in the warehouse and `start` is generic in the catalog; `ServiceState` holds `Arc<dyn Surface>`, because an `axum` handler is a concrete function - a generic port there would make the router, its state and the generated interface description generic too |
 | An adapter never calls another adapter | *review* |
 | No `#[derive(Serialize)]` on a domain type for a transport's convenience - a wire shape belongs to the transport | *review*. `DefinitionDigest` does derive serde, because a pinned snapshot is persisted data rather than a transport shape; that is the exception, and `#[serde(try_from)]` is what keeps it from being a hole |
 
 Ports get **fakes**, not mocked HTTP - that is what lets the whole tool surface, refusals
-included, be tested without a warehouse.
+included, be tested without a warehouse. `sutura-http::testing` holds a working double and a
+failing one for both driven ports; `sutura-app/tests/support` holds the recording and oracle ones.
 
 ## 1. The whole `restriction` category is on
 
