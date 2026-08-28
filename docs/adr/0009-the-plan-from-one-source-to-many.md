@@ -1,6 +1,6 @@
 ---
 title: The plan, from one source to many and one user to many
-description: The order in which federation and impersonation get built, plus the five decisions that belong to no single record - a token exchange as the basis of impersonation, which aggregates survive descending, the three bounds that make a pull-up affordable, conformance over per-source tests, and why nothing on the path being built inlines a literal - so the bind-parameter row keeps its mechanism.
+description: The order in which federation and impersonation get built, plus the five decisions that belong to no single record - a token exchange as the basis of impersonation, which aggregates survive descending, the two bounds that make a pull-up affordable and the third that counted the wrong thing, conformance over per-source tests, and why nothing on the path being built inlines a literal - so the bind-parameter row keeps its mechanism.
 ---
 
 # The plan, from one source to many and one user to many
@@ -138,26 +138,48 @@ the pushed statement. A hand-written renderer that silently stopped pushing and 
 a whole table was measured at seven times the memory with a correct answer and no diagnostic. Silence
 is the failure mode here, not error.
 
-## Decision 3: three bounds, and only one of them is a memory bound
+## Decision 3: two bounds, and the third counted the wrong thing
 
 "Worst case we pay the processing cost" is only a cost if it is bounded. Unbounded is not a cost, it is
 an outage. But the earlier version of this section called a result-size ceiling a memory bound, and it
-is not one: a join or an aggregate can exhaust the combiner long before a result exists. Each bound is
-named for what it actually counts.
+is not one: a join or an aggregate can exhaust the combiner long before a result exists. Naming each bound for
+what it actually counts is also what retired the third one: a count of rows per leg protects nothing that
+is scarce.
 
 | Bound | What it counts | Failure mode without it |
 | --- | --- | --- |
-| **Rows, per leg** | Rows a leg returns before the combine sees them | With the pull-up, a leg is grouped by the remote join key - and for a distinct count, by the distinct key - so its row count is the KEY CARDINALITY, not the answer's size |
+| ~~Rows, per leg~~ | ~~Rows a leg returns before the combine sees them~~ | **RETIRED** - see below. A leg is grouped by the remote join key, so its row count is KEY CARDINALITY: unrelated to the answer's size and unrelated to the memory the combine needs |
 | **Working set, per query** | The combiner's operator reservations: hash-join build side, aggregate state, sort | Shipped profiles compile `panic = "abort"`, so an allocation failure is PROCESS DEATH for every caller |
 | **Wall clock, per query** | Time from admission to last row | A query runs on behind an abandoned response |
 
-**The per-leg row bound needs a number, and the existing one is wrong for this shape.** The row cap is
-`max_rows + 1` over an ANSWER. A leg grouped by a join key is not an answer: 0007 already priced the
-case - revenue by region over fifty thousand customers refuses at 10,001 while its answer is twelve
-rows. So either the per-leg bound gets its own default, well above the answer cap, or it is retired in
-favour of the working-set bound and 0007's paragraph moves with it. **Unresolved, and it blocks the
-headline demonstration rather than a corner case.**
+**The per-leg row bound is RETIRED, and the working-set bound is what replaces it.** This was the one
+open question in this record, and it is now decided: **a leg is bounded in BYTES, not in rows.** The
+reason the row bound was wrong is not that it was inconvenient - it counted the wrong thing. A leg
+grouped by a remote join key returns key cardinality, which has no relationship to how much memory the
+combine needs or to how large the answer is: `revenue by region` over fifty thousand customers is fifty
+thousand rows of two small columns, which is a few megabytes, and its answer is twelve rows. A row count
+cannot tell that from fifty thousand rows of wide text. The working set can, because it counts what is
+actually scarce.
 
+So, precisely:
+
+- **A federated leg's statement carries no answer-shaped row cap.** `row_limit()` is `max_rows + 1` over
+  an ANSWER, and a leg is not an answer. The mono-source path is unchanged - **no existing golden
+  moves**, and AGENTS.md's counted claim about 63 goldens reading `LIMIT 10001` stands as written,
+  because a federated leg is a new plan shape with its own goldens rather than an edit to those.
+- **The answer keeps its row cap, unchanged.** A result at the cap is still distinguishable from one cut
+  off by it, and `answer()` still returns `ResultTooLarge`. That bound is about what a caller receives
+  and is not what this retires.
+- **The working-set ceiling is what refuses a runaway leg**, and it refuses on the quantity that would
+  actually have exhausted the process. 0007's paragraph pricing the per-leg cap - the twelve-row answer
+  refused at 10,001 - is superseded by this, and that paragraph says so rather than being deleted, since
+  the arithmetic in it is why the bound moved.
+
+**What this gives up, stated rather than glossed:** there is no longer a cheap early refusal on a leg
+that is about to return an enormous number of narrow rows. The working-set bound catches it, but later -
+when the combine reserves memory - rather than at the moment the rows arrive. That is the trade, and it
+is the right one, because the alternative refused correct twelve-row answers at a threshold that had
+nothing to do with the resource being protected.
 **The working-set bound is the engine's memory pool, and its limits are part of the claim.** The pool
 counts what its operators reserve and nothing else: not the row set a driver hands back, not a leg's
 buffers before conversion. So the honest statement is that it bounds the COMBINE, and the two gaps

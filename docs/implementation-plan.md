@@ -34,7 +34,7 @@ internal that a stable surface can grow behind.
 | 15 | `feat/source-mtls` | 7, 13 | after 13 |
 | 16 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
 | 17 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 18 | `ci/prose-change-cost` | nothing - measure first | **yes** |
+| 18 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
 
 **Three orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:**
@@ -264,28 +264,41 @@ being translated into.
 **Done when** anything that records a call records the chain, and the budget key includes it even
 though the tail is always absent.
 
-## The three bounds
+## The two bounds
 
-**Goal.** A result-size ceiling, a query timeout, and a per-leg row bound. Each a typed refusal, never
-a truncation.
+**Goal.** A working-set ceiling and a query deadline. Each a typed refusal, never a truncation. **A
+per-leg row bound is deliberately NOT here** - it is retired by
+[the plan](adr/0009-the-plan-from-one-source-to-many.md), because a count of rows per leg protects
+nothing scarce: a leg grouped by a join key returns key cardinality, so 50,000 narrow rows is a few
+megabytes and its answer is twelve rows. Bytes are the bound; the answer keeps its own row cap.
 
 **Touches.** `crates/sutura-config/src/limits.rs` for the settings,
 `crates/sutura-domain/src/query.rs` for the refusal variants.
 
-**Adds.** Three newtypes with defaults - **1 GB result ceiling, three-minute query timeout** - set
-globally and overridable **per source**. Three refusal variants, each provokable.
+**Adds.** Two newtypes with **provisional** defaults - **1 GB working set, three-minute deadline** - set
+globally and overridable **per source**. Provisional is the operative word: nobody has measured them, so
+this step measures them on the corpus and the numbers in the record are a starting point rather than a
+finding. Two refusal variants, each provokable. The ceiling is checked against the memory the process
+actually has at boot and refuses to start above it, because `panic = "abort"` makes an over-configured
+ceiling process death by default.
 
 **Tests.**
-- `a_result_over_the_ceiling_is_refused_rather_than_truncated`.
+- `an_oversized_intermediate_is_refused_rather_than_aborting_the_process` - an operator reservation over
+  the ceiling, not a large result, because the reservation is the thing this bound counts.
+- `a_result_over_the_answer_row_cap_is_refused_rather_than_truncated` - the existing cap, unchanged, and
+  asserted here so retiring the per-leg bound cannot be mistaken for retiring this one.
 - `a_query_over_its_deadline_is_refused_and_the_execution_is_cancelled`.
 - `a_per_source_override_wins_over_the_global_default`.
 - `a_ceiling_of_zero_is_refused_at_parse` - the newtype does the work.
 - One test per refusal variant, because a variant no test can provoke is one the enum refuses to
   carry.
 
-**Done when** each bound produces its own refusal, the memory bound is shown BITING rather than
-described, and a partial answer is impossible. `panic = "abort"` is why the memory one matters: an
-allocation failure is process death for every caller, not an error for one.
+**Done when** each bound produces its own refusal, the working-set bound is shown BITING rather than
+described, the two defaults are backed by a measurement, and a partial answer is impossible. And when
+the deadline question is settled rather than deferred: `Warehouse::execute` is synchronous, so either the
+deadline travels on the port and each adapter cancels for real, or this bound is honestly "stop waiting"
+and the test says so. `panic = "abort"` is why the working-set one matters: an allocation failure is
+process death for every caller, not an error for one.
 
 ## The startup refusals that already hold
 
@@ -749,19 +762,34 @@ economise.
 
 **In order, and stop as soon as it is fast enough:**
 
-1. **Find out whether these numbers are cache misses.** Both runs measured were the first after a
+1. ~~**Exclude ADR pages from the workflows.**~~ **DONE, and it was two defects rather than one.**
+   `mkdocs.yml` and `.github/workflows/docs.yml` were in `docs.yml`'s filter AND matched `ci.yml`'s
+   leading `**`, so an ADR-only pull request that added a nav entry started BOTH workflows - the
+   "exactly one workflow starts" claim in `docs.yml`'s header was false and had never been checked.
+   `ci.yml` now excludes those two paths by name. And `docs.yml`'s `verify` job skips the 15m45s
+   `hygiene` build when every changed path is markdown under `docs/` or `mkdocs.yml`, keeping the
+   3-second `mkdocs --strict` build, which is what actually catches a dead link, a bad anchor, a page
+   in no nav entry, a nav entry with no file and a missing asset. It **fails open** the way `classify`
+   does, and two consequences were checked case by case rather than assumed: `AGENTS.md` still runs
+   the gates, because `check-guidance` reads it and reads nothing else; and a non-markdown asset under
+   `docs/` still runs them, because `check-docs` is what resolves it. The residual risk is precise and
+   is not zero: a `just` task citation in ADR prose that does not exist is now caught on the `main`
+   push rather than on the pull request, where it blocks the publish. The rest of this section is what
+   remains, and it is unchanged - the closure is still the cost, and excluding pages was never going
+   to fix that on its own.
+2. **Find out whether these numbers are cache misses.** Both runs measured were the first after a
    force-push. The same gates locally are seconds. Restructuring a workflow on a cold-cache
    measurement is how a fix gets built for a problem nobody had.
-2. **Give the verify job the cache `ci.yml` already uses.** The docs workflow omits it deliberately and
+3. **Give the verify job the cache `ci.yml` already uses.** The docs workflow omits it deliberately and
    the reasoning is sound - the Actions cache is writable from a pull request and a *published* page
    must not be built from a store path a pull request could have placed there. But that argument is
    about publishing. The verify job runs on a pull request with a read-only token and publishes
    nothing, and `ci.yml` already accepts exactly this risk to gate merges. Cache verify, leave publish
    uncached, and say so where the current comment says the opposite.
-3. **Only if it is still slow warm:** separate the gates that read prose from the ones that need a
+4. **Only if it is still slow warm:** separate the gates that read prose from the ones that need a
    compiler, so a prose change runs `check-docs`, `check-guidance`, `text-hygiene`, `line-endings` and
    `max-lines` without a dependency closure. That needs a prebuilt `xtask`, which is its own piece of
-   work and should not be started before the measurement in point 1 above says it is necessary.
+   work and should not be started before the measurement in point 2 above says it is necessary.
 
 **Done when** an ADR-only change is gated in about a minute rather than seventeen, with `check-docs`
 and mkdocs `--strict` still running, and with the publish job's cache posture unchanged.

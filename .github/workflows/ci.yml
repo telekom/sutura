@@ -51,6 +51,20 @@ name: ci
 # under docs/ has its own workflow and must never start this 120-minute one, not even if
 # somebody writes `docs/.../catalog/x.md`.
 #
+# `!mkdocs.yml` and `!.github/workflows/docs.yml` sit beside it, and they are a FIX rather than a
+# refinement. This file and docs.yml each claim to be complements - "exactly one workflow starts
+# for any given edit" - and they were not: both of those paths are in docs.yml's filter AND matched
+# the leading `**` here, so an ADR-only pull request that added a nav entry started BOTH, paying
+# this 120-minute chain and the docs job's own gates for a prose change. Neither path can affect
+# what cargo produces: `mkdocs.yml` is read by mkdocs and by `check-docs`, which docs.yml runs,
+# and a workflow file is read by nothing but Actions. Measured on the pull request that found
+# this, `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
+#
+# NOT excluded, and deliberately: `devco/**`. `devco/max-lines-ignore` decides what `max-lines`
+# exempts, so a change to it changes what a gate accepts and the gate has to run. It is a
+# configuration file for our own tooling, not prose, and the fact that one edit to it happened to
+# exempt a docs directory does not make it docs.
+#
 # A path filter matches the event's CHANGED FILES and the workflow runs if at least one of them
 # survives the list, so a commit touching a README and a metric runs - the metric is the reason
 # CI exists.
@@ -68,6 +82,8 @@ on:
       - "**/catalog/**/*.md"
       - "**/fixtures/**/*.md"
       - "!docs/**"
+      - "!mkdocs.yml"
+      - "!.github/workflows/docs.yml"
   # The same list twice, and it has to stay the same list. A filter that let a path start a run
   # on `main` but not on the pull request that introduced it would report the merge green and
   # then fail immediately after it.
@@ -80,6 +96,8 @@ on:
       - "**/catalog/**/*.md"
       - "**/fixtures/**/*.md"
       - "!docs/**"
+      - "!mkdocs.yml"
+      - "!.github/workflows/docs.yml"
 
 permissions:
   contents: read

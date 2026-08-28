@@ -19,7 +19,12 @@
 # markdown documents but they are not prose - a metric's `measure:` decides generated SQL - so
 # `ci.yml` re-includes them and the `!**/catalog/**/*.md` pair below takes them back out here.
 # Exactly one workflow starts for any given edit, which is what makes "checked by the cheaper
-# workflow" a statement about this repository rather than a hope.
+# workflow" a statement about this repository rather than a hope. THAT CLAIM WAS FALSE UNTIL IT WAS
+# CHECKED: `mkdocs.yml` and this file itself are in the filter below AND matched `ci.yml`'s leading
+# `**`, so an ADR-only pull request that added a nav entry started both workflows. `ci.yml` now
+# excludes those two paths by name, with the reasoning at its own filter. The lesson is the one this
+# repository keeps relearning: a complement asserted in a comment is not a complement, and the check
+# that would have caught it is comparing the two lists rather than reading either.
 #
 # Two jobs, split by what they are allowed to do rather than by what they compute. `verify` runs
 # on a pull request with a read-only token; `publish` runs only from `main` or a `v*` tag and is
@@ -94,6 +99,69 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+          # The scope step below diffs against the base, so it needs history. This repository
+          # is small and the docs job does no compilation, so a full fetch is cheaper than the
+          # 15m45s it decides whether to skip.
+          fetch-depth: 0
+
+      # WHY THIS STEP EXISTS, measured rather than assumed: in this job the site build is 3
+      # seconds and the structural gates are 15m45s, because they build a Rust dependency
+      # closure so `xtask` can read files. A pull request that edits an ADR therefore paid a
+      # quarter of an hour to have prose checked, which is the cost this decides not to pay.
+      #
+      # What is skipped and what is NOT. `mkdocs --strict` always runs, and it is what covers
+      # the risk a new or edited page actually carries: a dead link, a bad anchor, a page in no
+      # nav entry, a nav entry with no file, a referenced asset that is missing - all of those
+      # are errors under `--strict` rather than warnings. What is deferred is the rest of
+      # `hygiene`, and `check-guidance` is the one that matters: it fails a citation of a `just`
+      # task that does not exist, and ADR prose does cite them. That check is not lost, it moves
+      # to the `main` push, where this same workflow runs the full gates before publishing. So
+      # the residual risk is precise: a bad task citation in an ADR is caught on merge rather
+      # than on the pull request, and it blocks the publish rather than the merge.
+      #
+      # `mkdocs.yml` counts as prose here on purpose. Adding an ADR requires a nav line, so
+      # excluding it would mean every NEW record paid the full cost - which is most of them -
+      # and nav consistency is exactly what `--strict` checks in those 3 seconds.
+      #
+      # It fails OPEN, in the same direction as `xtask classify`: any path that is not markdown
+      # under docs/ and is not mkdocs.yml runs the gates. A file nobody anticipated is checked
+      # rather than skipped, and the expensive failure here is a skipped gate, not a spent
+      # runner minute.
+      #
+      # Two consequences of that are deliberate rather than accidental, and were checked case by
+      # case rather than reasoned about:
+      #
+      #   * `AGENTS.md` runs the gates, even though it is prose. It is the root of trust and
+      #     `check-guidance` reads it - a citation of a `just` task that does not exist fails there
+      #     and nowhere else - so a change to it is the last thing that should skip them.
+      #   * an asset under docs/ that is not markdown, a `.png` say, runs the gates, because
+      #     `check-docs` is what resolves an asset `mkdocs.yml` references.
+      - name: Is this a prose-only change
+        id: scope
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -eu
+          changed=$(git diff --name-only "$BASE_SHA"...HEAD)
+          if [ -z "$changed" ]; then
+            # Fails open: an empty diff is a state nobody planned for, so run everything.
+            echo "::warning::empty diff against the base - running the structural gates"
+            echo "prose_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # `grep -v` exits 1 when nothing survives, which is the prose-only case, so `|| true`
+          # keeps `set -e` from reading success as failure.
+          offender=$(printf '%s\n' "$changed" \
+            | grep -Ev '^docs/.*\.md$' \
+            | grep -Ev '^mkdocs\.yml$' \
+            | head -1 || true)
+          if [ -n "$offender" ]; then
+            echo "not prose-only: $offender"
+            echo "prose_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "prose_only=true" >> "$GITHUB_OUTPUT"
+            echo "::notice::prose-only change - structural gates deferred to the main push; mkdocs --strict still runs"
+          fi
 
       # Before nix installs: /nix/store is what fills. See
       # `.github/actions/reclaim-disk` for why this is local and why it cannot
@@ -117,7 +185,12 @@ jobs:
       # The gates judge prose too, and this is the only workflow a prose-only change starts.
       # `check-docs` is in here: it rejects a nav entry with no file, a page in no nav entry, and
       # an asset `mkdocs.yml` references but does not have.
+      #
+      # SKIPPED for a prose-only pull request - see the scope step above for what that covers and
+      # what it defers. Unconditional in `publish` below, so `main` always pays for the full set
+      # before anything is published.
       - name: Structural gates
+        if: steps.scope.outputs.prose_only != 'true'
         run: nix build .#checks.x86_64-linux.hygiene -L
 
       # `--strict` turns a dead link, an orphan page and a bad anchor into a failure. Without it

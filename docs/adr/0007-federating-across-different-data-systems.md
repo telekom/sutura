@@ -328,13 +328,19 @@ What is genuinely new, stated as cost rather than hidden in the shape:
 - **A second plan type for a lookup leg**, because `QueryPlan` requires a bucket, a measure and a
   measure label and a dimension table has none of the three. A domain type, a `sutura-sql` entry
   point, a golden family, and a port method or a second port.
-- **A per-leg row cap, and it is not the answer's cap.** `row_limit()` is `max_rows + 1` so a result
-  at the cap is distinguishable from one cut off by it. Grouped by a customer key rather than a
-  region, the aggregate leg's row count is the *key* cardinality: `revenue by region` over 50,000
-  customers refuses at 10,001 while its answer is twelve rows. The honest default is to refuse with
-  the cap that exists, and raising it is the first time this process would hold more rows than it
-  certifies - which is AGENTS.md's *anything that stores or forwards rows* row, and a human review
-  question rather than an agent's.
+- ~~A per-leg row cap~~. **SUPERSEDED by [the plan](0009-the-plan-from-one-source-to-many.md): a leg is
+  bounded in BYTES, not in rows.** The arithmetic stays because it is why the bound moved. `row_limit()`
+  is `max_rows + 1` over an ANSWER. Grouped by a customer key rather than a region, the aggregate leg's
+  row count is the *key* cardinality: `revenue by region` over 50,000 customers refuses at 10,001 while
+  its answer is twelve rows - a correct answer refused at a threshold with no relationship to the
+  resource being protected, since 50,000 rows of two narrow columns is a few megabytes. So a federated
+  leg's statement carries no answer-shaped cap, the working-set ceiling refuses a runaway leg on the
+  quantity that would actually have exhausted the process, and the answer keeps its own row cap
+  unchanged. **No existing golden moves:** the mono-source path is untouched and a federated leg is a new
+  plan shape with its own goldens. What is given up is the early refusal - the ceiling bites when the
+  combine reserves memory rather than when the rows arrive. AGENTS.md's *anything that stores or forwards
+  rows* row still applies to the process holding more rows than it certifies, and that remains a human
+  review question rather than an agent's.
 - **The join key's type is constrained.** `Value` has four variants and one is `Real`. Joining on a
   float is a wrong answer waiting for a rounding difference, so a cross-source join key is `Integer`
   or `Text`, refused otherwise.
@@ -359,7 +365,7 @@ The direct answer, because it is the question this record was asked to settle.
 `SourceName`s, two `DuckDbWarehouse`s, two legs rendered in the already-golden `duckdb` dialect, one
 combine. That is the smallest possible instance of the real machinery: **no new dependency, no new
 dialect, no network, no credential, no licence review** - and every track-2 mechanism gets built and
-tested against it, from the decomposability refusal to the keyed warehouse set to the per-leg row cap.
+tested against it, from the decomposability refusal to the keyed warehouse set to the working-set ceiling.
 
 Being precise so this is not over-claimed: by ADR 0006's own definition two files under one process
 and one set of file permissions are **one** data system storing its tables in two places. Declaring
@@ -449,7 +455,7 @@ owes, because a step whose test passes against the base behaviour proves nothing
 6. **The lookup-leg plan type, its generator entry point and its goldens.** The first step that moves
    the definition digest, because a new domain type changes a serialized form.
 7. **The combine, above the port, with two DuckDB files as its first instance** - assumption 6 becomes
-   per-leg. Where the per-leg row cap lands, where the `RowSet`-to-Arrow question is answered rather
+   per-leg. Where the working-set ceiling lands, where the `RowSet`-to-Arrow question is answered rather
    than deferred, and where `differential.rs` gets its new shape.
 8. **Only then the plan-stage refusal** - assumption 4, re-keyed from *a plan spanning two sources* to
    *a plan spanning two identities*, which is the property that was always meant. It cannot be written
@@ -537,9 +543,10 @@ governance boundary is crossed that nothing in this system models.
 
 ## What is explicitly not decided
 
-- **Whether the per-leg row cap is the answer's cap or a larger one.** Refusing at 10,001 grouped rows
-  makes correct questions unanswerable; raising it is the first time this process holds more rows than
-  it certifies.
+- ~~**Whether the per-leg row cap is the answer's cap or a larger one.**~~ **DECIDED by 0009: neither -
+  the per-leg row cap is retired.** A leg is bounded in bytes by the working-set ceiling, which counts
+  the resource that is actually scarce; refusing at 10,001 grouped rows made correct twelve-row answers
+  unanswerable at a threshold unrelated to memory.
 - ~~**Whether `Avg` is rewritten or refused.**~~ **DECIDED by 0009: rewritten.** Rewriting it into a `SUM` and a `COUNT` is exact and
   means a leg's `PlanMeasure` is not the metric's, which is a second place a measure can be
   represented. Refusing it is honest and loses a shipped metric.
