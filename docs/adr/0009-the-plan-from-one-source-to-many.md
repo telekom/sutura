@@ -244,8 +244,13 @@ a threshold that had nothing to do with the resource being protected.
 counts what its operators reserve and nothing else: not the row set a driver hands back, not a leg's
 buffers before conversion. So the honest statement is that it bounds the COMBINE, and the two gaps
 either side of it are named rather than implied. Its failure has to become a typed refusal rather than
-an abort, and whether the policy is spill-then-fail or fail-immediately is a decision, not a default to
-inherit.
+an abort. **And the policy is DECIDED: fail immediately, never spill.** Two reasons, and the second is
+the one that settles it. A refusal the caller sees beats a degraded answer it cannot, which is this
+repository's stated posture on the query path. And spilling writes the ASKING SUBJECT'S ROWS to the
+pod's local disk - a data-at-rest surface nothing in this design governs, on the one path whose whole
+purpose is that a query executes as the person who asked. A bound that protects memory by creating an
+ungoverned copy of the data has not protected anything. So: no spill directory, no disk sizing, and a
+refusal that does not depend on disk state.
 
 **Naming that gap is not closing it, so here is what closes it and where.** A leg big enough to exhaust
 the process exhausts it while the driver is still materialising its `RowSet`, BEFORE the combiner
