@@ -42,8 +42,7 @@ plan is a `BTreeMap`.
 
 ## Decision 1: three-legged OAuth is the basis of impersonation, not an option beside it
 
-**A source that cannot be reached under the asking subject's own identity cannot carry critical
-data.** Impersonation is a must-have for the sources configured for it, and the mechanism is
+**A source reached under one shared identity cannot answer per subject, and the answer must say so.** Impersonation is a must-have for the sources configured for it, and the mechanism is
 three-legged OAuth: leg 1 authenticates the caller to sutura with a token audience-bound to sutura,
 and leg 2 reaches the source AS that subject. The client's token is never forwarded upstream, and
 there is no service-account fallback, because ADR 0008 removes the signature that could have one:
@@ -56,7 +55,7 @@ Per source, and each of these is a capability claim to re-verify before it is de
 | PostgreSQL 18 | Native `oauth` method in `pg_hba.conf`, SASL OAUTHBEARER per RFC 7628, token validated by a pluggable validator module, then MAPPED to a database role | The connection *is* the subject. Per-subject connections, not role switching |
 | BigQuery | Workforce identity federation plus an RFC 8693 exchange, yielding a token whose principal is the person | Service-account impersonation cannot produce a person, so it is not the path |
 | Oracle | Proxy authentication, which switches identity on an existing physical connection and records `PROXY_USER` beside `SESSION_USER` | The only one that records the chain natively |
-| DuckDB | It cannot. One process, one OS identity | Permitted for NON-CRITICAL data only, and in the single-user role |
+| DuckDB | It cannot. One process, one OS identity | Declares `SharedServiceUser`, which is honest and is recorded in the answer |
 
 **PostgreSQL 18 replaces the mechanism rather than mitigating it, and that is the news.** ADR 0008
 records in detail why the obvious design was unusable: `RESET ALL` does not clear the role, `SET LOCAL
@@ -72,11 +71,17 @@ in use speaks OAUTHBEARER at all** - a pure-Rust protocol implementation may not
 the driver choice part of this decision rather than downstream of it.
 
 **Single-user is a deployment mode, not a smaller multi-user.** Credentials are static configuration,
-one user, one host, not multi-tenant, and a non-impersonating source is fine for everything there.
-Multi-user requires the mode to be declared, with no permissive default, and a critical dataset
-behind a non-impersonating source refuses at BOOT the way `open_engine` already refuses a multi-source
-catalog. ADR 0008 has the shape; the reason it belongs at boot is that a misconfigured deployment
-must never serve one question.
+one user, one host, not multi-tenant. It is a development and proof-of-concept shape, and a
+non-impersonating source is fine for everything there.
+
+**Sutura classifies no data, and that is the point of impersonation.** What a person may see lives in
+the data catalog and in that person's own permissions at the source. There is no sensitivity flag
+here, nothing derived upward through joins, and no refusal because a dataset was labelled - a second
+opinion about someone else's authorization is the failure this design avoids. What sutura declares is
+the source's MODE, per [Pluggable by declaration](0011-pluggable-by-declaration.md), and what it
+records is which mode produced an answer. The startup refusal is therefore narrower and more useful:
+a source declaring an impersonation the deployment cannot perform refuses at boot, because the
+execution port takes a credential and there is no fallback to fall back to.
 
 ## Decision 2: which aggregates descend, and what happens when they cannot
 
@@ -116,7 +121,10 @@ is an outage, so the pull-up path ships with three bounds together:
 | Memory, per query | Nothing bounds a working set today | Shipped profiles compile `panic = "abort"`, so an allocation failure is PROCESS DEATH for every caller |
 | Runtime, per query | Admission shedding and a transport timeout bound waiting and responding, not executing | A query runs on behind an abandoned response |
 
-Each is configured in `sutura-config`'s limits, parsed as a newtype, and produces a **typed refusal**.
+**The numbers, and where they live.** A result-size ceiling of **1 GB per query** and a query timeout
+of **three minutes**, both configurable, set GLOBALLY as defaults with **per-source overrides** - a
+warehouse and a local file do not deserve the same patience. Each is parsed as a newtype in
+`sutura-config`'s limits and produces a **typed refusal**.
 Refused, never truncated, never degraded: a partial answer under a certified metric name and a
 definition digest is worse than an error, because it looks like an answer.
 
@@ -141,8 +149,8 @@ The declaration pattern already exists and should be reused rather than invented
 walks a provider's declared knowledge capabilities through exhaustive matches, and content for an
 undeclared capability fails the load. Generalised to data sources it carries dialect features,
 impersonation, Arrow-native access and per-aggregate pushdown - and the same declaration then answers
-Decision 1's startup refusal, because a source declaring no impersonation cannot serve critical data
-in multi-user mode. One mechanism, two requirements.
+Decision 1's startup refusal, because a source declaring an impersonation the deployment cannot
+perform is a configuration with no fallback. One mechanism, two requirements.
 
 Two tiers, and the boundary between them is structural rather than a preference:
 
@@ -203,7 +211,7 @@ Stacked, smallest first, each step green before the next. `stax` manages the sta
 | 3 | **Per-source configuration**, keyed, parsed as newtypes. | A duplicate alias, a missing file and a relative path each refused at parse, asserted on the variant |
 | 4 | **Two sources, one question, DuckDB both sides.** The split, the per-leg render, the combine. | Rows equal to the single-source corpus; each leg's statement snapshotted; a `CountDistinct` across sources correct |
 | 5 | **The conformance harness.** Extract the shared test functions; declared capabilities per source. | Adding a source touches a registry and a declaration, never a test function |
-| 6 | **The credential port.** `execute` taking a credential, the subject hoisted out of the legs. | No signature exists that can run as the process; a mixed critical pairing refuses at boot |
+| 6 | **The credential port.** `execute` taking a credential, the subject hoisted out of the legs. | No signature exists that can run as the process; a declared impersonation the deployment cannot perform refuses at boot |
 | 7 | **One network source, Postgres first**, on OAuth per Decision 1. | Two subjects, different rows, in the compose tier |
 | 8 | **The compose tier and worktree-aware provisioning.** | Two worktrees provision simultaneously without collision; absent docker prints SKIPPED and exits 0 |
 
@@ -216,12 +224,13 @@ becomes real, and it is the first step that cannot be verified without a live se
 These are gaps in the design as it stands, not open questions about the world. Two of them are cheap
 now and impossible to retrofit, and they are marked.
 
-- **The principal is a chain, not a subject.** An authorization subject plus an ordered list of actors
-  (an agent, a task) is the shape an eventual token exchange maps onto rather than being translated
-  into. **Cheap now, impossible to backfill:** key the budget on the chain from the first record even
-  while the actor is always absent, record the chain in the audit from the first record, and put the
-  task on the request context immediately. A stored row that says only the subject cannot later be
-  told apart from one that meant "an agent acting for" them.
+- **The principal is a chain, and this is now DECIDED rather than open.** The target is stated:
+  permissions for a specific agent, of a specific human, for a specific task. So the shape is human
+  then agent then task, ordered, which is also the shape a token exchange maps onto rather than being
+  translated into. Build it in step 0 while both tail positions are always absent: key the budget on
+  the chain, record the chain wherever a call is recorded, and put the task on the request context.
+  **The reason it cannot wait:** a stored row that says only the subject can never later be told apart
+  from one that meant "an agent acting for" them.
 - **Attenuation.** A task's credential is minted NARROWER than the subject holds - fewer metrics, a
   shorter lifetime, a smaller budget - and monotonically so, never broader. That is what makes an
   agent identity more than bookkeeping, and it is why a credential port takes the whole context rather
@@ -230,10 +239,12 @@ now and impossible to retrofit, and they are marked.
   separately from access, because joining two permitted reads can identify someone neither read
   identified. Sensitivity belongs on provenance as a declared property so the rule has somewhere to
   live before it is needed.
-- **An audit record per call, including refusals, written before the outcome returns.** A refused
-  question is exactly what a governance review wants to see, and an audit trail a client can drop by
-  not reading it is not an audit trail. This is a governance artifact with a retention requirement,
-  not observability.
+- **A record per call including refusals - but no retention obligation of our own.** Under
+  impersonation the sources do their own auditing, each under the asking subject, and single-user
+  deployments are development and proof-of-concept shapes. So sutura keeps no audit archive and
+  inherits no retention duty. What a record is still worth: refusals are the demand signal for which
+  questions have no certified answer, and that is product data rather than a log. Emit it, do not
+  store it as a governance artifact.
 - **A budget checked at PLAN time and shared across replicas.** `dry_run` already exists on the
   warehouse port, so a cost ceiling can refuse BEFORE spending rather than aborting mid-query, which
   is strictly better. Per-pod counters are not a budget.
@@ -248,12 +259,14 @@ now and impossible to retrofit, and they are marked.
   belongs in a refusal rather than a silent scrub.
 - **Advertised tools filtered by scope**, so a tool the caller may not invoke is invisible rather than
   rejected on call.
-- **Four things nobody has written down:** what happens per dependency when it is unavailable (the
-  pinned bundle makes a metadata outage survivable, which is an unclaimed benefit of pinning, while a
-  budget store that cannot be reached must fail closed); whether re-asking a saved question after a
-  definition change returns the old number or the new one; how long an audit record is kept and who
-  may read it, given that a log of who asked what about whom is itself sensitive; and any
-  non-functional target at all - no latency, no concurrency, no result-size ceiling.
+- **Determinism, now stated:** the same semantics over the same data must give the same result. A
+  different number is therefore evidence that the data moved or the semantics did, and never evidence
+  that the system is nondeterministic. Two consequences: nothing in the plan or the render may depend
+  on iteration order, wall-clock time or a set that is not ordered; and telling the two causes apart
+  needs the data side to be identifiable, which is the one part still missing.
+- **Degradation per dependency is the last thing unwritten.** The pinned bundle makes a metadata
+  outage survivable, which is an unclaimed benefit of pinning, and anything that cannot be reached on
+  the authorization path must fail closed. Nobody has written the rest down.
 
 ## What is not decided
 
@@ -270,7 +283,8 @@ now and impossible to retrofit, and they are marked.
   needs - a row limit that is not `LIMIT`, a date truncation that is not `DATE_TRUNC`, a parameter
   marker that is not `?` - lives behind the transpile feature this workspace does not compile. Oracle
   is a generator question before it is an adapter question.
-- **Who declares a dataset critical, and whether an undeclared dataset stops the load.** ADR 0008
-  proposes the model, derived upward through joins so a metric cannot under-declare.
+- ~~Who declares a dataset critical~~. **Decided: nobody here.** Sensitivity lives in the data catalog
+  and in the asking person's permissions at the source, which is what impersonation is for. Sutura
+  declares a source MODE and records which mode produced an answer.
 - **Audit and budget.** One record per call including refusals, and a budget shared across replicas,
   are named in the identity record and have no port here yet.

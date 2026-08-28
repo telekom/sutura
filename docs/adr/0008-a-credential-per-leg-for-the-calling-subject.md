@@ -10,6 +10,15 @@ in the workspace. It decides the shape of the identity path before the first ada
 because both halves of that path are cheap to decide now and expensive to retrofit: the transport has
 to learn a subject, and the execution port has to stop being able to run without one.
 
+**Superseded in one part, by the plan.** Where this record has sutura declaring a dataset critical -
+per model, derived upward through joins - that is withdrawn. Sensitivity lives in the data catalog and
+in the asking person's own permissions at the source, which is what impersonation exists to reach, and
+a classification here would be a second opinion about someone else's authorization. What survives is
+everything about the credential, the chain, the mode a source declares, and the refusal for a mode the
+deployment cannot perform. See
+[the plan](0009-the-plan-from-one-source-to-many.md) and
+[pluggable by declaration](0011-pluggable-by-declaration.md).
+
 It supersedes nothing. It amends one sentence of
 [a refusal carries a status](0005-a-refusal-carries-a-status.md) - the note that "the `403`s are not
 a statement about a credential" - and *What is refused, and what is not a refusal at all* below says
