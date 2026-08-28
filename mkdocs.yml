@@ -167,6 +167,7 @@ nav:
       - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
       - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
       - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
+      - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

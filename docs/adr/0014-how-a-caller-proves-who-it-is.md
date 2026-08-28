@@ -1,0 +1,304 @@
+---
+title: How a caller proves who it is
+description: The other half of the identity path - leg 1, from the caller to sutura - decided because a credential per leg decides only leg 2 and three things already in the plan depend on a claim shape nothing issues. Two inbound modes with no default - this deployment is the resource server, or it validates a proof that the request transited a component that already authenticated the caller - and the deployment token that exists today authenticates a deployment and is neither. In the direct mode the chain to a cloud source needs TWO exchanges rather than one, because our own audience check and a workforce pool provider's required audience cannot both be met by one token. Three client-registration mechanisms rather than one, client-assertion authentication as well as a client secret, an audience validated against our own resource identifier no matter what the client sends, and per-caller ceilings derived from scopes rather than from the question.
+---
+
+# How a caller proves who it is
+
+Status: **accepted as a design, and nothing in it is built.**
+
+[A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) decides **leg 2** - sutura to a
+source, as the asking subject - in detail, and says at its head that both halves of the identity path are
+cheap to decide now and expensive to retrofit. It then decides one half. This record is the other:
+**leg 1, from the caller to sutura.**
+
+It exists because the gap is not theoretical. Three things already in
+[the implementation plan](../implementation-plan.md) consume a claim shape that nothing currently issues:
+
+| What depends on it | What it needs and cannot get |
+| --- | --- |
+| `feat/agent-surface-scope` - advertisement filtered by scope | A scope, on something. There is no issuer, so the filter has nothing to read |
+| [A raw SQL tool, off by default](0013-a-raw-sql-tool-off-by-default.md) | "A caller without the scope does not see it advertised" is that record's load-bearing mechanism |
+| `feat/credential-port` | [The plan](0009-the-plan-from-one-source-to-many.md)'s Decision 1 leaves open who performs the exchange and what audience the inbound token carries - and says that answer decides the port's signature |
+
+The third is the sharp one. `feat/credential-port` is in the stack with nothing ahead of it that answers the
+question its own record says must be answered first. So this is not a feature waiting its turn; it is a
+prerequisite that was never written down.
+
+## What exists today, and why it is not this
+
+`sutura-http` holds a bearer gate. **It authenticates the deployment, not the caller** - `AGENTS.md` says so
+in the crate table, and this record does not change it. One shared token proving that a request came from
+somewhere entitled to reach this service is a perimeter control. It cannot say which person is asking, so it
+cannot select a scope, cannot key a budget, and cannot be the subject leg 2 executes as.
+
+Both survive, and they answer different questions:
+
+- the deployment token: *may this caller reach this service at all*
+- leg 1: *who is asking, and what may they ask for*
+
+A deployment that has only the first is a single-user deployment, which
+[a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) part 5a already describes as a
+first-class shape rather than a degraded one. Multi-user needs both.
+
+## Decision 1: two inbound modes, and neither of them is a default
+
+A deployment either **is** the resource server or **sits behind a component that already authenticated
+the caller**. Both are real, both are supported, and the difference is one fact rather than two code
+paths - so it is a closed enum with a required key, in the shape `TlsTermination` already uses here:
+
+```rust
+/// How the identity of a caller reaches this deployment. Printed at startup, per deployment.
+pub enum InboundIdentity {
+    /// This deployment is the resource server. It validates the caller's token itself:
+    /// signature, issuer, expiry, and an audience matching its own resource identifier.
+    Direct { resource: ResourceIdentifier, authorization_server: IssuerUrl },
+    /// A fronting component authenticated the caller. This deployment validates a
+    /// short-lived proof that the request transited that component, and derives the
+    /// subject from the token that arrives with it.
+    BehindGateway { transit: TransitProof },
+}
+```
+
+**`BehindGateway` does not mean "trust a header", and the type is what stops it meaning that.** A
+component asserting an identity in a header is not authentication - anything that can reach the port
+can write that header. What the variant carries is a **proof the request transited the component**,
+validated on every request, and the subject is still derived by us from a token rather than read from a
+string somebody set. The failure this prevents is the one that is invisible in a diff: a header named
+`x-authenticated-user` that means "authenticated" because of where it is *expected* to come from.
+
+**No default, so a deployment that says nothing does not start.** Both defaults are wrong: defaulting
+to `Direct` makes a gateway deployment reject every caller, and defaulting to `BehindGateway` makes a
+directly exposed deployment accept a forged proof. This is the same argument
+[a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) part 5b makes for a
+source's identity posture, and the same one `Environment` already wins by being a parsed enum rather
+than a string with a fallback.
+
+### What each mode owns
+
+| | `Direct` | `BehindGateway` |
+| --- | --- | --- |
+| Key-set fetch, caching and rotation | **ours** | the component's |
+| Algorithm pinning, and refusing `none` | **ours** | the component's |
+| Audience validated against our own resource identifier | **ours** | n/a - the token was minted for the component |
+| Validating a transit proof | n/a | **ours** |
+| Deriving the subject and the principal chain | **ours** | **ours** |
+| Performing the exchange for leg 2 | **ours** | **ours**, unless the component performs it |
+
+The last two rows are the point: **the mode changes who authenticates the caller, and changes nothing
+about who is responsible for the chain or for leg 2.** A gateway that authenticates is not a gateway
+that impersonates.
+
+### Three things `Direct` newly owns, and each has a standard way to get it wrong
+
+- **Key rotation.** Cache the key set, honour its cache headers, refetch on an unknown key id - and
+  **rate-limit that refetch.** Without the limit, a forged key id turns every request into an outbound
+  call to the authorization server, which is a denial-of-service primitive pointed at our own
+  dependency. This repository already treats availability as a security property rather than an
+  operational one, so it belongs here rather than in a runbook.
+- **Algorithm pinning.** Pin the accepted algorithms; never read the algorithm out of the token being
+  validated; refuse `none`; refuse a symmetric algorithm where an asymmetric one is expected. Algorithm
+  confusion is the classic direct-validation defect and it is silent when it works.
+- **Nothing else validates the token.** Behind a gateway a bug in our validator is a second line of
+  defence failing. Direct, it is the whole authentication story. **So this is the deliberate opposite of
+  how the metrics registry is decided in the same change: hand-roll a text exposition format, never
+  hand-roll signature verification.** The asymmetry is the point - one is a format, the other is
+  cryptography.
+
+## Decision 2: in the direct mode, sutura is an OAuth 2.1 resource server
+
+The chain, and every step of it is a thing a client does rather than a thing we document:
+
+1. An unauthenticated request is refused with a challenge naming where to look.
+2. The client reads **protected-resource metadata** to learn which authorization server governs this resource,
+   and what our resource identifier is.
+3. The client reads that **authorization server's own metadata** to learn its endpoints.
+4. The client **registers**, by one of three mechanisms below.
+5. Authorization code flow **with PKCE**.
+6. The client presents an access token **audience-bound to us**, which we validate ourselves.
+
+**"Does the identity provider support OAuth" is not an acceptance criterion**, and stating that plainly is
+half the value of this record. Every provider supports OAuth. What decides whether a client can actually
+connect is which registration mechanism the provider offers, whether it will issue a token for a resource
+identifier that is ours, and whether it supports the client authentication method the client has. Those are
+three separate yes-or-no questions and a deployment can fail on any one of them with OAuth fully supported.
+
+### 1. Three registration mechanisms, not one
+
+A deployment must be able to register a client by **any** of:
+
+- a **client-metadata-document** style, where the client is identified by a URL that serves its own metadata
+- **dynamic registration**, where the client registers itself at an endpoint
+- **manual, per-client** registration, where an operator creates the client out of band
+
+Not a preference list - three supported paths. The reason is that client families differ and we do not control
+them: at least one widely deployed family treats dynamic registration as legacy and will not use it, while
+others implement nothing else. A deployment that supports one mechanism excludes client families for a reason
+that has nothing to do with its security posture.
+
+**The failure this prevents** is the one that costs a week: the provider is fine, the token is fine, and the
+client cannot register, so the integration is declared broken at the wrong layer.
+
+### 2. Client-assertion authentication, as well as a client secret
+
+A confidential client must be able to authenticate with an **asymmetric JWT assertion** and not only with a
+shared secret. A secret is a symmetric credential held by two parties, and rotating it is a coordinated
+outage; an assertion is a signature over a key the client never sends. Supporting only the secret form makes
+the better mechanism unavailable to a client that already has it.
+
+### 3. The audience is validated against our own resource identifier, whatever the client sends
+
+**This is the security decision in the record.** A token is accepted only if its audience matches the resource
+identifier this deployment declares for itself. A client may also send a resource indicator to ask its
+authorization server for a correctly scoped token - that is welcome, and it is an **optimisation**, because it
+makes the token narrower before it ever reaches us. It is never the thing that makes the token safe.
+
+The distinction matters because the two are easy to conflate and the failure is silent: a deployment that
+trusts the client's indicator accepts a token minted for somebody else's resource, presented by a client that
+asked nicely. The check is ours, it is unconditional, and it is not skippable when the indicator is absent.
+
+**A token with no audience, or an audience we do not recognise, is refused as unauthenticated** - a transport
+concern, before the domain sees a caller at all, which is the same placement
+[a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) part 6 already gives an expired
+assertion.
+
+### 4. Ceilings come from the token's scopes, never from the question
+
+A per-caller limit lives on the request context and is **derived from the claims**, not read from anything the
+caller sends with its question. A question carrying its own limit is a question that raises its own limit.
+
+This is the same argument as the one that keeps a subject off the `Query`:
+[a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) rejects a subject field in the
+strongest available terms - *a caller that states its own identity does not have one* - and a caller that
+states its own ceiling does not have one either. `deny_unknown_fields` already makes the attempt a named parse
+error.
+
+What this composes with, rather than replaces: the working-set and deadline bounds from
+[the plan](0009-the-plan-from-one-source-to-many.md) Decision 3 are **per query and global with per-source
+overrides**. A scope-derived ceiling is **per caller**. A deployment can therefore be generous globally and
+narrow for one caller, which is what a ceiling is for.
+
+## Decision 3: the exchange chain differs per mode, and BigQuery is where that shows
+
+[A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) works the BigQuery chain out
+in detail and reaches it through a fronting component: *the gateway is registered as an OIDC provider on
+a workforce pool.* In the `Direct` mode there is no such component to register, and that single change
+surfaces a conflict the gateway was absorbing.
+
+**Two requirements land on the same token and cannot both be met by it:**
+
+| Requirement | Demanded `aud` |
+| --- | --- |
+| Decision 2 above: we validate the audience against **our own** resource identifier, unconditionally | sutura's resource identifier |
+| 0008's own verified trap: the ID token posted to the Security Token Service must carry the **workforce provider's configured client ID**, which is *not* the `audience` value sent to the exchange endpoint - the opposite convention from workload pools | the pool provider's client ID |
+
+Both ways of forcing one token to satisfy both are wrong. Making our resource identifier *be* the pool
+provider's client ID lets a cloud pool's configuration dictate this service's own identity, and couples
+every deployment's inbound audience to one source's setup. Skipping our own audience check is precisely
+what makes a token minted for somebody else's resource acceptable here.
+
+**So the chain has two exchanges in `Direct` and one in `BehindGateway`:**
+
+```
+Direct
+  inbound token, aud = sutura                    leg 1, we validate this
+    -> delegation exchange at the caller's IdP   NEW: aud = pool provider client ID
+    -> Security Token Service, RFC 8693          0008's chain starts here
+    -> federated token, principal = the person
+    -> BigQuery
+
+BehindGateway
+  the component's token already IS the pool provider's token
+    -> Security Token Service, RFC 8693
+    -> ... as above
+```
+
+That asymmetry is an argument for supporting both modes rather than only the direct one: a deployment
+whose IdP cannot perform the first exchange can still reach BigQuery behind a component that can.
+
+**The verification this is blocked on, and it can invalidate the adapter rather than delay it.** The
+Security Token Service wants a subject token type of `urn:ietf:params:oauth:token-type:id_token`. A
+delegation flow at an enterprise IdP characteristically returns an **access** token for the downstream
+resource, not an ID token for an arbitrary audience. **So: can the deployment's IdP mint an ID token
+whose audience is a third party's client ID?** If it cannot, the fallbacks are a pool provider
+configured to accept that IdP's access token, a SAML provider on the pool, or conceding that this leg
+requires the `BehindGateway` mode. This belongs in the plan with the same treatment the Postgres SASL
+question already gets - *blocked on one verification, to do FIRST* - because the answer decides whether
+an adapter is buildable, not when.
+
+**Per source, one audience, from one decision.** 0008 already rejects one `mint` call per leg because it
+puts the subject and the deadline in N places, and notes that RFC 8707 wants N audience-restricted
+tokens from one decision anyway. This is that shape made concrete: PostgreSQL 18's SASL OAUTHBEARER
+needs a token its own validator module accepts, which is a third audience again. Oracle is **pending
+verification** - it is believed to support database token authentication with an enterprise IdP or with
+cloud IAM tokens, which would make it a third exchange target rather than the proxy-authentication
+exception 0008 currently describes. That section changes when the verification lands, and this record
+does not pre-empt it.
+
+**What sutura holds to perform an exchange, and it is the most sensitive value in the deployment.** A
+client credential at the authorization server, and the asymmetric assertion form of Decision 2 is
+strongly preferred over a shared secret - rotating a shared secret is a coordinated outage across two
+parties. Either way, **whoever holds it can obtain tokens for any subject this deployment can
+impersonate**, which makes it a higher-value target than the deployment token and than any single
+source's credential. It is a `Secret`, it never reaches a log, an error or a `Debug`, and it deserves a
+named rotation story rather than an implicit one.
+
+**Caching exchanged tokens is where this gets dangerous.** A cache keyed on the subject and the audience
+with a margin before expiry is the difference between one outbound round trip per question and three.
+Keyed wrongly it hands one person's token to another - the same failure class as the dirty-connection
+case 0008 part 8 already writes a test for, and the same reason `LegCredentials` carries one subject
+field rather than a per-leg one. Three rules: never key across subjects, never let an entry outlive the
+subject's own session, and treat a cache hit as a credential read rather than as a memoized computation.
+
+**And the authorization server becomes a hard runtime dependency.** No exchange, no query. 0008's
+refusal table already has the right instinct - a broker that cannot be reached is a `503` from the `Err`
+side rather than a refusal, because nothing about the question was wrong - and the requirement that
+follows is that it stay **distinguishable from a dead data system**. A caller told "unavailable, retry"
+against an authorization-server outage will retry successfully; one told the same against a bound that
+will fire again retries forever. Two very different causes must not collapse into one message.
+
+## What this makes possible, and what it does not
+
+**Possible:** scope-filtered advertisement; the raw tool's gate; a budget keyed on a principal; and the
+audience question that
+[the plan](0009-the-plan-from-one-source-to-many.md)'s Decision 1 leaves open, which is what unblocks the
+credential port.
+
+**Not delivered, and it must not be read as delivered:** leg 1 proves who is asking. It does **not** make a
+source execute as that person - that is leg 2, and it needs a credential per leg plus a source that declares
+it can impersonate. A deployment with leg 1 and no leg 2 knows who is asking and still reads every row as one
+identity. Writing both into one configuration block without saying which does what is how a deployment
+believes it has per-user access because it has authentication, and
+[transport security for a source](0010-transport-security-for-a-source.md) records the same confusion for
+mutual TLS.
+
+## Consequences
+
+- The first inbound dependency that must **verify** a signature enters the tree. `sutura-http` presents a
+  chain today and verifies none, so this is a supply-chain change and belongs in the same review as the code
+  that needs it.
+- The transport grows a challenge, two metadata documents it serves about itself, and a validator. All of it is
+  transport: it parses a wire shape and produces a domain value, and it decides nothing about what a question
+  may ask.
+- `Caller` becomes a domain value with claims behind it, and the principal chain from
+  [the plan](0009-the-plan-from-one-source-to-many.md) - human, then agent, then task - is what it carries.
+  Both tail positions are absent at first, and that is the point of building it early.
+- **A single-user deployment is unaffected.** It has one identity, statically configured, and no per-request
+  identity to establish. Nothing here becomes required for the shape that ships today.
+- A new stack row, before `feat/credential-port`, and the audience sentence in
+  [the plan](0009-the-plan-from-one-source-to-many.md)'s Decision 1 becomes a pointer here instead of an open
+  question.
+
+## What is not decided
+
+- **Which authorization server.** A deployment's own, and this record deliberately names none: the three
+  registration mechanisms exist precisely so the choice is the deployment's.
+- **Whether an inbound client certificate sits beside this.**
+  [Transport security for a source](0010-transport-security-for-a-source.md) leaves the same question open from
+  the other side, and the answer is the same shape: a certificate proves which deployment is calling, leg 1
+  proves which subject is asking, and they compose rather than substitute.
+- **Token lifetime, refresh, and what a long-running agent task does when its token expires mid-question.** The
+  deadline bound makes a question shorter than any sane token lifetime, so this is a question about a session
+  rather than about a query - but it is unanswered.
+- **Where scopes are authored.** A scope naming a metric couples the authorization server to the catalog, and a
+  scope naming a capability does not. The second is almost certainly right and it is not yet argued.
