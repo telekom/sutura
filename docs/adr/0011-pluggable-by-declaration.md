@@ -237,3 +237,51 @@ number.
 If a deployment genuinely wants the exploratory path, it is **a separate surface with its own scope**,
 never a widening of this one. Read and write, governed and ungoverned, stay separate surfaces; a
 free-form path lives behind its own separately-scoped tool or it does not exist.
+
+## Metadata sources compose, and that is a decision with teeth
+
+The intention is that metrics are provided by a source that has them, and **other metadata must work
+too**: field meanings from one place, a glossary from another, usage guidance from a third. So a
+deployment reads SEVERAL metadata sources and gets ONE bundle.
+
+That is not what exists. `load()` returns a whole `PinnedDefinitions`, and both composition roots wire
+exactly one catalog. So this is new, and the rules matter more than the plumbing.
+
+**Exactly one source may provide a given kind for a given entity.** Two sources providing the same kind
+for the same entity **refuses the load, naming both and the entity.** Guessing which wins is how a
+metric silently means something different after a configuration change, and a precedence rule that
+nobody stated is a precedence rule nobody reviewed. A deployment that genuinely wants one can declare it
+explicitly, and declaring it shows up in a diff.
+
+**For metrics there is no precedence at all, declared or otherwise.** Two sources defining one metric is
+refused, always. Two definitions of one number is the failure this whole system exists to prevent, and
+letting configuration pick a winner would put that choice outside review.
+
+**Declared-and-empty stays distinct from not-declared**, which the capability model already handles: a
+source that declares descriptions and has none for a particular model is fine and says nothing; a source
+that never declared them cannot contribute one.
+
+**The digest covers the composition.** An answer is certified against the bundle that produced it, and
+that bundle is now an assembly. Change which sources contribute and the digest moves, which is correct:
+it is a different bundle.
+
+**The port keeps its shape and an assembler sits above it.** A catalog still loads and pins, and an
+assembling adapter implements the port over N sources. That keeps `load()` free of a request context -
+the property the port exists for - and it is the smaller change. Note the resemblance to something
+refused for DATA sources, and why it is not the same thing: a composing adapter with a synthetic source
+name was refused there because it hid two identities behind one, and identity is what a data leg carries.
+A metadata source in shared-service mode carries no identity, so composing them hides nothing. **If a
+metadata source ever impersonates, this section is void and the caching rule above applies instead.**
+
+**Availability, per source, declared.** A source is required or optional:
+
+- **Required and unreachable at startup: fail closed.** There is nothing to serve.
+- **Optional and unreachable at startup: start without it, and the bundle records that it did.** The
+  digest differs from the one that includes it, which is the point - the answer says which bundle
+  produced it rather than quietly serving a lesser one under the same name.
+- **Unreachable at REFRESH, either way: keep the last validated bundle and say so loudly.** Same rule as
+  everywhere else here: reloading into a broken or diminished state is worse than not reloading.
+
+Optionality is therefore a declaration too, not a fallback the code takes on its own. A deployment that
+wants to survive its description source being down says so, and accepts that answers then carry a
+different digest.
