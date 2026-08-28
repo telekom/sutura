@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twelve steps, four of which can start at once.** Every step is one branch, one pull request, and green
+**Fourteen steps, six of which can start at once.** Every step is one branch, one pull request, and green
 before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill has the
 mechanics. Nothing in this plan is started.
 
@@ -24,6 +24,8 @@ mechanics. Nothing in this plan is started.
 | 10 | `feat/compose-tier` | 9 | after 9 |
 | 11 | `feat/source-mtls` | 5, 9 | after 9 |
 | 12 | `feat/demo-tasks` | 10, and one example to demo | after 10 |
+| 13 | `build/supply-chain` | nothing - orthogonal | **yes** |
+| 14 | `ci/prose-change-cost` | nothing - measure first | **yes** |
 
 **Verification for every step**, and none of it is optional: `just validate` is the only thing that
 counts, it now runs seven checks including `api-docs`, and every new test must be RED against the base
@@ -296,6 +298,92 @@ in a client we said has no governance role.
 **Done when** `just demo federation` brings up a working scenario from a clean checkout, on host
 docker, with the ports derived from the worktree; when a missing docker prints SKIPPED and exits 0
 rather than failing; and when the README for each example says which `just demo` runs it.
+
+## 13. Supply chain: SBOM, provenance, signatures, licence report
+
+**Orthogonal to everything above.** It touches the release path and no crate, so it can start at any
+time and blocks nothing.
+
+**What exists.** The licence half is largely done: `cargo-deny` gates licences against an exact
+allowlist with `unused-allowed-license = "deny"`, so an allowed licence nothing uses is itself a
+failure. `VENDOR.md` records what is vendored, from where, with what changes. A tag builds four
+cross-compiled binaries and four images, all by nix.
+
+**What does not exist**, confirmed by looking rather than assumed: no SBOM, no CycloneDX, no SLSA
+provenance, no attestation, no signature. Nothing in `.github/`, `flake.nix`, `deny.toml` or the
+justfile mentions any of them.
+
+**And one claim to correct while here.** AGENTS.md says the licence obligation is kept from rotting by
+"the `cargo-deny` licence gate plus a `NOTICE` check". There is no NOTICE check. `NOTICE` appears once
+in `xtask`, in the docs-only path list that `classify` reads, which is not a check of anything. The
+licence gate is real; the second half of that sentence is not.
+
+**The thing to get right, because it decides whether an SBOM is worth having.** There are TWO sources
+of truth and only one of them is `Cargo.lock`:
+
+- `Cargo.lock` describes the crates. Complete for a Rust library, and **incomplete for a shipped
+  artifact.**
+- The nix closure describes what the binary and the image actually contain, including `libduckdb`, the
+  vendored allocator and libc.
+
+An SBOM generated only from `Cargo.lock` would omit the C libraries and **look complete while being
+wrong**, which is worse than not having one: a consumer scans it, finds nothing, and concludes there is
+nothing. So: a crate-level SBOM from the lockfile, an image-level SBOM from the closure, and each
+saying which artifact it describes.
+
+**The pieces, cheapest first:**
+
+| Piece | Shape |
+| --- | --- |
+| Licence report | Generated from the dependency graph, attached to the release. The gate that decides its accuracy already exists |
+| CycloneDX SBOM | One per artifact kind, from the two sources above |
+| SLSA provenance | Attested for artifacts built in the workflow, keyless through the workflow identity, which is what makes the provenance mean anything |
+| Signatures | The images signed, keyless, verifiable without a key we hold |
+
+**Done when** each release artifact has an SBOM naming the right source of truth, a provenance
+attestation, and a signature - **and when verification is exercised in CI rather than assumed.** An
+attestation nobody verifies is a file. The smoke test is the deliverable, not the generation.
+
+## 14. The CI cost of a prose change
+
+**Measured before touching anything**, on a real run, because the intuitive answer was wrong:
+
+| Step in the docs workflow's verify job | Time |
+| --- | --- |
+| Structural gates, `nix build .#checks.x86_64-linux.hygiene` | **15m 45s** |
+| Install the docs environment | 8s |
+| Build the site, mkdocs `--strict` | **3s** |
+
+**The site build is three seconds. It is not the cost.** The cost is a Rust dependency closure being
+built so that `xtask` can read files, and the same check in `ci.yml` on the same commit took 11m 04s
+WITH a cache. So this is not a docs problem and excluding pages from the docs workflow would not fix
+it.
+
+**What not to do, stated because it is the obvious move:** do not exclude `docs/adr/**` from the docs
+workflow's paths. That workflow is *the only one a prose-only change starts* - `ci.yml` deliberately
+skips prose - so excluding ADRs would run **no gates at all** on an ADR change. And mkdocs `--strict`
+is what catches a dead cross-record link, which the 0006 and 0007 pair nearly shipped: one links the
+other by filename, so landing them apart would fail the build. Three seconds is the wrong thing to
+economise.
+
+**In order, and stop as soon as it is fast enough:**
+
+1. **Find out whether these numbers are cache misses.** Both runs measured were the first after a
+   force-push. The same gates locally are seconds. Restructuring a workflow on a cold-cache
+   measurement is how a fix gets built for a problem nobody had.
+2. **Give the verify job the cache `ci.yml` already uses.** The docs workflow omits it deliberately and
+   the reasoning is sound - the Actions cache is writable from a pull request and a *published* page
+   must not be built from a store path a pull request could have placed there. But that argument is
+   about publishing. The verify job runs on a pull request with a read-only token and publishes
+   nothing, and `ci.yml` already accepts exactly this risk to gate merges. Cache verify, leave publish
+   uncached, and say so where the current comment says the opposite.
+3. **Only if it is still slow warm:** separate the gates that read prose from the ones that need a
+   compiler, so a prose change runs `check-docs`, `check-guidance`, `text-hygiene`, `line-endings` and
+   `max-lines` without a dependency closure. That needs a prebuilt `xtask`, which is its own piece of
+   work and should not be started before step 1 says it is necessary.
+
+**Done when** an ADR-only change is gated in about a minute rather than seventeen, with `check-docs`
+and mkdocs `--strict` still running, and with the publish job's cache posture unchanged.
 
 ## The examples are the demo, one per deployment variant
 
