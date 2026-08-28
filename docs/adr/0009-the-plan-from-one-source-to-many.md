@@ -13,6 +13,9 @@ declines a federation crate and declines attaching several databases below the p
 [Federating across different data systems](0007-federating-across-different-data-systems.md) decides
 the shape that replaces them.
 [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) decides identity.
+[Transport security for a source](0010-transport-security-for-a-source.md) decides mutual TLS.
+[Pluggable by declaration](0011-pluggable-by-declaration.md) decides how an adapter says what it
+provides and which mode it is in.
 
 This record is the ORDER those happen in, and it carries five decisions that belong to none of them
 alone. It adds no code and no dependency.
@@ -206,6 +209,51 @@ Stacked, smallest first, each step green before the next. `stax` manages the sta
 
 Steps 0 to 2 need no decision from anyone and touch no adapter. Step 7 is where the identity story
 becomes real, and it is the first step that cannot be verified without a live service.
+
+
+## Found on a second pass, and not yet carried anywhere
+
+These are gaps in the design as it stands, not open questions about the world. Two of them are cheap
+now and impossible to retrofit, and they are marked.
+
+- **The principal is a chain, not a subject.** An authorization subject plus an ordered list of actors
+  (an agent, a task) is the shape an eventual token exchange maps onto rather than being translated
+  into. **Cheap now, impossible to backfill:** key the budget on the chain from the first record even
+  while the actor is always absent, record the chain in the audit from the first record, and put the
+  task on the request context immediately. A stored row that says only the subject cannot later be
+  told apart from one that meant "an agent acting for" them.
+- **Attenuation.** A task's credential is minted NARROWER than the subject holds - fewer metrics, a
+  shorter lifetime, a smaller budget - and monotonically so, never broader. That is what makes an
+  agent identity more than bookkeeping, and it is why a credential port takes the whole context rather
+  than a subject.
+- **A federated result inherits the MAXIMUM sensitivity of its inputs**, and re-linkage is assessed
+  separately from access, because joining two permitted reads can identify someone neither read
+  identified. Sensitivity belongs on provenance as a declared property so the rule has somewhere to
+  live before it is needed.
+- **An audit record per call, including refusals, written before the outcome returns.** A refused
+  question is exactly what a governance review wants to see, and an audit trail a client can drop by
+  not reading it is not an audit trail. This is a governance artifact with a retention requirement,
+  not observability.
+- **A budget checked at PLAN time and shared across replicas.** `dry_run` already exists on the
+  warehouse port, so a cost ceiling can refuse BEFORE spending rather than aborting mid-query, which
+  is strictly better. Per-pod counters are not a budget.
+- **Connection material lives apart from governance metadata.** Which anchors, which host, which
+  credential is a different lifecycle from what a metric means, and putting both in one settings tree
+  is how a catalog edit becomes a connectivity change.
+- **Untrusted content marking in the result envelope, decided BEFORE the encoder ships.** Catalog
+  descriptions and result cells are text an agent follows, so structure has to carry the boundary: a
+  field boundary an encoder enforces cannot be forged by a cell value, and a delimiter line can.
+  **Cheap now, expensive later:** retrofitting a field boundary once an envelope exists is the
+  expensive half, and a filter that quietly edits data returns a wrong number, so a detection hit
+  belongs in a refusal rather than a silent scrub.
+- **Advertised tools filtered by scope**, so a tool the caller may not invoke is invisible rather than
+  rejected on call.
+- **Four things nobody has written down:** what happens per dependency when it is unavailable (the
+  pinned bundle makes a metadata outage survivable, which is an unclaimed benefit of pinning, while a
+  budget store that cannot be reached must fail closed); whether re-asking a saved question after a
+  definition change returns the old number or the new one; how long an audit record is kept and who
+  may read it, given that a log of who asked what about whom is itself sensitive; and any
+  non-functional target at all - no latency, no concurrency, no result-size ceiling.
 
 ## What is not decided
 
