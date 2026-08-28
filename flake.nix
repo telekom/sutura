@@ -67,6 +67,11 @@
           "aarch64-unknown-linux-musl"
         ];
 
+        # The source root as a string, so the filter below can match a REPO-RELATIVE path.
+        # `./.` is the flake source, and in every build that is a store path - which is the
+        # whole reason the filter cannot match on the absolute one. See the filter's header.
+        srcRoot = toString ./.;
+
         src = pkgs.lib.cleanSourceWith {
           src = ./.;
           # Keep the toolchain file: crane's source filter drops non-Cargo files, and
@@ -112,18 +117,61 @@
           # the FILTERED copy in a nix build. A data file next to the code that reads it is a
           # normal thing to write, so the filter has to expect it rather than the author having
           # to remember this. `.rs` still goes through crane's own filter below.
+          #
+          # EVERY ARM MATCHES THE REPO-RELATIVE PATH, and that is not style. Matching the
+          # ABSOLUTE path is what made this filter inert for its whole life: a nix source root
+          # IS `/nix/store/<hash>-source`, so `.*/nix(/.*)?$` - written for our own `nix/`
+          # directory - matched EVERY path in the tree, `.*` absorbing the store prefix and
+          # `/nix` landing on the store's own segment. The `||` chain then short-circuited to
+          # true for everything, so the filter dropped NOTHING and every check depended on the
+          # entire tree. Verified both ways, and the second half is why nobody caught it:
+          # `builtins.match ".*/nix(/.*)?$" "/nix/store/deadbeef-source/justfile"` matches,
+          # while the same regex against `/home/x/sutura/justfile` does not - from a working-tree
+          # root it behaves exactly as intended, so no local experiment can show the bug.
+          #
+          # `builtins.match` is a WHOLE-STRING match. `.*/` was glue for "somewhere in the
+          # path", and deleting the glue is the fix - not adding `^`, which was never missing.
+          # `$` goes for the same reason: it read as an anchor and was never doing anything.
+          #
+          # Only the `nix` arm actually collided, checked one arm at a time against
+          # `/nix/store/<hash>-source/justfile`, because `nix` is the only arm whose name is
+          # also a segment of the store prefix - `store` would be the next. Anchoring all seven
+          # is free (the kept file set is byte-identical to fixing that one arm alone, measured
+          # over this tree) and puts the collision out of reach of the next arm somebody adds.
+          #
+          # `\\.` and not `\.`: inside a Nix `"…"` string `\.` is just `.`, so those two regexes
+          # were spelling a wildcard while reading as a literal dot. Inert here - no sibling
+          # file collides - and wrong the moment one does.
+          #
+          # WHAT THIS FILTER ACTUALLY REACHES, because the comment below used to overstate it in
+          # both directions. What reads the filtered copy: `ciArtifacts`, the native and cross
+          # release packages, `packages.xtask`, `checks.clippy`, `checks.doctest` and
+          # `checks.fmt`. What does not: `checks.nextest`, `checks.hygiene`, `checks.crap` and
+          # `checks.api-docs` each set `src = ./.` and read the whole tree, so this filter never
+          # protected them and a prose edit re-runs all four by design.
+          #
+          # It does NOT reach the dependency closure, which is the expensive half. crane builds
+          # `sutura-deps` from a DUMMIFIED source it synthesises out of the manifests, so that
+          # derivation is byte-identical either side of this fix - checked with
+          # `nix-store -q --references` on each consumer, one `sutura-deps` before and the same
+          # one after. What a prose edit used to cost was every filtered-src check's own compile
+          # of our crates (clippy's is ~40 s warm here) plus the four unfiltered ones.
           filter = path: type:
-            (builtins.match ".*rust-toolchain\.toml$" path != null)
-            || (builtins.match ".*/vendor(/.*)?$" path != null)
-            || (builtins.match ".*/crates/[^/]+/tests(/.*)?$" path != null)
-            || (builtins.match ".*/crates/[^/]+/src(/.*)?$" path != null)
-            || (builtins.match ".*/examples(/.*)?$" path != null)
-            # `xtask` is a repo-inspection tool, so its tests read repo files by design. Named
-            # file by file rather than by directory: `docs/` holds the generated API pages and
-            # churns, and matching all of it would put every prose edit in the Rust build's
-            # derivation hash - a rebuild of the closure for a typo.
-            || (builtins.match ".*/nix(/.*)?$" path != null)
-            || (builtins.match ".*/docs/crap\.md$" path != null)
+            let rel = pkgs.lib.removePrefix (srcRoot + "/") (toString path); in
+            (builtins.match "rust-toolchain\\.toml" rel != null)
+            || (builtins.match "vendor(/.*)?" rel != null)
+            || (builtins.match "crates/[^/]+/tests(/.*)?" rel != null)
+            || (builtins.match "crates/[^/]+/src(/.*)?" rel != null)
+            || (builtins.match "examples(/.*)?" rel != null)
+            # `xtask` is a repo-inspection tool, so its tests read repo files by design - and it
+            # is `checks.nextest` that runs them, on `src = ./.`, so this arm is not what carries
+            # them. It is here for `nix/*.nix` itself. `docs/` stays out by the file: it holds the
+            # generated API pages and churns, and matching all of it would put every prose edit in
+            # the derivation hash of each filtered-src check - see the blast radius above, which is
+            # narrower than this comment used to claim, and which was zero until the arm below was
+            # anchored.
+            || (builtins.match "nix(/.*)?" rel != null)
+            || (builtins.match "docs/crap\\.md" rel != null)
             || (craneLibFor system).filterCargoSources path type;
         };
 
@@ -587,7 +635,11 @@
           # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the
           # worse half, as crane does not even export `CARGO_PROFILE`. `src = ./.` for `hygiene`'s
           # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
-          # PRIVATE phases became 2m10 cold, floored by 484 rustdoc units - 293 of them `rmeta`.
+          # PRIVATE phases became 2m10 cold, floored by 482 rustdoc units - 291 of them `rmeta`.
+          # Those two were 484 and 293 and are now what `cargo rustdoc -p <lib> --all-features
+          # --profile ci -Z unstable-options --unit-graph` reports, summed over the ten documented
+          # libs and deduplicated on (package, target, mode): 482 units, of which 291 are `check`
+          # and exactly 10 are the `doc` units themselves.
           api-docs = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
             src = ./.;

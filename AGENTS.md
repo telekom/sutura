@@ -78,10 +78,20 @@ their own copy of the tree - the only way to catch a file the build needs and th
 have. Every other command reads the real tree and cannot see that class of bug. The copy is
 GIT-DERIVED, and that is the mechanism: an untracked file is invisible to it, so a new module
 compiles under `cargo` and then does not exist in the sandbox. `git add -N` is enough to make it
-visible. **The source filter is NOT the mechanism, and today it drops nothing:** `flake.nix`'s
-`.*/nix(/.*)?$` arm matches every path in the tree, because a nix source root IS
-`/nix/store/<hash>-source` - so the filter's whole `||` chain short-circuits to true. Fixing it
-changes what `clippy`, `doctest`, `fmt` and the release builds see, so it is its own commit.
+visible. **The source filter is a SECOND way to lose a file, and it now drops things.**
+`flake.nix`'s arms match a REPO-RELATIVE path; they used to match the absolute one, and that made
+the whole `||` chain short-circuit to true - a nix source root IS `/nix/store/<hash>-source`, so the
+arm written for our own `nix/` directory matched every path in the tree and the filter dropped
+nothing. What it keeps is the arms: the Rust sources and manifests crane recognises, plus `vendor/`,
+`examples/`, `crates/*/tests`, `crates/*/src`, `nix/`, `rust-toolchain.toml` and `docs/crap.md`.
+Everything else - `docs/`, `.github/`, `.agents/`, the top-level markdown, `flake.nix` itself - is
+now absent from the sandbox, so **the rule `flake.nix` states is live rather than theoretical: any
+directory a build or a test reads has to be named there.** **The blast radius is narrower than that
+sounds, and worth knowing before believing a green run:** `clippy`, `doctest`, `fmt`,
+`packages.xtask` and the release builds read the filtered copy, while `nextest`, `hygiene`, `crap`
+and `api-docs` each set `src = ./.` and read the whole tree - which is why the gates that inspect
+repo files are unaffected. It does not reach the dependency closure at all: crane synthesises
+`sutura-deps` from the manifests, so that derivation does not move whatever the filter does.
 
 Rules:
 
