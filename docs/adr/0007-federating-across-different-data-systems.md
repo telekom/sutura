@@ -6,10 +6,18 @@ description: The two tracks for BigQuery, Postgres and Oracle - one source is a 
 # Federating across different data systems
 
 Status: accepted, and **nothing here is built.** It decides a shape and an order; it adds no code and
-no dependency. It amends nothing.
-[Several databases behind one data system](0006-several-databases-behind-one-data-system.md) decided
-declined both a federation crate and attaching several databases below the port. This record decides
+no dependency.
+[Several databases behind one data system](0006-several-databases-behind-one-data-system.md) declined
+both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
+
+**Amended.** This record decided that a measure which cannot be re-aggregated across legs is
+REFUSED. [The plan](0009-the-plan-from-one-source-to-many.md) decides the opposite and supersedes it:
+push what descends, and otherwise retrieve finer-grained rows and compute above. Three things below
+are therefore superseded and marked in place - step 1's `RefusalReason` variant, the consequence that
+six of eleven metrics refuse a cross-source dimension, and the open question of whether `Avg` is
+rewritten or refused. The reasoning that produced the refusal is kept, because it is why the pull-up
+needs a bound.
 
 ## The decision
 
@@ -30,8 +38,12 @@ DataFusion joins and re-aggregates the results. This is the architecture.
 **The combiner is DataFusion. The generator is never DataFusion.** `datafusion-federation`'s route -
 DataFusion's unparser rendering the pushed statement - is declined, and this is the sentence that
 keeps the invariants: a value from a question never reaches a statement as text, because every leg is
-a `GeneratedQuery` with statement and parameters in separate fields; and no SQL parser enters the
-closure, because nothing parses and `datafusion`'s `sql` feature stays off. `polyglot-sql` occupies
+a `GeneratedQuery` with statement and parameters in separate fields; and no SECOND parser enters the
+closure. Stating that precisely, because an overstated control is itself the defect here:
+`polyglot-sql` IS a parser and is already in the closure, the golden suite parses every statement it
+pins, and `sutura_sql::expression` parses at load. What holds is narrower and still worth having -
+nothing parses on the QUERY PATH, and `datafusion`'s `sql` feature stays off, so no second parser and
+no unparser arrive. `polyglot-sql` occupies
 the position `sqlglot` occupies in comparable systems: **generation per dialect, never
 transpilation.**
 
@@ -213,9 +225,10 @@ always live on the fact model, and a dimension is always a one-hop lookup beside
   column lives in that source.
 - **One lookup leg per remote dimension model.** The join key and the needed columns, distinct, with
   any filter that belongs there.
-- **The combine, in DataFusion, above the port.** Left-join each lookup onto the aggregate leg,
-  re-aggregate, then apply a ratio's division and its zero handling, then project into the labels
-  `QueryPlan::result_labels` already fixes.
+- **The combine, in DataFusion, above the port.** Join each lookup onto the aggregate leg - INNER where
+  that dimension carries a filter, LEFT where it does not, and *A second finding* below is why that
+  distinction is not cosmetic - re-aggregate, then apply a ratio's division and its zero handling, then
+  project into the labels `QueryPlan::result_labels` already fixes.
 
 Four dimensions and one hop mean **at most five legs**, and that bound is a consequence of checks that
 already exist rather than a new budget.
@@ -259,6 +272,43 @@ Applied inside a leg, a subgroup whose denominator is zero becomes null, `SUM` s
 subgroup's numerator is silently dropped from the answer instead of nulling it. **The division and
 the zero handling belong in the combine, on the re-aggregated totals, and only there** - and `fails`
 must fail on the final denominator, not on a leg's.
+
+### A second finding, and this one is a wrong number rather than a refusal
+
+*Left-join each lookup onto the aggregate leg*, with *any filter that belongs there* pushed into the
+lookup leg, is **incorrect together**. Either half alone is fine. The pair silently drops a filter.
+
+Walk it. A question filters on a remote dimension - `region = 'south'` - and that column lives in the
+lookup source, so the filter goes to the lookup leg, which returns only southern customer keys. The
+aggregate leg is grouped by customer key and carries no such filter, because the column is not in its
+source. Left-join the lookup onto the aggregate and **every non-southern key survives**, matched to
+nothing, its dimension column null. Re-aggregate and those rows land in a null `region` bucket - or,
+worse, get projected into the answer's `region` column as a null label beside the real ones. The
+filter the caller asked for did not reduce the answer; it added a bucket.
+
+**What single-source rendering does, which is the specification.** The rendered statement is
+`FROM fct LEFT JOIN dim ON ... WHERE dim.region = ?`. A `WHERE` on the null-producing side of a left
+join is applied **after** the join and eliminates exactly those unmatched rows, so the statement's real
+semantics are an inner join. That is not a quirk to work around; it is the answer the federated path
+has to reproduce, because *rows identical, any source* is the conformance property.
+
+So the rule, and it is derived rather than chosen:
+
+> **A remote dimension whose column carries a filter is joined as an INNER join. A remote dimension
+> with no filter on it is joined as a LEFT join.** The join kind is a function of where the filters
+> went, computed by the splitter, and never a default that a leg's contents can contradict.
+
+The left case has to stay left, for the same reason: a fact row whose join key is missing from the
+dimension table survives single-source rendering with a null dimension, and an inner join everywhere
+would silently drop it. Both kinds are needed and each is wrong in the other's place.
+
+**Two consequences worth writing down.** The aggregate leg does work that the inner join then throws
+away - it groups keys that no surviving lookup row matches - and that is acceptable rather than
+regrettable: pushing the dimension filter into the fact leg is not available, since the column is not
+in that source. And this is the case the conformance packs must contain by name: **a filter on a remote
+dimension, plus an orphan key in the fact table**, asserted against the single-source rows. Neither
+half alone catches it - an unfiltered question passes with either join kind, and a filtered question
+with no orphans passes with an inner join everywhere.
 
 ### What it does to the plan, the port and the goldens, which is less than it looks
 
@@ -376,8 +426,9 @@ Dependent steps, so they stack: `stax` is in the dev shell and
 `.agents/skills/git-ops/stacked-branches/SKILL.md` is the guidance. Each step names the evidence it
 owes, because a step whose test passes against the base behaviour proves nothing.
 
-1. **The decomposability decision and its refusal.** `Aggregate::combine_with() -> Option<Aggregate>`
-   as an exhaustive `const fn`, plus a `RefusalReason` variant. Before anything else, because it is
+1. **The decomposability decision.** `Aggregate::combine_with() -> Option<Aggregate>` as an exhaustive
+   `const fn`. ~~plus a `RefusalReason` variant~~ - **SUPERSEDED by 0009: a non-decomposable measure is
+   pulled up, not refused, so there is no variant here.** Before anything else, because it is
    the change that answers wrongly if it comes last. Pure domain addition; evidence is the per-variant
    test and the two total matches that will not compile until agent-facing guidance exists.
 2. **The multi-source fixture in `examples/multi-player`, and the two missing startup-refusal tests.**
@@ -386,7 +437,7 @@ owes, because a step whose test passes against the base behaviour proves nothing
    guard is dismantled. Not the single-player corpus: moving a model there was costed and flips 7
    questions from planned to refused, deletes 21 SQL goldens, and moves a sentence a gate counts.
 3. **Track 1 for Postgres**: the adapter, and a real Postgres to point it at. **Integration testing
-   arrives via docker compose** - there is none in the repo today, and Datahub on the metadata side
+   arrives via docker compose** - `compose.dev.yaml` exists and carries no such service yet, and Datahub on the metadata side
    is the other case it serves. Evidence is the anchor check and `differential.rs` against a real
    server, which is what the DuckDB adapter exists to do for DuckDB.
 4. **Per-source configuration and a keyed set of warehouses** - assumption 3, and with it the single
@@ -456,12 +507,14 @@ governance boundary is crossed that nothing in this system models.
 - **Track 1 is worth shipping on its own, and should not wait for track 2.** One BigQuery deployment
   and one Oracle deployment are single-source deployments, which is most of the value and none of the
   federation risk.
-- **The corpus is the demonstration and also the counter-example.** Six of eleven metrics refuse a
-  cross-source dimension. That is the feature working correctly and it will read as a regression, so
-  the refusal's prompt guidance has to say what the agent can do instead - drop the dimension, or ask
-  the metric at its own grain.
-- **`count_distinct` is the single biggest functional gap** and there is no exact fix inside this
-  shape. An approximate one exists in every dialect and is not available here: an answer certified
+- ~~**The corpus is the demonstration and also the counter-example.** Six of eleven metrics refuse a
+  cross-source dimension.~~ **SUPERSEDED by 0009.** Those six are the metrics whose aggregate is pulled
+  up instead, so the corpus demonstrates the pull-up and its cost rather than a refusal. What survives
+  is the count: six of eleven use `Avg` or `CountDistinct`, which is why the bound matters.
+- **`count_distinct` is the single biggest functional gap.** ~~There is no exact fix inside this
+  shape.~~ **SUPERSEDED by 0009:** the exact fix is transporting the distinct keys and counting above,
+  which is correct and is the most expensive thing the pull-up does - the leg's row count becomes the
+  key cardinality. An approximate one exists in every dialect and is not available here: an answer certified
   under a definition digest cannot be approximate without saying so on the wire, which is a tool
   surface change rather than an implementation.
 - **Adding a dialect moves counted claims.** Oracle's row cap is not a `LIMIT`, so the sentence
@@ -487,7 +540,7 @@ governance boundary is crossed that nothing in this system models.
 - **Whether the per-leg row cap is the answer's cap or a larger one.** Refusing at 10,001 grouped rows
   makes correct questions unanswerable; raising it is the first time this process holds more rows than
   it certifies.
-- **Whether `Avg` is rewritten or refused.** Rewriting it into a `SUM` and a `COUNT` is exact and
+- ~~**Whether `Avg` is rewritten or refused.**~~ **DECIDED by 0009: rewritten.** Rewriting it into a `SUM` and a `COUNT` is exact and
   means a leg's `PlanMeasure` is not the metric's, which is a second place a measure can be
   represented. Refusing it is honest and loses a shipped metric.
 - **The transport, in the concrete.** Flight SQL is adopted as the direction and not built. Whether

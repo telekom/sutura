@@ -1,6 +1,6 @@
 ---
 title: A credential per leg, for the calling subject
-description: What end-to-end impersonation concretely requires of BigQuery, PostgreSQL and Oracle, why the credential is minted per request and never falls back to a service identity, the signature of the CredentialBroker port, why one subject and one deadline are hoisted above N legs so two legs cannot disagree, how a deployment may mix impersonating and non-impersonating sources without serving critical data as the wrong principal, what is refused rather than degraded, and the two-subject test that makes the invariant real.
+description: What end-to-end impersonation concretely requires of BigQuery, PostgreSQL and Oracle, why the credential is minted per request and never falls back to a service identity, the signature of the CredentialBroker port, why one subject and one deadline are hoisted above N legs so two legs cannot disagree, how a deployment may mix impersonating and non-impersonating sources - a posture and an operator acknowledgement per source, checked at startup - and the dataset-level resolution that withdrawing catalog-declared sensitivity costs, what is refused rather than degraded, and the two-subject test that makes the invariant real.
 ---
 
 # A credential per leg, for the calling subject
@@ -14,7 +14,10 @@ to learn a subject, and the execution port has to stop being able to run without
 data sensitivity. What a person may see lives in the data catalog and in their own permissions at the
 source, which is what reaching it as the subject is for, and a classification here would be a second
 opinion about someone else's authorization. Everything about the credential, the chain, the mode and
-the refusal survives; section 5c is marked where it is withdrawn.
+the refusal survives. Section 5c was **rewritten** rather than annotated - the requirement drops from a
+dataset to a source and becomes an operator acknowledgement - and 5a, 5d, 5e, 5g, the tests and the
+table at the foot were brought into line with it, because a withdrawal banner over four parts that
+still checked the withdrawn field was the worse half of a half-done revision.
 
 It supersedes nothing. It amends one sentence of
 [a refusal carries a status](0005-a-refusal-carries-a-status.md) - the note that "the `403`s are not
@@ -563,7 +566,7 @@ The same hoist handles the deadline. `not_after` is one field for the whole answ
 expiry among the exchanged tokens and the caller's own assertion, so there is one thing to check and
 no way for two legs to be checked against different clocks.
 
-### 5. Mixed deployments: a posture per source, a requirement per dataset, and a load-time pairing
+### 5. Mixed deployments: a posture per source, an acknowledgement per source, and a startup check
 
 A deployment is explicitly permitted to hold both impersonating and non-impersonating sources. That
 mix is the hardest problem in this record, because the wrong outcome is not a failure - it is an
@@ -577,15 +580,17 @@ There is no per-request identity to establish, so a non-impersonating source is 
 **everything** - the one user reads all, by design, and the configured credential is that user's own.
 `examples/single-player` is this, and it stays a first-class deployment rather than a degraded one.
 
-**Multi-user** means the caller's identity arrives per request, and a dataset declared subject-only
-executes under that caller's own credential. Non-impersonating sources are still permitted, for
-non-critical data only.
+**Multi-user** means the caller's identity arrives per request, and a source declared impersonated
+executes under that caller's own credential. Non-impersonating sources are still permitted here, and
+that is the whole difficulty of this part: the deployment has to say so per source, on purpose.
 
-Stating both is what makes the governing rule precise: **critical data is never served under an
+Stating both is what makes the governing intent precise: **critical data is never served under an
 identity that is not the asker's.** In single-user mode that holds trivially, because the configured
-credential *is* the one user's - so the rule does not mean a single-user deployment must acquire
-per-request impersonation. It means the pairing of data to identity is checked in both modes, and only
-one of them has more than one identity to get wrong.
+credential *is* the one user's - so it does not mean a single-user deployment must acquire per-request
+impersonation. In multi-user mode it is an **operator obligation** rather than a check sutura can
+perform, for the reason part 5c gives: sutura declares no data sensitivity, so it cannot see which
+dataset on a shared source should not have been there. What it can do is make the shared posture
+unreachable by accident and unreachable in silence.
 
 ```rust
 pub enum DeploymentIdentity {
@@ -637,47 +642,62 @@ summary derived from those postures. **The deployment mode is derived, never dec
 source `Shared` is single-user mode, any source `Impersonated` is multi-user mode. One owner per
 artefact, and the startup log prints the mode and the per-source postures underneath it.
 
-**5c. The requirement is a property of the data, declared in the catalog, on the model.**
+**5c. The requirement is per SOURCE, declared by the operator, because sutura declares no data
+sensitivity.**
 
-> **WITHDRAWN by [the plan](0009-the-plan-from-one-source-to-many.md):** sutura declares no data
-> sensitivity. Kept because the derived-upward-through-joins argument is the right shape for anything
-> that IS declared per model, and a section that vanishes leaves the next reader re-deriving it.
+> **This part was rewritten, not annotated.** The earlier version put an `IdentityRequirement` on the
+> catalog's model and derived a metric's requirement upward through its joins.
+> [The plan](0009-the-plan-from-one-source-to-many.md) withdrew that: what a person may see lives in
+> the data catalog and in their own permissions at the source, and a classification authored here
+> would be a second opinion about someone else's authorization. The derived-upward argument is kept
+> below because it is the right shape for anything that IS declared per model, and because leaving the
+> withdrawal as a banner over a live design produced a record whose next four parts checked a field
+> that no longer exists.
 
-Criticality is a fact about data, and data lives in a model - so the declaration goes on the model
-rather than on the metric, and a metric's requirement is **derived as the strictest over the models
-its plan reads**. That direction matters: declaring it on the metric would let a metric claim it
-needs no impersonation while reading a model that does, and a join is exactly how that happens.
-Deriving upward from the models cannot produce that hole.
+So the granularity of the requirement drops from a dataset to a **source**, and what an operator
+declares is not how sensitive data is but whether this deployment is willing to serve that source
+under one identity for every caller:
 
 ```rust
-/// Whether this model's data may be read under an identity that is not the asker's.
-pub enum IdentityRequirement {
-    /// Only the asker's own credential.
-    SubjectOnly,
-    /// May be read under a shared identity, because the catalog author said so.
-    SharedPermitted,
+/// How a source establishes the identity a query runs as (part 5b), plus - for the
+/// shared posture in multi-user mode - the acknowledgement that makes it reachable.
+pub enum SourceIdentity {
+    Impersonated,
+    Shared { declared: SharedIdentityDeclared },
 }
 ```
 
-Named for what it controls rather than as a classification scheme, deliberately: a vocabulary of
-sensitivity tiers would be a second thing to keep in step with whatever the deployment's real one is,
-and this field has exactly one consumer.
+**In multi-user mode a `Shared` source needs a per-source acknowledgement, and there is no global
+one.** `SharedIdentityDeclared` is a witness the settings layer constructs only from a key an operator
+wrote **against that source's own entry**, so a deployment cannot acquire the posture by leaving
+anything at a default, and cannot acknowledge one source and inherit it for the next. The key carries
+the operator's reason as text, printed at startup beside the posture, because the reason is the part a
+reviewer needs and the part nobody writes unless the type demands it.
 
-**The field is required, and old catalogs stop loading.** There is no default, because both defaults
-are wrong: defaulting to `SharedPermitted` ships the failure quietly, and defaulting to `SubjectOnly`
-makes every existing single-user deployment refuse to start for data that was never sensitive. A
-required field turns both into one explicit edit per model, made by the person who knows. That is a
-real migration cost and it is the right one - **a load refusal is cheap next to answering critical
-data under a service account**, and this repository already refuses a bundle whose anchors do not
-hold rather than serving it degraded.
+**What this loses, said plainly, because it is a real loss of resolution.** Sutura can no longer tell
+that a *particular dataset* on a shared source is one the deployment should never have put there. The
+check is "this source is served to everyone as one identity, and an operator said so on purpose", not
+"critical data is never read as anything but the asker". The second sentence remains the governing
+intent and is now an **operator obligation**: critical data goes on a source declared `Impersonated`.
+Sutura's mechanism makes the shared posture impossible to arrive at accidentally and impossible to
+arrive at silently. It does not, and after this withdrawal cannot, look inside the source and disagree.
 
-**5d. The pairing is checked at startup, and again at plan time as defence in depth.**
+**The one shape that would restore the resolution, and it is not built.** A metadata source that
+**exposes** a classification - a tag on a dataset in a data catalog - is a label sutura carries rather
+than assigns, which is exactly what 0009 permits. Read that way, the pairing check comes back at
+dataset granularity, and the direction it must derive in is the argument the withdrawn section got
+right: a label belongs to the data, so it lives on the model and a metric's requirement is the
+**strictest over the models its plan reads**. Declaring it on the metric would let a metric claim it
+needs no impersonation while reading a model that does, and a join is precisely how that happens.
+Deriving upward from the models cannot produce that hole. **Nothing here depends on that arriving:**
+no metadata adapter exists, and the acknowledgement check above is complete without one.
+**5d. The acknowledgement is checked at startup, and startup is the only place left to check it.**
 
-Because the posture is per source and the requirement is per model, and a model names its source, the
-pairing is **static**. So the primary check is at startup, over the whole bundle:
+Because the posture and its acknowledgement are both per source and both configuration, the check is
+**static and complete at boot**:
 
-> In multi-user mode, a source declared `Shared` that holds a model declared `SubjectOnly` is a
-> deployment that **does not boot** - loudly, naming the model and the source.
+> In multi-user mode, a source declared `Shared` whose entry carries no operator acknowledgement is a
+> deployment that **does not boot** - loudly, naming the source and what it would have served.
 
 The precedent is already in the tree and is the right one: `open_engine` refuses before the service
 starts on a catalog that spans several data systems, on a source this build has no adapter for, and on
@@ -686,35 +706,31 @@ strictly better than one that boots, passes its probes, and refuses a class of q
 as nobody notices. It extends `verify_and_validate`, already the only constructor of `Validated` and
 already taking the warehouse, to take the postures too.
 
-**And there is a plan-time refusal behind it, because the process outlives its configuration.** A
-catalog can be reloaded while the process lives, so the startup check is not the last word - and that
-is what makes a runtime variant provokable rather than decorative:
+**And the plan-time refusal is withdrawn with the field it depended on.** The earlier version added
+`SubjectOnlyDataOnSharedSource` as defence in depth, on the reasoning that a catalog can be reloaded
+while the process lives. That reasoning was sound *while the requirement lived in the catalog*: a
+reload could introduce a pairing boot had never seen. It does not survive the requirement moving to
+the settings tree, which a reload does not touch - so there is no pairing a reloaded bundle can
+introduce, and a variant no test can provoke is one `AGENTS.md` says the enum refuses to carry.
+**Deleted rather than kept as a decorative arm.** What a reload can still do is name a source that is
+not configured, which the existing source-resolution refusal already covers.
 
-| Variant | Status | Why |
-| --- | --- | --- |
-| `SubjectOnlyDataOnSharedSource { source, model }` | `409` | A conflict between the question and how the deployment is arranged, which is the reasoning `PlanSpansTwoSources` already uses. Refused, never answered with a warning |
-
-It is provoked by a fake warehouse declared `Shared` plus a model declared `SubjectOnly`, with no real
-data system - so it satisfies `AGENTS.md`'s rule that a variant no test can provoke is one the enum
-refuses to carry, and the test is a per-variant one in the existing refusal corpus.
-
-**5e. Flipping a deployment from single-user to multi-user re-evaluates every pairing.**
+**5e. Flipping a deployment from single-user to multi-user re-evaluates every source.**
 
 Stated as a rule rather than left implicit, because it is the transition that turns a correct
-configuration into a dangerous one **unchanged**. A single-user deployment may legitimately hold every
-dataset behind non-impersonating sources; the same file in multi-user mode is critical data served
-under a shared identity. So: **the mode is an input to the startup check, and changing it re-runs the
-whole pairing** rather than any incremental view of it. The startup refusal is most of what makes the
-transition safe - a deployment that flips the mode and is now wrong does not boot - and the rest is
-that neither the posture nor the requirement has a default, so there is no pairing the check cannot
-see.
+configuration into a dangerous one **unchanged**. A single-user deployment legitimately holds every
+source under one static credential - that credential *is* the one user's. The same file in multi-user
+mode serves every one of those sources to every caller as one identity. So: **the mode is an input to
+the startup check, and changing it re-runs every source's** acknowledgement rather than any incremental
+view of what changed. The refusal is most of what makes the transition safe - a deployment that flips
+the mode and has acknowledged nothing does not boot - and the rest is that neither the posture nor the
+acknowledgement has a default, so there is no source the check cannot see.
 
 What this gives `AGENTS.md`'s untested sentence is teeth. "Every leg runs as the same subject, or the
 plan is refused rather than downgraded" becomes two checkable halves: every leg's credential comes
 from one `LegCredentials`, which has one subject field (part 4); and a leg may run under a shared
-identity only where every model it reads was declared to permit that - checked at boot, and again when
-a plan is built.
-
+identity only where an operator acknowledged that source, checked at boot, with the posture recorded on
+the answer (part 5f) so a reader can tell which kind of answer they are holding.
 **5f. Provenance records the mode per leg, beside the definition digest and not under it.**
 
 An answer must not be mistakable for impersonated when it was not, so `Provenance` grows a per-source
@@ -732,12 +748,14 @@ claims.
 
 A plan may join a leg read as the subject to a leg read under a shared identity. **Defended:** the
 subject-only leg's rows are filtered by its own data system, so the joined output is constrained by
-what the subject may see on that side, and the shared leg contributes only data a catalog author
-declared shareable.
+what the subject may see on that side, and the shared leg contributes only data from a source an
+operator acknowledged as served under one identity for everybody.
 
-**Not defended, in two parts.** The declaration is a trusted precondition - nothing checks
-`SharedPermitted` against reality, exactly as nothing checks a relationship's declared cardinality
-against the data, so a mislabelled model is a hole this design cannot see. And the concrete inference
+**Not defended, in two parts.** The acknowledgement is a trusted precondition and a coarse one - it
+says an operator meant to share that source, not that everything on it is shareable, and after part
+5c sutura has no dataset-level view to check it against. That is the same class as a relationship's
+declared cardinality, which nothing checks against the data either, and it is the price of not holding
+a second opinion about someone else's authorization. And the concrete inference
 channel is one the sibling record found independently:
 [federating across different data systems](0007-federating-across-different-data-systems.md) declines
 a semi-join because pushing one source's key values into another's statement puts that source's data
@@ -936,14 +954,17 @@ that the policy is engaged, independent of counting rows.
 **And four tests for the mixed deployment, none of which needs a real data system.** These are the
 ones that arrive with the port rather than with an adapter, against fakes, in the existing corpus:
 
-1. Multi-user mode, a source declared `Shared`, a model in it declared `SubjectOnly`: **the service
-   does not start**, and the message names the model and the source. Asserted on the startup path, the
-   way the anchor failure already is.
-2. The same pairing reached at plan time - a bundle swapped after boot - is
-   `SubjectOnlyDataOnSharedSource`, and the assertion is on the refusal **and** on the absence of rows.
-3. **Single-user mode with every dataset behind non-impersonating sources starts and answers.** This is
-   the test that stops the mechanism from being a ban: the permitted deployment has to keep working, or
-   the next person deletes the check.
+1. Multi-user mode, a source declared `Shared` with no operator acknowledgement on its entry: **the
+   service does not start**, and the message names the source. Asserted on the startup path, the way
+   the anchor failure already is.
+2. The same deployment with the acknowledgement present **starts**, and the startup log carries the
+   posture and the operator's stated reason per source. Without this half the first test passes
+   against a build that simply refuses every shared source, which is a different mechanism.
+3. **Single-user mode with every source non-impersonating starts and answers, with no acknowledgement
+   key anywhere.** This is the test that stops the mechanism from being a ban: the permitted deployment
+   has to keep working, or the next person deletes the check. It is also where the mode matters - the
+   acknowledgement is required in multi-user mode only, because single-user has one identity to get
+   wrong and it is the right one.
 4. **The transition test:** that same single-user configuration, with only the mode flipped to
    multi-user, **fails to start.** One field changes, nothing else, and the outcome inverts. That is
    part 5e as an executable assertion rather than a rule, and it is the one that would catch a future
@@ -989,7 +1010,7 @@ row from it. What would earn one, in order:
 | A leg cannot execute without a credential | The `Warehouse::execute` signature above, and every adapter compiled against it |
 | Every leg of one answer runs as one subject | `LegCredentials` with a private constructor, and a `compile_fail` doctest for the second one, the way `Validated` has two |
 | A source that enforces nothing per subject says so at startup | The `sources:` configuration section, the required mode key, and `describes_identity()` deriving from both |
-| Critical data is never read as anything but the asker | `IdentityRequirement` on the model as a required field, the startup pairing check, and `SubjectOnlyDataOnSharedSource` with its provoking test |
+| A source served under one identity for everybody was acknowledged on purpose | The `sources:` section, `SharedIdentityDeclared` constructible only from a per-source operator key, the multi-user startup refusal, and the four tests above. Note what this row does NOT say: nothing here reaches dataset granularity, and the stronger sentence stays an operator obligation until a metadata source EXPOSES a classification to carry |
 | An answer cannot be mistaken for impersonated | `Provenance` carrying the per-leg posture, beside the digest, and a golden that shows it |
 | A subject that cannot be impersonated is refused, not answered | Both refusal variants, their statuses in `sutura_http::wire::refusal`, and a fake broker that provokes each |
 | Two subjects get different rows | The whole test above, against a real data system, in the adapter matrix |

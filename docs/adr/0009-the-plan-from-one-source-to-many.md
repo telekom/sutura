@@ -1,13 +1,13 @@
 ---
 title: The plan, from one source to many and one user to many
-description: The order in which federation and impersonation get built, plus the five decisions that belong to no single record - three-legged OAuth as the basis of impersonation, which aggregates survive descending, the three bounds that make a pull-up affordable, conformance over per-source tests, and why inlining a literal is not a security compromise here.
+description: The order in which federation and impersonation get built, plus the five decisions that belong to no single record - a token exchange as the basis of impersonation, which aggregates survive descending, the three bounds that make a pull-up affordable, conformance over per-source tests, and why nothing on the path being built inlines a literal - so the bind-parameter row keeps its mechanism.
 ---
 
 # The plan, from one source to many and one user to many
 
 Status: **accepted as the plan of record. Nothing here is built.**
 
-Three records decide the pieces.
+Seven records decide the pieces.
 [Several databases behind one data system](0006-several-databases-behind-one-data-system.md)
 declines a federation crate and declines attaching several databases below the port.
 [Federating across different data systems](0007-federating-across-different-data-systems.md) decides
@@ -16,6 +16,10 @@ the shape that replaces them.
 [Transport security for a source](0010-transport-security-for-a-source.md) decides mutual TLS.
 [Pluggable by declaration](0011-pluggable-by-declaration.md) decides how an adapter says what it
 provides and which mode it is in.
+[Conformance packs](0012-conformance-packs-for-inputs-and-adapters.md) decides how every adapter is
+held to the same behaviour.
+[A raw SQL tool, off by default](0013-a-raw-sql-tool-off-by-default.md) decides the ungoverned path
+that exists to build a ramp to the governed one.
 
 This record is the ORDER those happen in, and it carries five decisions that belong to none of them
 alone. It adds no code and no dependency.
@@ -36,17 +40,31 @@ above: the join, the aggregation that could not descend, ordering, limits.
 which one connection stands in for several sources, and DuckDB is not an exception. Generation per
 dialect, never transpilation: `polyglot-sql` occupies the position `sqlglot` occupies elsewhere.
 
-**Same-source fusion is grouping, not analysis.** Two models on one source become one leg because
-they share a `SourceName`. Recovering that from a physical plan is hard; reading it off the semantic
-plan is a `BTreeMap`.
+**Same-source fusion needs a relationship, not just a shared `SourceName`.** An earlier version of
+this said grouping by source was enough. It is not: two lookup models on one remote source with no
+declared relationship between them would fuse into a cross product. The rule is **same source AND
+connected by a declared relationship in this plan**, which is analysis over the join graph rather than
+a `BTreeMap` - still far cheaper than recovering source membership from a physical plan, and the test
+that pins it must be named for the relationship rather than for the source.
 
-## Decision 1: three-legged OAuth is the basis of impersonation, not an option beside it
+## Decision 1: a token exchange is the basis of impersonation, not an option beside it
 
-**A source reached under one shared identity cannot answer per subject, and the answer must say so.** Impersonation is a must-have for the sources configured for it, and the mechanism is
-three-legged OAuth: leg 1 authenticates the caller to sutura with a token audience-bound to sutura,
-and leg 2 reaches the source AS that subject. The client's token is never forwarded upstream, and
-there is no service-account fallback, because ADR 0008 removes the signature that could have one:
-`execute` and `dry_run` take a credential.
+**A source reached under one shared identity cannot answer per subject, and the answer must say so.**
+Impersonation is a must-have for the sources configured for it, and the mechanism is an **RFC 8693
+token exchange**, which is what 0008 calls it throughout: the caller's identity arrives at sutura, and
+sutura obtains a credential the SOURCE accepts for that same subject. There is no service-account
+fallback, because 0008 removes the signature that could have one - `execute` and `dry_run` take a
+credential.
+
+**Two things about the token topology are NOT decided by either record, and they are load-bearing.**
+An earlier version of this section claimed the caller's token is never forwarded upstream and that it
+is audience-bound to sutura. Both cannot be true of BigQuery as 0008 describes it, where the caller's
+token IS the subject token posted to the exchange and must carry the workforce provider's audience. So
+either the front-door token is audience-bound to sutura and something exchanges it at our own
+authorization server first - an exchange 0008 does not describe - or it carries the pool's audience and
+"never forwarded" is wrong. **Who performs the exchange, and what audience the inbound token carries,
+is the question to answer before the credential port is built.** Written here as open rather than
+resolved in prose, because guessing it produces a port with the wrong signature.
 
 Per source, and each of these is a capability claim to re-verify before it is depended on:
 
@@ -105,41 +123,82 @@ aggregates and the division happens once, above. The reason is specific: a `NULL
 guard applied per leg silently DROPS a subgroup instead of nulling it, which is a wrong number with
 no error.
 
+**The join kind in the combine is derived from where the filters went.** INNER for a remote dimension
+that carries a filter, LEFT for one that does not. This is the second correctness finding in
+[federating across different data systems](0007-federating-across-different-data-systems.md), and it is
+the one that produces a wrong number rather than a refusal: a filter pushed into a lookup leg plus a
+left join keeps every unmatched key and adds a null bucket to the answer, so the filter widens the
+result instead of narrowing it. Single-source rendering puts that filter in a `WHERE` above the left
+join, which is an inner join in effect, and reproducing it is not optional - it is what *rows
+identical, any source* means. Both kinds are needed: an unfiltered dimension must stay LEFT or an
+orphan fact key is silently dropped.
+
 **Whether a leg was pushed or pulled must be observable** - a log line, a metric, or a test asserting
 the pushed statement. A hand-written renderer that silently stopped pushing and fell back to reading
 a whole table was measured at seven times the memory with a correct answer and no diagnostic. Silence
 is the failure mode here, not error.
 
-## Decision 3: three bounds, each of them a refusal
+## Decision 3: three bounds, and only one of them is a memory bound
 
-"Worst case we pay the processing cost" is only a cost if it is bounded. Unbounded is not a cost, it
-is an outage, so the pull-up path ships with three bounds together:
+"Worst case we pay the processing cost" is only a cost if it is bounded. Unbounded is not a cost, it is
+an outage. But the earlier version of this section called a result-size ceiling a memory bound, and it
+is not one: a join or an aggregate can exhaust the combiner long before a result exists. Each bound is
+named for what it actually counts.
 
-| Bound | Why it is not covered by what exists | Failure mode without it |
+| Bound | What it counts | Failure mode without it |
 | --- | --- | --- |
-| Rows, per leg | `row_limit()` is `max_rows + 1` and protects the ANSWER, not an intermediate | A leg pulls orders of magnitude more rows than the answer holds |
-| Memory, per query | Nothing bounds a working set today | Shipped profiles compile `panic = "abort"`, so an allocation failure is PROCESS DEATH for every caller |
-| Runtime, per query | Admission shedding and a transport timeout bound waiting and responding, not executing | A query runs on behind an abandoned response |
+| **Rows, per leg** | Rows a leg returns before the combine sees them | With the pull-up, a leg is grouped by the remote join key - and for a distinct count, by the distinct key - so its row count is the KEY CARDINALITY, not the answer's size |
+| **Working set, per query** | The combiner's operator reservations: hash-join build side, aggregate state, sort | Shipped profiles compile `panic = "abort"`, so an allocation failure is PROCESS DEATH for every caller |
+| **Wall clock, per query** | Time from admission to last row | A query runs on behind an abandoned response |
 
-**The numbers, and where they live.** A result-size ceiling of **1 GB per query** and a query timeout
-of **three minutes**, both configurable, set GLOBALLY as defaults with **per-source overrides** - a
-warehouse and a local file do not deserve the same patience. Each is parsed as a newtype in
-`sutura-config`'s limits and produces a **typed refusal**.
-Refused, never truncated, never degraded: a partial answer under a certified metric name and a
-definition digest is worse than an error, because it looks like an answer.
+**The per-leg row bound needs a number, and the existing one is wrong for this shape.** The row cap is
+`max_rows + 1` over an ANSWER. A leg grouped by a join key is not an answer: 0007 already priced the
+case - revenue by region over fifty thousand customers refuses at 10,001 while its answer is twelve
+rows. So either the per-leg bound gets its own default, well above the answer cap, or it is retired in
+favour of the working-set bound and 0007's paragraph moves with it. **Unresolved, and it blocks the
+headline demonstration rather than a corner case.**
 
-State what each does not bound. A memory ceiling on the combiner does not bound what a driver buffers
-before handing rows over, nor what a source spends on its own side. An overstated control is itself a
-defect.
+**The working-set bound is the engine's memory pool, and its limits are part of the claim.** The pool
+counts what its operators reserve and nothing else: not the row set a driver hands back, not a leg's
+buffers before conversion. So the honest statement is that it bounds the COMBINE, and the two gaps
+either side of it are named rather than implied. Its failure has to become a typed refusal rather than
+an abort, and whether the policy is spill-then-fail or fail-immediately is a decision, not a default to
+inherit.
 
+**Against what, and measured by whom.** A ceiling above the container's memory limit is process death by
+default under `panic = "abort"`, so the configured value is checked against the limit available at boot
+and refuses to start when it exceeds it, or is derived from it. And the numbers themselves - **a
+provisional 1 GB working set and a provisional three-minute deadline**, global with per-source overrides
+- are exactly that: provisional. `AGENTS.md`'s operating contract already says verify rather
+than assert, and two numbers nobody measured are exactly what that forbids - so they are marked as a
+starting point to be replaced by a measurement on the corpus, not presented as findings. Whoever
+implements `feat/query-bounds` measures them; the record's job is to stop the provisional numbers from
+hardening into decisions by being written in a record.
+
+**Cancellation is not free, and the port cannot do it today.** `Warehouse::execute` is synchronous and
+blocking, so a deadline that fires in the caller leaves the leg running inside the driver - each system
+has its own interrupt, and none of them is reachable from a timeout wrapped around the call. So either
+**the deadline travels on the port**, beside the credential 0008 adds, and each adapter cancels for
+real - or this bound is "stop waiting" and the table's own failure mode is what ships. The first is the
+intent; naming the second is what stops a test being written that claims cancellation and asserts a
+timeout.
+
+Each bound produces a **typed refusal**: refused, never truncated, never degraded. A partial answer
+under a certified metric name and a definition digest is worse than an error, because it looks like an
+answer.
 ## Decision 4: one conformance suite, not a suite per source
 
 **Every metadata provider and every data source conforms to the same tests and functions.** A new
 connector proves itself by registering and declaring, never by editing a test. What must be identical
 and what may differ is the whole design:
 
-- **Rows: identical.** Same question, same catalog, any source, same answer. That is the conformance
-  property, and `differential.rs` is the seed - it already runs one plan two ways and compares rows.
+- **Rows: identical, in a stated canonical form.** Same question, same catalog, any source, same
+  answer - but "identical" needs defining or the execute packs go red on the first network source for
+  reasons that are not defects: floating-point sums differ by summation order, decimal scale and
+  rounding differ per system, tie order and NULL placement differ, and date truncation differs across
+  date and timestamp types and time zones. `differential.rs` has met none of these because it compares
+  two engines under one type mapping. So the packs state: the canonical form rows are compared in, the
+  tolerance for approximate types and none for exact ones, and the ordering imposed before comparing.
 - **Refusals: identical.** Same variant, whatever the source.
 - **Rendered SQL: differs**, so it lives in snapshots keyed by source and dialect. No assertion in a
   shared test function may hard-code dialect syntax, or the suite has quietly become per-source.
@@ -156,8 +215,9 @@ Two tiers, and the boundary between them is structural rather than a preference:
 
 - **Fast and hermetic:** in-memory DuckDB, **several connections rather than several attachments**,
   because two connections are the shape that ships and cost nothing more in a test.
-- **Compose:** Oracle, Postgres, Datahub, OpenMetadata, brought up on demand, provisioned through the
-  sutura CLI, **worktree-aware** so concurrent worktrees never collide on ports, project names or
+- **Compose:** Oracle, Postgres, Datahub, OpenMetadata, brought up on demand, provisioned through
+  `xtask` rather than the shipped binary - docker orchestration in a release artifact is test
+  scaffolding shipped to users, and `xtask` is never packaged - and **worktree-aware** so concurrent worktrees never collide on ports, project names or
   volumes. Docker is a host dependency and is deliberately not pinned by nix.
 
 **The compose tier cannot be a nix check.** A nix check builds in a sandbox with no network and no
@@ -168,58 +228,81 @@ The test AGENTS.md says cannot exist yet - two subjects, different rows - is a c
 nature, because no local file enforces a row-level policy. A fixture that answered the same rows for
 both subjects and passed would be worse than no test.
 
-## Decision 5: a literal may be inlined, and that is not a security compromise here
+## Decision 5: nothing on the path we are building inlines a literal, and the row stands
 
-Where a rendering path inlines a value rather than binding it, that is permitted. The reason it costs
-nothing is structural, and it was verified in the code rather than assumed:
+The earlier version of this section permitted inlining and then restated AGENTS.md's row to match. That
+was a decision taken for a consumer that does not exist, and it weakened a row with a live mechanism to
+license a path nobody is building. **Reversed.**
+
+**What the architecture above actually does.** The pushdown unit is sutura's own `QueryPlan`, rendered
+per leg through `sutura-sql`. That renderer produces a `GeneratedQuery` whose statement and parameters
+are separate fields with no merging constructor, and a golden asserts no question literal appears in a
+statement. So on the federated path there is nothing to inline, and the row keeps its mechanism:
+
+> No value from a question reaches the statement as text.
+
+**Unchanged. Not restated, not narrowed.** Where inlining would arrive is a renderer we do not own -
+a federation layer's own unparser emitting SQL from a logical plan, which has no access to our
+parameter list. This record's position is that adopting such a renderer for a source is the change that
+must carry the amendment, in the same diff as the code, with the golden it breaks in front of the
+reviewer. Deciding it in advance means the row is already soft when that diff arrives.
+
+**What survives from the earlier reasoning, because it is true and useful either way.** The value space
+reaching a statement at all is closed and small, and that was verified in the code rather than assumed:
 
 - A dimension is filterable ONLY if the catalog declares `allowed_values`. Without one it can be
   grouped by and not filtered, "because the alternative is comparing against a value the caller
   supplied, and the pinned bundle is the only thing entitled to say which values exist".
 - A caller's filter value is refused unless the dimension permits it, in `sutura-semantic`'s resolve
   step, as `DimensionValueNotAllowed`.
-- Allowlist entries are `DimensionValue` newtypes, one line, control characters refused, and bounded
-  in number.
+- Allowlist entries are `DimensionValue` newtypes, one line, control characters refused, bounded in
+  number.
 
-**So no caller-supplied text can ever reach a statement.** The complete inlinable value space is:
-catalog-declared dimension values, ISO dates from a bounded `TimeRange`, and an integer row limit. A
-caller SELECTS from a closed, load-validated set; it never supplies.
+A caller therefore SELECTS from a closed, load-validated set and never supplies. That is defence in
+depth behind the binding, not a replacement for it.
 
-**AGENTS.md's row must be restated rather than softened**, because its stated mechanism - every value
-becomes a bind parameter - no longer covers every path, and a row that loses its mechanism gets
-deleted rather than demoted. The replacement claim is narrower and true: *no CALLER text reaches a
-statement, because a filter value must be a member of the catalog's declared allowlist.*
-
-**The residual risk is a catalog author, not a caller**, and AGENTS.md already treats catalog
-documents as untrusted input. A declared value may itself contain a quote or a backslash. So escaping
-of catalog-declared values is verified continuously, by a corpus that is snapshotted AND executed with
-rows compared: a quote, a doubled quote, a backslash, a trailing backslash, a comment introducer, a
-block opener, a semicolon with a second statement, a bare keyword, placeholder syntax, a zero-width
-joiner, a right-to-left override. Values the newtypes already refuse belong in that corpus too, named
-so nobody mistakes defence in depth for a live hole.
-
+**And the escaping corpus is worth building now regardless**, because the residual risk it covers is a
+catalog author rather than a caller, and AGENTS.md already treats catalog documents as untrusted input.
+A declared value may contain a quote or a backslash, and it reaches an identifier position or a
+parameter depending on the construct. So: a corpus snapshotted AND executed with rows compared - a
+quote, a doubled quote, a backslash, a trailing backslash, a comment introducer, a block opener, a
+semicolon with a second statement, a bare keyword, placeholder syntax, a zero-width joiner, a
+right-to-left override. Values the newtypes already refuse belong in it too, named so nobody mistakes
+defence in depth for a live hole. If an inlining renderer is ever adopted, this corpus is the evidence
+that review will ask for, and having it already green is the difference between a decision and a hope.
 ## The order
 
 Stacked, smallest first, each step green before the next. `stax` manages the stack; the
 `git-ops/stacked-branches` skill has the mechanics.
 
-| # | Step | Done when |
-| --- | --- | --- |
-| 0 | **Decomposability in the domain.** The exhaustive match, the ratio rule, no plumbing. | A new aggregate cannot compile without stating how it federates; a ratio divided per leg is impossible rather than discouraged |
-| 1 | **The three bounds**, as configuration and typed refusals. | Each bound provokes its own refusal in a test; the memory bound is shown biting rather than described |
-| 2 | **Test the startup refusals that already hold.** The more-than-one-source arm of `open_engine` has no test in either binary. | Red against a build with the branch removed |
-| 3 | **Per-source configuration**, keyed, parsed as newtypes. | A duplicate alias, a missing file and a relative path each refused at parse, asserted on the variant |
-| 4 | **Two sources, one question, DuckDB both sides.** The split, the per-leg render, the combine. | Rows equal to the single-source corpus; each leg's statement snapshotted; a `CountDistinct` across sources correct |
-| 5 | **The conformance harness.** Extract the shared test functions; declared capabilities per source. | Adding a source touches a registry and a declaration, never a test function |
-| 6 | **The credential port.** `execute` taking a credential, the subject hoisted out of the legs. | No signature exists that can run as the process; a declared impersonation the deployment cannot perform refuses at boot |
-| 7 | **One network source, Postgres first**, on OAuth per Decision 1. | Two subjects, different rows, in the compose tier |
-| 7b | **Every deployment variant gets a working example.** Single user ships; two-data-systems-refused exists; federation is the same corpus answering; multi user is compose-backed and cannot be faked. | An example that drifts fails a test rather than misleading a reader |
-| 8 | **The compose tier and worktree-aware provisioning.** | Two worktrees provision simultaneously without collision; absent docker prints SKIPPED and exits 0 |
+**The numbering lives in [the implementation plan](../implementation-plan.md), not here.** An earlier
+version of this section numbered its own steps 0 to 8 while the plan numbered fifteen branches
+differently, which is two owners for one artefact - the thing this repository has a table about. So this
+section keeps only what is a *decision* and names each step by the branch that carries it:
 
-Steps 0 to 2 need no decision from anyone and touch no adapter. Step 7 is where the identity story
-becomes real, and it is the first step that cannot be verified without a live service.
+| Branch | Done when |
+| --- | --- |
+| `feat/agent-surface` | One tool - ask a certified question - over the agent transport, its schema derived from the domain type, and an uncertified question refused as a RESULT. **First, because it is the API we expose**, and thin because every other branch rebases on it |
+| `feat/agent-surface-scope` | The rest of the tool set, one schema source for both transports, and advertisement filtered by scope. Both properties need more than one tool to be testable |
+| `feat/federation-decomposability` | A new aggregate cannot compile without stating how it federates; a ratio divided per leg is impossible rather than discouraged |
+| `feat/principal-chain` | The chain is the key everywhere a subject is recorded, with both tail positions absent and no reader that assumes one position |
+| `feat/query-bounds` | Each bound provokes its own refusal in a test; the working-set bound is shown biting rather than described |
+| `test/startup-source-refusals` | Red against a build with the more-than-one-source arm of `open_engine` removed. That arm has no test in either binary today |
+| `feat/source-registry` | A duplicate alias, a missing file and a relative path each refused at parse, asserted on the variant; the posture and its acknowledgement checked at boot |
+| `feat/two-source-execution` | Rows equal to the single-source corpus; each leg's statement snapshotted; a filtered remote dimension over an orphan key correct; a `CountDistinct` across sources correct or refused |
+| `feat/conformance-packs` | Adding a source touches a registry and a declaration, never a test function. The compile half needs no data system and lands early |
+| `feat/credential-port` | No signature exists that can run as the process; a declared impersonation the deployment cannot perform refuses at boot |
+| `feat/compose-tier` | Two worktrees provision simultaneously without collision; absent docker prints SKIPPED and exits 0. It comes BEFORE the first network adapter, because it stands up the source that adapter is tested against |
+| `feat/postgres-adapter` | The whole existing corpus green against a containerised Postgres on a static credential, and the artifact question - which shipped binary links a native driver - answered in code. [Track 1](0007-federating-across-different-data-systems.md), and it de-risks the step after it |
+| `feat/postgres-oauth` | Two subjects, different rows, in the compose tier |
+| `feat/demo-tasks` | Every deployment variant has a working example, and one that drifts fails a test rather than misleading a reader |
 
-
+Two properties of that order are the decision rather than the schedule. **The agent surface is first**,
+because it is the interface everything else is judged through and building it last means every earlier
+step guessed at its shape. And **the first six rows need no decision from anyone and touch no adapter**,
+which is what makes them safe to start before the open questions below are closed.
+`feat/postgres-oauth` is where the identity story becomes real, and the first step that cannot be
+verified without a live service.
 ## Found on a second pass, and not yet carried anywhere
 
 These are gaps in the design as it stands, not open questions about the world. Two of them are cheap
@@ -228,7 +311,7 @@ now and impossible to retrofit, and they are marked.
 - **The principal is a chain, and this is now DECIDED rather than open.** The target is stated:
   permissions for a specific agent, of a specific human, for a specific task. So the shape is human
   then agent then task, ordered, which is also the shape a token exchange maps onto rather than being
-  translated into. Build it in step 0 while both tail positions are always absent: key the budget on
+  translated into. Build it in `feat/principal-chain` while both tail positions are always absent: key the budget on
   the chain, record the chain wherever a call is recorded, and put the task on the request context.
   **The reason it cannot wait:** a stored row that says only the subject can never later be told apart
   from one that meant "an agent acting for" them.
@@ -236,10 +319,18 @@ now and impossible to retrofit, and they are marked.
   shorter lifetime, a smaller budget - and monotonically so, never broader. That is what makes an
   agent identity more than bookkeeping, and it is why a credential port takes the whole context rather
   than a subject.
-- **A federated result inherits the MAXIMUM sensitivity of its inputs**, and re-linkage is assessed
-  separately from access, because joining two permitted reads can identify someone neither read
-  identified. Sensitivity belongs on provenance as a declared property so the rule has somewhere to
-  live before it is needed.
+- **A classification a source EXPOSES is carried through, never assigned here.** The earlier version of
+  this bullet had sutura computing the maximum sensitivity of a federated result and declaring it on
+  provenance, which contradicts the section above: sutura classifies no data. The smaller true claim:
+  if a source labels what it returns, that label travels with the answer unaltered. What sutura does
+  not do is invent one, compute one, or refuse a QUESTION on one. There is exactly one place a carried
+  label may legitimately be read rather than only forwarded, and it is a startup check rather than a
+  query-time one:
+  [a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) part 5c names it as the
+  shape that would restore dataset granularity to the shared-identity acknowledgement, and marks it
+  unbuilt because no metadata adapter exists to expose a label yet. The re-linkage question - that joining two
+  permitted reads can identify someone neither read identified - is real and is NOT ours to answer:
+  the sources authorized each read, and whoever accepts a federated deployment accepts that.
 - **A record per call including refusals - but no retention obligation of our own.** Under
   impersonation the sources do their own auditing, each under the asking subject, and single-user
   deployments are development and proof-of-concept shapes. So sutura keeps no audit archive and

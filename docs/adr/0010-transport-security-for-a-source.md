@@ -52,7 +52,7 @@ What a source declaration may carry:
 | trust anchors for the source | Which certificate authority signs the SOURCE's chain, so verification is explicit rather than ambient |
 | server name | Verified against the presented chain, and separate from the host actually dialled |
 
-Three rules, each with the failure it prevents:
+Four rules, each with the failure it prevents:
 
 1. **A partial declaration refuses at load, naming the missing half.** A certificate with no key, or a
    key with no certificate, is the same class as `server.tls_certificate` without `server.tls_key`,
@@ -66,6 +66,36 @@ Three rules, each with the failure it prevents:
    as a serving certificate does. Reuse the polling-and-swap already built rather than writing a
    second rotation path, and a source whose material becomes invalid must fail its next connection
    loudly instead of falling back to an unauthenticated one.
+
+4. **TLS without verification has no representation, and that is a type rather than a rule.** Every
+   library in this space offers the escape hatch - `danger_accept_invalid_certs`,
+   `sslmode=require` versus `verify-full`, a custom verifier that returns success - and every one of
+   them turns a mutually authenticated channel into an encrypted one with an unknown peer. A `bool`
+   named `verify` makes that state reachable from a config file, and a `bool` defaulted to `true` makes
+   it reachable from a typo. So the shape is closed and carries the anchors in the variant that needs
+   them:
+
+   ```rust
+   /// How sutura secures the channel to one source. Printed at startup, per source.
+   pub enum SourceTransport {
+       /// No transport security. For a local file or a process-local socket.
+       Plaintext,
+       /// TLS, verified. There is no unverified variant, so there is no way to ask for one.
+       Verified { anchors: TrustAnchors },
+       /// TLS, verified, and sutura presents a client certificate.
+       Mutual { anchors: TrustAnchors, identity: ClientIdentity },
+   }
+   ```
+
+   Three consequences, each load-bearing. `TrustAnchors` is **required** in both TLS variants, which is
+   rule 2 enforced by construction rather than by review - a source cannot silently inherit whatever the
+   host happens to trust, because there is no variant that omits the anchors. `Plaintext` is a **named
+   choice** an operator wrote and the startup log prints, not the absence of a setting. And a driver
+   whose own API only exposes a verification flag is adapted to this enum at the boundary, so the flag
+   has exactly one call site per adapter and its value is derived from the variant rather than read from
+   configuration. Where a driver cannot verify at all, the adapter offers no `Verified` construction and
+   the deployment refuses - which is the same shape as an adapter that cannot impersonate refusing an
+   `Impersonated` posture.
 
 ## What mutual TLS is not
 
@@ -92,7 +122,8 @@ authenticated.
   at is, and the redaction must sit on the loaded material rather than on the setting.
 - A client trust store enters the dependency graph for the first time. That is a supply-chain change
   and belongs in the same review as the source adapter that needs it, not ahead of it.
-- Optional means three states per source and not two: no transport security, TLS with verification,
-  and mutual TLS. Each needs a test, and the middle one is the one that gets forgotten.
+- Three states per source and not two: `Plaintext`, `Verified`, `Mutual`. Each needs a test, and the
+  middle one is the one that gets forgotten - which is also the one whose absence used to be spelled
+  "TLS with verification turned off".
 - Nothing here is reachable until a network source exists. This record is written now because the
   configuration shape it implies is easier to get right before there is a source than after.

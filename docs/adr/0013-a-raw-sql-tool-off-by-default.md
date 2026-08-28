@@ -65,9 +65,14 @@ not a reason to be unbounded; if anything it is the path most likely to need the
 
 **One property genuinely does not hold, and pretending otherwise would be the defect.** "No caller text
 reaches a statement" is false for this tool by construction - the statement *is* caller text. Its safety
-therefore comes from the source's own authorization, which is why the previous rule is not optional. On
-the certified path the guarantee stands: a filter value must be a member of the catalog's declared
-allowlist, so no caller text reaches those statements.
+therefore comes from the source's own authorization, which is why the previous rule is not optional.
+
+On the certified path the guarantee is untouched and keeps its own mechanism: every value from a
+question becomes a **bind parameter**, statement and parameters are separate fields with no merging
+constructor, and a golden asserts no question literal appears in a statement. Behind that, a filter
+value must also be a member of the catalog's declared allowlist - defence in depth, not the guarantee
+itself. Neither is weakened by this record, because the raw tool is a different tool with a different
+result type rather than a wider version of this one.
 
 ## The ramp, as mechanism rather than intention
 

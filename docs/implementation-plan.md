@@ -11,27 +11,46 @@ mechanics. Nothing in this plan is started.
 ## The stack
 
 **Steps are named, not numbered, because the order moves and headings should not.** This table is the
-order. The agent-facing surface is first because it is the API we expose: everything else is an
+order, and it is the **only** place a step gets a number - the ADRs name branches and let this table
+say when. The agent-facing surface is first because it is the API we expose: everything else is an
 internal that a stable surface can grow behind.
 
 | Order | Branch | Depends on | Can start now |
 | --- | --- | --- | --- |
 | 1 | `feat/agent-surface` | nothing unshipped | **yes** |
-| 2 | `feat/federation-decomposability` | nothing | **yes** |
-| 3 | `feat/principal-chain` | nothing | **yes** |
-| 4 | `feat/query-bounds` | nothing | **yes** |
-| 5 | `test/startup-source-refusals` | nothing | **yes** |
-| 6 | `feat/source-registry` | 4 | after 4 |
-| 7 | `feat/two-source-execution` | 2, 6 | after 6 |
-| 8 | `feat/conformance-packs` | 7 for the execute half, nothing for the compile half | partly |
-| 9 | `feat/credential-port` | 3, 6 | after 6 |
-| 10 | `feat/postgres-oauth` | 9, and the driver question | after 9 |
-| 11 | `feat/compose-tier` | 10 | after 10 |
-| 12 | `feat/source-mtls` | 6, 10 | after 10 |
-| 13 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
-| 14 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 15 | `ci/prose-change-cost` | nothing - measure first | **yes** |
+| 2 | `feat/agent-surface-scope` | 1 | after 1 |
+| 3 | `feat/federation-decomposability` | nothing | **yes** |
+| 4 | `feat/principal-chain` | nothing | **yes** |
+| 5 | `feat/query-bounds` | nothing | **yes** |
+| 6 | `test/startup-source-refusals` | nothing | **yes** |
+| 7 | `feat/source-registry` | 5 | after 5 |
+| 8 | `feat/two-source-execution` | 3, 7 | after 7 |
+| 9 | `feat/conformance-packs` | 8 for the execute half, nothing for the compile half | partly |
+| 10 | `feat/credential-port` | 4, 7 | after 7 |
+| 11 | `feat/compose-tier` | nothing in this repo - docker and worktree-aware provisioning | **yes** |
+| 12 | `feat/postgres-adapter` | 7, 11, and the artifact question | after 11 |
+| 13 | `feat/postgres-oauth` | 10, 12, and the SASL verification | after 12 |
+| 14 | `feat/source-mtls` | 7, 12 | after 12 |
+| 15 | `feat/demo-tasks` | 11, and one example to demo | after 11 |
+| 16 | `build/supply-chain` | nothing - orthogonal | **yes** |
+| 17 | `ci/prose-change-cost` | nothing - measure first | **yes** |
 
+**Three orderings in that table are decisions rather than convenience, and each replaced an earlier
+arrangement that would have gone wrong:**
+
+- **The compose tier moves ahead of the first network adapter, not behind it.** An earlier version had
+  it depend on Postgres-over-OAuth, which is inverted: compose exists to stand up the source the
+  adapter is tested against, so an adapter that lands first has nothing real to run against and its
+  tests become a fake asserting our own code back to us.
+- **A Postgres adapter with a static credential is its own step, ahead of the OAuth one.** This is
+  [track 1](adr/0007-federating-across-different-data-systems.md) - one source, queried directly - and
+  0007 prices it as nearly free: the dialect is compiled, the statement and parameter goldens exist,
+  every statement is already parse-checked. What it buys is disproportionate: it answers *which shipped
+  artifact links a native driver*, which is an open question in two ADRs and a cross-build matrix
+  change; it puts the rendered SQL in front of a real Postgres for the first time, which the goldens
+  cannot do; and it means the SASL OAUTHBEARER verification, if it fails, blocks one step instead of
+  the whole network story.
+- **The agent surface is split, and slice one is deliberately thin.** See below.
 ## The original thesis, and where each piece stands
 
 Audited against the tree rather than remembered, because a thesis quietly losing a leg is how a
@@ -68,7 +87,7 @@ map directly onto steps in this plan, and reading them before designing costs le
   credentials make pooling a correctness question rather than a throughput one. Somebody has solved
   this shape already.
 - **Arrow execution patterns**, for the owed Arrow record.
-- **Its optimizer rules**, for step 6's combine and the pushdown decision.
+- **Its optimizer rules**, for `feat/two-source-execution`'s combine and the pushdown decision.
 
 What to keep declining: the acceleration and cache layer, the inference surface, and the runtime as a
 runtime. Code and shapes, never a second control loop.
@@ -157,24 +176,44 @@ was the largest omission in the record.
 field for SQL, a table, a predicate or row ids; refusals as results rather than errors; provenance in
 the payload. MCP is a transport over that, not a redesign of it.
 
-**Touches.** A new crate; `crates/sutura-http` for nothing, because the point is that both transports
-serve the same tools.
+**Split in two, and slice one is deliberately thin.** An earlier version of this step bundled the
+server, one schema source for two transports, scope-filtered advertisement and the tool set together.
+That is four mechanisms in the first branch of the stack - the branch every other branch rebases on -
+and the one thing a first slice must not do is stay open. So:
 
-**Adds.** A server exposing the tools the HTTP surface exposes, from **one schema source**, so the two
-cannot disagree. The invariants for it are already written and already enforced by the domain types -
-which is the reason this step is smaller than it looks.
+### Slice one: `feat/agent-surface`
+
+**Adds.** One crate, one transport, **one tool**: ask a certified question. Its schema is derived from
+the domain `Query` rather than hand-written, which is the property that has to be true from the first
+line because retrofitting it means reconciling two shapes that have already drifted.
 
 **Tests.**
 - `a_certified_question_is_answered_over_the_agent_surface`.
 - `an_uncertified_question_is_refused_as_a_RESULT_rather_than_an_error`.
-- `the_advertised_tools_differ_by_scope` - a tool a caller may not invoke is not advertised to it.
-- `both_transports_describe_the_same_tools` - one source, or a test asserting the two descriptions are
-  equal. This is the drift this step exists to prevent.
+- `a_query_field_the_domain_does_not_declare_is_a_named_parse_error` - the `deny_unknown_fields`
+  guarantee, asserted through the new transport rather than assumed to survive it.
 
 **Done when** an agent client can ask a certified question and be REFUSED an uncertified one over the
-agent surface, with no client of ours in the loop. Note the demo step depends on this **or** on the
-OpenAPI route; this is the better one, and the demo must not wait for it.
+agent surface, with no client of ours in the loop.
 
+### Slice two: `feat/agent-surface-scope`
+
+**Adds.** The rest of the tool set, and the two properties that need more than one tool to be
+meaningful: **one schema source for both transports**, and **advertisement filtered by scope** so a tool
+a caller may not invoke is invisible rather than rejected on call. The second is the mechanism
+[a raw SQL tool, off by default](adr/0013-a-raw-sql-tool-off-by-default.md) depends on, which is why it
+is here and not deferred further.
+
+**Tests.**
+- `the_advertised_tools_differ_by_scope`.
+- `both_transports_describe_the_same_tools` - one source, or a test asserting the two descriptions are
+  equal. This is the drift this slice exists to prevent, and it is untestable with one tool.
+
+**Done when** the two transports cannot disagree, and a caller without a scope cannot see the tool it
+lacks.
+
+Note the demo step depends on slice one **or** on the OpenAPI route; slice one is the better one, and
+the demo must not wait for either slice.
 ## Decomposability in the domain
 
 **Goal.** A federated query cannot compute an aggregate that does not survive being computed per leg
@@ -291,7 +330,7 @@ set of legs.
 
 **Adds.** A split that groups models by `SourceName` - so same-source fusion is grouping, not analysis -
 one mono-source `QueryPlan` per source, and a combine that joins and finishes the aggregation that
-could not descend. The bounds from step 3 are enforced here. Whether a leg was pushed or pulled is
+could not descend. The bounds from `feat/query-bounds` are enforced here. Whether a leg was pushed or pulled is
 observable.
 
 **Tests.**
@@ -348,13 +387,88 @@ cannot impersonate when the deployment requires it.
 **Done when** the fallback is removed rather than forbidden, and the single-user path still works with
 static credentials.
 
+## The compose tier
+
+**Goal.** Oracle, Postgres, Datahub and OpenMetadata brought up on demand, provisioned through
+`xtask`, worktree-aware.
+
+**It comes BEFORE the first network adapter, and that is a change from an earlier version of this
+plan** which had it depend on Postgres-over-OAuth. That was inverted: this tier exists to stand up the
+source an adapter is tested against, so an adapter merged first has nothing real to run against and its
+tests degrade into a fake asserting our own rendering back to us. It depends on nothing in this
+repository and can start immediately.
+
+**Provisioning lives in `xtask`, not in the shipped binary.** An earlier version put it in the sutura
+CLI. Docker orchestration in a release artifact is test scaffolding shipped to users, and the repo
+already has the place for it: `xtask` is the repo-inspection and gate tool, it is never packaged, and
+`classify` / `check-changed` already own the "what does this change require" decision this tier keys
+off. The CLI keeps no docker knowledge.
+
+**Adds.** Deterministic ports derived from the worktree identity, a compose project name per worktree so
+volumes cannot collide, discovery so no test hardcodes a port, readiness as a health gate rather than a
+sleep, teardown scoped so it cannot kill a neighbour, and SKIPPED-and-exit-0 when docker is absent.
+
+**Note it cannot be a nix check** - the sandbox has no network and no docker socket - so it is a CI job
+and a `just` task that consume nix-built artifacts. The strongest version runs the OCI image that ships.
+
+**Done when** two worktrees provision simultaneously without collision, and a missing service cannot
+produce a silent pass.
+
+## A Postgres adapter, on a static credential
+
+**Goal.** [Track 1](adr/0007-federating-across-different-data-systems.md): one source, queried
+directly, over a real network protocol. No federation, no OAuth, no impersonation - a warehouse
+declaring `Shared`, single-user mode, exactly the posture `examples/single-player` already ships.
+
+**Why it is its own step, ahead of the OAuth one.** Three things it settles that nothing else can:
+
+- **Which shipped artifact links a native driver.** Open in two ADRs. `sutura-exec-duckdb` is a
+  dev-dependency because nixpkgs has no musl `libduckdb`, and a Postgres driver has the same question
+  with a different answer available: a pure-Rust client links nothing, which may make the cross-build
+  matrix a non-issue for this source and *not* for the next one. Answering it against real code beats
+  answering it in prose.
+- **The rendered SQL meets a real Postgres.** 21 statement goldens and 21 parameter goldens exist and
+  every statement is parse-checked, and parse-checked is
+  [explicitly narrower](adr/0007-federating-across-different-data-systems.md) than accepted: the
+  dialect layer's parser is not gated per dialect for every construct. Today only DuckDB vouches for
+  acceptance, through `differential.rs`. This is the second data system to do so, and the first over a
+  wire protocol.
+- **It de-risks the step after it.** If the client in use turns out not to speak SASL OAUTHBEARER, that
+  blocks `feat/postgres-oauth` alone rather than the entire network story, and the adapter it would have
+  blocked is already merged and useful.
+
+**Touches.** A new adapter crate; `crates/sutura-config` for its source declaration; the
+`tests/adapters` registry, which is the one-entry registration AGENTS.md's invariant promises.
+
+**Adds.** A `Warehouse` over Postgres: render through `sutura-sql` in the compiled `dialect-postgresql`,
+bind parameters as parameters, forced quoting intact, `LIMIT 10001` unchanged. Nothing about the plan or
+the generator moves.
+
+**Tests.**
+- The whole existing golden and refusal corpus, registered for this adapter and green - which is the
+  claim that adding a data system is a registration rather than a test edit, tested for the first time
+  against a system that is not DuckDB.
+- `the_rendered_statement_is_accepted_by_a_real_postgres`, over the corpus, in the compose tier.
+- The row-cap leg: a result at the cap distinguishable from one cut off by it, asserted here too,
+  because `row_limit()` being `max_rows + 1` is a property of the generator and this is a new executor
+  reading it.
+
+**Done when** the corpus is green against a containerised Postgres, the artifact question has an answer
+in code rather than in a record, and the answers are identical to DuckDB's for every case the
+conformance packs cover.
+
 ## Postgres over OAuth
 
 **Goal.** The first network source, and the first real impersonation.
 
-**Blocked on one verification, to do FIRST:** whether the Rust client in use speaks SASL OAUTHBEARER.
-A pure-Rust protocol implementation may not, which would make the driver choice part of this step
-rather than downstream of it. Also confirm the `libpq` in the toolchain is built with the curl
+**Builds on the adapter above rather than introducing one.** The driver, the source declaration and the
+corpus registration are already merged and green on a static credential, so this step changes exactly
+one thing: how the connection is authenticated.
+
+**Blocked on one verification, to do FIRST:** whether the client that adapter chose speaks SASL
+OAUTHBEARER. A pure-Rust protocol implementation may not - and if it does not, the choice is between a
+second client for this source and a different authentication route, which is a decision on merged code
+rather than a redesign of an unbuilt step. Also confirm the `libpq` in the toolchain is built with the curl
 dependency the method needs, and that a validator module exists for the deployment's provider.
 
 **Touches.** A new adapter crate; `crates/sutura-config` for its source declaration.
@@ -370,21 +484,6 @@ source, different rows, asserted. Compose tier by nature.
 **Done when** two subjects get different rows through the same question, **the multi-user example
 demonstrates exactly that end to end**, and the artifact question from the ADRs is answered rather than
 deferred - which of the shipped binaries links a native driver.
-
-## The compose tier
-
-**Goal.** Oracle, Postgres, Datahub and OpenMetadata brought up on demand, provisioned through the
-sutura CLI, worktree-aware.
-
-**Adds.** Deterministic ports derived from the worktree identity, a compose project name per worktree so
-volumes cannot collide, discovery so no test hardcodes a port, readiness as a health gate rather than a
-sleep, teardown scoped so it cannot kill a neighbour, and SKIPPED-and-exit-0 when docker is absent.
-
-**Note it cannot be a nix check** - the sandbox has no network and no docker socket - so it is a CI job
-and a `just` task that consume nix-built artifacts. The strongest version runs the OCI image that ships.
-
-**Done when** two worktrees provision simultaneously without collision, and a missing service cannot
-produce a silent pass.
 
 ## Mutual TLS per source
 
@@ -425,9 +524,9 @@ which means a key and egress from the demo environment, or a local one, which is
 demo assumes and make it configurable, because "bring up a demo" silently requiring an API key is the
 kind of surprise that wastes an afternoon. Neither belongs in a default that runs in CI.
 
-**Touches.** The justfile, a demo compose file separate from `compose.dev.yaml`, and the provisioning
-from step 10 - the same worktree-aware ports and project names, since two people demoing at once is
-the normal case.
+**Touches.** The justfile, a demo compose file separate from `compose.dev.yaml`, and the `xtask`
+provisioning from the compose tier - the same worktree-aware ports and project names, since two people
+demoing at once is the normal case.
 
 **Which UI is deliberately not decided here.** A ready-made chat container is the fast path; something
 lighter that speaks the OpenAPI surface directly is less to run. Pick it when the task is written,
@@ -520,7 +619,7 @@ economise.
 3. **Only if it is still slow warm:** separate the gates that read prose from the ones that need a
    compiler, so a prose change runs `check-docs`, `check-guidance`, `text-hygiene`, `line-endings` and
    `max-lines` without a dependency closure. That needs a prebuilt `xtask`, which is its own piece of
-   work and should not be started before step 1 says it is necessary.
+   work and should not be started before the measurement in point 1 above says it is necessary.
 
 **Done when** an ADR-only change is gated in about a minute rather than seventeen, with `check-docs`
 and mkdocs `--strict` still running, and with the publish job's cache posture unchanged.
@@ -535,9 +634,9 @@ example that drifts fails a test rather than misleading a reader.
 | Variant | Example | What it demonstrates | Lands with |
 | --- | --- | --- | --- |
 | **Single user** | `examples/single-player` (exists) | One source, static credentials, the whole measure vocabulary | shipped |
-| **Two data systems, refused** | the two-source corpus (written, unmerged) | That crossing two `SourceName`s is refused today, from a real on-disk catalog. A permanent governance boundary rather than a placeholder | before step 6 |
-| **Federation** | the same corpus, answering | The same question that was refused now answers across two sources, so the diff shows exactly what changed in behaviour | step 6 |
-| **Multi user** | a new corpus, compose-backed | Two subjects, the same question, DIFFERENT rows, enforced by the source | step 9 |
+| **Two data systems, refused** | the two-source corpus (written, unmerged) | That crossing two `SourceName`s is refused today, from a real on-disk catalog. A permanent governance boundary rather than a placeholder | before `feat/two-source-execution` |
+| **Federation** | the same corpus, answering | The same question that was refused now answers across two sources, so the diff shows exactly what changed in behaviour | `feat/two-source-execution` |
+| **Multi user** | a new corpus, compose-backed | Two subjects, the same question, DIFFERENT rows, enforced by the source | `feat/postgres-oauth` |
 
 Three things this ordering buys, and the middle one is the reason to do it this way:
 
@@ -545,7 +644,7 @@ Three things this ordering buys, and the middle one is the reason to do it this 
    the day federation lands the same example flips from a refusal to an answer. That is red-before-green
    at the level of a demo rather than a unit test.
 2. **The multi-user example cannot be faked.** No local file enforces a row-level policy, so this one is
-   compose-backed by nature and lands with step 9, not before. A fixture that answered the same rows for
+   compose-backed by nature and lands with `feat/postgres-oauth`, not before. A fixture that answered the same rows for
    both subjects and passed would be worse than no example at all - it would look like proof.
 3. **The federation example is the same corpus, not a new one.** Reusing it is what makes the behaviour
    change legible; a fresh corpus would hide the change in unrelated diff.
@@ -561,7 +660,7 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   Arrow major.
 - **A custom DataFusion planner or extension.** The most promising shape for keeping the pushdown unit
   as sutura's own plan, and unprototyped.
-- **BigQuery and Oracle adapters.** Both wait on step 9 proving the shape, and Oracle additionally on a
+- **BigQuery and Oracle adapters.** Both wait on `feat/postgres-oauth` proving the shape, and Oracle additionally on a
   generator question: its dialect exists upstream as an empty feature, and the rendering it needs lives
   behind the transpile feature this workspace does not compile.
 - **Untrusted-content marking in the result envelope.** Cheap before the first Arrow envelope, expensive

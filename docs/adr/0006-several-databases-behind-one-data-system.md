@@ -267,8 +267,11 @@ AGENTS.md's first paragraph says end-to-end impersonation is the point of this s
 hardened from an aspiration into a requirement: in multi-user operation a data source must support
 impersonation, non-impersonating sources are permitted only in a single-user role that reads
 everything, and **the critical datasets are read under the asking user's own credentials in every
-case.** ADR 0008 is the record of that requirement; this section states only what it costs the route
-in front of it, and does not restate the requirement itself.
+case.** ADR 0008 is the record of that requirement - and of what sutura can and cannot check about it: a
+posture and an operator acknowledgement PER SOURCE, so the last clause is an operator obligation rather
+than something this system verifies per dataset. This section states only what the route in front of it
+costs, and does not restate the requirement itself. Note that the cost below is unaffected by that
+granularity: a route where no leg can EVER run as the caller fails the requirement at any resolution.
 
 Against that, the three routes are not equivalent, and the difference is structural rather than a
 matter of effort:
