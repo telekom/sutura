@@ -8,6 +8,7 @@
 //! to review, and they are unit-tested by `cargo nextest run --workspace` like any other code.
 
 mod api_docs;
+mod arrow_major;
 mod boundaries;
 mod causality;
 mod changes;
@@ -118,6 +119,12 @@ const TASKS: &[Task] = &[
         description: "every declared dependency is actually used",
         kind: Kind::Hygiene,
         run: unused_deps::run,
+    },
+    Task {
+        name: "check-arrow",
+        description: "one Arrow major in Cargo.lock, or an explained exception",
+        kind: Kind::Hygiene,
+        run: arrow_major::run,
     },
     Task {
         name: "line-endings",
