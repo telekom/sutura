@@ -165,8 +165,10 @@ Read this before you believe a red `cargo clippy`.
 
 The dev shell's bare `cargo` is the pinned **nightly** (`devco/rust-toolchain-nightly.toml`), because
 the cranelift codegen backend is nightly-only and it is what makes the inner loop fast. The
-pinned **stable** (`rust-toolchain.toml`) is what CI uses and what `nix/stable-env.sh` puts in
-front, with its own target directory.
+pinned **stable** (`rust-toolchain.toml`) is what every gate that lints, tests or ships uses, and
+what `nix/stable-env.sh` puts in front, with its own target directory. The one exception is
+`checks.api-docs`, which prefixes nightly onto the `cargo rustdoc` child because
+`--output-format json` is unstable; it builds nothing another gate reads.
 
 **CI is the authority, and it is stable throughout.** Locally the split is by what the channel
 can change, and it is not uniform - so here is the actual state rather than a tidier claim:

@@ -50,7 +50,12 @@ pub enum InvalidIdentifier {
 /// data system with a message about a column that does not exist. This is the opposite of
 /// [`crate::definitions::DefinitionDigest`], where normalising is right because the value is a hash
 /// rather than a reference to something else.
-fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
+///
+/// `pub(crate)` rather than private because [`identifier_newtype`] is used from
+/// [`crate::knowledge`] as well as from here, and a macro's body resolves its names where it is
+/// expanded. The alternative was a second copy of this parser in the other module, which is the one
+/// thing the macro exists to prevent.
+pub(crate) fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
     let trimmed = raw.trim();
     let Some(first) = trimmed.chars().next() else {
         return Err(InvalidIdentifier::Empty);
@@ -83,6 +88,12 @@ fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
 /// A macro rather than five hand-written copies, and not only to save lines: the five names are
 /// used interchangeably by the resolver, so any drift between their parsers would be a bug that
 /// only shows up for one of them. One implementation cannot drift from itself.
+///
+/// **Every name inside the expansion is `$crate`-qualified, which is what lets it be used outside
+/// this module.** `crate::knowledge::NoteName` is declared with it, and a `macro_rules!` body
+/// resolves item names at the EXPANSION site rather than at the definition site - so an unqualified
+/// `parse_identifier` there would have been a second parser to keep in step, which is the drift this
+/// macro exists to make impossible.
 macro_rules! identifier_newtype {
     ($(#[$meta:meta])* $name:ident) => {
         $(#[$meta])*
@@ -98,8 +109,8 @@ macro_rules! identifier_newtype {
 
         impl $name {
             /// Parses a name, rejecting anything that is not one.
-            pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidIdentifier> {
-                parse_identifier(raw.as_ref()).map(Self)
+            pub fn parse(raw: impl AsRef<str>) -> Result<Self, $crate::model::InvalidIdentifier> {
+                $crate::model::parse_identifier(raw.as_ref()).map(Self)
             }
 
             #[inline]
@@ -111,7 +122,7 @@ macro_rules! identifier_newtype {
         /// Delegates to `parse` rather than repeating it: `serde(try_from)` above is what makes
         /// this the deserialization path, and one constructor stays the source of truth.
         impl TryFrom<String> for $name {
-            type Error = InvalidIdentifier;
+            type Error = $crate::model::InvalidIdentifier;
 
             fn try_from(raw: String) -> Result<Self, Self::Error> {
                 Self::parse(raw)
@@ -125,6 +136,10 @@ macro_rules! identifier_newtype {
         }
     };
 }
+
+// Path-based, so `crate::knowledge` can `use` it. `#[macro_export]` would put it on the crate root
+// and in the public API, which is a wider surface than one sibling module needs.
+pub(crate) use identifier_newtype;
 
 identifier_newtype! {
     /// The name of a model: one physical table plus what we know about it.
@@ -362,8 +377,11 @@ mod tests {
         assert_eq!(name.as_str(), "revenue");
     }
 
-    /// Deserialize without pulling a format crate into the domain's dependency tree: the boundary
-    /// gate allowlists none, and this tests the wiring rather than a YAML parser.
+    /// Deserialize through the domain-side shape rather than through a YAML parser.
+    ///
+    /// NOT because the boundary gate forbids a format crate - `serde_json` is allowlisted and
+    /// present. Because of scope: this asserts the serde wiring, and what the ON-DISK format
+    /// accepts is asserted where that format lives, in `sutura-catalog-local`.
     fn deserialize_column(raw: &str) -> Result<ColumnName, serde::de::value::Error> {
         use serde::Deserialize as _;
         use serde::de::IntoDeserializer as _;

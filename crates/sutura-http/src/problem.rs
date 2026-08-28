@@ -1,13 +1,26 @@
 //! The one body every failure comes back as, and the one thing that turns a failure into a
 //! response.
 //!
-//! # A refusal is not in here
+//! # A refusal is not in here, and the reason is not the status any more
 //!
-//! Worth stating first, because it is the distinction the whole surface turns on. A *refusal* - the
-//! caller asked something they may not have - is a `200` carrying
-//! [`crate::wire::OutcomeBody::Refusal`]. A *failure* is everything else: a body that is not a
-//! question, a missing credential, a limit reached, a data system that did not answer. Only
-//! failures reach this module.
+//! Worth stating first, because it is the distinction the whole surface turns on and the obvious
+//! shorthand for it has stopped working. A *refusal* - the caller asked something they may not have -
+//! now carries an error status too, from [`crate::wire::refusal`]. A *failure* is everything else: a
+//! body that is not a question, a missing credential, a limit reached, a data system that did not
+//! answer. Only failures reach this module.
+//!
+//! So the two are no longer told apart by `2xx` against `4xx`. What tells them apart is the **body**,
+//! and that is the deliberate choice rather than a leftover: a refusal keeps
+//! [`crate::wire::OutcomeBody::Refusal`] with its `outcome` discriminator, and a failure keeps
+//! [`ProblemBody`]. `outcome` is the one-field test for which arrived, which matters most exactly
+//! where a status is shared - `503` is `unavailable` or `at_capacity` from here, and
+//! `source_unavailable` from there; `413` is a request body over the limit from here, and an answer
+//! over the row cap from there.
+//!
+//! **A refusal is not routed through [`Failure`], and must not be.** `Failure` is what an `Err`
+//! becomes, and `ToolOutcome::Refusal` is a domain *result*: a `Failure::Refused` variant would put a
+//! governance outcome into the error enum and make the type system agree with the mistake this design
+//! exists to prevent. `docs/adr/0005` is the record.
 //!
 //! # What a failure body may say
 //!

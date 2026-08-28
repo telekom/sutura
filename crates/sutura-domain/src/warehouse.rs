@@ -1,14 +1,20 @@
-//! The execution port: the statement that goes out, and the rows that come back.
+//! The execution port: the plan that goes out, and the rows that come back.
 //!
 //! The trait is named `Warehouse`, which is the port's name and says nothing about what sits behind
 //! it. A file read by an in-process engine and a cluster with a login are both implementations.
 //!
-//! This is the one module in the domain that names SQL, and the distinction is worth being precise
-//! about. [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text
-//! would come from a caller. Here the text is something sutura generated a moment ago from a pinned
-//! definition, and the port has to hand it to something. What the port does *not* accept is a
-//! statement with values pasted into it: [`GeneratedQuery`] keeps them apart, so an adapter cannot
-//! receive a query whose parameters have already been flattened into the text.
+//! **No statement appears in this module, and its absence is the decision rather than an omission.**
+//! A rendered statement used to live here, on the argument that the port had to hand one to
+//! something. The port takes a [`crate::plan::QueryPlan`] now - [`Warehouse`] below says why that is
+//! what makes a second kind of adapter possible - so nothing in the domain constructs or reads a
+//! statement, and the type that carries one moved out to `sutura-sql`, beside the code that renders
+//! it. A domain holding a rendered statement has acquired a concept no domain operation uses.
+//!
+//! What stays is [`ParamValue`], and it stays because the type the port *does* take is built out of
+//! it: a [`crate::plan::QueryPlan`] carries a vector of them. It is also where the rule lives - a
+//! value is a closed set of typed variants an adapter binds, never text somebody concatenated.
+//! [`crate::query`] is the *tool* surface, where SQL must be unrepresentable because the text would
+//! come from a caller; here there is no text for a value to reach at all.
 
 use crate::calendar::Date;
 use crate::model::SourceName;
@@ -53,43 +59,6 @@ impl ParamValue {
             Self::Text(ref v) => format!("{v:?}"),
             Self::Date(d) => d.to_iso(),
         }
-    }
-}
-
-/// A statement, its parameters, and the one data system it runs against.
-///
-/// **Parameters are a separate field and there is no constructor that merges them.** That is the
-/// mechanism behind "no value from a question reaches the statement as text": to inline a value an
-/// adapter would have to build the string itself, which is a diff rather than an oversight.
-///
-/// `source` rides along because a plan resolves to exactly one data system, and carrying it here is
-/// what lets the composition root check that the adapter it is about to call is the one the plan
-/// named.
-#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-pub struct GeneratedQuery {
-    source: SourceName,
-    sql: String,
-    params: Vec<ParamValue>,
-}
-
-impl GeneratedQuery {
-    pub const fn new(source: SourceName, sql: String, params: Vec<ParamValue>) -> Self {
-        Self { source, sql, params }
-    }
-
-    #[inline]
-    pub const fn source(&self) -> &SourceName {
-        &self.source
-    }
-
-    #[inline]
-    pub fn sql(&self) -> &str {
-        &self.sql
-    }
-
-    #[inline]
-    pub fn params(&self) -> &[ParamValue] {
-        &self.params
     }
 }
 
@@ -350,34 +319,11 @@ pub trait Warehouse {
 
 #[cfg(test)]
 mod tests {
-    use super::{GeneratedQuery, MalformedRowSet, NotFinite, ParamValue, Real, RowSet, Value};
+    use super::{MalformedRowSet, NotFinite, ParamValue, Real, RowSet, Value};
     use crate::calendar::Date;
-    use crate::model::SourceName;
-
-    fn source() -> SourceName {
-        SourceName::parse("local").expect("a test source is a source")
-    }
 
     fn real(value: f64) -> Real {
         Real::parse(value).expect("a test literal is finite")
-    }
-
-    #[test]
-    fn a_generated_query_keeps_its_parameters_out_of_its_text() {
-        // The mechanism behind the no-injection claim, asserted at the type level: an adapter
-        // receives the statement and the values separately, so inlining one would be its own code
-        // rather than an accident here.
-        let query = GeneratedQuery::new(
-            source(),
-            String::from("SELECT 1 WHERE d >= ? AND d < ?"),
-            vec![
-                ParamValue::Date(Date::parse("2026-06-01").expect("a test date is a date")),
-                ParamValue::Date(Date::parse("2026-07-01").expect("a test date is a date")),
-            ],
-        );
-        assert!(!query.sql().contains("2026"), "{}", query.sql());
-        assert_eq!(query.params().len(), 2);
-        assert_eq!(query.source().as_str(), "local");
     }
 
     #[test]

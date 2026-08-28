@@ -67,7 +67,10 @@ finer split is a cheap change if a caller ever needs the branch.
 - `MalformedFrontmatter`
 - `IdentifyKind`
 - `Metric`
+- `Description` - The prose of a definition document is not a usable description.
+- `NoteBody` - The prose of a knowledge document is not a usable note body: nothing at all, or more of it than a note may carry.
 - `Inconsistent`
+- `UncheckableKnowledge` - The notes do not hold together with the definitions they are about.
 - `Empty`
 - `Digest` - The domain could not hash the definitions.
 
@@ -135,11 +138,21 @@ Required in every document rather than inferred from the directory it sits in. A
 wrong directory is then an error naming the mismatch, instead of a metric that was quietly never
 loaded, and the loader can walk one tree instead of trusting a layout convention.
 
+**Seven kinds now, and the split between them is worth reading as two groups.** The first three
+are definitions: they decide what executes, and `sutura_domain::catalog` checks them. The last
+four are knowledge: they decide what a reader understands, and `sutura_domain::knowledge` checks
+them. Nothing in the loader treats the two groups differently - one walk, one tag, one dispatch -
+which is what keeps "which directory is this in" from becoming part of the format.
+
 #### Variants
 
 - `Model`
 - `Relationship`
 - `Metric`
+- `Glossary` - One entry of the business glossary.
+- `Caveat` - Something a reader has to know before trusting a number.
+- `NotDefined` - A term this catalog deliberately does not define.
+- `Example` - A worked question: how somebody asked it, and what to send.
 
 #### Methods
 
@@ -211,7 +224,7 @@ pub struct ModelDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self, description: String) -> Model
+pub fn into_domain(self, description: Description) -> Model
 ```
 
 #### Implements
@@ -282,7 +295,7 @@ pub struct MetricDoc
 #### Methods
 
 ```rust
-pub fn into_domain(self, description: String) -> Result<Metric, InvalidMetricDocument>
+pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument>
 ```
 
 #### Implements
@@ -308,6 +321,118 @@ once, for every adapter.
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### Module `knowledge`
+
+The on-disk shape of the four knowledge documents: the glossary, the caveats, the terms
+deliberately left undefined, and the worked examples.
+
+Same rules as the definition documents next door, and one addition worth stating on its own.
+
+**`example`'s `question:` field deserializes `sutura_domain::query::Query` DIRECTLY, and that is
+the most useful line in this file.** `Query` carries `deny_unknown_fields` and has no field for
+SQL, so an author who copies a verified-query file out of a reference implementation - `nl:` plus
+`sql:` is exactly the shape those files have - gets an error naming `sql`, at load, in the
+document. `document.rs`'s `a_document_carrying_sql_is_refused_by_name` therefore extends to this
+kind for nothing, and an example cannot describe a request the surface would not accept, because
+the thing in the document IS the request.
+
+**Prose is the markdown body**, as for a model and a metric, and it becomes a
+`NoteBody` - which is where the size caps are. A document over the cap does not load; nothing
+anywhere truncates it.
+
+**Nothing here reads the directory a document sits in.** The `kind:` tag in the frontmatter is
+what says what a file is - `crate::document::DocumentKind` argues why - so
+`catalog/knowledge/glossary/` is a convenience for whoever browses the tree and not a fact the
+loader depends on. That is also the part of this adapter a metadata-service adapter can borrow: a
+document kind is a concept, not a path.
+
+#### `struct GlossaryDoc`
+
+```rust
+pub struct GlossaryDoc
+```
+
+One glossary entry: the words, and the one thing they mean.
+
+`means` needs no `singleton_map` adapter, unlike `MetricDoc`'s `measure`. A `Referent` is read
+through a flat `try_from` representation rather than by an external tag - `sutura_domain::knowledge`
+gives the argument - so what an author writes is one mapping of plain keys, which is what YAML is
+good at.
+
+##### Methods
+
+```rust
+pub fn into_domain(self, body: NoteBody) -> GlossaryEntry
+```
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
+
+#### `struct CaveatDoc`
+
+```rust
+pub struct CaveatDoc
+```
+
+One caveat, and everything it is about.
+
+`about` has no default. A caveat scoped to nothing is refused by
+`sutura_domain::knowledge::InconsistentKnowledge::CaveatAboutNothing`, and that refusal is what
+keeps the catalog from having an unscoped channel into the prompt - so the field being required
+here means the author is told about the missing key rather than about the empty list.
+
+##### Methods
+
+```rust
+pub fn into_domain(self, body: NoteBody) -> Caveat
+```
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
+
+#### `struct NotDefinedDoc`
+
+```rust
+pub struct NotDefinedDoc
+```
+
+One term this catalog deliberately does not define.
+
+`NotDefinedDoc` rather than `AbsenceDoc`, because the two names are for two audiences: `not_defined`
+is the word an author writes in `kind:`, and it says what they are doing; `Absence` is what the
+domain calls the thing once it exists. Naming the document after the word in the file is what makes
+an error about it findable.
+
+##### Methods
+
+```rust
+pub fn into_domain(self, body: NoteBody) -> Absence
+```
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
+
+#### `struct ExampleDoc`
+
+```rust
+pub struct ExampleDoc
+```
+
+One worked question: how it was asked, and what to send.
+
+##### Methods
+
+```rust
+pub fn into_domain(self, body: NoteBody) -> Example
+```
+
+##### Implements
+
+`Debug`, `Deserialize<'de>`
 
 ## Module `frontmatter`
 

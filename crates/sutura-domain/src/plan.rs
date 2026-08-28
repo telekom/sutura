@@ -510,11 +510,11 @@ pub fn plan_required_filter(filter: &RequiredFilter, column: PlanColumn, bind: i
     match *filter {
         RequiredFilter::Equals { ref value, .. } => PlanPredicate::Equals {
             column,
-            param: bind(value.clone()),
+            param: bind(String::from(value.as_str())),
         },
         RequiredFilter::NotEquals { ref value, .. } => PlanPredicate::NotEquals {
             column,
-            param: bind(value.clone()),
+            param: bind(String::from(value.as_str())),
         },
         RequiredFilter::IsTrue { .. } => PlanPredicate::IsTrue { column },
         RequiredFilter::IsNotNull { .. } => PlanPredicate::IsNotNull { column },

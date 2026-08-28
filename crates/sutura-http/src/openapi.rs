@@ -54,8 +54,11 @@ A question names a metric, a grain, a bounded period and up to four dimensions. 
 for SQL, a table, a filter expression or a list of row ids, so an uncertified question is \
 unrepresentable rather than refused.
 
-A refusal is a RESULT, not an error. `POST /v1/query` answers 200 with `outcome: refusal` when a \
-question is one the caller may not have; retrying it will not change the answer.
+A refusal is a RESULT, not an error - and it comes back with an explicit status rather than a 200. \
+`POST /v1/query` answers 403, 404, 409, 413, 422 or 503 with `outcome: refusal` when a question is \
+one the caller may not have. Every one of those carries a stable `code` and a sentence saying what \
+to change. Repeating an unchanged question will not change the answer; the one refusal worth \
+retrying is 503 `source_unavailable`. 200 means the question was ANSWERED and nothing else does.
 
 NO PER-CALLER IDENTITY. Where an access token is configured, presenting it proves the caller holds \
 a secret an operator configured - it authenticates the deployment, not the caller. There is no \
@@ -173,6 +176,36 @@ mod tests {
             rendered.contains("refusal is a RESULT"),
             "the description lost the refusal notice"
         );
+    }
+
+    #[test]
+    fn every_refusal_status_is_declared_on_the_query_operation() {
+        // The document is what somebody integrating reads, and a status nothing declares is a status
+        // they will meet in production instead. Asserted through the merged document rather than by
+        // reading the attribute, because the attribute is only half the wiring.
+        // Read out of the SERIALIZED document rather than off the typed tree: the JSON is what a
+        // client generator consumes, and it is also the thing that does not move under a `utoipa`
+        // release that renames a type in its path model.
+        let rendered = document_json().expect("the document serializes");
+        let parsed: serde_json::Value = serde_json::from_str(&rendered).expect("the document is JSON");
+        let responses = &parsed["paths"][format!("{API_V1_PREFIX}{}", base_paths::QUERY)]["post"]["responses"];
+        for status in ["200", "403", "404", "409", "413", "422", "503"] {
+            let declared = &responses[status];
+            assert!(!declared.is_null(), "{status} is not declared on POST /v1/query: {responses}");
+            let description = declared["description"].as_str().unwrap_or_default();
+            assert!(!description.is_empty(), "{status} is declared with no meaning given");
+        }
+        // And the refusal statuses say so, so a reader can tell them from the failures that share a
+        // number with them.
+        for status in ["403", "404", "409", "413", "422"] {
+            assert!(
+                responses[status]["description"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("outcome: refusal"),
+                "{status} does not tell a reader it carries a refusal"
+            );
+        }
     }
 
     #[test]

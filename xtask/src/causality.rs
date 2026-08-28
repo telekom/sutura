@@ -11,6 +11,13 @@
 //! test is restored, while files that added tests keep their HEAD content. The changed tests
 //! then run against old behaviour and new tests.
 //!
+//! TWO ATTEMPTS. A file that gained both an implementation change and a test keeps its HEAD
+//! content on the first attempt, and a file at HEAD calling an API this branch CHANGED mixes two
+//! versions of it, so the tree does not compile. That used to end the run as INCONCLUSIVE after
+//! paying for the whole build - 12 minutes in CI for no verdict. A failure to compile is now not
+//! taken as the answer while anything is still held at HEAD: those files go to base too and the
+//! question is asked once more, on a tree that is coherently at base.
+//!
 //! Where that does NOT work, stated plainly rather than papered over: Rust keeps unit tests
 //! in `mod tests` inside the file they test, so a fix and its test frequently live in ONE
 //! file. Reverting it removes the test; keeping it keeps the fix. Such a change is not
@@ -32,7 +39,17 @@ pub(crate) enum Plan {
     /// No changed tests: nothing to prove.
     NotRequired,
     /// Baseline can be reconstructed by reverting these files.
-    Separable { revert: Vec<String>, test_files: Vec<String> },
+    ///
+    /// `held_back` names the files carrying BOTH an implementation change and a test. They keep
+    /// their HEAD content and their own tests are not part of the proof - but they are carried
+    /// here rather than dropped, because reverting the others while these stay at HEAD is what
+    /// can leave a tree mixing two versions of one API. `reconstruct_and_run` needs them to be
+    /// able to ask a second time.
+    Separable {
+        revert: Vec<String>,
+        test_files: Vec<String>,
+        held_back: Vec<String>,
+    },
     /// Impl and tests share a file; a human must state the evidence.
     NotSeparable { files: Vec<String> },
 }
@@ -116,6 +133,7 @@ pub(crate) fn plan(files: &[ChangedFile]) -> Plan {
     Plan::Separable {
         revert: impl_only,
         test_files: provable,
+        held_back: inseparable,
     }
 }
 
@@ -355,15 +373,39 @@ fn report_not_separable(files: &[String]) -> Verdict {
     Verdict::Pass
 }
 
-/// Reconstruct the baseline in a worktree and require the changed tests to fail there.
-fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> Verdict {
-    // Split by what "revert" means for each file. A file this branch added is not restored -
-    // it is removed, because absent is what the base state was.
-    let (restore, remove): Partitioned<'_> = revert.iter().partition(|f| base_has(root, base, f));
+/// The base state to put a worktree into: files to check out at `base`, files to delete.
+///
+/// Two of these exist per proof. The first is the implementation change; the second is the files
+/// held back for carrying their own tests, applied only if the first tree does not build.
+struct BaseState<'a> {
+    restore: Vec<&'a String>,
+    remove: Vec<&'a String>,
+}
 
-    if restore.is_empty() {
+impl BaseState<'_> {
+    /// Nothing to apply, so there is no second attempt to make.
+    const fn is_empty(&self) -> bool {
+        self.restore.is_empty() && self.remove.is_empty()
+    }
+}
+
+/// Split files into "existed at base, so check it out" and "added here, so delete it".
+///
+/// "Revert to base" means two different things depending on the answer, and getting it wrong is
+/// how this gate first broke in CI - see [`base_has`].
+fn base_state<'a>(root: &Path, base: &str, files: &'a [String]) -> BaseState<'a> {
+    let (restore, remove): Partitioned<'a> = files.iter().partition(|f| base_has(root, base, f));
+    BaseState { restore, remove }
+}
+
+/// Reconstruct the baseline in a worktree and require the changed tests to fail there.
+fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String], held_back: &[String]) -> Verdict {
+    let first = base_state(root, base, revert);
+    let held = base_state(root, base, held_back);
+
+    if first.restore.is_empty() {
         println!("xtask test-causality: NO BASE BEHAVIOUR TO COMPARE AGAINST");
-        for f in remove {
+        for f in &first.remove {
             println!("  {f} does not exist at {base}");
         }
         println!();
@@ -379,16 +421,25 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> V
     for f in test_files {
         println!("  test file: {f}");
     }
-    for f in &restore {
+    for f in &first.restore {
         println!("  restore:   {f}");
     }
-    for f in &remove {
+    for f in &first.remove {
         println!("  remove:    {f}  (added in this branch)");
+    }
+    for f in held_back {
+        println!("  held:      {f}  (carries its own tests)");
     }
 
     // HEAD must be green, or "red on base" means nothing.
     // One directory for both runs. Beside the worktree under `target/`, so a `cargo clean`
     // or a fresh checkout takes it with everything else rather than leaving it behind.
+    //
+    // THIS PATH IS SPELLED TWICE. `nix/cargo-env.nix` unpacks the closure the checks already
+    // built into the same directory, and a rename on either side would silently stop the reuse
+    // rather than fail - the gate would still answer, minutes later. `check-warm-start` reads
+    // both files and fails if they differ; it finds this binding by name, so a rename here is a
+    // red gate rather than a silent one.
     let shared_target = root.join("target").join("causality-target");
     let (head_ok, head_out) = cargo_test(root, &shared_target);
     if !head_ok {
@@ -405,42 +456,105 @@ fn prove(root: &Path, base: &str, revert: &[String], test_files: &[String]) -> V
         return Verdict::Fail;
     }
 
-    let verdict = reconstruct_and_run(&wt, base, &restore, &remove, &shared_target);
+    let verdict = reconstruct_and_run(&wt, base, &first, &held, &shared_target);
     remove_worktree(root, &wt);
     verdict
 }
 
 /// Put the worktree into the base state for the implementation, then run the tests.
-fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&String], target: &Path) -> Verdict {
-    let mut checkout = Command::new("git");
-    strip_git_env_for(&mut checkout);
-    checkout.current_dir(wt).args(["checkout", base, "--"]);
-    for f in restore {
-        checkout.arg(f);
-    }
-    match checkout.output() {
-        Ok(o) if o.status.success() => {}
-        Ok(o) => {
-            eprintln!(
-                "xtask test-causality: could not restore base files: {}",
-                String::from_utf8_lossy(&o.stderr).trim()
-            );
-            return Verdict::Fail;
-        }
-        Err(e) => {
-            eprintln!("xtask test-causality: could not run git checkout: {e}");
-            return Verdict::Fail;
-        }
-    }
-    for f in remove {
-        if let Err(e) = std::fs::remove_file(wt.join(f)) {
-            eprintln!("xtask test-causality: could not remove {f}: {e}");
-            return Verdict::Fail;
-        }
+///
+/// TWO ATTEMPTS, and the second is the difference between a verdict and no answer. The first
+/// leaves the held-back files at HEAD, because that is what lets their neighbours' tests run
+/// against old behaviour. But a file held at HEAD calling an API this branch CHANGED mixes two
+/// versions of that API, and the tree does not compile - which used to end the run as
+/// INCONCLUSIVE after paying for the whole build. Observed in CI: base
+/// `DefinitionDigest::of(&definitions)` against a held-back caller passing
+/// `(&definitions, &knowledge)`, E0061, 12 minutes, no verdict.
+///
+/// So a failure to COMPILE is not taken as the answer while anything is still held at HEAD.
+/// Restoring those too costs one more incremental build and yields a tree that is coherently at
+/// base, where the tests that ARE separable get the verdict they came for. Their own tests go
+/// with them, which is exactly what `plan` already excluded from the proof.
+fn reconstruct_and_run(wt: &Path, base: &str, first: &BaseState<'_>, held: &BaseState<'_>, target: &Path) -> Verdict {
+    if let Err(e) = apply(wt, base, first) {
+        eprintln!("xtask test-causality: {e}");
+        return Verdict::Fail;
     }
 
     let (base_ok, base_out) = cargo_test(wt, target);
-    match classify_base(&base_out, base_ok) {
+    let outcome = classify_base(&base_out, base_ok);
+
+    if retry_with_held_back(&outcome, held) {
+        println!("  base: did not compile with the held-back file(s) still at HEAD");
+        println!("{}", tail(&base_out, 8));
+        println!("  retrying with those at base as well:");
+        for f in &held.restore {
+            println!("    restore:   {f}");
+        }
+        for f in &held.remove {
+            println!("    remove:    {f}");
+        }
+        if let Err(e) = apply(wt, base, held) {
+            eprintln!("xtask test-causality: {e}");
+            return Verdict::Fail;
+        }
+        let (retry_ok, retry_out) = cargo_test(wt, target);
+        return report_base(&classify_base(&retry_out, retry_ok), &retry_out, true);
+    }
+
+    report_base(&outcome, &base_out, false)
+}
+
+/// Should the proof ask a second time, with the held-back files at base too?
+///
+/// Only for a tree that did not COMPILE, and only while something is still held at HEAD. A base
+/// run that reached an assertion has answered the question and is not retried - retrying it would
+/// change the answer by reverting the very implementation whose absence the assertion measured.
+const fn retry_with_held_back(outcome: &BaseOutcome, held: &BaseState<'_>) -> bool {
+    matches!(outcome, BaseOutcome::DidNotCompile) && !held.is_empty()
+}
+
+/// Check out the base version of the files that had one, and delete the ones this branch added.
+fn apply(wt: &Path, base: &str, state: &BaseState<'_>) -> Result<(), String> {
+    if !state.restore.is_empty() {
+        let mut checkout = Command::new("git");
+        strip_git_env_for(&mut checkout);
+        checkout.current_dir(wt).args(["checkout", base, "--"]);
+        for f in &state.restore {
+            checkout.arg(f);
+        }
+        match checkout.output() {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                return Err(format!(
+                    "could not restore base files: {}",
+                    String::from_utf8_lossy(&o.stderr).trim()
+                ));
+            }
+            Err(e) => return Err(format!("could not run git checkout: {e}")),
+        }
+    }
+    for f in &state.remove {
+        match std::fs::remove_file(wt.join(f)) {
+            Ok(()) => {}
+            // ALREADY ABSENT is the state being asked for, not a failure. The worktree is created
+            // at HEAD, and a file this branch has not COMMITTED is in no commit - an
+            // intent-to-add file is in the index only - so `remove` legitimately names files the
+            // worktree never had. Treating that as an error failed the whole gate on any tree
+            // holding a new file, which is every tree mid-change.
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => return Err(format!("could not remove {f}: {e}")),
+        }
+    }
+    Ok(())
+}
+
+/// Turn a base run into the gate's verdict.
+///
+/// `retried` only changes what the operator is told: after a second attempt, "not separable at
+/// file level" is no longer the likely explanation, because the tree WAS coherently at base.
+fn report_base(outcome: &BaseOutcome, output: &str, retried: bool) -> Verdict {
+    match *outcome {
         BaseOutcome::Green => {
             eprintln!("xtask test-causality: FAILED - green against base behaviour");
             eprintln!();
@@ -451,18 +565,24 @@ fn reconstruct_and_run(wt: &Path, base: &str, restore: &[&String], remove: &[&St
         }
         BaseOutcome::RedByAssertion => {
             println!("  base: red by assertion, as required");
-            println!("{}", tail(&base_out, 12));
+            println!("{}", tail(output, 12));
             println!("xtask test-causality: ok - red on base, green on head");
             Verdict::Pass
         }
         BaseOutcome::DidNotCompile => {
             println!("  base: did not compile");
-            println!("{}", tail(&base_out, 12));
+            println!("{}", tail(output, 12));
             println!();
             println!("xtask test-causality: INCONCLUSIVE - the base tree does not build.");
             println!("That is red, but a test that never ran is not evidence about behaviour.");
-            println!("Usually it means the change is not separable at file level: the test and");
-            println!("what it needs arrived together. State the evidence in the handoff.");
+            if retried {
+                println!("This is the SECOND attempt: every changed file is at base here, so the");
+                println!("build failure is in the changed tests themselves - they reference");
+                println!("something this branch introduced. State the evidence in the handoff.");
+            } else {
+                println!("Usually it means the change is not separable at file level: the test and");
+                println!("what it needs arrived together. State the evidence in the handoff.");
+            }
             Verdict::Pass
         }
     }
@@ -492,7 +612,11 @@ pub(crate) fn run(args: &[String]) -> Verdict {
             Verdict::Pass
         }
         Plan::NotSeparable { files } => report_not_separable(&files),
-        Plan::Separable { revert, test_files } => {
+        Plan::Separable {
+            revert,
+            test_files,
+            held_back,
+        } => {
             if revert.is_empty() {
                 println!("xtask test-causality: tests changed but no implementation did");
                 println!("  Nothing to revert, so there is no old behaviour to be red against.");
@@ -500,7 +624,7 @@ pub(crate) fn run(args: &[String]) -> Verdict {
                 println!("  regression test and this gate cannot prove it is causal.");
                 return Verdict::Pass;
             }
-            prove(&root, &base, &revert, &test_files)
+            prove(&root, &base, &revert, &test_files, &held_back)
         }
     }
 }
@@ -514,7 +638,7 @@ fn tail(text: &str, n: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{Plan, adds_test, has_non_test_additions, plan};
+    use super::{BaseOutcome, BaseState, Plan, adds_test, apply, has_non_test_additions, plan, retry_with_held_back};
 
     fn lines(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| String::from(*s)).collect()
@@ -542,7 +666,7 @@ mod tests {
             (String::from("crates/x/tests/t.rs"), lines(&["#[test]", "fn t() {}"])),
         ];
         match plan(&files) {
-            Plan::Separable { revert, test_files } => {
+            Plan::Separable { revert, test_files, .. } => {
                 assert_eq!(revert, vec![String::from("crates/x/src/a.rs")]);
                 assert_eq!(test_files, vec![String::from("crates/x/tests/t.rs")]);
             }
@@ -669,5 +793,82 @@ mod tests {
     fn non_rust_files_are_ignored() {
         let files = vec![(String::from("README.md"), lines(&["#[test]"]))];
         assert_eq!(plan(&files), Plan::NotRequired);
+    }
+
+    #[test]
+    fn a_file_carrying_its_own_tests_is_held_back_not_forgotten() {
+        // The shape that used to end as INCONCLUSIVE in CI: one file holding an implementation
+        // change AND its tests, one impl-only file to revert, and one dedicated test target to
+        // prove. The plan is Separable - there is something to prove - and the file it cannot
+        // prove is NAMED rather than dropped, because reconstructing a tree that compiles needs
+        // it. Dropping it is what left base and HEAD versions of one API in the same tree.
+        let files = vec![
+            (
+                String::from("crates/x/src/pinned.rs"),
+                lines(&[
+                    "fn of(a: u8, b: u8) -> u8 { a }",
+                    "#[cfg(test)]",
+                    "mod tests {",
+                    "    #[test]",
+                ]),
+            ),
+            (String::from("crates/x/src/definitions.rs"), lines(&["fn changed() {}"])),
+            (String::from("crates/x/tests/t.rs"), lines(&["#[test]", "fn t() {}"])),
+        ];
+        match plan(&files) {
+            Plan::Separable {
+                revert,
+                test_files,
+                held_back,
+            } => {
+                assert_eq!(revert, vec![String::from("crates/x/src/definitions.rs")]);
+                assert_eq!(test_files, vec![String::from("crates/x/tests/t.rs")]);
+                assert_eq!(held_back, vec![String::from("crates/x/src/pinned.rs")]);
+            }
+            other => panic!("expected Separable, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_a_tree_that_did_not_compile_is_asked_twice() {
+        let one = String::from("crates/x/src/pinned.rs");
+        let held = BaseState {
+            restore: vec![&one],
+            remove: Vec::new(),
+        };
+        let nothing_held = BaseState {
+            restore: Vec::new(),
+            remove: Vec::new(),
+        };
+        // The case the second attempt exists for.
+        assert!(retry_with_held_back(&BaseOutcome::DidNotCompile, &held));
+        // Nothing is held at HEAD, so a second attempt would reconstruct the same tree and fail
+        // the same way. One build, not two.
+        assert!(!retry_with_held_back(&BaseOutcome::DidNotCompile, &nothing_held));
+        // A run that reached an assertion has ANSWERED. Retrying would revert the implementation
+        // whose absence that assertion just measured, turning evidence into a different question.
+        assert!(!retry_with_held_back(&BaseOutcome::RedByAssertion, &held));
+        assert!(!retry_with_held_back(&BaseOutcome::Green, &held));
+    }
+
+    #[test]
+    fn removing_a_file_the_worktree_never_had_is_not_a_failure() {
+        // A file this branch has not COMMITTED is in no commit, so the worktree - created at HEAD -
+        // never carried it, while `remove` names exactly the files absent at base. An intent-to-add
+        // file is the everyday case, and this used to fail the whole gate rather than prove
+        // anything: "could not remove xtask/src/guidance/claims.rs: No such file or directory".
+        let wt = std::env::temp_dir().join(format!("sutura-causality-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&wt);
+        std::fs::create_dir_all(&wt).expect("a scratch worktree");
+        let absent = String::from("xtask/src/guidance/claims.rs");
+        let state = BaseState {
+            restore: Vec::new(),
+            remove: vec![&absent],
+        };
+
+        let applied = apply(&wt, "HEAD", &state);
+
+        let _swept = std::fs::remove_dir_all(&wt);
+        assert!(applied.is_ok(), "an absent file is the state asked for, got {applied:?}");
     }
 }

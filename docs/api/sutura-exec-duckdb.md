@@ -16,10 +16,10 @@ where "run as the calling subject" is trivially satisfied because there is nobod
 
 Two things this adapter deliberately does not offer:
 
-**No arbitrary SQL entry point.** `DuckDbWarehouse::execute` takes a
-`GeneratedQuery`, which carries its parameters separately, and there is no method that takes a
-string. A development affordance that ran a statement somebody typed would be the shortest path
-around every check upstream of here.
+**No arbitrary SQL entry point.** `DuckDbWarehouse::execute` takes a `QueryPlan` and renders
+the statement itself, into a `GeneratedQuery` that carries its parameters separately. There is
+no method that takes a string. A development affordance that ran a statement somebody typed would
+be the shortest path around every check upstream of here.
 
 **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and
 although this adapter has no row-level security to leak through, adding a cache here would be the
@@ -42,6 +42,7 @@ Why this data system could not answer.
 - `NotFinite` - A floating-point column came back as a value that is not a number.
 - `NotADate` - A day number came back that is not a date this build can represent.
 - `Shape`
+- `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
 - `Render` - The plan could not be rendered as SQL.
 - `Attach`
 

@@ -30,10 +30,12 @@
 //! library crate is flattened with its whole `#[source]` chain on the way out, because the outermost
 //! message is the one that says least.
 
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Arc;
 
+use sutura_app::surface::Surface as _;
 use sutura_catalog_local::LocalCatalog;
 use sutura_config::{Environment, Settings, Sources, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
@@ -109,13 +111,20 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
     let pinned = catalog.load().map_err(flatten)?;
-    let engine = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime().engine_workers())?;
+    let opened = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime().engine_workers())?;
     // `LocalService::start` loads through the catalog port a SECOND time rather than being handed
     // the bundle above, and that is deliberate: the bundle it validates has to be the bundle it
     // serves, and the only way to guarantee that is for the same call to do both. The load above
     // exists so the engine can be opened for the sources the catalog actually names, which has to
     // happen first.
-    let service = LocalService::start(&catalog, engine).map_err(flatten)?;
+    let service = LocalService::start(&catalog, opened.engine).map_err(flatten)?;
+    // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
+    // needed; the service serves the SECOND. A model added to the catalog directory between the two
+    // calls is therefore served with no table registered behind it, and `answer` cannot see that -
+    // its only check on the engine is that the source NAME matches. The failure would arrive as a
+    // query-time error for whoever asked first, which is precisely the trade this startup sequence
+    // exists to avoid: a bundle that does not hold together must stop the process, not one question.
+    refuse_unattached(&served_tables(service.definitions()), &opened.attached)?;
     tracing::info!(
         definition_version = %settings.catalog().version(),
         metrics = pinned.definitions().metrics().len(),
@@ -295,11 +304,62 @@ fn config_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// Starts the engine and registers one file per model.
+/// An open engine, and the tables it actually holds.
+///
+/// A named pair rather than a tuple: the second field is evidence for a startup refusal and `.1`
+/// would say nothing about which of the two it is. `clippy::type_complexity` asks for the same thing
+/// from the other direction.
+struct Opened {
+    engine: DataFusionWarehouse,
+    attached: BTreeSet<TableName>,
+}
+
+/// Every table the served bundle's models sit behind.
+fn served_tables(served: &PinnedDefinitions) -> BTreeSet<TableName> {
+    served
+        .definitions()
+        .models()
+        .values()
+        .map(|model| model.table().clone())
+        .collect()
+}
+
+/// The tables the served bundle names, against the tables the engine actually holds.
+///
+/// Two sets rather than a bundle and a set, so the comparison is unit-testable without a digest, a
+/// knowledge declaration and an engine - [`served_tables`] is the other half and is one map over a
+/// public accessor.
+///
+/// Both directions are refused, and the second is not pedantry: a table attached for a model the
+/// served bundle no longer names means the catalog directory changed between two loads seconds
+/// apart, and whatever else moved with it is the part nobody has looked at.
+fn refuse_unattached(serving: &BTreeSet<TableName>, attached: &BTreeSet<TableName>) -> Result<(), String> {
+    let missing = names(serving.difference(attached));
+    let extra = names(attached.difference(serving));
+    if missing.is_empty() && extra.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "the catalog changed while this process was starting: the engine was opened for the bundle \
+         loaded first, and the bundle being served names different tables. Served with no table \
+         attached: [{missing}]. Attached and no longer served: [{extra}]. Refusing to serve a model \
+         whose questions would fail at query time"
+    ))
+}
+
+/// One line of table names, for a message an operator has to act on.
+fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
+    tables.map(TableName::as_str).collect::<Vec<&str>>().join(", ")
+}
+
+/// Starts the engine and registers one file per model, returning what it attached.
 ///
 /// The engine reads the files itself, so there is no database to create and nothing to keep in step
 /// with them. Parquet is preferred over CSV where both are present, because it carries its own types
 /// and a CSV has to be sniffed.
+///
+/// The set of tables comes back with the engine because it is evidence rather than bookkeeping: it is
+/// what [`refuse_unattached`] compares the SERVED bundle against, and the two bundles are two loads.
 ///
 /// **`with_worker_threads` and not `new`, and that is the whole of what `runtime.engine_worker_threads`
 /// does.** The engine drives its own runtime and every request `block_on`s it from a blocking-pool
@@ -310,7 +370,7 @@ fn open_engine(
     pinned: &PinnedDefinitions,
     data: &std::path::Path,
     workers: sutura_config::EngineWorkers,
-) -> Result<DataFusionWarehouse, String> {
+) -> Result<Opened, String> {
     let declared = match sutura_app::sources(pinned).as_slice() {
         [only] => (*only).clone(),
         [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
@@ -337,10 +397,16 @@ fn open_engine(
     // in - a narrow engine is slow, and a zero-width runtime does not build.
     let width = core::num::NonZeroUsize::new(workers.count()).unwrap_or(core::num::NonZeroUsize::MIN);
     let engine = DataFusionWarehouse::with_worker_threads(engine_source, width).map_err(flatten)?;
+    let mut attached: BTreeSet<TableName> = BTreeSet::new();
     for model in pinned.definitions().models().values() {
         attach(&engine, model.table(), data)?;
+        // Collected AFTER the attach, so this set is what the engine holds rather than what was
+        // asked for. `attach` fails the startup on a missing file, so the two cannot diverge here -
+        // and recording it from the successful call rather than from the model list is what keeps
+        // that true if it ever gains a path that can skip one.
+        attached.insert(model.table().clone());
     }
-    Ok(engine)
+    Ok(Opened { engine, attached })
 }
 
 /// Registers one model's file, preferring Parquet.
@@ -374,4 +440,68 @@ fn flatten(error: impl core::error::Error) -> String {
         cursor = cause.source();
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+
+    use sutura_domain::model::TableName;
+
+    use super::refuse_unattached;
+
+    fn tables(names: &[&str]) -> BTreeSet<TableName> {
+        names
+            .iter()
+            .map(|raw| TableName::parse(raw).expect("a test table is a table"))
+            .collect()
+    }
+
+    #[test]
+    fn a_model_the_engine_has_no_table_for_stops_the_process() {
+        // The startup sequence loads the catalog TWICE - the engine is opened for the first bundle
+        // and the service validates and serves the second - so a model added to the catalog
+        // directory between the two calls was served with nothing attached behind it. `answer`
+        // cannot catch that: its only check on the engine is that the source NAME matches, so the
+        // first question about the new metric came back as an error from the engine rather than as a
+        // refusal at startup.
+        let err = refuse_unattached(
+            &tables(&["fact_subscription", "dim_customer"]),
+            &tables(&["fact_subscription"]),
+        )
+        .expect_err("a served model with no attached table does not serve");
+        assert!(err.contains("Served with no table attached: [dim_customer]"), "{err}");
+        assert!(err.contains("Attached and no longer served: []"), "{err}");
+        assert!(err.contains("the catalog changed while this process was starting"), "{err}");
+    }
+
+    #[test]
+    fn a_table_attached_for_a_model_no_longer_served_stops_it_too() {
+        // The other direction, and not pedantry: it means the catalog directory changed between two
+        // loads seconds apart. This one would answer every question correctly, which is exactly why
+        // it has to be loud - whatever else moved in that edit is the part nobody has looked at.
+        let err = refuse_unattached(
+            &tables(&["fact_subscription"]),
+            &tables(&["fact_subscription", "dim_customer"]),
+        )
+        .expect_err("an attached table for nothing served does not serve");
+        assert!(err.contains("Served with no table attached: []"), "{err}");
+        assert!(err.contains("Attached and no longer served: [dim_customer]"), "{err}");
+    }
+
+    #[test]
+    fn the_two_bundles_agreeing_is_the_ordinary_case_and_starts() {
+        // The check has to be silent when nothing changed, which is every start. An empty catalog is
+        // already refused earlier, by `open_engine`, so the empty pair is not a case this decides.
+        refuse_unattached(&tables(&["fact_subscription"]), &tables(&["fact_subscription"]))
+            .expect("two bundles that agree start");
+        assert!(
+            refuse_unattached(
+                &tables(&["dim_customer", "fact_subscription"]),
+                &tables(&["fact_subscription", "dim_customer"])
+            )
+            .is_ok(),
+            "the comparison is over sets, so declaration order is not a difference"
+        );
+    }
 }

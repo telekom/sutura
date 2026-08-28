@@ -7,7 +7,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::{Definitions, Dimension, InconsistentDefinitions, Metric, Model, Relationship, TIME_BUCKET_LABEL};
+use super::{
+    Definitions, Description, Dimension, DimensionValue, InconsistentDefinitions, MAX_VALUES_PER_DIMENSION, Metric, Model,
+    Relationship, TIME_BUCKET_LABEL,
+};
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
@@ -33,6 +36,10 @@ fn relationship_name(raw: &str) -> RelationshipName {
     RelationshipName::parse(raw).expect("a test relationship is a relationship")
 }
 
+fn value(raw: &str) -> DimensionValue {
+    DimensionValue::parse(raw).expect("a test value is a value")
+}
+
 /// A model on `source` holding exactly `columns`.
 fn model(name: &str, source: &str, columns: &[&str]) -> Model {
     Model::new(
@@ -40,7 +47,7 @@ fn model(name: &str, source: &str, columns: &[&str]) -> Model {
         SourceName::parse(source).expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
         columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
-        String::new(),
+        Description::default(),
     )
 }
 
@@ -83,7 +90,7 @@ fn metric(name: &str, dimensions: Vec<Dimension>) -> Metric {
             .map(|d| (d.name().clone(), d))
             .collect::<BTreeMap<_, _>>(),
         None,
-        String::new(),
+        Description::default(),
     )
 }
 
@@ -92,8 +99,8 @@ fn dimension(name: &str, col: &str, via: Option<&str>, values: Option<&[&str]>) 
         dimension_name(name),
         column(col),
         via.map(relationship_name),
-        values.map(|v| v.iter().map(|s| String::from(*s)).collect::<BTreeSet<_>>()),
-        String::new(),
+        values.map(|v| v.iter().map(|s| value(s)).collect::<BTreeSet<_>>()),
+        Description::default(),
     )
 }
 
@@ -159,7 +166,7 @@ fn a_metric_naming_a_column_its_model_does_not_have_is_refused() {
         BTreeSet::from([Grain::Month]),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
     assert_eq!(
         assemble_one(broken).unwrap_err(),
@@ -182,7 +189,7 @@ fn a_metric_with_no_grain_is_refused_because_no_question_could_resolve() {
         BTreeSet::new(),
         BTreeMap::new(),
         None,
-        String::new(),
+        Description::default(),
     );
     assert_eq!(
         assemble_one(grainless).unwrap_err(),
@@ -347,11 +354,56 @@ fn a_dimension_naming_a_column_the_joined_model_does_not_have_is_refused() {
 fn a_dimension_with_an_allowlist_permits_only_what_it_lists() {
     let d = dimension("region", "region_code", None, Some(&["north", "south"]));
     assert!(d.is_filterable());
-    assert!(d.permits("north"));
-    assert!(!d.permits("east"));
+    assert!(d.permits(&value("north")));
+    assert!(!d.permits(&value("east")));
     // A dimension with no allowlist permits nothing, which is what turns a filter on it into
     // `DimensionNotFilterable` rather than into a query.
     let open = dimension("day_of", "order_date", None, None);
     assert!(!open.is_filterable());
-    assert!(!open.permits("anything"));
+    assert!(!open.permits(&value("anything")));
+}
+
+#[test]
+fn a_dimension_declaring_more_values_than_the_bound_does_not_load() {
+    // The count no per-value parse can see. Every one of these is a legal `DimensionValue`; the list
+    // of them is what would be interpolated into one line of an agent-facing document.
+    let over: Vec<String> = (0..=MAX_VALUES_PER_DIMENSION).map(|n| format!("v{n}")).collect();
+    let listed: Vec<&str> = over.iter().map(String::as_str).collect();
+    assert_eq!(
+        assemble_one(metric(
+            "revenue",
+            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+        ))
+        .expect_err("a dimension over the value bound does not assemble"),
+        InconsistentDefinitions::TooManyValues {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("region"),
+            count: MAX_VALUES_PER_DIMENSION.saturating_add(1),
+            limit: MAX_VALUES_PER_DIMENSION,
+        }
+    );
+    // Both ends of the bound: exactly the limit assembles, so this is the number written down rather
+    // than an off-by-one nobody would notice from the failing side alone.
+    let at_limit: Vec<String> = (0..MAX_VALUES_PER_DIMENSION).map(|n| format!("v{n}")).collect();
+    let listed: Vec<&str> = at_limit.iter().map(String::as_str).collect();
+    drop(
+        assemble_one(metric(
+            "revenue",
+            vec![dimension("region", "region_code", Some("orders_customer"), Some(&listed))],
+        ))
+        .expect("exactly the limit assembles"),
+    );
+}
+
+/// The check that keeps the two copies of one measurement from drifting.
+///
+/// `Description`'s caps and `NoteBody`'s are the same numbers because they are the same measurement -
+/// the longest prose body in this repository's example catalog is a metric description - and they are
+/// two constants only because `catalog` may not depend on `knowledge`. `crate::text` exists because a
+/// load-bearing rule was written down twice and the copies drifted, so this is a check rather than a
+/// comment asking the next author to update both. It fails whichever is edited alone.
+#[test]
+fn a_description_and_a_note_body_are_bounded_by_the_same_numbers() {
+    assert_eq!(super::MAX_DESCRIPTION_BYTES, crate::knowledge::MAX_NOTE_BODY_BYTES);
+    assert_eq!(super::MAX_DESCRIPTION_LINES, crate::knowledge::MAX_NOTE_LINES);
 }

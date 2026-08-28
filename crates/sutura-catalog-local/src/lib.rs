@@ -26,15 +26,30 @@ pub mod frontmatter;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use sutura_domain::catalog::{Definitions, InconsistentDefinitions, Metric, Model, Relationship};
+use sutura_domain::catalog::{
+    Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
+};
 use sutura_domain::definitions::NotDigestible;
+use sutura_domain::knowledge::{
+    Absence, Caveat, Example, GlossaryEntry, InconsistentKnowledge, InvalidNoteBody, Knowledge, KnowledgeCapabilities,
+    KnowledgeInput, NoteBody,
+};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 
+use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
-use crate::frontmatter::MalformedDocument;
+use crate::frontmatter::{MalformedDocument, Split};
 
 /// The extension a catalog document has to have.
 const DOCUMENT_EXTENSION: &str = "md";
+
+/// The two halves of a bundle's content, read and checked but not yet pinned.
+///
+/// An alias because the pair appears in two signatures and `clippy.toml` sets
+/// `type-complexity-threshold` to 100 against the default 250 - so
+/// `Result<(Definitions, Knowledge), LocalCatalogError>` is a lint asking to be named. It is also the
+/// better name: this is what a catalog IS, and pinning is what happens to it next.
+type Content = (Definitions, Knowledge);
 
 /// Why a directory could not be read as a catalog.
 ///
@@ -99,10 +114,53 @@ pub enum LocalCatalogError {
         #[source]
         cause: InvalidMetricDocument,
     },
+    /// The prose of a definition document is not a usable description.
+    ///
+    /// **The variant that did not exist, and its absence was the hole.** A model's and a metric's
+    /// prose used to reach [`sutura_domain::catalog`] as `String::from(split.body())` - no character
+    /// check, no length check, nothing - while the prose of a note beside it went through
+    /// [`NoteBody`]. So the one channel that carried reviewed prose into an agent's context without a
+    /// parse was the definitional one, which is the prose an agent is most likely to act on. It is a
+    /// separate variant from [`Self::NoteBody`] for the same reason that one is separate from
+    /// [`Self::Frontmatter`]: the remedy is a different part of a different file.
+    #[error("the prose of {path} is not a usable description")]
+    Description {
+        path: PathBuf,
+        #[source]
+        cause: InvalidDescription,
+    },
+    /// The prose of a knowledge document is not a usable note body: nothing at all, or more of it
+    /// than a note may carry.
+    ///
+    /// Its own variant rather than folded into [`Self::Frontmatter`], because it is a failure of the
+    /// BODY and the path is not enough to find it: a reader told "could not read the frontmatter"
+    /// would go and look at the frontmatter, which is fine.
+    #[error("the prose of {path} is not a usable note body")]
+    NoteBody {
+        path: PathBuf,
+        #[source]
+        cause: InvalidNoteBody,
+    },
     #[error("the catalog does not hold together")]
     Inconsistent {
         #[source]
         cause: InconsistentDefinitions,
+    },
+    /// The notes do not hold together with the definitions they are about.
+    ///
+    /// Separate from [`Self::Inconsistent`] because they are two checks over two halves of the
+    /// bundle, and the remedies are different documents: one sends a reader to a metric, the other to
+    /// a glossary entry that names a value the metric does not permit.
+    ///
+    /// The cause carries no path, and that is a real limit rather than an oversight. A note's
+    /// inconsistency is a fact about the note AND the definitions together, so it is found after both
+    /// have been read - and by then this adapter no longer knows which file each note came from. What
+    /// the message does carry is the note's own name or term, which is unique across the catalog and
+    /// is what a `grep` finds.
+    #[error("the catalog's knowledge does not hold together")]
+    UncheckableKnowledge {
+        #[source]
+        cause: InconsistentKnowledge,
     },
     #[error("the catalog at {path} holds no documents")]
     Empty { path: PathBuf },
@@ -218,10 +276,14 @@ impl LocalCatalog {
     }
 
     /// Reads every document and turns it into domain types.
-    fn read_all(&self) -> Result<Definitions, LocalCatalogError> {
-        let mut models: Vec<Model> = Vec::new();
-        let mut relationships: Vec<Relationship> = Vec::new();
-        let mut metrics: Vec<Metric> = Vec::new();
+    ///
+    /// **Both halves in one walk, because a document says what it is.** A glossary note and a metric
+    /// arrive through the same read, the same frontmatter split and the same `kind:` tag; only the
+    /// dispatch differs. A second walk over a `knowledge/` subdirectory would make the directory
+    /// layout part of the format, and the layout is the one thing about this adapter that another
+    /// adapter - a metadata service with no directories at all - cannot reuse.
+    fn read_all(&self) -> Result<Content, LocalCatalogError> {
+        let mut collected = Collected::default();
 
         for path in self.documents()? {
             let text = std::fs::read_to_string(&path).map_err(|cause| LocalCatalogError::Io {
@@ -260,27 +322,10 @@ impl LocalCatalog {
                     path: path.clone(),
                     cause,
                 })?;
-            let description = String::from(split.body());
-            match probe.kind() {
-                DocumentKind::Model => {
-                    let doc: ModelDoc = Self::parse(&path, split.frontmatter(), probe.kind())?;
-                    models.push(doc.into_domain(description));
-                }
-                DocumentKind::Relationship => {
-                    let doc: RelationshipDoc = Self::parse(&path, split.frontmatter(), probe.kind())?;
-                    relationships.push(doc.into_domain());
-                }
-                DocumentKind::Metric => {
-                    let doc: MetricDoc = Self::parse(&path, split.frontmatter(), probe.kind())?;
-                    metrics.push(doc.into_domain(description).map_err(|cause| LocalCatalogError::Metric {
-                        path: path.clone(),
-                        cause,
-                    })?);
-                }
-            }
+            collected.absorb(&path, &split, probe.kind())?;
         }
 
-        Definitions::assemble(models, relationships, metrics).map_err(|cause| LocalCatalogError::Inconsistent { cause })
+        collected.assemble()
     }
 
     fn parse<T>(path: &Path, frontmatter: &str, kind: DocumentKind) -> Result<T, LocalCatalogError>
@@ -295,16 +340,156 @@ impl LocalCatalog {
     }
 }
 
+/// Everything read so far, in the two groups it will be checked in.
+///
+/// A value rather than seven locals in [`LocalCatalog::read_all`], and the reason is a limit rather
+/// than taste: seven `Vec`s threaded through a dispatch function is more arguments than
+/// `clippy.toml`'s `too-many-arguments-threshold` permits, and the alternative - one function holding
+/// the walk and both dispatches - is over `too_many_lines`. Both limits are pointing at the same
+/// thing: reading a document and deciding what it is are two jobs.
+///
+/// Private, with private fields, so a struct literal cannot build a half-collected catalog outside
+/// the one walk that fills it.
+#[derive(Default)]
+struct Collected {
+    models: Vec<Model>,
+    relationships: Vec<Relationship>,
+    metrics: Vec<Metric>,
+    glossary: Vec<GlossaryEntry>,
+    caveats: Vec<Caveat>,
+    absences: Vec<Absence>,
+    examples: Vec<Example>,
+}
+
+impl Collected {
+    /// One document, into whichever half it belongs to.
+    fn absorb(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
+        match kind {
+            DocumentKind::Model | DocumentKind::Relationship | DocumentKind::Metric => self.absorb_definition(path, split, kind),
+            DocumentKind::Glossary | DocumentKind::Caveat | DocumentKind::NotDefined | DocumentKind::Example => {
+                self.absorb_note(path, split, kind)
+            }
+        }
+    }
+
+    /// A document that decides what executes.
+    ///
+    /// The body becomes a [`Description`] before anything else, which is what
+    /// [`Self::absorb_note`] already did with a [`NoteBody`] - and the symmetry is the fix. Both
+    /// halves of a catalog carry authored prose into the same rendered prompt, and only one of them
+    /// used to be parsed.
+    ///
+    /// It is parsed for a relationship document too, whose prose this adapter then discards -
+    /// [`Relationship`] has no description field. Deliberately: the rule a reviewed definition
+    /// document is held to should not depend on which of its fields the current domain types happen
+    /// to read, and the day a relationship grows a description the check is already where it belongs.
+    fn absorb_definition(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
+        let description = Description::parse(split.body()).map_err(|cause| LocalCatalogError::Description {
+            path: PathBuf::from(path),
+            cause,
+        })?;
+        match kind {
+            DocumentKind::Model => {
+                let doc: ModelDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.models.push(doc.into_domain(description));
+            }
+            DocumentKind::Relationship => {
+                let doc: RelationshipDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.relationships.push(doc.into_domain());
+            }
+            // Every other kind is a note, and `absorb` is what decides which of the two this is. A
+            // wildcard rather than four unreachable arms, because the exhaustiveness that matters is
+            // the one in `absorb`: a kind added there with no arm does not compile.
+            _ => {
+                let doc: MetricDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.metrics
+                    .push(doc.into_domain(description).map_err(|cause| LocalCatalogError::Metric {
+                        path: PathBuf::from(path),
+                        cause,
+                    })?);
+            }
+        }
+        Ok(())
+    }
+
+    /// A document that decides what a reader understands.
+    ///
+    /// The body becomes a [`NoteBody`] before anything else, because that is where the size caps are
+    /// and they are the same caps for all four kinds. A note over the cap is an error naming the
+    /// file; nothing here shortens one.
+    fn absorb_note(&mut self, path: &Path, split: &Split<'_>, kind: DocumentKind) -> Result<(), LocalCatalogError> {
+        let body = NoteBody::parse(split.body()).map_err(|cause| LocalCatalogError::NoteBody {
+            path: PathBuf::from(path),
+            cause,
+        })?;
+        match kind {
+            DocumentKind::Glossary => {
+                let doc: GlossaryDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.glossary.push(doc.into_domain(body));
+            }
+            DocumentKind::Caveat => {
+                let doc: CaveatDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.caveats.push(doc.into_domain(body));
+            }
+            DocumentKind::NotDefined => {
+                let doc: NotDefinedDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.absences.push(doc.into_domain(body));
+            }
+            // As above: `absorb` has already decided this is a note, so the remaining kind is the
+            // example.
+            _ => {
+                let doc: ExampleDoc = LocalCatalog::parse(path, split.frontmatter(), kind)?;
+                self.examples.push(doc.into_domain(body));
+            }
+        }
+        Ok(())
+    }
+
+    /// The definitions, and the knowledge checked against them.
+    ///
+    /// **This adapter declares every knowledge capability there is, and that is a statement about the
+    /// ADAPTER rather than about the directory it read.** A markdown catalog in git is a reviewed
+    /// first-party catalog: it can carry a glossary, a caveat, a reviewed list of what is deliberately
+    /// undefined and a worked question, so a tree that happens to hold none of one of them has an
+    /// empty list rather than no such concept - and the prompt may still say the absence list is
+    /// authoritative, because somebody keeps it. A metadata-service adapter is the other case: it has
+    /// glossary terms with synonyms and no way at all to record an absence, so it will declare the two
+    /// it can represent and never the other two. `sutura_domain::knowledge` argues why the two must
+    /// not look alike.
+    ///
+    /// [`KnowledgeCapabilities::all`] rather than a list of the four, deliberately: it says "this
+    /// provider supports whatever kinds exist", which is what makes this the reference adapter and
+    /// what keeps a fifth kind from needing an edit here. An adapter mapping a fixed external schema
+    /// gets the opposite treatment - `of([..])`, so a new kind leaves its declaration alone.
+    fn assemble(self) -> Result<Content, LocalCatalogError> {
+        let definitions = Definitions::assemble(self.models, self.relationships, self.metrics)
+            .map_err(|cause| LocalCatalogError::Inconsistent { cause })?;
+        let knowledge = Knowledge::assemble(
+            &definitions,
+            KnowledgeInput::new(
+                KnowledgeCapabilities::all(),
+                self.glossary,
+                self.caveats,
+                self.absences,
+                self.examples,
+            ),
+        )
+        .map_err(|cause| LocalCatalogError::UncheckableKnowledge { cause })?;
+        Ok((definitions, knowledge))
+    }
+}
+
 impl SemanticCatalog for LocalCatalog {
     type Error = LocalCatalogError;
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let definitions = self.read_all()?;
-        // `pin` hashes the definitions it is about to store, using the domain's own canonical form.
-        // This adapter no longer supplies the hasher, and that is the point: while it did, safe
-        // public code could pass a function that ignored its argument and pair any digest with any
-        // definitions. There is nothing to pass now, so there is nothing to get wrong.
-        PinnedDefinitions::pin(self.version.clone(), definitions).map_err(|cause| LocalCatalogError::Digest { cause })
+        let (definitions, knowledge) = self.read_all()?;
+        // `pin` hashes the content it is about to store, using the domain's own canonical form. This
+        // adapter no longer supplies the hasher, and that is the point: while it did, safe public
+        // code could pass a function that ignored its argument and pair any digest with any
+        // definitions. There is nothing to pass now, so there is nothing to get wrong. The knowledge
+        // goes under the same digest, because a glossary decides which metric a question is about.
+        PinnedDefinitions::pin(self.version.clone(), definitions, knowledge).map_err(|cause| LocalCatalogError::Digest { cause })
     }
 }
 
@@ -330,17 +515,44 @@ mod tests {
         dir
     }
 
-    /// What a document failed to be, given the whole document.
+    /// What one document loads to, given the whole document.
     ///
     /// A catalog of exactly one file, so the error is about that file and nothing else: an empty
     /// directory is its own error here, and a second document would let `Definitions::assemble` fail
     /// first for a reason these tests are not about.
-    fn error_for(name: &str, document: &str) -> crate::LocalCatalogError {
+    ///
+    /// The whole outcome rather than the failure, because a test asserting that a document is refused
+    /// says nothing on its own: the same assertion passes for a document refused two guards earlier,
+    /// for a reason the test is not about. The twin - the same document with the one field corrected,
+    /// loading - is what makes it a statement about that field, and it needs the `Ok` side.
+    fn outcome_for(name: &str, document: &str) -> Result<crate::Content, crate::LocalCatalogError> {
+        outcome_of(name, &[("doc.md", document)])
+    }
+
+    /// What a whole small catalog loads to.
+    ///
+    /// More than one document, for the case where the failure under test is a check over the WHOLE
+    /// bundle rather than over one file: a note is about the definitions beside it, so the twin that
+    /// shows the refusal is about the note's own field needs a definition for the note to be about.
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "the panic is the scratch directory being unwritable, which is the harness failing rather than \
+                  a catalog being unreadable - folding it into LocalCatalogError would give every test a second \
+                  failure mode indistinguishable from the one it asserts"
+    )]
+    fn outcome_of(name: &str, documents: &[(&str, &str)]) -> Result<crate::Content, crate::LocalCatalogError> {
         let root = scratch(name);
-        std::fs::write(root.join("doc.md"), document).expect("a document is writable");
-        let err = catalog(root.clone()).read_all().expect_err("this document cannot load");
+        for &(file, document) in documents {
+            std::fs::write(root.join(file), document).expect("a document is writable");
+        }
+        let outcome = catalog(root.clone()).read_all();
         drop(std::fs::remove_dir_all(&root));
-        err
+        outcome
+    }
+
+    /// What a document failed to be, given the whole document.
+    fn error_for(name: &str, document: &str) -> crate::LocalCatalogError {
+        outcome_for(name, document).expect_err("this document cannot load")
     }
 
     /// Unix only, and that is a portability statement rather than a gap in the suite.
@@ -453,6 +665,192 @@ mod tests {
                 core::mem::discriminant(&broken),
                 core::mem::discriminant(&unknown),
                 "these must not collapse into one variant: {broken:?} / {unknown:?}"
+            );
+        }
+    }
+
+    /// The three refusals that are about the CONTENT of a catalog rather than about its YAML.
+    ///
+    /// **What was untested here is not the refusal, it is the wiring to it.** Every refusal
+    /// underneath these three variants - `InvalidDescription`, `InvalidNoteBody` and all of
+    /// `InconsistentKnowledge` - is provoked in `sutura_domain` over a value built by hand, and a
+    /// hand-built value is not evidence that a directory on disk reaches the parse. The parse is on
+    /// this side of the boundary: `absorb_definition` and `absorb_note` each call it on
+    /// `Split::body()` before touching the frontmatter, and `assemble` calls
+    /// `Knowledge::assemble` after both halves are read. Nothing in the domain's suite would notice
+    /// if one of those calls went away.
+    ///
+    /// **Every test here carries the twin, and the twin is what makes it a test.** "This document is
+    /// refused" passes for a document refused two guards earlier over something else, so each case
+    /// below loads the same document with the one field corrected. Measured, not assumed: deleting
+    /// the `Description::parse` call and passing `Description::default()` instead leaves the
+    /// twin green and turns the refusal red, which is the failure this shape is for.
+    mod content {
+        use super::{outcome_for, outcome_of};
+        use crate::LocalCatalogError;
+        use sutura_domain::catalog::InvalidDescription;
+        use sutura_domain::knowledge::{InconsistentKnowledge, InvalidNoteBody};
+
+        /// A model document, which is the smallest DEFINITION document that loads on its own.
+        ///
+        /// A metric would need its model beside it or `Definitions::assemble` fails first, for a
+        /// reason these tests are not about - and a model's prose goes through the same
+        /// `absorb_definition` a metric's does, which is the call under test.
+        const MODEL: &str =
+            "---\nkind: model\nname: orders\nsource: local\ntable: fct_order\ncolumns: [amount_cents, order_date]\n---\n";
+
+        /// A metric over that model. Two documents together are the smallest catalog a note can be
+        /// about.
+        const METRIC: &str = "---\nkind: metric\nname: revenue\nmodel: orders\nmeasure:\n  simple: { aggregate: sum, column: amount_cents }\ntime_column: order_date\ngrains: [month]\n---\nNet revenue, in minor units.\n";
+
+        /// A knowledge document with no referent of its own, so it loads beside no definitions.
+        const NOT_DEFINED: &str = "---\nkind: not_defined\nphrase: revenue forecast\n---\n";
+
+        /// The file a failure has to name, since a catalog is many of them.
+        fn names_the_document(err: &LocalCatalogError) -> bool {
+            err.to_string().contains("doc.md")
+        }
+
+        #[test]
+        fn the_prose_of_a_definition_document_is_parsed_as_a_description() {
+            // The twin first, so what follows is a statement about the prose and not about the
+            // frontmatter above it.
+            drop(outcome_for("prose-model-ok", &format!("{MODEL}Net revenue, in minor units.\n")).expect("this model loads"));
+
+            // The reachable case, and the reason this is not a theoretical one: a CRLF working tree
+            // gives every line of every description a trailing `\r`. `frontmatter::split` strips one
+            // at the fence lines alone and `cargo xtask line-endings` sees tracked files only, so a
+            // catalog directory an operator mounted from a Windows editor arrives here like this -
+            // and `sutura_app::prompt::quote` would DROP it, which is the alteration at render the
+            // description type exists to forbid.
+            let crlf = outcome_for("prose-model-crlf", &format!("{MODEL}Net revenue.\r\nIn minor units.\n"))
+                .expect_err("a carriage return in the prose is not a description");
+            assert!(
+                matches!(
+                    crlf,
+                    LocalCatalogError::Description {
+                        cause: InvalidDescription::ControlCharacter { code: 0x0D },
+                        ..
+                    }
+                ),
+                "{crlf:?}"
+            );
+            assert!(names_the_document(&crlf), "{crlf}");
+
+            // And the other half of the same rule, at the other set: a code point the renderer KEEPS
+            // and a reader cannot see. This is the one the type was added for.
+            let invisible = outcome_for(
+                "prose-model-invisible",
+                &format!("{MODEL}Revenue where status = 'act\u{202E}ive'.\n"),
+            )
+            .expect_err("an invisible code point in the prose is not a description");
+            assert!(
+                matches!(
+                    invisible,
+                    LocalCatalogError::Description {
+                        cause: InvalidDescription::InvisibleCharacter { code: 0x202E },
+                        ..
+                    }
+                ),
+                "{invisible:?}"
+            );
+            assert!(names_the_document(&invisible), "{invisible}");
+        }
+
+        #[test]
+        fn the_prose_of_a_knowledge_document_is_parsed_as_a_note_body() {
+            // The twin: the same frontmatter, with prose under it.
+            drop(outcome_for("body-ok", &format!("{NOT_DEFINED}Nothing here forecasts anything.\n")).expect("this note loads"));
+
+            // A document with no prose at all. The frontmatter is complete, so the only thing wrong
+            // with it is that the note says nothing - which would render as a heading over blank
+            // space in the agent-facing prompt.
+            let empty = outcome_for("body-empty", NOT_DEFINED).expect_err("a note with no prose is not a note");
+            assert!(
+                matches!(
+                    empty,
+                    LocalCatalogError::NoteBody {
+                        cause: InvalidNoteBody::Empty,
+                        ..
+                    }
+                ),
+                "{empty:?}"
+            );
+            assert!(names_the_document(&empty), "{empty}");
+
+            // And a body that is not empty in bytes and is empty on the page, which is the case the
+            // emptiness check is decided on what a reader will see for. Same variant, reached from
+            // the other direction.
+            let blank = outcome_for("body-blank", &format!("{NOT_DEFINED}\u{200B}\u{FEFF}\u{2060}\n"))
+                .expect_err("a note that draws nothing is not a note");
+            assert!(
+                matches!(
+                    blank,
+                    LocalCatalogError::NoteBody {
+                        cause: InvalidNoteBody::Empty,
+                        ..
+                    }
+                ),
+                "{blank:?}"
+            );
+
+            // One mixed into a sentence is the other refusal, and the order between the two is
+            // asserted in the domain. Here it is that the adapter carries whichever fired.
+            let hidden = outcome_for(
+                "body-invisible",
+                &format!("{NOT_DEFINED}Nothing here for\u{200B}ecasts anything.\n"),
+            )
+            .expect_err("an invisible code point in a note is not a note");
+            assert!(
+                matches!(
+                    hidden,
+                    LocalCatalogError::NoteBody {
+                        cause: InvalidNoteBody::InvisibleCharacter { code: 0x200B },
+                        ..
+                    }
+                ),
+                "{hidden:?}"
+            );
+        }
+
+        #[test]
+        fn a_note_that_does_not_hold_together_with_the_definitions_fails_the_load() {
+            // The one variant here whose check is over the bundle rather than over a file, which is
+            // why this case needs a catalog rather than a document: `Knowledge::assemble` runs after
+            // both halves are read, and the twin has to be a caveat about a metric that exists.
+            let scoped = "---\nkind: caveat\nname: revenue_is_in_minor_units\nabout:\n  - { metric: revenue }\n---\nEvery revenue figure here is in minor units.\n";
+            drop(
+                outcome_of(
+                    "knowledge-ok",
+                    &[("model.md", MODEL), ("metric.md", METRIC), ("caveat.md", scoped)],
+                )
+                .expect("a caveat about a metric that exists loads"),
+            );
+
+            // The same document with its scope emptied. An unscoped caveat is the shape that would
+            // make the catalog an arbitrary text channel into the prompt's preamble, so it is refused
+            // - and this asserts that the refusal survives a real directory rather than only a
+            // hand-built bundle.
+            let unscoped = "---\nkind: caveat\nname: revenue_is_in_minor_units\nabout: []\n---\nEvery revenue figure here is in minor units.\n";
+            let err = outcome_of(
+                "knowledge-unscoped",
+                &[("model.md", MODEL), ("metric.md", METRIC), ("caveat.md", unscoped)],
+            )
+            .expect_err("a caveat about nothing is not a caveat");
+            assert!(
+                matches!(
+                    err,
+                    LocalCatalogError::UncheckableKnowledge {
+                        cause: InconsistentKnowledge::CaveatAboutNothing { .. }
+                    }
+                ),
+                "{err:?}"
+            );
+            // The cause carries no path - that limit is on the variant, and it is stated there - so
+            // what a reader gets instead is the note's own name, which is unique across the catalog.
+            assert!(
+                core::error::Error::source(&err).is_some_and(|cause| cause.to_string().contains("revenue_is_in_minor_units")),
+                "{err:?}"
             );
         }
     }

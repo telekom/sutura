@@ -1,0 +1,373 @@
+//! A refused question, on the wire: the status it comes back as, the code a client branches on, and
+//! the sentence a person reads.
+//!
+//! # A refusal is not a `200`
+//!
+//! It was, and the argument for that is worth restating before it is taken apart, because it was not
+//! a silly one: `ToolOutcome::Refusal` is a domain *result* rather than an `Err`, and a `4xx` was
+//! said to invite a client library to retry - retrying a governance decision until it succeeds being
+//! exactly the behaviour a refusal exists to prevent. The invariant is real and is untouched here.
+//! The status conclusion drawn from it was wrong twice over.
+//!
+//! **The retry premise does not hold.** Nothing mainstream retries a `4xx` by default; the statuses
+//! retried by convention are `429` and `408`, and no refusal maps to either. Checked against the
+//! current documentation rather than asserted:
+//!
+//! * `urllib3.util.Retry` - what `requests` mounts through its `HTTPAdapter` - drives status-based
+//!   retries from `status_forcelist`, "a set of integer HTTP status codes that we should force a
+//!   retry on", and documents its default as "By default, this is disabled with `None`." So no
+//!   status is retried until somebody names one.
+//! * `reqwest` 0.13's `retry` module documents its default policy as "to only retry requests where
+//!   an error or low-level protocol NACK is encountered that is known to be safe to retry" - a
+//!   transport condition, not a response status.
+//! * `axios` retries nothing on its own. `axios-retry`, the plugin that adds it, defaults
+//!   `retryCondition` to `isNetworkOrIdempotentRequestError`, documented as: "By default, it retries
+//!   if it is a network error or a 5xx error on an idempotent request (GET, HEAD, OPTIONS, PUT or
+//!   DELETE)."
+//!
+//! Go's `net/http` reference documents no status-driven retry anywhere in `Client`, `Transport` or
+//! `RoundTripper`. And `422`, which four refusals below map to, is documented the other way round
+//! from the premise: "Clients that receive a `422` response should expect that repeating the request
+//! without modification will fail with the same error."
+//!
+//! **And the `200` cost something the argument never priced.** A governance refusal that comes back
+//! `200` is indistinguishable from an answer to everything that reads a status and not a body: an
+//! ingress log, a dashboard, an error-rate alert, a client's `raise_for_status()`, a generated
+//! client whose success branch is `2xx`. A deployment refusing every question looks perfectly
+//! healthy. The refusal was legible only to code written against this specific envelope, which is
+//! the one reader that did not need convincing.
+//!
+//! So a refusal now carries all three: a status, the machine-readable `code` it always had, and the
+//! sentence. The body is unchanged apart from the status being repeated inside it.
+//!
+//! # The statuses, and why each one
+//!
+//! One exhaustive match, no wildcard arm. A refusal variant added to the domain fails to compile
+//! here until somebody decides what it is on the wire - the same mechanism that already stops a new
+//! governance outcome from reaching a caller as an unnamed one.
+//!
+//! Three statuses are shared by more than one variant, and that is deliberate rather than a
+//! shortage: the status is what a monitor counts and the `code` is what a client branches on, so the
+//! grouping is by *what the caller should do*, not one number per variant. [`crate::problem`]
+//! already takes the same position where `unavailable` and `at_capacity` share `503`.
+
+use axum::http::StatusCode;
+use sutura_domain::query::RefusalReason;
+
+use super::RefusalBody;
+
+/// The status, the code and the sentence for one refusal.
+///
+/// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
+/// rather than in three matches that could drift apart. A refusal variant added to the domain fails
+/// to compile here until it is given a status, a code and a sentence.
+pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
+    let (status, code, detail) = match *reason {
+        // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
+        // say. `definition_version` on an answer is what makes "in this snapshot" the honest
+        // qualifier: the same name against a later bundle is a different question.
+        RefusalReason::MetricUnknown { ref metric } => (
+            StatusCode::NOT_FOUND,
+            "metric_unknown",
+            format!("this catalog defines no metric called `{metric}`"),
+        ),
+        // 422. The metric exists, the request is well formed, and the grain asked for is one nobody
+        // rendered - so the content is understood and cannot be processed, which is what 422 is for.
+        // Not 404: the metric IS there, and a caller told the name was not found would go looking
+        // for the wrong mistake.
+        RefusalReason::GrainNotSupported { ref metric, grain } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "grain_not_supported",
+            format!("`{metric}` is not defined at `{grain}` grain"),
+        ),
+        // 403 for all three dimension refusals. Each is the catalog's answer to "may this be asked
+        // of this metric" - the declared dimension set, the filterable flag, the value allowlist -
+        // so 403's "understood the request but refuses to fulfill it" is the right sense, and
+        // grouping them is what lets a monitor count attempts to ask outside the catalog as one
+        // number.
+        //
+        // **The 403 is NOT a statement about the caller's credential**, and this surface has no
+        // per-caller identity to make one with - see the crate documentation. No token widens a
+        // metric's dimension set, which is why each sentence below names the dimension and the
+        // metric: a caller must not read this as "go and get a better token".
+        //
+        // `DimensionNotPermitted` is the one of the three that could be argued to 422 instead - the
+        // domain calls it "a name that does not resolve" - and it stays here because what it is
+        // checked against is the metric's DECLARED dimension set, which is the same catalog
+        // statement the other two read at finer grain. `docs/adr/0005` records the argument.
+        RefusalReason::DimensionNotPermitted {
+            ref metric,
+            ref dimension,
+        } => (
+            StatusCode::FORBIDDEN,
+            "dimension_not_permitted",
+            format!("`{metric}` does not declare a dimension called `{dimension}`"),
+        ),
+        RefusalReason::DimensionNotFilterable {
+            ref metric,
+            ref dimension,
+        } => (
+            StatusCode::FORBIDDEN,
+            "dimension_not_filterable",
+            format!("`{dimension}` can be grouped by on `{metric}` but not filtered on"),
+        ),
+        RefusalReason::DimensionValueNotAllowed {
+            ref metric,
+            ref dimension,
+        } => (
+            StatusCode::FORBIDDEN,
+            "dimension_value_not_allowed",
+            // The value is deliberately absent. See [`RefusalBody`].
+            format!("that value is not one `{metric}` declares for `{dimension}`"),
+        ),
+        // 422. Well formed, and not a question: the caller believes something about the second
+        // occurrence that we do not, which is why the domain refuses rather than deduplicating.
+        RefusalReason::DuplicateDimension { ref dimension } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "duplicate_dimension",
+            format!("`{dimension}` appears more than once"),
+        ),
+        // 422, and the caller can act on it without a second request to discover the number: the
+        // sentence carries what they asked for and the bound.
+        RefusalReason::TooManyDimensions { requested, limit } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "too_many_dimensions",
+            format!("{requested} group-by keys were asked for and the maximum is {limit}"),
+        ),
+        // 422. The range parsed and both endpoints are real dates, so this is not a `400`; it is the
+        // availability boundary, and the answer to a well formed question is no.
+        RefusalReason::TimeRangeTooLong { days, limit } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "time_range_too_long",
+            format!("the period spans {days} days and the maximum is {limit}"),
+        ),
+        // 413, and this is the one status here that is arguably wrong by the letter of the spec: 413
+        // is defined over the *request* content - "the request entity was larger than limits defined
+        // by server" - and what is too large here is the answer. It is used anyway, and the
+        // objection is recorded rather than hidden: 413 is the status a person reading a dashboard
+        // reads as "too large", which is exactly what this refusal has to be unmistakable about.
+        // `code` is what disambiguates it from the body-limit `413` on this same route, and the two
+        // bodies differ in shape as well - this one carries `outcome`. `docs/adr/0005` has the rest.
+        //
+        // No row count in the sentence, because there is none to give: the plan asks for one row
+        // past the cap and stops, so what is known is "more than this". What the sentence carries
+        // instead is that nothing was truncated to fit - a partial total under a certified name is
+        // the failure this refusal exists to prevent - the cap itself, and the two things a caller
+        // can narrow.
+        RefusalReason::ResultTooLarge { limit } => (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            "result_too_large",
+            format!(
+                "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
+                 narrow the period or group by fewer dimensions and ask again"
+            ),
+        ),
+        // 409. The question is answerable in principle and this deployment will not answer it: a
+        // second data system is a second identity to satisfy, and a plan that runs partly as
+        // somebody else is the failure the whole design is arranged against. That is a conflict
+        // between what was asked and how this deployment is arranged, which is what 409 says and
+        // what no status about the request's own content would.
+        RefusalReason::PlanSpansTwoSources { sources } => (
+            StatusCode::CONFLICT,
+            "plan_spans_two_sources",
+            format!("answering this would read from {sources} data systems, and a plan runs against one"),
+        ),
+        // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
+        // the variant an identity failure will use, and today it is raised by a name comparison -
+        // the plan's data system against the adapter this process opened - so today's cause is a
+        // deployment wired wrong rather than one that is briefly unwell. The status is still the
+        // honest one for the variant's meaning, and the sentence is what an operator reads.
+        //
+        // **No `Retry-After`.** Nothing here knows when a data system comes back, and
+        // `Failure::retry_after` already sets the rule for this surface: a number that is already
+        // known, or no header, because a guess is a promise. `Failure::Unavailable` - the same
+        // situation reached from the failure side - carries none for the same reason, and a refusal
+        // that invented one would make the two disagree.
+        RefusalReason::SourceUnavailable { ref source } => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "source_unavailable",
+            format!("`{source}` could not be reached as the calling subject"),
+        ),
+    };
+    (
+        status,
+        RefusalBody {
+            code,
+            status: status.as_u16(),
+            detail,
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use sutura_domain::model::{DimensionName, Grain, MetricName};
+    use sutura_domain::query::RefusalReason;
+
+    use super::refused;
+
+    fn metric() -> MetricName {
+        MetricName::parse("revenue").expect("a test metric is a metric")
+    }
+
+    fn dimension() -> DimensionName {
+        DimensionName::parse("region").expect("a test dimension is a dimension")
+    }
+
+    /// One refusal reason, the status it is on the wire, and its code.
+    ///
+    /// Named rather than written out at the signature: `type_complexity` is a fair reading
+    /// complaint about the tuple, and these three are exactly what a refused caller is given.
+    type Expected = (RefusalReason, StatusCode, &'static str);
+
+    /// Every variant the domain has, with the status it is on the wire.
+    ///
+    /// A list rather than one test per variant, and it is the same list the exhaustive match above
+    /// is checked against: a variant added to `RefusalReason` breaks the compile in `refused`, and
+    /// this is where somebody then writes down what they decided.
+    fn every_reason() -> Vec<Expected> {
+        vec![
+            (
+                RefusalReason::MetricUnknown { metric: metric() },
+                StatusCode::NOT_FOUND,
+                "metric_unknown",
+            ),
+            (
+                RefusalReason::GrainNotSupported {
+                    metric: metric(),
+                    grain: Grain::Year,
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "grain_not_supported",
+            ),
+            (
+                RefusalReason::DimensionNotPermitted {
+                    metric: metric(),
+                    dimension: dimension(),
+                },
+                StatusCode::FORBIDDEN,
+                "dimension_not_permitted",
+            ),
+            (
+                RefusalReason::DimensionNotFilterable {
+                    metric: metric(),
+                    dimension: dimension(),
+                },
+                StatusCode::FORBIDDEN,
+                "dimension_not_filterable",
+            ),
+            (
+                RefusalReason::DimensionValueNotAllowed {
+                    metric: metric(),
+                    dimension: dimension(),
+                },
+                StatusCode::FORBIDDEN,
+                "dimension_value_not_allowed",
+            ),
+            (
+                RefusalReason::DuplicateDimension { dimension: dimension() },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "duplicate_dimension",
+            ),
+            (
+                RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "too_many_dimensions",
+            ),
+            (
+                RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "time_range_too_long",
+            ),
+            (
+                RefusalReason::ResultTooLarge { limit: 10_000 },
+                StatusCode::PAYLOAD_TOO_LARGE,
+                "result_too_large",
+            ),
+            (
+                RefusalReason::PlanSpansTwoSources { sources: 2 },
+                StatusCode::CONFLICT,
+                "plan_spans_two_sources",
+            ),
+            (
+                RefusalReason::SourceUnavailable {
+                    source: sutura_domain::model::SourceName::parse("local").expect("a test source is a source"),
+                },
+                StatusCode::SERVICE_UNAVAILABLE,
+                "source_unavailable",
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_refusal_carries_a_status_a_code_and_a_sentence() {
+        // The whole contract of this module in one assertion, per variant. All three, because a
+        // caller needs all three: the status for anything that reads a status alone, the code to
+        // branch on, and the sentence for a person.
+        for (reason, expected, code) in every_reason() {
+            let (status, body) = refused(&reason);
+            assert_eq!(status, expected, "{reason:?}");
+            assert_eq!(body.code(), code, "{reason:?}");
+            assert_eq!(
+                body.status(),
+                expected.as_u16(),
+                "the body's status disagrees with the response's for {reason:?}"
+            );
+            assert!(!body.detail().is_empty(), "{reason:?} refused with no sentence");
+        }
+    }
+
+    #[test]
+    fn no_refusal_comes_back_as_a_success() {
+        // The point of the change, stated as the property rather than as eleven numbers. A `200`
+        // makes a governance refusal indistinguishable from an answer to an ingress log, a
+        // dashboard, an error-rate alert or a generated client whose success branch is `2xx`.
+        for (reason, _, _) in every_reason() {
+            let (status, _) = refused(&reason);
+            assert!(
+                status.is_client_error() || status.is_server_error(),
+                "{reason:?} came back as {status}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_refusal_has_a_distinct_code() {
+        // The status is shared on purpose - four variants are `422` - so the code is what a client
+        // has to be able to branch on, and two variants sharing one would make that impossible.
+        let mut codes: Vec<&str> = every_reason().into_iter().map(|(_, _, code)| code).collect();
+        let count = codes.len();
+        codes.sort_unstable();
+        codes.dedup();
+        assert_eq!(codes.len(), count, "two refusals share a code");
+    }
+
+    #[test]
+    fn the_row_cap_refusal_says_what_happened_and_what_to_do_about_it() {
+        // The case the change was asked for. A caller whose answer was declined for being too large
+        // must be able to tell that from the sentence alone: what happened, that nothing was
+        // silently cut down to fit, the cap, and which two things they can narrow.
+        let (status, body) = refused(&RefusalReason::ResultTooLarge { limit: 10_000 });
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        let detail = body.detail();
+        assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
+        assert!(detail.contains("NOT truncated"), "{detail}");
+        assert!(detail.contains("narrow"), "{detail}");
+    }
+
+    #[test]
+    fn a_rejected_filter_value_is_not_echoed_into_the_response() {
+        // The domain refuses to carry the value in its refusal reason, and this is the assertion
+        // that the wire shape does not put it back: a rejected value reflected into a response
+        // reaches a log, a UI and an agent's context.
+        let (status, body) = refused(&RefusalReason::DimensionValueNotAllowed {
+            metric: metric(),
+            dimension: dimension(),
+        });
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        let rendered = serde_json::to_string(&body).expect("the refusal serializes");
+        assert!(rendered.contains("region"), "{rendered}");
+        assert!(!rendered.contains("north"), "{rendered}");
+    }
+}

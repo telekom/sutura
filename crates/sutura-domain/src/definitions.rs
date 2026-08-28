@@ -22,6 +22,7 @@
 use sha2::{Digest as _, Sha256};
 
 use crate::catalog::Definitions;
+use crate::knowledge::Knowledge;
 
 /// Hex characters in a digest: SHA-256, as lower-case hex.
 const HEX_LEN: usize = 64;
@@ -76,15 +77,19 @@ impl DefinitionDigest {
         Ok(Self(trimmed.to_ascii_lowercase()))
     }
 
-    /// The digest of a set of definitions.
+    /// The digest of everything a bundle carries: the definitions, and the knowledge about them.
+    ///
+    /// Two arguments rather than one, because both are content somebody authored and both change what
+    /// an answer means - see [`canonical_form`] for why a glossary belongs under the same hash as a
+    /// measure.
     ///
     /// **The trusted operation, and the only way content becomes a digest.** It is `pub(crate)`
     /// rather than `pub` on purpose: the public surface for "hash these definitions" is
     /// [`crate::pinned::PinnedDefinitions::pin`], which stores the definitions it hashed in the same
     /// step. Exposing this on its own would put a digest-of-content value in a caller's hands with
     /// nothing holding it to the content, which is one refactor away from the hole this replaced.
-    pub(crate) fn of(definitions: &Definitions) -> Result<Self, NotDigestible> {
-        let canonical = canonical_form(definitions).map_err(|cause| NotDigestible::Canonicalize { cause })?;
+    pub(crate) fn of(definitions: &Definitions, knowledge: &Knowledge) -> Result<Self, NotDigestible> {
+        let canonical = canonical_form(definitions, knowledge).map_err(|cause| NotDigestible::Canonicalize { cause })?;
         let hash = Sha256::digest(&canonical);
         let hex: String = hash
             .iter()
@@ -103,21 +108,30 @@ impl DefinitionDigest {
     }
 }
 
-/// The canonical byte form of a set of definitions: what the digest is taken over.
+/// The canonical byte form of a bundle's content: what the digest is taken over.
 ///
 /// JSON rather than the YAML or the wire format a definition was read from, and that is the whole
 /// point. Reformatting a document, reordering two files or rewording a comment must not move the
-/// digest; changing what a metric means must. Serializing the *parsed* definitions gives exactly
-/// that, because everything that survives parsing is meaning and everything that does not is layout.
+/// digest; changing what a metric means must. Serializing the *parsed* content gives exactly that,
+/// because everything that survives parsing is meaning and everything that does not is layout.
 ///
-/// Deterministic for two reasons that both have to hold: [`Definitions`] uses `BTreeMap` throughout,
-/// so collection order is content order rather than hash order, and `serde_json` writes struct fields
-/// in declaration order.
+/// **Both halves, and the knowledge is not decoration in here.** A glossary entry decides which
+/// metric an agent asks about, so a bundle whose glossary changed is a bundle that answers different
+/// questions from the same words - and a digest that did not move would say the two were the same
+/// snapshot. It also makes the capability distinction certifiable: a provider that declares an empty
+/// absence list and one that has no such concept serialize differently, and the prompt is allowed to
+/// say different things about them, so the digest has to be able to tell them apart.
+///
+/// Deterministic for two reasons that both have to hold: [`Definitions`] and [`Knowledge`] use
+/// `BTreeMap` throughout, so collection order is content order rather than hash order, and
+/// `serde_json` writes struct fields in declaration order. A two-element sequence rather than a
+/// struct with two keys because the shape only has to be stable, not readable - nothing ever parses
+/// these bytes back.
 ///
 /// Private, and not merely unexported: the bytes are an implementation detail of the digest, and a
 /// second caller of this function would be a second place with an opinion about what canonical means.
-fn canonical_form(definitions: &Definitions) -> Result<Vec<u8>, serde_json::Error> {
-    serde_json::to_vec(definitions)
+fn canonical_form(definitions: &Definitions, knowledge: &Knowledge) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(&(definitions, knowledge))
 }
 
 /// One hex digit.
@@ -136,8 +150,9 @@ fn nibble(value: u8) -> char {
 /// Why a set of definitions could not be reduced to a digest.
 ///
 /// Two variants, and neither is reachable from any catalog this repository can load - which is why
-/// they are variants rather than a panic. `Definitions` holds no floats and every map key is a
-/// newtype over a string, so the serializer has nothing to refuse; and lower-case hex of 32 bytes is
+/// they are variants rather than a panic. Neither `Definitions` nor `Knowledge` holds a float and
+/// every map key in both is a newtype over a string, so the serializer has nothing to refuse; and
+/// lower-case hex of 32 bytes is
 /// what a digest is. Each variant names which half changed, so a future field of a type that does not
 /// serialize says so instead of surfacing as "the catalog is broken".
 #[derive(Debug, thiserror::Error)]
@@ -263,8 +278,12 @@ mod tests {
         assert_eq!(digest.as_str(), VALID);
     }
 
-    /// Deserialize without pulling a format crate into the domain's dependency tree - the
-    /// boundary gate allowlists neither, and this tests the wiring, not the JSON parser.
+    /// Deserialize through the domain-side shape rather than through a JSON parser.
+    ///
+    /// NOT a boundary-gate constraint: `serde_json` is a dependency of this crate and IS
+    /// allowlisted (`xtask/src/boundaries.rs`), which is what makes the digest's canonical form
+    /// possible at all. The reason is scope - this asserts the serde WIRING, which attribute
+    /// routes which direction, and a format parser would add a second thing that could fail.
     fn deserialize(raw: &str) -> Result<DefinitionDigest, serde::de::value::Error> {
         use serde::Deserialize as _;
         use serde::de::IntoDeserializer as _;

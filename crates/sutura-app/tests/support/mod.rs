@@ -28,7 +28,10 @@
 
 mod oracle;
 
-pub(crate) use oracle::{HandWrittenCatalog, executable_definitions, june_range, oracle_definitions, two_source_catalog};
+pub(crate) use oracle::{
+    HandWrittenCatalog, executable_definitions, june_range, oracle_definitions, oracle_knowledge, stated_knowledge,
+    two_source_catalog,
+};
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;

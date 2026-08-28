@@ -1,8 +1,13 @@
 //! Generate: a plan becomes one statement in one dialect.
 //!
-//! The only module that names the dialect layer, so a pre-1.0 API change upstream touches one file,
-//! and the only one that produces SQL. An adapter that executes a plan without rendering it - the
-//! in-process engine - never calls anything here.
+//! The module that turns a plan into SQL. An adapter that executes a plan without rendering it -
+//! the in-process engine - never calls anything here.
+//!
+//! It used to be the only module that names the dialect layer. [`crate::expression`] names it too
+//! now, because compiling a catalog-authored fragment is parsing rather than rendering and the two
+//! jobs share no code: this file builds an AST from a plan, that one takes an AST apart and refuses
+//! most of it. A pre-1.0 API change upstream therefore touches two files in this crate, both of them
+//! here rather than anywhere else.
 //!
 //! Five things about how the dialect layer is used, every one of them measured rather than assumed,
 //! and every one of them looking right until it was rendered:
@@ -37,8 +42,8 @@ use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placehold
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType};
 use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
-use sutura_domain::warehouse::GeneratedQuery;
 
+use crate::GeneratedQuery;
 use crate::dialect::{Dialect, PlaceholderStyle};
 
 /// Why a statement could not be rendered.

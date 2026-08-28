@@ -71,6 +71,15 @@ shapes over a `Term` enum of two terms, `RequiredFilter` an enum of four operato
 `deny_unknown_fields` applies at every depth. sutura generates the whole statement from that, in
 `sutura-semantic`, so neither caller-authored nor catalogue-authored SQL is on the path at all.
 
+**Partly built, and named so it cannot be quiet.** A metric may instead carry `authored_sql:` - a SQL
+expression a catalogue author wrote, for what the closed vocabulary cannot say: a window function, a
+percentile, an expression over two columns. It is a *sibling* of `measure:` rather than a field on it,
+exactly one of the two may be present, and a fragment is parsed at load, checked against a list of
+refused constructs, checked against the model's declared columns and rendered for every dialect
+before anything serves. A caller still has no field for SQL, and the agent prompt still never sees
+any. [A named escape hatch for authored SQL](adr/0004-a-named-escape-hatch-for-authored-sql.md) is
+the record. The types and the compile exist; no catalogue document can write the key yet.
+
 **Design target, not built.** A definition may instead arrive as **statement** text authored
 upstream, spliced into a generated wrapper byte for byte, because re-emitting it would substitute
 our reading for the author's and the number would change quietly. Nothing implements that splice:
@@ -161,10 +170,13 @@ A **catalogue** supplies definitions: metrics, dimensions, the glossary, lineage
 documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait. The
 first exists; the second is a design target.
 
-A **data system** executes. ClickHouse and Postgres are the near-term targets, with DuckDB for
-local and single-file work. The port is named `Warehouse`, which says nothing about what sits
-behind it. DuckDB is the one adapter that exists; the statement is rendered for the other two
-dialects and parse-checked without either being connected to.
+A **data system** executes. ClickHouse and Postgres are the near-term targets. The port is named
+`Warehouse`, which says nothing about what sits behind it. Two adapters exist and they are different
+kinds of thing: `sutura-exec-datafusion` is **the engine** - it reads the CSV and Parquet files
+itself, executes the plan over Arrow and generates no SQL, and it is what the shipped binary links;
+`sutura-exec-duckdb` is a **data source** - it renders the plan into `DuckDB` SQL and pushes the
+statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
+Postgres and ClickHouse are rendered for and parse-checked without either being connected to.
 
 A plan resolves to exactly **one** data system. Spanning two is not a bigger version of the same
 problem, it is a second identity to satisfy, and a plan whose legs cannot all run as one subject
@@ -215,8 +227,8 @@ an absence enforced are not the same thing:
 
 **A governed single-player semantic compiler and executor over local files.** That is what is here:
 `sutura compile` renders the statement for a question and `sutura query` answers it, over a
-catalogue of documents in git and a `DuckDB` file, with every certified number re-executed before
-the bundle may be served.
+catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
+certified number re-executed before the bundle may be served.
 
 Everything marked *design target* above is unbuilt, and the identity claims are all of them. There
 is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.

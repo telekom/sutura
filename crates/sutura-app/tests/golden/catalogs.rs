@@ -7,7 +7,7 @@
 use sutura_semantic::{Compiled, PredicateOrigin, compile};
 
 use crate::adapters::{CatalogUnderTest, load, questions, read_question, stem};
-use crate::support::{executable_definitions, oracle_definitions};
+use crate::support::{executable_definitions, oracle_definitions, oracle_knowledge, stated_knowledge};
 
 use crate::shared::{PROVOKED, question, settings};
 
@@ -24,6 +24,13 @@ where
     settings(C::NAME).bind(|| {
         insta::assert_snapshot!("catalog_digest", pinned.digest().as_str());
         insta::assert_yaml_snapshot!("catalog_definitions", pinned.definitions());
+        // The other half of what the digest covers. Pinned separately from the definitions because it
+        // is a separate artefact with a separate audience: this one is what the agent-facing prompt
+        // is rendered from, so a change to it is a change to what an agent is told even when every
+        // number stays the same. The declaration is the first field of it, deliberately - a
+        // deployment that stopped declaring a capability is the change hardest to notice by reading
+        // the content.
+        insta::assert_yaml_snapshot!("catalog_knowledge", pinned.knowledge());
     });
 }
 
@@ -41,6 +48,29 @@ where
         executable_definitions::<C>(),
         oracle_definitions(),
         "the {} catalog and the hand-written statement of the same definitions disagree",
+        C::NAME
+    );
+}
+
+/// The same property, for what a catalog says ABOUT what it defines.
+///
+/// Separate from [`agrees_with_the_oracle`] because it is a separate claim and a separate failure: the
+/// definitions deciding what executes and the notes deciding what an agent is TOLD are two things a
+/// parser can get wrong independently. A glossary entry read against the wrong metric produces no
+/// wrong number at all - it produces an agent that asks a question this deployment declines, for a
+/// reason that names a dimension and never mentions the glossary.
+///
+/// Compared with the bodies blanked, for the reason the definitions are compared with the descriptions
+/// blanked: prose lives in the markdown and nowhere else. Everything that decides what the prompt says
+/// is compared, the declared capabilities included.
+fn agrees_with_the_oracle_about_what_it_says<C>()
+where
+    C: CatalogUnderTest,
+{
+    assert_eq!(
+        stated_knowledge::<C>(),
+        oracle_knowledge(),
+        "the {} catalog and the hand-written statement of the same notes disagree",
         C::NAME
     );
 }
@@ -165,6 +195,11 @@ macro_rules! cell {
             #[test]
             fn it_agrees_with_the_oracle_about_what_executes() {
                 super::agrees_with_the_oracle::<$adapter>();
+            }
+
+            #[test]
+            fn it_agrees_with_the_oracle_about_what_it_says() {
+                super::agrees_with_the_oracle_about_what_it_says::<$adapter>();
             }
 
             #[test]

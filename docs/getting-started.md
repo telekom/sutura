@@ -24,7 +24,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
+digest  1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -98,6 +98,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```sql
+-- dialect duckdb
 SELECT "dim_customer"."region" AS "region",
        CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period",
        SUM("fct_subscription_monthly"."mrr_cents") AS "recurring_revenue"
@@ -142,7 +143,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```text
--- definitions local-working-tree 5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
+-- definitions local-working-tree 1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598
@@ -290,6 +291,7 @@ Four things about all that are worth knowing before you write one:
   before the bundle is served, so a definition that has stopped meaning what it claimed fails
   readiness instead of answering. Declare one for any metric whose value you would act on.
 
-For the data, `query` expects one CSV per model, named after the model's table, in the directory you
-pass it. Nothing is written: the database is built in memory from the CSVs on every run, so it cannot
-drift from them.
+For the data, `query` expects one file per model, named after the model's table, in the directory you
+pass it - `<table>.parquet` if it is there, `<table>.csv` otherwise. Nothing is written and there is
+no database: the engine registers each file in process and reads it where it lies on every run, so
+the answer cannot drift from the files.

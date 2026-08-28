@@ -22,8 +22,19 @@ const YEAR_RANGE: core::ops::RangeInclusive<i16> = 1..=9999;
 /// Construct it with [`Date::parse`] or [`Date::new`]. The fields are private and ordered
 /// year-month-day so the derived `Ord` is chronological: a reordering of the declaration would
 /// silently invert every comparison, which is why the ordering is asserted in a test.
+///
+/// **`try_from` and `into` are a pair, and one without the other was a real asymmetry.** This type
+/// carried `try_from = "String"` alone, and `serde(try_from)` affects `Deserialize` only - so the
+/// derived `Serialize` wrote the STRUCT, and a date this crate serialized was a date this crate's
+/// own `Deserialize` rejected. Two places depend on the two halves agreeing: the digest in
+/// [`crate::definitions`] is taken over the serialized form, so it has to be taken over the ISO text
+/// a catalog author actually wrote rather than over a field layout that never appears in a file; and
+/// a schema generated from this type describes a wire value the surface accepts as a string. Every
+/// other type here with a canonical text form is written the same way - `TermRepr` in
+/// [`crate::measure`] pairs them so that what a digest covers and what a catalog wrote are the same
+/// text.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(try_from = "String")]
+#[serde(try_from = "String", into = "String")]
 pub struct Date {
     year: i16,
     month: u8,
@@ -308,6 +319,17 @@ impl TryFrom<String> for Date {
     }
 }
 
+/// The written form, which is what `serde(into = "String")` serializes.
+///
+/// The same rendering as [`Date::to_iso`] and [`Display`](core::fmt::Display) rather than a second
+/// one: a type with two ways of writing itself down eventually writes one of them into a digest and
+/// the other into an answer.
+impl From<Date> for String {
+    fn from(date: Date) -> Self {
+        date.to_iso()
+    }
+}
+
 impl core::fmt::Display for Date {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.write_str(&self.to_iso())
@@ -337,6 +359,15 @@ impl core::fmt::Display for Date {
 /// Half-open rather than inclusive because a month is `[2026-06-01, 2026-07-01)` at every grain and
 /// in every dialect, while an inclusive end needs a different last day per month and per grain. One
 /// of those two conventions produces off-by-one bugs at month boundaries and the other does not.
+///
+/// **No `into` beside the `try_from`, unlike [`Date`], and that is not the same omission.** A range's
+/// wire form is a two-field mapping - `start` and `end`, which is how a catalog author writes one -
+/// and both halves already agree on it: `Serialize` derives that mapping and `try_from` reads it back
+/// through [`TimeRange::new`]. What this type does NOT have is a canonical text form to convert into.
+/// [`Display`](core::fmt::Display) renders `[2026-06-01, 2026-07-01)` for a human reading a refusal,
+/// and nothing parses that shape, so serializing into it would produce exactly the asymmetry the
+/// `into` on `Date` exists to remove. The round trip that has to hold here is the mapping one, and it
+/// is asserted as such.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(try_from = "TimeRangeInput")]
 pub struct TimeRange {
@@ -700,8 +731,8 @@ mod tests {
         assert_eq!(span("0001-01-01", "9999-12-31"), 3_652_058);
     }
 
-    /// Deserialize without a format crate: the boundary gate allowlists none, and this tests the
-    /// wiring rather than a parser.
+    /// Deserialize straight from a string, without a format in between: this asserts the wiring -
+    /// that the derive routes through the constructor - rather than a parser's handling of quotes.
     fn deserialize_date(raw: &str) -> Result<Date, serde::de::value::Error> {
         use serde::Deserialize as _;
         use serde::de::IntoDeserializer as _;
@@ -719,5 +750,65 @@ mod tests {
             deserialize_date("2026-06-01").expect("a real date still deserializes"),
             date("2026-06-01")
         );
+    }
+
+    #[test]
+    fn a_date_serializes_into_the_shape_its_own_deserialize_accepts() {
+        // THE ASYMMETRY THIS TEST EXISTS FOR. `serde(try_from)` affects `Deserialize` ONLY, so with
+        // `try_from = "String"` alone the derived `Serialize` wrote the struct -
+        // `{"year":2026,"month":6,"day":1}` - which this type's own `Deserialize` then refused,
+        // because it wants a string. Nothing round-tripped a date in production, so it stayed
+        // invisible; what it was quietly deciding is written down in two places. The digest in
+        // `definitions` is taken over the SERIALIZED form, so it covered a field layout that appears
+        // in no file rather than the ISO text an author wrote; and a schema derived from this type
+        // would describe an object for a value the surface accepts as a string.
+        let d = date("2026-06-01");
+        let json = serde_json::to_string(&d).expect("a date serializes");
+        assert_eq!(json, "\"2026-06-01\"", "the wire form is the written form, not the fields");
+        assert_eq!(
+            serde_json::from_str::<Date>(&json).expect("and deserializes from what it wrote"),
+            d
+        );
+        // The property in the form the rule states it, through the text form rather than through a
+        // format crate: `parse(to_string(x)) == x`.
+        assert_eq!(Date::parse(d.to_string()).expect("its own written form is a date"), d);
+        assert_eq!(String::from(d), d.to_iso(), "one rendering of a date, not two");
+        // A date that needs padding in three places at once, because zero-padding is exactly what a
+        // struct-shaped form loses and a text one has to keep.
+        let padded = date("0001-02-03");
+        assert_eq!(serde_json::to_string(&padded).expect("serializes"), "\"0001-02-03\"");
+        assert_eq!(Date::parse(padded.to_string()).expect("padded is a date"), padded);
+        // And the leap day, which is the value a round trip through a re-parse has to survive rather
+        // than be normalised away.
+        let leap = date("2024-02-29");
+        assert_eq!(
+            serde_json::from_str::<Date>(&serde_json::to_string(&leap).expect("serializes")).expect("deserializes"),
+            leap
+        );
+    }
+
+    #[test]
+    fn a_range_round_trips_through_the_mapping_a_catalog_author_writes() {
+        // A range's canonical form is the two-field mapping, not the `[start, end)` text: that text
+        // is for a human reading a refusal and nothing parses it. So the round trip asserted here is
+        // the one that has to hold - and before `Date` paired its `into` with its `try_from`, it
+        // failed on the FIRST field, which is how a latent asymmetry in one type becomes a broken
+        // round trip in every type that carries it.
+        let range = TimeRange::new(date("2026-06-01"), date("2026-07-01")).expect("June is a range");
+        let json = serde_json::to_string(&range).expect("a range serializes");
+        assert_eq!(json, "{\"start\":\"2026-06-01\",\"end\":\"2026-07-01\"}");
+        assert_eq!(
+            serde_json::from_str::<TimeRange>(&json).expect("and deserializes from what it wrote"),
+            range
+        );
+        // Back in through the constructor rather than past it, so a round trip cannot be the way an
+        // empty range gets built.
+        drop(
+            serde_json::from_str::<TimeRange>("{\"start\":\"2026-07-01\",\"end\":\"2026-06-01\"}")
+                .expect_err("a backwards range must not deserialize, round trip or not"),
+        );
+        // The human form is deliberately not the wire form, and this is the assertion that says so.
+        assert_eq!(range.to_string(), "[2026-06-01, 2026-07-01)");
+        assert_ne!(json, range.to_string());
     }
 }

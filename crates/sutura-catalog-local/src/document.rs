@@ -18,23 +18,46 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::catalog::{Anchor, Dimension, Metric, Model, Relationship};
+use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
     ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
+
+// The four knowledge documents. Their own module because this file is already at two thirds of the
+// thousand-line limit `cargo xtask max-lines` enforces, and because they are a separate concern: a
+// definition decides what executes and a note decides what a reader understands.
+pub mod knowledge;
 
 /// What a document declares itself to be.
 ///
 /// Required in every document rather than inferred from the directory it sits in. A file in the
 /// wrong directory is then an error naming the mismatch, instead of a metric that was quietly never
 /// loaded, and the loader can walk one tree instead of trusting a layout convention.
+///
+/// **Seven kinds now, and the split between them is worth reading as two groups.** The first three
+/// are definitions: they decide what executes, and `sutura_domain::catalog` checks them. The last
+/// four are knowledge: they decide what a reader understands, and `sutura_domain::knowledge` checks
+/// them. Nothing in the loader treats the two groups differently - one walk, one tag, one dispatch -
+/// which is what keeps "which directory is this in" from becoming part of the format.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DocumentKind {
     Model,
     Relationship,
     Metric,
+    /// One entry of the business glossary.
+    Glossary,
+    /// Something a reader has to know before trusting a number.
+    Caveat,
+    /// A term this catalog deliberately does not define.
+    ///
+    /// The word an author writes is `not_defined`, which says what they are doing; the domain type
+    /// is `Absence`, which says what the thing is. Two names for two audiences, and the format's one
+    /// is the one that appears in an error about a file.
+    NotDefined,
+    /// A worked question: how somebody asked it, and what to send.
+    Example,
 }
 
 impl DocumentKind {
@@ -43,6 +66,10 @@ impl DocumentKind {
             Self::Model => "model",
             Self::Relationship => "relationship",
             Self::Metric => "metric",
+            Self::Glossary => "glossary",
+            Self::Caveat => "caveat",
+            Self::NotDefined => "not_defined",
+            Self::Example => "example",
         }
     }
 }
@@ -108,7 +135,7 @@ pub struct ModelDoc {
 }
 
 impl ModelDoc {
-    pub fn into_domain(self, description: String) -> Model {
+    pub fn into_domain(self, description: Description) -> Model {
         Model::new(self.name, self.source, self.table, self.columns, description)
     }
 }
@@ -164,9 +191,9 @@ pub struct DimensionDoc {
     via: Option<RelationshipName>,
     /// The values a filter may use. Absent means "group by this, do not filter on it".
     #[serde(default)]
-    values: Option<BTreeSet<String>>,
+    values: Option<BTreeSet<DimensionValue>>,
     #[serde(default)]
-    description: String,
+    description: Description,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -229,8 +256,8 @@ pub struct MetricDoc {
     ///
     /// `singleton_map_recursive` rather than `singleton_map` because the enum is inside a sequence,
     /// and the non-recursive adapter applies to the value it is attached to. Recursion is safe here:
-    /// a [`RequiredFilter`] payload holds only a column name and a string, so there is no nested
-    /// enum for it to reinterpret.
+    /// a [`RequiredFilter`] payload holds a column name and a value, both of them newtypes over one
+    /// scalar with a `try_from`, so there is no nested enum for it to reinterpret.
     #[serde(default, with = "serde_norway::with::singleton_map_recursive")]
     required_filters: Vec<RequiredFilter>,
     time_column: ColumnName,
@@ -253,7 +280,7 @@ pub enum InvalidMetricDocument {
 }
 
 impl MetricDoc {
-    pub fn into_domain(self, description: String) -> Result<Metric, InvalidMetricDocument> {
+    pub fn into_domain(self, description: Description) -> Result<Metric, InvalidMetricDocument> {
         let mut dimensions: BTreeMap<DimensionName, Dimension> = BTreeMap::new();
         for doc in self.dimensions {
             let dimension = Dimension::new(doc.name.clone(), doc.column, doc.via, doc.values, doc.description);
@@ -280,7 +307,8 @@ impl MetricDoc {
 
 #[cfg(test)]
 mod tests {
-    use super::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+    use super::{Description, DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc};
+    use sutura_domain::catalog::DimensionValue;
     use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
     use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName};
 
@@ -288,8 +316,16 @@ mod tests {
         serde_norway::from_str(yaml)
     }
 
+    fn description(raw: &str) -> Description {
+        Description::parse(raw).expect("a test description is a description")
+    }
+
     fn column(raw: &str) -> ColumnName {
         ColumnName::parse(raw).expect("a test column is a column")
+    }
+
+    fn value(raw: &str) -> DimensionValue {
+        DimensionValue::parse(raw).expect("a test value is a value")
     }
 
     fn aggregated(aggregate: Aggregate, raw: &str) -> Term {
@@ -319,7 +355,7 @@ grains: [month]
     fn a_minimal_metric_document_parses() {
         let doc = metric_doc(MINIMAL_METRIC).expect("a minimal metric is a metric");
         let metric = doc
-            .into_domain(String::from("Net revenue."))
+            .into_domain(description("Net revenue."))
             .expect("no dimensions cannot be duplicated");
         assert_eq!(metric.name(), &MetricName::parse("revenue").expect("a name"));
         assert_eq!(metric.measure(), &Measure::Simple(aggregated(Aggregate::Sum, "amount_cents")));
@@ -383,7 +419,7 @@ colums: [amount_cents]
         let yaml = metric_measuring("  simple: { count_if: churned_in_month }\n");
         let metric = metric_doc(&yaml)
             .expect("count_if is a term")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -406,7 +442,7 @@ colums: [amount_cents]
         ));
         let metric = metric_doc(&yaml)
             .expect("a ratio is a measure shape")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -432,7 +468,7 @@ colums: [amount_cents]
         ));
         let metric = metric_doc(&yaml)
             .expect("a conditional count is a term like any other")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert_eq!(
             metric.measure(),
@@ -526,7 +562,7 @@ colums: [amount_cents]
         for (word, expected) in [("yields_null", ZeroDenominator::Null), ("fails", ZeroDenominator::Fail)] {
             let metric = metric_doc(&ratio(word))
                 .expect("both words are words")
-                .into_domain(String::new())
+                .into_domain(Description::default())
                 .expect("no dimensions to duplicate");
             assert_eq!(
                 metric.measure(),
@@ -568,16 +604,16 @@ colums: [amount_cents]
         );
         let metric = metric_doc(&format!("{MINIMAL_METRIC}{filters}"))
             .expect("all four operators are operators")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         let expected = vec![
             RequiredFilter::Equals {
                 column: column("channel"),
-                value: String::from("web"),
+                value: value("web"),
             },
             RequiredFilter::NotEquals {
                 column: column("channel"),
-                value: String::from("store"),
+                value: value("store"),
             },
             RequiredFilter::IsTrue {
                 column: column("is_paid"),
@@ -600,6 +636,25 @@ colums: [amount_cents]
     }
 
     #[test]
+    fn a_required_filter_value_is_parsed_by_the_document_it_arrives_in() {
+        // The wired path for the third authored string. A definitional filter's value used to be a
+        // `String` with `deny_unknown_fields` around it and no character rule inside it, so a
+        // right-to-left override in this line rendered as `status = "active"` in `sutura
+        // definitions` and bound something else - the finding already closed for an authored SQL
+        // fragment and a glossary phrase, at a channel that still had it. `DimensionValue`'s
+        // `try_from` is what makes the frontmatter reader the enforcement point.
+        for (value, needle) in [
+            ("act\u{202E}ive", "invisible"),
+            ("\"  active\"", "spacing"),
+            ("\"\"", "empty"),
+        ] {
+            let yaml = format!("{MINIMAL_METRIC}required_filters:\n  - equals: {{ column: status, value: {value} }}\n");
+            let err = metric_doc(&yaml).expect_err("a value that is not a dimension value is not one");
+            assert!(err.to_string().contains(needle), "{value}: {err}");
+        }
+    }
+
+    #[test]
     fn required_filters_default_to_empty_when_the_key_is_absent() {
         // Most metrics carry no definitional predicate, so the key is optional. The direction that
         // must not be confused is the other one: absent has to mean "no predicate", never "not
@@ -607,7 +662,7 @@ colums: [amount_cents]
         // downstream would eventually treat as a hint.
         let metric = metric_doc(MINIMAL_METRIC)
             .expect("a minimal metric is a metric")
-            .into_domain(String::new())
+            .into_domain(Description::default())
             .expect("no dimensions to duplicate");
         assert!(metric.required_filters().is_empty());
     }
@@ -622,7 +677,7 @@ colums: [amount_cents]
         );
         let doc = metric_doc(&yaml).expect("two list entries are valid YAML");
         assert_eq!(
-            doc.into_domain(String::new()).unwrap_err(),
+            doc.into_domain(Description::default()).unwrap_err(),
             InvalidMetricDocument::DuplicateDimension {
                 metric: MetricName::parse("revenue").expect("a name"),
                 dimension: DimensionName::parse("region").expect("a name"),
@@ -639,7 +694,7 @@ colums: [amount_cents]
                 format!("{MINIMAL_METRIC}anchor:\n  range: {{ start: 2026-06-01, end: 2026-07-01 }}\n  value: {literal}\n");
             let metric = metric_doc(&yaml)
                 .expect("both spellings parse")
-                .into_domain(String::new())
+                .into_domain(Description::default())
                 .expect("no dimensions to duplicate");
             let anchor = metric.anchor().expect("the document declared one");
             assert_eq!(anchor.value(), "197122");

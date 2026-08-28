@@ -113,10 +113,11 @@ check-changed +paths:
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
 #
 # It is `ci` plus the two app-backed checks, and it is deliberately the nix path rather than the
-# dev shell. The difference is not speed: a nix check builds a FILTERED copy of the tree, so it
-# is the only thing that catches a file the build needs and the filter drops. `gates` reads the
-# real tree and cannot see that class of bug at all - `include_str!("defaults.yaml")` passed
-# every dev-shell check and failed CI.
+# dev shell. The difference is not speed: a nix check builds its own GIT-DERIVED copy of the tree,
+# so it is the only thing that catches a file the build needs and that copy does not have - an
+# untracked one, most often. `gates` reads the real tree and cannot see that class of bug at all:
+# `include_str!("defaults.yaml")` passed every dev-shell check and failed CI, and a new module left
+# untracked does the same. See AGENTS.md on why the source FILTER is not what catches it.
 validate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -134,10 +135,20 @@ validate:
 ci:
     #!/usr/bin/env bash
     set -euo pipefail
-    for check in hygiene fmt clippy nextest doctest crap; do
+    # The system is READ rather than written down. `.#checks.x86_64-linux.*` on an aarch64-darwin
+    # host fails "platform mismatch" before it runs anything, and a gate that cannot run on the
+    # machine of the person who has to run it is a gate that gets skipped. Set SUTURA_NIX_SYSTEM to
+    # force one - a linux builder, or reproducing what a CI log shows.
+    system="${SUTURA_NIX_SYSTEM:-$(nix eval --raw --impure --expr builtins.currentSystem)}"
+    printf 'checks for %s\n' "$system"
+    # api-docs IS in this list, and the omission was not harmless: the committed API pages are
+    # byte-compared and no test covers them, so four stale-page incidents were invisible locally
+    # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
+    # along - but this loop names its checks, so a name left out is a check nobody ran.
+    for check in hygiene fmt clippy nextest doctest crap api-docs; do
         printf '\n=== %s ===\n' "$check"
-        nix build ".#checks.x86_64-linux.$check" -L \
-            || nix build ".#checks.x86_64-linux.$check" -L --offline
+        nix build ".#checks.$system.$check" -L \
+            || nix build ".#checks.$system.$check" -L --offline
     done
 
 # The fat-LTO build. Opt-in, never automatic: minutes of build time for throughput nobody

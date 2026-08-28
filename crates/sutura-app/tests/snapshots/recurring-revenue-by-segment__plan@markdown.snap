@@ -58,22 +58,10 @@ filters:
           column: status
         param: 2
 params:
-  - Date:
-      year: 2026
-      month: 6
-      day: 1
-  - Date:
-      year: 2026
-      month: 7
-      day: 1
+  - Date: 2026-06-01
+  - Date: 2026-07-01
   - Text: active
 range:
-  start:
-    year: 2026
-    month: 6
-    day: 1
-  end:
-    year: 2026
-    month: 7
-    day: 1
+  start: 2026-06-01
+  end: 2026-07-01
 max_rows: 10000

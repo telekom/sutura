@@ -24,7 +24,10 @@ use tower::ServiceExt as _;
 
 use crate::state::ServiceState;
 use crate::surface::LocalService;
-use crate::testing::{bundle, catalog_of, fake_warehouse, warehouse_that_can_be_held};
+use crate::testing::{
+    FakeWarehouse, bundle, catalog_of, fake_warehouse, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
+    warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
+};
 
 /// A token that satisfies the configured floor.
 const TOKEN: &str = "0123456789abcdef0123456789abcdef";
@@ -38,8 +41,45 @@ fn settings(environment: Environment, overlay: &str) -> Settings {
 
 /// The router, over a fake warehouse that answers every plan.
 fn app(settings: Settings) -> Router {
-    let service = LocalService::start(&catalog_of(bundle()), fake_warehouse()).expect("the test bundle validates");
+    over(bundle(), fake_warehouse(), settings)
+}
+
+/// The router over a named bundle and a named warehouse.
+///
+/// The refusal statuses need three fixtures the default pair cannot produce - a result past the row
+/// cap, a bundle whose models sit on two data systems, and an adapter claiming to be somewhere else -
+/// and each is still driven through the REAL router, which is the point of this file.
+fn over(pinned: sutura_domain::pinned::PinnedDefinitions, warehouse: FakeWarehouse, settings: Settings) -> Router {
+    let service = LocalService::start(&catalog_of(pinned), warehouse).expect("the test bundle validates");
     crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
+}
+
+/// One question, and the three things a refused caller must be given.
+///
+/// Returns the status, the `code` and the `detail`, parsed out of the body rather than matched as a
+/// substring: the assertion is about the contract, and a `detail` that happened to contain the word
+/// `code` would satisfy a substring check.
+async fn refusal(app: &Router, question: &str) -> (StatusCode, String, String) {
+    let (status, body) = call(app, request("POST", "/v1/query", None, Body::from(String::from(question)))).await;
+    let parsed: serde_json::Value = serde_json::from_str(&body).expect("a refusal is JSON");
+    assert_eq!(parsed["outcome"], "refusal", "not a refusal: {body}");
+    let code = parsed["reason"]["code"]
+        .as_str()
+        .expect("a refusal carries a code")
+        .to_owned();
+    let detail = parsed["reason"]["detail"]
+        .as_str()
+        .expect("a refusal carries a sentence")
+        .to_owned();
+    // The status is in the body as well as on the response, and the two must not disagree - a client
+    // that logged only the body has nothing else to go on.
+    assert_eq!(
+        parsed["reason"]["status"].as_u64(),
+        Some(u64::from(status.as_u16())),
+        "{body}"
+    );
+    assert!(!detail.is_empty(), "{code} refused with no sentence");
+    (status, code, detail)
 }
 
 /// A request with a peer address attached. See the module documentation.
@@ -158,17 +198,191 @@ async fn a_certified_question_is_answered_with_its_provenance() {
     assert!(body.contains(r#""definition_version":"test-1""#), "{body}");
 }
 
+// ------------------------------------------------------- refusals, per status ----
+//
+// **THE contract of this surface, and it changed.** A refusal used to come back `200` with
+// `outcome: refusal`, on the argument that an error status invites a client library to retry. The
+// retry premise does not survive checking - `crate::wire::refusal` has the citations - and the `200`
+// made a governance refusal indistinguishable from an answer to everything that reads a status and
+// not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose success
+// branch is `2xx`.
+//
+// One test per status, each asserting all three things a refused caller is given: the status, the
+// `code`, and a non-empty sentence. The per-variant mapping is unit-tested in `wire::refusal`; what
+// these add is that the status survives the REAL router - a mapping the handler computes and the
+// router flattens to `200` would pass the unit test and fail here.
+
 #[tokio::test]
-async fn a_refusal_comes_back_as_a_success_with_an_outcome_of_refusal() {
-    // THE contract of this surface. A refusal is a result: an error status would invite a client
-    // library to retry, and retrying a governance decision until it succeeds is precisely what the
-    // refusal exists to prevent.
+async fn an_unknown_metric_is_a_404_naming_the_snapshot_that_does_not_define_it() {
+    let app = app(settings(Environment::Development, ""));
+    let (status, code, detail) = refusal(
+        &app,
+        r#"{"metric":"gross_margin","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+    assert_eq!(code, "metric_unknown");
+    assert!(detail.contains("gross_margin"), "{detail}");
+}
+
+#[tokio::test]
+async fn a_question_that_is_well_formed_and_out_of_bounds_is_a_422() {
+    // Four codes on one status, and that is the grouping rather than a shortage: each is a well
+    // formed question outside a declared bound, the caller's move is the same in all four - narrow
+    // it - and the `code` is what says which bound. `422` is documented as the status a client should
+    // NOT expect to succeed on repetition, which is exactly the refusal's own claim.
+    let app = app(settings(Environment::Development, ""));
+    let range = r#""range":{"start":"2026-06-01","end":"2026-07-01"}"#;
+
+    let (status, code, detail) = refusal(&app, &format!(r#"{{"metric":"revenue","grain":"year",{range}}}"#)).await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(code, "grain_not_supported");
+    assert!(detail.contains("year"), "{detail}");
+
+    let (status, code, detail) = refusal(
+        &app,
+        r#"{"metric":"revenue","grain":"month","range":{"start":"0001-01-01","end":"9999-12-31"}}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(code, "time_range_too_long");
+    // The bound is in the sentence, so narrowing needs no second request to discover the number.
+    assert!(detail.contains("3653"), "{detail}");
+
+    let (status, code, _) = refusal(
+        &app,
+        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["region","region"]}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(code, "duplicate_dimension");
+
+    let (status, code, detail) = refusal(
+        &app,
+        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["one","two","three","four","five"]}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(code, "too_many_dimensions");
+    assert!(detail.contains('4'), "the sentence does not name the maximum: {detail}");
+}
+
+#[tokio::test]
+async fn asking_outside_what_the_catalog_permits_is_a_403() {
+    // The governance statuses. Both of these are the catalog's answer to "may this be asked of this
+    // metric", which is what 403 says - and NOT a statement about a credential: this surface has no
+    // per-caller identity, and no token widens a metric's dimension set. The sentence names the
+    // metric and the dimension so nobody reads it as "get a better token".
+    let app = app(settings(Environment::Development, ""));
+    let range = r#""range":{"start":"2026-06-01","end":"2026-07-01"}"#;
+
+    let (status, code, detail) = refusal(
+        &app,
+        &format!(r#"{{"metric":"revenue","grain":"month",{range},"dimensions":["channel"]}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(code, "dimension_not_permitted");
+    assert!(detail.contains("channel"), "{detail}");
+
+    let (status, code, detail) = refusal(
+        &app,
+        &format!(r#"{{"metric":"revenue","grain":"month",{range},"filters":[{{"dimension":"region","value":"east"}}]}}"#),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert_eq!(code, "dimension_value_not_allowed");
+    // The rejected value is NOT echoed back. The domain's variant does not carry it, and this is the
+    // assertion that the status change did not put it back on the way out.
+    assert!(!detail.contains("east"), "the rejected value reached the response: {detail}");
+    assert!(detail.contains("region"), "{detail}");
+}
+
+#[tokio::test]
+async fn a_question_that_would_span_two_data_systems_is_a_409() {
+    // Answerable in principle, and this deployment will not do it: a second data system is a second
+    // identity to satisfy. A conflict between what was asked and how the deployment is arranged,
+    // which is what no status about the request's own content would say.
+    let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
+    let (status, code, detail) = refusal(
+        &app,
+        r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    assert_eq!(code, "plan_spans_two_sources");
+    assert!(detail.contains('2'), "{detail}");
+}
+
+#[tokio::test]
+async fn an_answer_past_the_row_cap_is_a_413_that_says_it_was_not_truncated() {
+    // **The case this whole change was asked for.** A result over the cap is refused rather than cut
+    // down to fit, because a partial total under a certified name is wrong in the one way nothing
+    // downstream can detect - and a caller has to be able to tell that from the response alone.
+    //
+    // `413` shares its status with the request-body limit on this same route, which is why the
+    // assertion below is on the code and on the sentence as well: `code` is what tells "the answer
+    // was too big" from "your request was too big", and the two bodies also differ in shape - only
+    // this one carries `outcome`.
+    let app = over(
+        unanchored_bundle(),
+        warehouse_that_answers_past_the_row_cap(),
+        settings(Environment::Development, ""),
+    );
+    let (status, code, detail) = refusal(&app, QUESTION).await;
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(code, "result_too_large");
+    assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
+    assert!(
+        detail.contains("NOT truncated"),
+        "the sentence does not say nothing was cut: {detail}"
+    );
+    assert!(detail.contains("narrow"), "the sentence does not say what to do: {detail}");
+}
+
+#[tokio::test]
+async fn a_data_system_the_plan_names_and_this_process_did_not_open_is_a_503() {
+    // The one refusal where retrying is a reasonable thing for a caller to do, and it shares `503`
+    // with two failures that are not refusals - `unavailable` and `at_capacity`. So the code is what
+    // separates the three, and the body shape separates this one further: it carries `outcome`.
+    //
+    // **No `Retry-After`.** `Failure::retry_after` already sets the rule for this surface - a number
+    // that is already known, or no header - and nothing here knows when a data system comes back.
+    let app = over(
+        unanchored_bundle(),
+        warehouse_pretending_to_be("elsewhere"),
+        settings(Environment::Development, ""),
+    );
+    let response = app
+        .clone()
+        .oneshot(request("POST", "/v1/query", None, Body::from(QUESTION)))
+        .await
+        .expect("the router is infallible as a service");
+    assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+    assert!(
+        response.headers().get("retry-after").is_none(),
+        "a refusal invented a retry hint"
+    );
+
+    let (status, code, detail) = refusal(&app, QUESTION).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(code, "source_unavailable");
+    assert!(detail.contains("local"), "{detail}");
+}
+
+#[tokio::test]
+async fn a_refusal_keeps_the_envelope_a_client_already_parses() {
+    // The compatibility half, and the reason this is an ADDITIVE change rather than a body redesign.
+    // The status is new; `outcome`, `reason` and `code` are exactly what they were, so a client
+    // written against the old surface still finds everything it read before - it simply now also has
+    // a status that agrees with the body.
     let app = app(settings(Environment::Development, ""));
     let unknown = r#"{"metric":"gross_margin","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
     let (status, body) = call(&app, request("POST", "/v1/query", None, Body::from(unknown))).await;
-    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(status, StatusCode::NOT_FOUND, "{body}");
     assert!(body.contains(r#""outcome":"refusal""#), "{body}");
     assert!(body.contains(r#""code":"metric_unknown""#), "{body}");
+    assert!(body.contains(r#""status":404"#), "{body}");
 }
 
 #[tokio::test]

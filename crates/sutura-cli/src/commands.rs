@@ -388,7 +388,8 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet};
     use std::path::{Path, PathBuf};
 
-    use sutura_domain::catalog::{Definitions, Metric, Model};
+    use sutura_domain::catalog::{Definitions, Description, Metric, Model};
+    use sutura_domain::knowledge::Knowledge;
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
@@ -411,7 +412,7 @@ mod tests {
             SourceName::parse("production_warehouse").expect("a test source is a source"),
             TableName::parse("dim_customer").expect("a test table is a table"),
             BTreeSet::from([column("customer_key"), column("signed_at")]),
-            String::new(),
+            Description::default(),
         );
         let metric = Metric::new(
             MetricName::parse("customers_signed").expect("a test metric is a metric"),
@@ -425,12 +426,13 @@ mod tests {
             BTreeSet::from([Grain::Month]),
             BTreeMap::new(),
             None,
-            String::new(),
+            Description::default(),
         );
         let definitions = Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent");
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
+            Knowledge::none(),
         )
         .expect("the test definitions hash")
     }

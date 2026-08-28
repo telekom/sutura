@@ -31,8 +31,10 @@ answers. That part is enforced today, and the golden suite provokes every varian
 reach.
 
 Recording each refusal with the whole principal chain, so that a refused call is as attributable as
-an answered one, is a **design target**. There is no audit sink in the workspace and no logging
-dependency at all, so a refusal today is a value handed to the caller and written down nowhere.
+an answered one, is a **design target**. There is no audit sink in the workspace, so a refusal today
+is a value handed to the caller and written down as nothing that could attribute it. `sutura-runtime`
+does install a tracing subscriber, so a refusal can be *logged* - but a log line is not an audit
+record, because nothing correlates it to a caller and there is no caller identity to correlate it to.
 
 ## Why does the tool surface take no table name?
 
@@ -100,13 +102,17 @@ single-core run; linking mimalloc brings it to 3.83s.
 ## Can I use it today?
 
 For single-player work over local files, yes. `sutura compile` renders the statement for a question
-and `sutura query` answers it, over a catalogue of documents in git and a `DuckDB` file. That is the
-honest description: **a governed single-player semantic compiler and executor over local files.**
+and `sutura query` answers it, over a catalogue of documents in git and the CSV or Parquet files in
+a directory you name. That is the honest description: **a governed single-player semantic compiler
+and executor over local files**, served either from the command line or
+[over HTTP](serving.md).
 
 Not as the identity-aware runtime this site describes. There is no request context, no credential
-broker, no audit sink, no Arrow result envelope, no MCP server and no HTTP surface, and the only data
-system adapter is DuckDB - so the governance the design rests on is the narrow tool surface and the
-pinned bundle, not identity.
+broker, no audit sink, no Arrow result envelope and no MCP server; the HTTP surface exists, and its
+bearer token authenticates the deployment rather than the caller. The one data system the shipped
+binary opens is the in-process engine over those files - `sutura-exec-duckdb` renders and pushes
+down, and is a development dependency rather than something the binary links. So the governance the
+design rests on is the narrow tool surface and the pinned bundle, not identity.
 [What exists today](architecture.md#what-exists-today) is the inventory.
 
 The environment, the gates and the release pipeline do work, because a mechanism is cheaper to build

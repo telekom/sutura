@@ -1,9 +1,9 @@
 //! The snapshot a question is answered against, and the port it arrives through.
 //!
 //! Definitions do not arrive live. They arrive as a [`PinnedDefinitions`]: a whole
-//! [`crate::catalog::Definitions`] with a version and a digest over its canonical form. Two
-//! consequences follow, and both are the reason this type exists rather than passing
-//! `Definitions` around directly.
+//! [`crate::catalog::Definitions`], the [`crate::knowledge::Knowledge`] written about it, a version,
+//! and a digest over the canonical form of both. Two consequences follow, and both are the reason
+//! this type exists rather than passing `Definitions` around directly.
 //!
 //! A catalog edit cannot change what a question means between two invocations, because the bundle a
 //! request resolves against was fixed before the request arrived. It changes the digest instead, and
@@ -21,9 +21,9 @@
 //! been called. A report is public data anybody can build, and nothing anybody builds here turns
 //! into a bundle the service will serve.
 //!
-//! What it does hold is the hashing. [`PinnedDefinitions::pin`] takes a version and a set of
-//! definitions and nothing else: the digest is computed here, from the value being stored, by
-//! `DefinitionDigest::of`. The previous shape took the hash *function* from its
+//! What it does hold is the hashing. [`PinnedDefinitions::pin`] takes a version, a set of definitions
+//! and the knowledge about them, and nothing else: the digest is computed here, from the values being
+//! stored, by `DefinitionDigest::of`. The previous shape took the hash *function* from its
 //! caller, on the argument that the domain could not hash - and that left the hole intact, because a
 //! function handed the definitions is not a function that read them. `crate::definitions` says what
 //! the twelve allowlisted crates bought.
@@ -32,8 +32,10 @@ use std::collections::BTreeMap;
 
 use crate::catalog::{Anchor, Definitions};
 use crate::definitions::{DefinitionDigest, NotDigestible};
+use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
+use crate::text::first_invisible;
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
 /// it cannot be used to smuggle a paragraph into an audit record.
@@ -59,6 +61,23 @@ pub enum InvalidVersion {
     /// sink line by line, so a newline here appends a record nobody wrote.
     #[error("a definition version must not contain control characters: {value:?}")]
     ControlCharacter { value: String },
+    /// Holds an invisible or direction-changing code point. **The second half of the reason the
+    /// variant above exists**, and it was missing: `char::is_control` is false for every one of
+    /// these (general category `Cf`, not `Cc`), so the check that refuses a newline could not see a
+    /// right-to-left override, and a version label carrying one passed.
+    ///
+    /// That matters here for exactly the reason the control-character refusal states. A version
+    /// travels in [`Provenance`], and provenance is written to an audit sink line by line, echoed
+    /// into the body of an answer, and printed by the compile command - so a label that renders as
+    /// `v2.1` in every one of those places and is a different string is a provenance record that
+    /// cannot be matched against the bundle it names. The digest is what makes an answer checkable;
+    /// two labels a reader cannot tell apart is the one way to make the version half of it useless.
+    ///
+    /// The code is reported rather than the value, which is the opposite of the variant above: a
+    /// label whose only defect is a character that draws nothing would print as though it were
+    /// correct, so the message names the character instead.
+    #[error("a definition version must not contain the invisible or direction-changing character {code:#06x}")]
+    InvisibleCharacter { code: u32 },
     #[error("a definition version may be at most {limit} characters, {value:?} has {len}")]
     TooLong { value: String, len: usize, limit: usize },
 }
@@ -72,6 +91,14 @@ impl DefinitionVersion {
         if trimmed.chars().any(char::is_control) {
             return Err(InvalidVersion::ControlCharacter {
                 value: String::from(trimmed),
+            });
+        }
+        // Beside the control-character check rather than folded into it, because it is a second
+        // character class the first one provably cannot see. `crate::text` owns the set, so this
+        // refusal and the one an authored SQL fragment gets are the same refusal.
+        if let Some(offending) = first_invisible(trimmed) {
+            return Err(InvalidVersion::InvisibleCharacter {
+                code: u32::from(offending),
             });
         }
         if trimmed.chars().count() > MAX_VERSION_LEN {
@@ -139,17 +166,32 @@ impl Provenance {
 }
 
 /// An immutable, hashed snapshot of everything a catalog said.
+///
+/// **Two halves, and the split between them is a governance boundary rather than a filing decision.**
+/// [`Definitions`] is exactly what the compiler reads - `sutura_semantic` resolves a question against
+/// it and nothing else - and [`Knowledge`] is what a person reads: the glossary, the caveats, the
+/// terms deliberately undefined, the worked questions. Keeping the second out of the first is what
+/// makes "descriptive content only" checkable: the resolver is handed a bundle whose `definitions()`
+/// carries no prose channel at all, so reaching the knowledge would mean naming
+/// [`Self::knowledge`] in the query path, which is a one-line diff a reviewer sees rather than a
+/// property somebody has to remember. `sutura_app::prompt` is the only thing in this workspace that
+/// names it.
+///
+/// The digest covers both. A glossary decides which metric an agent asks about, so a bundle whose
+/// glossary changed answers different questions from the same words - `crate::definitions` argues it
+/// where the hashing is.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PinnedDefinitions {
     version: DefinitionVersion,
     digest: DefinitionDigest,
     definitions: Definitions,
+    knowledge: Knowledge,
 }
 
 impl PinnedDefinitions {
-    /// Pins a set of definitions, computing the digest here, from them.
+    /// Pins a set of definitions and the knowledge about them, computing the digest here, from both.
     ///
-    /// **Two arguments, and the absence of a third is the mechanism.** This constructor has been
+    /// **Three arguments, and the absence of a fourth is the mechanism.** This constructor has been
     /// wrong twice, and the second time is the more interesting one:
     ///
     /// * `new(version, digest, definitions)` took any syntactically valid digest next to any
@@ -162,27 +204,32 @@ impl PinnedDefinitions {
     ///   untrusted code is not the same as that code having used it.**
     ///
     /// So the canonical digest operation is the constructor boundary now. `pin` calls
-    /// `DefinitionDigest::of` on the value it is about to store, and there is no parameter, closure
+    /// `DefinitionDigest::of` on the values it is about to store, and there is no parameter, closure
     /// or trait through which a caller can influence what the digest is taken over.
     /// `crate::definitions` holds the canonical form, the hash, and the measured cost of the two
     /// dependencies that made it possible.
     ///
-    /// The forgery a caller could write before does not compile - there is no third parameter to
-    /// pass it as:
+    /// The knowledge argument arrived after both of those corrections and did not reopen either: it is
+    /// a third piece of CONTENT, hashed with the rest, and not a third opinion about the hashing.
+    ///
+    /// The forgery a caller could write before does not compile - there is no parameter to pass it
+    /// as, and adding the knowledge did not add one:
     ///
     /// ```compile_fail
     /// use core::convert::Infallible;
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::knowledge::Knowledge;
     /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
     ///
     /// // The digest of some OTHER catalog, returned by a closure that ignores its argument.
     /// fn _forged(
     ///     version: DefinitionVersion,
     ///     definitions: Definitions,
+    ///     knowledge: Knowledge,
     ///     elsewhere: DefinitionDigest,
     /// ) -> Result<PinnedDefinitions, Infallible> {
-    ///     PinnedDefinitions::pin(version, definitions, |_| Ok(elsewhere))
+    ///     PinnedDefinitions::pin(version, definitions, knowledge, |_| Ok(elsewhere))
     /// }
     /// ```
     ///
@@ -192,14 +239,16 @@ impl PinnedDefinitions {
     /// ```compile_fail
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::DefinitionDigest;
+    /// use sutura_domain::knowledge::Knowledge;
     /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
     ///
     /// fn _by_hand(
     ///     version: DefinitionVersion,
     ///     digest: DefinitionDigest,
     ///     definitions: Definitions,
+    ///     knowledge: Knowledge,
     /// ) -> PinnedDefinitions {
-    ///     PinnedDefinitions { version, digest, definitions }
+    ///     PinnedDefinitions { version, digest, definitions, knowledge }
     /// }
     /// ```
     ///
@@ -209,27 +258,40 @@ impl PinnedDefinitions {
     /// ```
     /// use sutura_domain::catalog::Definitions;
     /// use sutura_domain::definitions::NotDigestible;
+    /// use sutura_domain::knowledge::Knowledge;
     /// use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
     ///
     /// fn _pin(
     ///     version: DefinitionVersion,
     ///     definitions: Definitions,
+    ///     knowledge: Knowledge,
     /// ) -> Result<PinnedDefinitions, NotDigestible> {
-    ///     PinnedDefinitions::pin(version, definitions)
+    ///     PinnedDefinitions::pin(version, definitions, knowledge)
     /// }
     /// ```
-    pub fn pin(version: DefinitionVersion, definitions: Definitions) -> Result<Self, NotDigestible> {
-        let digest = DefinitionDigest::of(&definitions)?;
+    pub fn pin(version: DefinitionVersion, definitions: Definitions, knowledge: Knowledge) -> Result<Self, NotDigestible> {
+        let digest = DefinitionDigest::of(&definitions, &knowledge)?;
         Ok(Self {
             version,
             digest,
             definitions,
+            knowledge,
         })
     }
 
     #[inline]
     pub const fn definitions(&self) -> &Definitions {
         &self.definitions
+    }
+
+    /// What this bundle says ABOUT what it defines.
+    ///
+    /// **Read by the prompt renderer and by nothing on the query path**, which is the whole of the
+    /// governance argument in [`crate::knowledge`]: a glossary is descriptive content while a person
+    /// or an agent is the one resolving it, and a selecting input the moment the service does.
+    #[inline]
+    pub const fn knowledge(&self) -> &Knowledge {
+        &self.knowledge
     }
 
     #[inline]
@@ -476,8 +538,9 @@ mod tests {
         PinnedDefinitions,
     };
     use crate::calendar::{Date, TimeRange};
-    use crate::catalog::{Anchor, Definitions, Metric, Model};
+    use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
     use crate::definitions::DefinitionDigest;
+    use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
     use crate::measure::{AggregatedColumn, Measure, Term};
     use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
 
@@ -498,7 +561,7 @@ mod tests {
             SourceName::parse("local").expect("a test source is a source"),
             TableName::parse("orders").expect("a test table is a table"),
             BTreeSet::from([column("amount_cents"), column("order_date")]),
-            String::new(),
+            Description::default(),
         );
         let metric = Metric::new(
             metric_name("revenue"),
@@ -509,7 +572,7 @@ mod tests {
             BTreeSet::from([Grain::Month]),
             BTreeMap::new(),
             anchor,
-            String::new(),
+            Description::default(),
         );
         Definitions::assemble(vec![model], vec![], vec![metric]).expect("the test bundle is consistent")
     }
@@ -520,9 +583,15 @@ mod tests {
     /// hashing is this crate's own, so a test does not have to hand one in and therefore cannot hand
     /// in one that lies.
     fn pin(definitions: Definitions) -> PinnedDefinitions {
+        pin_with(definitions, Knowledge::none())
+    }
+
+    /// The same, with knowledge attached: what the digest test below varies.
+    fn pin_with(definitions: Definitions, knowledge: Knowledge) -> PinnedDefinitions {
         PinnedDefinitions::pin(
             DefinitionVersion::parse("test-1").expect("a test version is a version"),
             definitions,
+            knowledge,
         )
         .expect("the test definitions hash")
     }
@@ -556,6 +625,46 @@ mod tests {
                 limit: MAX_VERSION_LEN,
             }
         );
+    }
+
+    #[test]
+    fn a_version_label_may_not_carry_an_invisible_character() {
+        // The bug this prevents, and the reason the newline check above was not enough: a version is
+        // echoed into an audit record, into the body of an answer and into the compile command's
+        // output, and `char::is_control` is FALSE for every one of these code points. A label with a
+        // right-to-left override in it printed as though it were an ordinary one, in all three
+        // places, and the provenance a reader copied out could not be matched against the bundle it
+        // named.
+        assert_eq!(
+            DefinitionVersion::parse("v2.1\u{202E}"),
+            Err(InvalidVersion::InvisibleCharacter { code: 0x202E })
+        );
+        // Both ends of every range, so a typo in one of the bounds fails here.
+        for code in [
+            0x00AD_u32, 0x200B, 0x200F, 0x202A, 0x202E, 0x2060, 0x2064, 0x2066, 0x2069, 0xFEFF, 0xFFF9, 0xFFFB,
+        ] {
+            let offending = char::from_u32(code).expect("a listed code point is a character");
+            assert_eq!(
+                DefinitionVersion::parse(format!("v1{offending}2")),
+                Err(InvalidVersion::InvisibleCharacter { code }),
+                "{code:#06x}"
+            );
+        }
+        // And the neighbour of each bound is NOT refused, so this is the set written down rather
+        // than a sweep that would reject a label somebody has to be able to write.
+        for code in [
+            0x00AC_u32, 0x00AE, 0x200A, 0x2010, 0x2029, 0x202F, 0x205F, 0x2065, 0x206A, 0xFEFE, 0xFF00, 0xFFFC,
+        ] {
+            let benign = char::from_u32(code).expect("a listed code point is a character");
+            let label = format!("v1{benign}2");
+            assert_eq!(
+                DefinitionVersion::parse(&label)
+                    .expect("a label with an ordinary character is a label")
+                    .as_str(),
+                label,
+                "{code:#06x}"
+            );
+        }
     }
 
     #[test]
@@ -736,8 +845,45 @@ mod tests {
         // And the digest is the one the hashing function computes for exactly these definitions -
         // asserted against an independent call rather than against a constant, so the test cannot
         // pass by pinning whatever the implementation currently happens to emit.
-        let independent = DefinitionDigest::of(pinned.definitions()).expect("the definitions hash");
+        let independent = DefinitionDigest::of(pinned.definitions(), pinned.knowledge()).expect("the definitions hash");
         assert_eq!(*pinned.digest(), independent);
+    }
+
+    #[test]
+    fn the_knowledge_is_under_the_digest_too() {
+        // A glossary decides which metric an agent asks about, so two bundles that differ only in
+        // their knowledge answer different questions from the same words. A digest that did not move
+        // would report them as one snapshot, and the provenance travelling with an answer would name
+        // content that did not produce it.
+        //
+        // The two knowledge values here differ only in what is DECLARED - one declares a glossary and
+        // records nothing in it, the other declares nothing at all - which is the weakest difference
+        // there is and the one the prompt is allowed to say different things about. A deployment that
+        // silently stopped declaring a capability has changed what its agent was told, so if the
+        // digest cannot tell these apart it cannot certify what the prompt claims.
+        let bare = pin_with(definitions(None), Knowledge::none());
+        let declared = pin_with(
+            definitions(None),
+            Knowledge::assemble(
+                &definitions(None),
+                KnowledgeInput::new(
+                    KnowledgeCapabilities::of([Capability::Glossary]),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                    Vec::new(),
+                ),
+            )
+            .expect("an empty glossary is consistent with any definitions"),
+        );
+        assert_ne!(
+            bare.digest(),
+            declared.digest(),
+            "declaring a knowledge capability changes what the bundle says, so it must change the digest"
+        );
+        assert_eq!(bare.definitions(), declared.definitions());
+        assert!(!bare.knowledge().supports(Capability::Glossary));
+        assert!(declared.knowledge().supports(Capability::Glossary));
     }
 
     #[test]

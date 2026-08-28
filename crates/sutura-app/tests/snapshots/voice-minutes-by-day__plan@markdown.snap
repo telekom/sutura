@@ -38,21 +38,9 @@ filters:
           column: usage_date
         param: 1
 params:
-  - Date:
-      year: 2026
-      month: 6
-      day: 1
-  - Date:
-      year: 2026
-      month: 6
-      day: 5
+  - Date: 2026-06-01
+  - Date: 2026-06-05
 range:
-  start:
-    year: 2026
-    month: 6
-    day: 1
-  end:
-    year: 2026
-    month: 6
-    day: 5
+  start: 2026-06-01
+  end: 2026-06-05
 max_rows: 10000

@@ -373,8 +373,11 @@ jobs:
       # few seconds of file reading and nothing else.
       #
       # The rendered markdown goes to the step summary HERE, where it needs no token at all, and
-      # is uploaded for the `crap-comment` job below, which is the only thing in this repository
-      # that holds a write scope.
+      # is uploaded for the `crap-comment` job below, which holds the only write scope on any job
+      # a pull request can reach. Other workflows do hold write scopes - the site, a release, the
+      # optimised release build, a version bump, the cache prune - and none of those scopes is on a
+      # job a pull request can start: four of the five do not run on a pull request at all, and
+      # docs.yml, which does, gates its publishing job off that event.
       #
       # The verdict is re-raised at the end rather than short-circuiting, so the summary and the
       # artifact exist even when the ratchet failed - which is exactly when a reader wants them.

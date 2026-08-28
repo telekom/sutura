@@ -11,6 +11,7 @@
 use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
+use crate::catalog::DimensionValue;
 use crate::model::{DimensionName, Grain, MetricName, SourceName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
@@ -62,18 +63,45 @@ pub const MAX_RANGE_DAYS: i32 = 3653;
 
 /// One equality filter: a dimension, and a value the pinned bundle declares.
 ///
-/// The value is a `String` here and a bind parameter by the time it reaches a statement. It is
-/// checked against the metric's allowlist first, so the parameterisation is the second line of
+/// The value is a [`DimensionValue`] here and a bind parameter by the time it reaches a statement. It
+/// is checked against the metric's allowlist first, so the parameterisation is the second line of
 /// defence rather than the only one.
+///
+/// # Why a caller's value is parsed by the type a catalog author's value is parsed by
+///
+/// It was a `String`, and the review that gave `DimensionValue` to the catalog side asked whether the
+/// request side wanted it too. It does, for four reasons, and the last one is the decisive one:
+///
+/// * **It refuses nothing a request could have been answered.** The two are compared for equality
+///   against the metric's allowlist, and every entry in that allowlist is a `DimensionValue`. Text
+///   that cannot be one cannot be in there, so parsing here turns a `DimensionValueNotAllowed`
+///   refusal into a `400` naming the field and loses no answerable question.
+/// * **The precedent is already here and is older than this type.** A caller's `metric` and
+///   `dimension` arrive as text and are parsed by [`MetricName`] and [`DimensionName`] - the same
+///   types the catalog loader uses, at the same boundary, by the same constructor. A value being the
+///   one field held to a laxer rule was the asymmetry, not the fix.
+/// * **It bounds what a request may carry before anything allocates it.** A ten-megabyte filter value
+///   used to be compared against the allowlist and refused, having been read, cloned into
+///   [`Self::literals`] and rendered into whatever an audit sink keeps.
+/// * **A second character rule is a rule nothing compares against the first.** [`crate::text`] exists
+///   because one such rule was written down twice and the copies drifted. A request-side value type
+///   with its own idea of what a value may hold would be that mistake, deliberately, in a place where
+///   one side of the comparison is content and the other is a caller.
+///
+/// **What does NOT follow is that a refusal may name the text.** `sutura_http::wire` parses the value
+/// and reports `filters[i].value` without the parse error underneath it, because
+/// [`InvalidDimensionValue`](crate::catalog::InvalidDimensionValue) carries the offending input and
+/// [`RefusalReason`]'s own rule is that caller-supplied text is never reflected into a message that
+/// reaches a log, a UI and an agent's context.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Filter {
     dimension: DimensionName,
-    value: String,
+    value: DimensionValue,
 }
 
 impl Filter {
-    pub const fn new(dimension: DimensionName, value: String) -> Self {
+    pub const fn new(dimension: DimensionName, value: DimensionValue) -> Self {
         Self { dimension, value }
     }
 
@@ -83,7 +111,7 @@ impl Filter {
     }
 
     #[inline]
-    pub fn value(&self) -> &str {
+    pub const fn value(&self) -> &DimensionValue {
         &self.value
     }
 }
@@ -155,7 +183,7 @@ impl Query {
     /// first time a field is added.
     pub fn literals(&self) -> BTreeSet<String> {
         let mut out = BTreeSet::from([self.range.start().to_iso(), self.range.end().to_iso()]);
-        out.extend(self.filters.iter().map(|f| String::from(f.value())));
+        out.extend(self.filters.iter().map(|f| String::from(f.value().as_str())));
         out
     }
 }
@@ -282,6 +310,7 @@ impl ToolOutcome {
 mod tests {
     use super::{Filter, Query, RefusalReason, ToolOutcome};
     use crate::calendar::{Date, TimeRange};
+    use crate::catalog::DimensionValue;
     use crate::model::{DimensionName, Grain, MetricName};
 
     fn june() -> TimeRange {
@@ -300,7 +329,7 @@ mod tests {
             vec![DimensionName::parse("region").expect("a test dimension is a dimension")],
             vec![Filter::new(
                 DimensionName::parse("region").expect("a test dimension is a dimension"),
-                String::from(value),
+                DimensionValue::parse(value).expect("a test value is a value"),
             )],
         )
     }
@@ -319,10 +348,25 @@ mod tests {
 
     // The two governance properties of this type that need a real format parser to provoke -
     // `deny_unknown_fields` refusing a `sql:` field, and a range with no `end` failing to
-    // deserialize at all - are asserted in `sutura-catalog-local`, which has one. They are not
-    // asserted here because `serde_json` would have to join `ALLOWED_IN_DOMAIN` in
-    // `xtask/src/boundaries.rs` to do it, and widening that allowlist to reach a test is exactly
-    // the trade the boundary gate exists to make visible.
+    // deserialize at all - are asserted in `sutura-catalog-local`, against the YAML. They are
+    // asserted there rather than here because that is the format a catalog is actually written in,
+    // so the assertion covers the read path a typo arrives through; asserting them over a second
+    // format would restate serde rather than the catalog. Not for want of a parser here:
+    // `serde_json` is on `ALLOWED_IN_DOMAIN` in `xtask/src/boundaries.rs`, because the definition
+    // digest is taken over the serialized form and has to be computed by code the domain trusts.
+
+    #[test]
+    fn a_value_a_catalog_could_not_declare_never_becomes_a_filter() {
+        // The request side is held to the same character rule and the same length as the catalog
+        // side, so text that could not be in an allowlist never reaches the comparison against one.
+        // A caller sending either of these gets a `400` naming `filters[0].value` - raised by
+        // `sutura_http::wire` WITHOUT the parse error underneath it, because that error carries the
+        // caller's own text and this module's rule is that nothing reflects it back.
+        drop(DimensionValue::parse("nor\u{200B}th").unwrap_err());
+        drop(DimensionValue::parse("x".repeat(10_000)).unwrap_err());
+        // And the value that would have been answered still is.
+        assert_eq!(query_with_filter("north").filters()[0].value().as_str(), "north");
+    }
 
     #[test]
     fn a_refusal_is_a_result_and_not_an_error() {

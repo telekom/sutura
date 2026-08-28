@@ -31,6 +31,13 @@ pub(crate) struct ResolvedJoin<'a> {
 }
 
 /// A filter whose value the bundle has already accepted.
+///
+/// **The one place a [`DimensionValue`] becomes a `String`, and it is the binding site.** A value is
+/// parsed text from here back to the wire; from here on it is a bind parameter, and
+/// `sutura_domain::warehouse::ParamValue` is the shape a value takes on its way to a data system - by
+/// which point the parsing has already happened. Converting here rather than carrying the newtype
+/// into the plan keeps the parse boundary where the check is and leaves the execution port speaking
+/// in the two things a data system binds: text and a date.
 pub(crate) struct ResolvedFilter<'a> {
     pub(crate) dimension: ResolvedDimension<'a>,
     pub(crate) value: String,
@@ -177,7 +184,7 @@ pub(crate) fn resolve<'a>(query: &Query, pinned: &'a PinnedDefinitions) -> Resul
         }
         filters.push(ResolvedFilter {
             dimension: resolved,
-            value: String::from(filter.value()),
+            value: String::from(filter.value().as_str()),
         });
     }
 

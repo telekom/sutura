@@ -20,6 +20,13 @@ sutura-domain = { workspace = true }
 # `cargo xtask check-boundaries` now fails if that edge comes back.
 polyglot-sql = { workspace = true }
 serde = { workspace = true }
+# Read for exactly one question, and it is a question the typed API cannot answer. An aggregate's
+# `FILTER (WHERE ..)` is a `filter` FIELD on eleven different node structs rather than a node of its
+# own, so a walk over the AST sees its predicate as an ordinary child and nothing marks it; the typed
+# way to ask would be the child-path API, whose `ChildPathSegment` is `pub(crate)`. The serialized
+# form is where the field name is visible. Not a new dependency anywhere: `sutura-domain` already
+# compiles it for the definition digest, so this adds an edge and no lockfile entry.
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [lints]

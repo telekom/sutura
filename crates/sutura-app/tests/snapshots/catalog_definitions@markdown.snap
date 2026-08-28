@@ -109,14 +109,8 @@ metrics:
         description: The commercial segment of the customer.
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "59"
     description: "How many subscriptions were active at the end of the month.\n\nCounts the subscription key distinctly rather than counting rows. Over this catalog the\ntwo agree, because both relationships are many-to-one and neither can fan a row out; they\nwould stop agreeing the moment one could, and the one that keeps meaning \"subscriptions\"\nis the key.\n\nRead it beside `subscription_base`, which is this same count with the status filter taken\naway. The two carry different anchors over the same rows in the same month, and the only\nthing between them is one definitional predicate. That is what `required_filters` buys,\nshown as two numbers rather than asserted in a sentence."
   churn_rate:
@@ -167,14 +161,8 @@ metrics:
         description: The commercial segment of the customer.
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "0.04838709677419355"
     description: "What share of the month's subscriptions terminated inside it.\n\nThe metric this vocabulary could not express, and the reason it was changed. A rate is a\nconditional count over a distinct count, and while `count_if` was a measure *shape* it\ncould not be a *half* of a ratio: every ingredient was present and there was nowhere to\nwrite it. Read `subscriptions_churned.md` for what that cost, and this frontmatter for what\nit looks like now - the numerator is a term like any other.\n\nThe two halves are the two metrics that used to ship in its place. The numerator is\n`subscriptions_churned`, a conditional count and not `count(churned_in_month)`, which counts\nnon-null rows and would report the whole base as churn. The denominator is\n`subscription_base`, unfiltered, because a base that counted only the survivors would leave\nthe terminated subscriptions in the numerator and out of the denominator at once.\n\nNo status filter, for the reason `subscriptions_churned` gives: churn is an event inside the\nmonth rather than a state at the end of it, and narrowing on the surviving state would remove\nthe rows being counted.\n\n`zero_denominator: yields_null` because a month with no subscriptions at all has no churn\nshare. Zero would say every subscription survived, which is a claim about a month that had\nnone.\n\n## Why this one carries an anchor when the other ratios do not\n\nAn anchor is compared as rendered TEXT, at the metric's coarsest declared grain. That is what\nmakes a float-valued metric hard to anchor, and it is why the other two ratios here carry\nnone: a decimal that had to be converted to binary, or summed in an order nobody specified,\npins how a language prints an expansion rather than pinning a number.\n\nNeither of those reaches this metric, and the reason is arithmetic rather than nerve. Both\nhalves are counts, so both are exact integers in a double whatever order they were summed in,\nand the whole measure is therefore one division of two exactly-represented values - a single\nrounding, with nothing before it that an evaluation order could perturb. `data_per_subscription`\nis the case that is genuinely different: a sum of decimal gigabytes over a count, where two\nengines may legitimately differ in the last place.\n\nBoth halves are also separately certified, which is what makes the anchor readable rather than\nopaque: 3 under `subscriptions_churned` and 62 under `subscription_base`, over this same month.\nA reader checks `0.04838709677419355` against those two, and a run that produced different\ndigits would have done different arithmetic rather than different formatting.\n\nAnd it is the only anchor in this repository that re-executes a conditional count inside a\nratio, which is the shape the vocabulary was changed for. A shape nothing certifies is a shape\nthat merely compiles."
   data_per_subscription:
@@ -236,7 +224,7 @@ metrics:
         allowed_values:
           - annual
           - monthly
-        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned.\n"
+        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned."
       product_family:
         name: product_family
         column: product_family
@@ -252,7 +240,7 @@ metrics:
         column: product_name
         via: subscription_product
         allowed_values: ~
-        description: "Declared without a value list, so it can be grouped by and not filtered on.\n"
+        description: "Declared without a value list, so it can be grouped by and not filtered on."
       region:
         name: region
         column: region
@@ -275,14 +263,8 @@ metrics:
         description: "The commercial segment of the customer, reached through one declared relationship."
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "202121"
     description: "Recurring revenue recognised in the month, in minor units, from active subscriptions\nonly.\n\nThe filter is part of the name. This metric does not mean \"revenue, which you may narrow\nto active if you remember to\": it means the active figure, and a statement that left the\npredicate out would return revenue including terminated subscriptions under a certified\nname. That is the failure arrived at by omission rather than by tampering, so the\npredicate is compiled into every question about this metric and a caller can neither see\nit nor turn it off.\n\n`status` is therefore not a dimension here. A dimension is something a caller may group\nby or filter on, and either would be a way to ask this metric for a number it does not\nmean.\n\n`contract_term` is the one dimension here that names no relationship, and it is declared\nfor what that costs the compiler rather than for the split it reveals. Every other\ndimension on this metric is reached `via` a many-to-one join, so a catalog holding only\nthose would never render the case where a group-by key is read straight off the fact\ntable and contributes no join of its own. It is declared on\n`subscription_months_billed` too, so the case survives either metric being rewritten.\n\nThe anchor is what this metric produced for June 2026 when it was certified. It is\nre-executed on every run and at startup, so a definition that has stopped meaning what it\nclaimed fails readiness rather than answering."
   revenue_per_churned_subscription:
@@ -378,14 +360,8 @@ metrics:
         description: The commercial segment of the customer.
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "62"
     description: "How many subscriptions the month held, whatever state they ended it in.\n\nUnfiltered on purpose, and that is the definition rather than an oversight: this is the\ndenominator a churn share is taken against, and a base that counted only the survivors\nwould leave the terminated subscriptions in the numerator and out of the denominator at\nthe same time.\n\nIt is `active_subscriptions` with one predicate removed. The two carry separate anchors\nfor exactly that reason. If a later edit dropped the predicate from the other one, the\ntwo definitions would silently become the same definition, and the anchor is what says\nso."
   subscription_months_billed:
@@ -407,7 +383,7 @@ metrics:
         allowed_values:
           - annual
           - monthly
-        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned.\n"
+        description: "Whether the subscription is on a rolling or a committed term. On the snapshot row itself, so no relationship is named and no join is planned."
       product_family:
         name: product_family
         column: product_family
@@ -440,14 +416,8 @@ metrics:
         description: The commercial segment of the customer.
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "62"
     description: "How many subscription-months the period billed.\n\nA count of ROWS and not of subscriptions, which is what the name says and what the aggregate\ndoes. `subscription_base` is the same column under `count_distinct`, and the two are the same\nnumber over this catalog for a reason worth stating rather than relying on: the snapshot holds one\nrow per subscription per month, this metric declares only the month grain, so inside any one\nbucket a subscription key cannot appear twice. They would stop agreeing the moment either half of\nthat changed - a quarter grain, or a model that split a month into two rows - and only one of them\nwould still mean what its name says.\n\nSo the pair is the same contrast `active_subscriptions` and `subscription_base` draw with a\npredicate, drawn here with an aggregate instead: two documents, one differing word, two anchors\nover the same month. If a later edit swapped this one to `count_distinct` the two definitions\nwould silently become the same definition, and there would be nothing but the name to say so.\n\n**It is also the only plain `count` in this repository**, now that the e-commerce catalog the golden\nsuite used to carry has been retired in favour of this one. Everything else counting\nthings here counts them distinctly, or counts a condition; a `count` that no document writes is a\ngenerator arm nothing renders. `subscriptions_churned` says the other half of that: a count of a\nBOOLEAN column counts the false rows too, so `count` is right over a key and wrong over a flag,\nand the two documents are the two sides of the same mistake.\n\n`contract_term` is declared without `via`, which makes this one of the two metrics here that\nreaches a group-by key that contributes no join - the plainest key the compiler resolves, and the\none a catalog of exclusively joined dimensions would never once compile. `recurring_revenue`\ndeclares it too, so the case survives either metric being rewritten.\n\nNo definitional filter, on purpose. A subscription-month was billed whatever state the\nsubscription ended the month in, and a terminated one was billed for the month it terminated in -\nwhich is the same reason `subscription_base` carries no filter, and the reason both of them can\nserve as a denominator."
   subscriptions_churned:
@@ -493,14 +463,8 @@ metrics:
         description: The commercial segment of the customer.
     anchor:
       range:
-        start:
-          year: 2026
-          month: 6
-          day: 1
-        end:
-          year: 2026
-          month: 7
-          day: 1
+        start: 2026-06-01
+        end: 2026-07-01
       value: "3"
     description: "How many subscriptions terminated inside the month.\n\n`count_if` rather than a count of the column, and the difference is a wrong number that\nraises no error: `count(churned_in_month)` counts the rows where the column is not null,\nwhich is every row, so it would report the whole base as churn. How the condition is\nspelled differs between data systems, which is the problem of the generator and exactly\nthe kind of thing that should not be in a catalog document.\n\nNo status filter, because churn is an event inside the month rather than a state at the\nend of it. Narrowing on the surviving state would remove the rows being counted.\n\nThis is the numerator of a rate and not the rate itself, which is a decision about the\nbusiness rather than a limit of the vocabulary. A count of terminations is the figure\nsomebody reconciles against a churn report; the share is `churn_rate`, declared beside it\nover the same numerator and `subscription_base`'s denominator. Both are certified, and the\none that answers \"how many\" is not the one that answers \"what fraction\".\n\nIt used to be a limit of the vocabulary, and the note that said so is worth keeping as a\nrecord of what changed. `count_if` was a measure *shape*, a sibling of `ratio` rather than\na term inside one, so a rate over a conditional count had every ingredient present and\nnowhere to write it. The fix was to make the extensible axis the term instead of the shape:\n`simple` and `ratio` are the two shapes, `aggregate` and `count_if` are the two terms, and\neither term is usable in either half of either shape."
   voice_minutes:

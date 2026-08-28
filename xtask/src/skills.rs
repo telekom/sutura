@@ -268,7 +268,16 @@ fn problems_in_listing(root: &Path, listing: &str) -> Vec<String> {
                 "`{link}` is a regular file, not a symlink - `git add -A` on a checkout without symlink support does this"
             )),
             Some(_) => {
-                let target = std::fs::read_to_string(root.join(link)).unwrap_or_default();
+                // `read_link` FIRST, because the link points at a DIRECTORY: reading it as a file
+                // fails once the OS has followed it, and `unwrap_or_default` turned that into
+                // "points at ``" - this gate failing on a checkout that was correct, since
+                // `4378d2e`. `read_to_string` stays as the FALLBACK, for the pointer-file shape the
+                // mode check above describes: git can record 120000 while the working tree holds a
+                // regular file whose content is the target path.
+                let target = std::fs::read_link(root.join(link))
+                    .map(|p| p.to_string_lossy().into_owned())
+                    .or_else(|_| std::fs::read_to_string(root.join(link)))
+                    .unwrap_or_default();
                 if target.trim() != LINK_TARGET {
                     problems.push(format!("`{link}` points at `{}`, not `{LINK_TARGET}`", target.trim()));
                 }
@@ -306,6 +315,39 @@ mod link_tests {
         let problems = super::problems_in_listing(Path::new("."), &listing);
         assert_eq!(problems.len(), super::AGENT_SKILL_LINKS.len());
         assert!(problems.iter().all(|p| p.contains("not a symlink")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_directory_reads_as_a_link_rather_than_as_a_file() {
+        // THE bug this closes: each of these links points at a DIRECTORY, so reading it as a
+        // FILE fails once the OS has followed it, and `unwrap_or_default` turned that failure
+        // into `points at ``` - the gate failing on a checkout that was correct. Nothing caught
+        // it, and the reason is the same blind spot the mode check documents: the nix sandbox
+        // has no `.git`, so `check-skills` skips itself in CI and only ever ran on a real tree.
+        let root = std::env::temp_dir().join(format!("sutura-skills-{}", std::process::id()));
+        // Bound rather than `let _`: `let_underscore_must_use` is on, and a scratch directory
+        // that may not exist yet - or may be left behind by a killed run - is the one case where
+        // the result genuinely carries nothing.
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join(super::LINK_TARGET.trim_start_matches("../"))).expect("a scratch tree");
+        for link in super::AGENT_SKILL_LINKS {
+            let path = root.join(link);
+            std::fs::create_dir_all(path.parent().expect("a link has a parent")).expect("the link's directory");
+            std::os::unix::fs::symlink(super::LINK_TARGET, &path).expect("a symlink to the one tree");
+        }
+        let listing = super::AGENT_SKILL_LINKS
+            .iter()
+            .map(|link| format!("120000 2b7a412b8fa0fb7e985b0793321bd4e698f2b6cd 0\t{link}"))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        let problems = super::problems_in_listing(&root, &listing);
+        // Bound rather than `let _`: `let_underscore_must_use` is on, and a scratch directory
+        // that may not exist yet - or may be left behind by a killed run - is the one case where
+        // the result genuinely carries nothing.
+        let _cleanup = std::fs::remove_dir_all(&root);
+        assert!(problems.is_empty(), "a correct checkout reports nothing, got {problems:?}");
     }
 }
 

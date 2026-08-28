@@ -11,7 +11,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
+-- definitions local-working-tree 1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
 period  recurring_revenue
 2026-01-01      237320
 2026-02-01      232822
@@ -35,12 +35,27 @@ No feature flag and no database. The engine reads these CSVs directly, so `query
 ## What is here
 
 ```
-catalog/models/*.md            what tables exist and which columns may be read
-catalog/relationships/*.md     which joins are allowed, and at what cardinality
-catalog/metrics/*.md           what each certified number means
-data/*.csv                     one file per model, named after the table
-questions/*.yaml               the corpus, including the ones that are refused
+catalog/models/*.md                 what tables exist and which columns may be read
+catalog/relationships/*.md          which joins are allowed, and at what cardinality
+catalog/metrics/*.md                what each certified number means
+catalog/knowledge/glossary/*.md     the words a question may arrive in, and the one thing each means
+catalog/knowledge/caveats/*.md      what to know before trusting a number, per metric
+catalog/knowledge/not-defined/*.md  terms deliberately left undefined, and what to say instead
+catalog/knowledge/examples/*.md     worked questions: how somebody asked, and what to send
+data/*.csv                          one file per model, named after the table
+questions/*.yaml                    the corpus, including the ones that are refused
 ```
+
+The first three decide what executes. The four under `knowledge/` decide what a person - or an
+agent - understands about it, and they are read by `sutura prompt` and by nothing on the query
+path: a glossary that could select what runs would not be descriptive content. Both halves are
+under the same digest, because a glossary decides which metric a question is about.
+
+**The directory names are for whoever is reading the tree.** Every document declares its own
+`kind:` in its frontmatter, and the loader walks one tree and dispatches on that - so a file in
+the "wrong" directory loads exactly the same, and the layout is not part of the format. That is
+also the part of this catalog a metadata service could reproduce: a document kind is a concept, not
+a path.
 
 A catalog document is YAML frontmatter and a prose body, and the prose is part of the
 format rather than a comment. It travels with the definition and comes back out of
@@ -212,8 +227,9 @@ follows is one session against this directory.
 
 This surface has a threat model the command line does not, and four things are worth watching
 for as you read. The token is required beyond loopback. It authenticates the **deployment and
-not the caller**. A refusal comes back `200` with an outcome rather than a `4xx`. And the
-service refuses to start in a posture nobody chose.
+not the caller**. A refusal comes back under a status of its own rather than a `200`, keeping
+the `outcome` body a caller branches on. And the service refuses to start in a posture nobody
+chose.
 
 ### Starting it
 
@@ -256,7 +272,7 @@ answers `401` to everything.
   INFO sutura_runtime::banner: the budget for the WHOLE of stopping: the connection drain first, then what is left of it for questions already executing, shutdown_grace_seconds: 15
   INFO sutura_runtime::banner: generated interface description, docs: true
   INFO sutura_runtime::banner: catalog and log, catalog_dir: examples/single-player/catalog, data_dir: examples/single-player/data, definition_version: local-1, log_format: pretty, log_format_explicit: false
-  WARN sutura_runtime::banner: NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. There is no request context, no per-request credential and no row-level scoping - every question is answered with whatever access this process already had, whoever asked it
+  WARN sutura_runtime::banner: NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. There is no request context, no per-request credential and no row-level scoping - every question is answered with whatever access this process already had, whoever asked it, per_caller_identity: false
   INFO sutura_serve: catalog loaded and every anchor reproduced its number, definition_version: local-1, metrics: 11
   INFO sutura_http::router: rate limiting disabled - a no-op layer is in its place, environment: development
   INFO sutura_http::router: rate limit buckets are keyed on the peer address - behind a proxy that is ONE bucket for every caller, and rate_limit.client_address is what changes it, client_address: peer
@@ -309,7 +325,7 @@ content-length: 347
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
+    "definition_digest": "1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -352,29 +368,43 @@ curl -s -i -X POST http://127.0.0.1:8080/v1/query \
 ```
 
 ```
-HTTP/1.1 200 OK
+HTTP/1.1 403 Forbidden
 content-type: application/json
-content-length: 144
+content-length: 157
 
-{"outcome":"refusal","reason":{"code":"dimension_value_not_allowed","detail":"that value is not one `recurring_revenue` declares for `region`"}}
+{"outcome":"refusal","reason":{"code":"dimension_value_not_allowed","status":403,"detail":"that value is not one `recurring_revenue` declares for `region`"}}
 ```
 
-**`200`, and that is the contract rather than an oversight.** A refusal is a *result*: the
-caller asked something they may not have, and the answer is no. A `4xx` invites a client
-library to retry - most retry a `429`, many retry a `503` - and retrying a governance decision
-until it succeeds is precisely the behaviour the refusal exists to prevent. `outcome` is the
-field a caller branches on; `code` is the stable name of the reason, and the sentence beside it
-is for a person.
+**`403`, and the status is part of the answer rather than a verdict on the transport.** A
+refusal is still a *result* - the caller asked something they may not have, and the answer is
+no - and that is a statement about the domain, which no status changes. This one is a `403`
+because the value is outside the allowlist the catalog declares for `region`: the catalog's
+answer to "may this be asked of this metric", not a remark about the token, because there is no
+per-caller identity here for a token to widen. `outcome` is still what says which envelope
+arrived, `code` is still the stable name of the reason, the sentence beside it is still for a
+person, and `reason.status` repeats the number so a client that logged only the body still has
+it.
+
+This block used to read `200 OK`, on the argument that an error status invites a client
+library to retry a governance decision until it succeeds. The retry half of that was checked
+against four clients' own documentation and does not hold, and the `200` cost something the
+argument never priced: a refusal was indistinguishable from an answer to everything that reads
+a status and not a body, so a deployment declining every question read as perfectly healthy in
+an access log, in a dashboard and to an error-rate alert. The record, with the citations and
+the status chosen for each reason, is `docs/adr/0005-a-refusal-carries-a-status.md`.
 
 Note what that sentence does *not* contain: the word `offshore`. A rejected value reflected
 back into a response reaches a log, a UI and an agent's context, so the domain's refusal reason
-carries the dimension and not the value, and the wire shape does not put it back. The other
-four `refused-*` questions come back the same way, with `grain_not_supported`,
-`metric_unknown`, `dimension_not_filterable` and `dimension_not_permitted`. None of them
+carries the dimension and not the value, and the wire shape does not put it back - which the
+status change did not quietly undo. The other eight `refused-*` questions come back in the same
+shape under their own statuses: `metric_unknown` is a `404`; `grain_not_supported`,
+`time_range_too_long`, `too_many_dimensions` and `duplicate_dimension` are `422`; and
+`dimension_not_permitted` and `dimension_not_filterable` join this one at `403`. None of them
 reaches a data system.
 
-A *failure* is a different thing from a refusal and does carry a status. A body holding a key
-the question shape does not declare is one:
+A *failure* is a different thing from a refusal, and now that both carry a status it is the
+body that separates them: only a refusal has an `outcome`. A body holding a key the question
+shape does not declare is a failure:
 
 ```
 HTTP/1.1 400 Bad Request
@@ -452,14 +482,21 @@ Generated from the handlers, so a route and its documented path cannot disagree.
 curl -s http://127.0.0.1:8080/openapi.json -H "authorization: Bearer $SUTURA_TOKEN"
 ```
 
-Summarised, because the document is eleven kilobytes:
+Summarised, because the document is fourteen kilobytes:
 
 ```
 openapi 3.1.0   info.version 0.2.4
 paths: /health  /v1/catalog  /v1/query
+POST /v1/query responses: 200 400 401 403 404 408 409 413 422 429 500 503
 securitySchemes: undefined
 info.description contains "NO PER-CALLER IDENTITY": true
 ```
+
+Twelve responses on one operation is the refusal mapping showing through: every status a
+refusal can arrive under is declared, with the codes that reach it, so an integrator meets the
+list here rather than in production. A test in `crates/sutura-http/src/openapi.rs` reads them
+back out of the serialized document and checks that each one is declared and says it carries a
+refusal, so the document and the router cannot drift apart on this.
 
 `/docs` is the browser interface over that document - a `303` to `/docs/`, which serves HTML.
 Both are behind the token when one is configured, because a description of this surface is a
@@ -592,16 +629,17 @@ snapshot diff to review rather than as a README that used to be true.
 Two of the first test's assertions are not snapshots and are the reason a case cannot quietly
 leave. The `refused-` prefix is read as a convention in both directions, so a refusal question that
 started answering and a plain question that started being refused are each a failure rather than a
-passing corpus. And the measure vocabulary is asserted as four exact sets - shapes, terms, the terms a
-ratio holds, and the aggregates - so this section's table cannot claim coverage the catalog has
-stopped carrying.
+passing corpus. And the measure vocabulary is asserted as five exact sets - shapes, terms, the terms a
+ratio holds, the aggregates, and both meanings of a zero denominator - so this section's table cannot
+claim coverage the catalog has stopped carrying.
 
 That covers the command-line half. The serving session above is pinned in two pieces rather
 than by a third test. The numbers, the digest and the refusal reasons are the values this test
 snapshots already, because the HTTP surface asks the same question of the same bundle - and the
 envelope around them is asserted against the real router, in-process and with no socket, by the
-harness in `crates/sutura-http/src/harness.rs`: a refusal is a `200` carrying
-`outcome: refusal`, a missing token is a `401` carrying `code: unauthorized`, a body holding
+harness in `crates/sutura-http/src/harness.rs`: a refusal carries the status its reason maps
+to, with one test per status checking the `code` and that `reason.status` agrees with the
+status line, a missing token is a `401` carrying `code: unauthorized`, a body holding
 `sql` is a `400` naming the field, `/health` is those fifteen bytes exactly, and the interface
 description is served in development and not in production.
 

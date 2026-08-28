@@ -31,23 +31,28 @@ the question and not a fault to work around.
    all.
 4. Add dimensions only if the user asked to see the number broken down. Each one is a column in the
    result. Add filters only over dimensions whose values are listed, using a listed value exactly.
-5. Call `query`. Read the outcome: an answer, or a refusal. **A refusal is a successful result, not
-   an error** - the next section is how to read one.
+5. Call `query`. Read the outcome: an answer, or a refusal. **A refusal is a governed answer to be
+   read and acted on, not a transport failure to retry** - the next section is how to read one.
 6. Report the number together with the definition version and digest that came back with it, and
    with the period and any filters that were applied. A number reported without those is a number
    nobody can check.
 
 ## A refusal is an answer, not an error
 
-A declined question comes back as a SUCCESSFUL call whose outcome is `refusal`, carrying a typed
-reason. It is not a timeout, not an outage, and not a malformed request. The transport worked and
-the service answered.
+A declined question was ANSWERED, not dropped: the service read it, applied the definitions, and the
+answer is no. The outcome is `refusal`, carrying a typed reason and one sentence saying what to
+change. It is not a timeout, not an outage, and not a malformed request.
 
-**Do not retry a refused question unchanged.** Retrying is the behaviour a refusal exists to
-prevent: the answer is the same every time, and a loop that keeps asking is a loop that consumes the
-deployment's budget to learn nothing. Either change the question in the specific way the reason
-names, or tell the user what was declined and why. Never report a refusal to a user as a failure of
-the system, and never describe it as a temporary problem.
+**Over HTTP a refusal arrives with an error status rather than a success one**, which is not a
+transport problem and not a reason to try again. The reason is what to act on: the body repeats it
+as a machine-readable `code`, the name below in lower case with underscores, so `MetricUnknown` is
+`metric_unknown`. The status only says which class of no it is.
+
+**Do not retry a refused question unchanged.** Repeating the same question will not change the
+answer, and a loop that keeps asking is a loop that consumes the deployment's budget to learn
+nothing. Either change the question in the specific way the reason names, or tell the user what was
+declined and why. Never report a refusal to a user as a failure of the system, and never describe it
+as a temporary problem.
 
 A refusal never echoes your own text back. `DimensionValueNotAllowed` names the dimension and stops
 there, so treat the lists in this document as the authority on what a value may be.
@@ -91,6 +96,20 @@ Every reason you can be given, and what to do about each:
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.
 
+## Terms this deployment records as NOT defined
+
+These terms were considered and deliberately have no definition here. A question about one of them
+is to be DECLINED, with the reason below, and never approximated out of the metrics that are
+defined: a plausible number under a name nobody certified is the failure this entire surface is
+arranged to prevent. Say what is missing and that adding it is a decision for a person. The list is
+authoritative for what it names and is not a complete inventory of everything undefined - a term
+that is on neither this list nor the metric list is simply not answerable, which the refusal above
+already covers.
+
+- "customer churn", "Kundenabwanderung", "customer attrition", "customer churn rate"
+- "customer lifetime value", "CLTV", "CLV", "Kundenwert"
+- "revenue forecast", "Umsatzprognose", "forecast", "projected revenue"
+
 ## The bounds a question is held to
 
 These are not soft limits and there is no way to raise one from the caller's side.
@@ -127,10 +146,52 @@ subscriptions, every answer for it is narrowed that way and no argument you send
   to group by, and equality filters over declared values. Returns either an answer with its
   provenance or a refusal with a typed reason.
 
+## What this deployment records about its own definitions
+
+A catalog may carry notes about what its numbers mean, and not every deployment carries every kind.
+This one records the following, and what it does NOT record is listed too - because a kind that is
+not recorded is a kind you must not draw a conclusion from.
+
+- **A glossary** - the words people use for these metrics, and the one thing each of them means. It
+  is listed below. Turning a question's wording into a metric name is YOUR step and worth naming in
+  your answer.
+- **Caveats** - things to know before trusting a number. Each one is printed under the metric it is
+  about and applies to every question about that metric.
+- **A reviewed list of terms that are deliberately NOT defined here**, above, after the refusal
+  section. It is authoritative for what it names: a question about one of those terms is to be
+  declined with the reason given, not approximated from the metrics that are defined.
+- **Worked questions** - real questions with the request that answers each, at the end of this
+  document. They are the shape to copy.
+
+## The words a question may arrive in
+
+Each line is a phrase somebody may use, and the one thing this deployment takes it to mean. **You do
+the resolving.** There is no field on a question that a phrase fits in - a request carries a metric
+name - so a wrong turn here is yours to catch rather than something the service will decline. Say
+which phrase you resolved and what you resolved it to, so the person can correct you.
+
+- "average revenue per customer", "ARPU", "Umsatz pro Kunde", "revenue per customer" -> metric
+  `revenue_per_customer`
+- "business customers", "B2B", "Firmenkunden", "enterprise customers" -> value `business` of
+  dimension `segment` of metric `recurring_revenue`
+- "churn rate", "Abwanderungsrate", "attrition rate", "cancellation rate" -> metric `churn_rate`
+- "consumer customers", "B2C", "Privatkunden", "residential customers" -> value `consumer` of
+  dimension `segment` of metric `recurring_revenue`
+- "contract term", "Vertragslaufzeit", "commitment", "term" -> dimension `contract_term` of metric
+  `recurring_revenue`
+- "data usage", "Datenvolumen", "data volume", "gigabytes per subscription" -> metric
+  `data_per_subscription`
+- "monthly recurring revenue", "MRR", "monatlicher Umsatz", "recurring revenue", "wiederkehrender
+  Umsatz" -> metric `recurring_revenue`
+- "subscriber count", "Anschluss", "Vertrag", "active lines", "subscribers" -> metric
+  `active_subscriptions`
+- "tariff", "Tarif", "plan", "product name" -> dimension `product_name` of metric
+  `recurring_revenue`
+
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b`
+- Definitions digest: `1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -147,6 +208,8 @@ not infer a meaning from the name alone and present it as the definition.
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole.
+
 ### churn_rate
 
 - Grains: month
@@ -155,15 +218,23 @@ not infer a meaning from the name alone and present it as the definition.
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
+**Caveat `churn_is_subscription_level`** - about this metric as a whole.
+
 ### data_per_subscription
 
 - Grains: month, day
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
 
+**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole.
+
 ### mean_subscription_mrr
 
 - Grains: month
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole.
+
+**Caveat `two_averages_of_the_same_revenue`** - about this metric as a whole.
 
 ### recurring_revenue
 
@@ -175,16 +246,24 @@ not infer a meaning from the name alone and present it as the definition.
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole.
+
 ### revenue_per_churned_subscription
 
 - Grains: month
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole.
 
 ### revenue_per_customer
 
 - Grains: month
 - Dimensions:
   - `segment` - group by or filter. Values: business, consumer, wholesale
+
+**Caveat `revenue_is_in_minor_units`** - about this metric as a whole.
+
+**Caveat `two_averages_of_the_same_revenue`** - about this metric as a whole.
 
 ### subscription_base
 
@@ -193,6 +272,8 @@ not infer a meaning from the name alone and present it as the definition.
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
+
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole.
 
 ### subscription_months_billed
 
@@ -203,6 +284,8 @@ not infer a meaning from the name alone and present it as the definition.
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole.
+
 ### subscriptions_churned
 
 - Grains: month
@@ -211,10 +294,43 @@ not infer a meaning from the name alone and present it as the definition.
   - `region` - group by or filter. Values: central, east, north, south, west
   - `segment` - group by or filter. Values: business, consumer, wholesale
 
+**Caveat `churn_is_subscription_level`** - about this metric as a whole.
+
+**Caveat `subscriber_is_not_customer`** - about this metric as a whole.
+
 ### voice_minutes
 
 - Grains: month, day
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
+**Caveat `usage_reaches_no_snapshot`** - about this metric as a whole.
+
+## Worked questions
+
+Questions somebody actually asked, with the request that answers each. Copy the shape. Every value
+in them is one this snapshot declares, and every one of them is inside the bounds above - the
+period, the group-by count - because a bundle carrying one that is not does not load. So a question
+below is one this deployment answers rather than one it would decline.
+
+### business_revenue_in_the_north
+
+- Asked as: "what are business customers in the north worth per month", "Umsatz der Firmenkunden im
+  Norden"
+- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, `segment` =
+  `business`, `region` = `north`
+
+### churn_rate_over_the_half_year
+
+- Asked as: "how has the churn rate developed this year", "wie hat sich die Abwanderungsrate
+  entwickelt"
+- Send: metric `churn_rate`, grain `month`, period `2026-01-01` to `2026-07-01`
+
+### revenue_by_segment_in_june
+
+- Asked as: "how much recurring revenue did each segment bring in June", "wie viel wiederkehrender
+  Umsatz kam im Juni pro Segment"
+- Send: metric `recurring_revenue`, grain `month`, period `2026-06-01` to `2026-07-01`, grouped by
+  `segment`
 
 ## Provenance, and what makes a number checkable
 

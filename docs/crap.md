@@ -40,7 +40,8 @@ coverage build can reuse them - it cannot, `-C instrument-coverage` changes the 
 so every dependency is compiled fresh regardless - but because sharing the attribute means no
 SECOND dependency derivation is created. That is what keeps the marginal CI cost to the ten
 seconds above rather than to another full workspace dependency build, which is what the
-`api-docs` check pays for being on a different channel.
+`api-docs` check USED to pay for being on a different channel - until it moved onto this same
+closure, measured: `nix-store -q --references` on both drvs now names one `sutura-deps`.
 
 **ONE MEASUREMENT, TWO CONSUMERS.** The check writes a path-portable copy of its score report to
 `target/crap/baseline.json`, and inside a Nix build it publishes the same file to
@@ -81,7 +82,7 @@ artifacts help. On a four-vCPU runner that is twenty minutes and up, added to a 
 timeout was already raised from 60 to 120 minutes because the tests alone were killing it.
 
 **Where the tests live.** Coverage scoped to one package sees only that package's tests. For
-`sutura-domain` that is the whole truth - its 120 unit tests are its real test suite and they
+`sutura-domain` that is the whole truth - its unit tests are its real test suite and they
 are in the crate. For `sutura-semantic` it is not: its real tests are the golden corpus in
 `sutura-app`, which pulls both adapters. So a `-p sutura-semantic` coverage run reports `resolve`
 at 0% and scores it CRAP 210. Measured, not hypothesised, and seven such functions appear the
@@ -134,8 +135,11 @@ match table, a vendored port - not for code nobody has got round to covering.
 
 ## The ratchet is a number AND a delta
 
-Two independent rules, both enforced, and the order matters: the number is the gate, the delta is
-a ratchet on top of it.
+Two independent rules, and the order matters: the number is the gate, the delta is a ratchet on
+top of it. The number is unconditional and runs on every commit. The delta is not: it needs a
+baseline for the exact merge base, and it warns and skips when there is none - see *Where the
+baseline comes from* below. So a branch whose merge base has no artifact is judged by the number
+alone, which is why the delta is a ratchet and not a guarantee.
 
 ### The number
 
@@ -202,9 +206,13 @@ The number above has already run either way, so a skipped delta loses a ratchet,
 ### The pull request comment, and what it costs in permissions
 
 The rendered table goes to the job summary, which needs no token, and is posted as a pull request
-comment by the `crap-comment` job. That job holds `pull-requests: write` - the only write scope
-anywhere in this repository's workflows - because creating or editing a pull request comment has
-no read-only route.
+comment by the `crap-comment` job. That job holds `pull-requests: write` - the only write scope on
+any job a pull request can reach - because creating or editing a pull request comment has no
+read-only route. Other workflows do hold write scopes - publishing the site, cutting a release,
+the optimised release build, bumping a version and pruning the cache - eight of them across five
+files. None is on a job a pull request can start: four of those five do not run on a pull request
+at all, and `docs.yml`, which does, gates its publishing job on
+`github.event_name != 'pull_request'` and gives the pull request job `contents: read`.
 
 It is a separate job for that reason. It checks nothing out, compiles nothing, runs no code from
 the pull request, interpolates no pull request text into a shell body, and skips forks (whose
@@ -258,22 +266,34 @@ keeping the linker and library flags beside it, pins `RUSTUP_TOOLCHAIN` to the c
 `target/crap`. A gate whose failure mode is a silently empty report must not depend on a `source`
 line somebody could forget.
 
-## Current state
+## Reading the current state
 
-186 functions scored in `sutura-domain`, none over the line. The four highest:
+**There is deliberately no report pasted here.** There used to be one - a function count and the
+four highest-scoring functions with their `file:line` - and it rotted the way a pasted report
+always does. It was taken when the crate had twelve source files; three of its four line
+references had stopped resolving before this paragraph replaced it; and nothing regenerated or
+checked it, because
+`cargo xtask check-crap` verifies the tool VERSION this page states and not the numbers.
 
-| CRAP | CC | Coverage | Function |
-| ---: | ---: | ---: | --- |
-| 30.0 | 5 | 0.0% | `RequiredFilter::fmt`, `crates/sutura-domain/src/measure.rs:395` |
-| 30.0 | 5 | 0.0% | `plan_required_filter`, `crates/sutura-domain/src/plan.rs:509` |
-| 20.0 | 4 | 0.0% | `JoinType::as_str`, `crates/sutura-domain/src/model.rs:267` |
-| 20.0 | 4 | 0.0% | `RowSet::column_index`, `crates/sutura-domain/src/warehouse.rs:270` |
+So the page states how to get the current one instead, which is one command:
 
-The two at 30.0 pass, because `fail-above` means what it says and the threshold is exclusive. They
-are also the clearest illustration of why the delta exists: they sit exactly on the line, so the
-number has no headroom left to give and the only thing that can still be said about them is
-whether they move. Nothing over the line is allowlisted; for each of these the fix is a test.
+```bash
+just crap
+```
 
-`Grain::as_str` used to head this table at CRAP 42 - a five-arm `const fn` no test in the crate
-called. It is now CC 6 at 100% coverage and scores 6.0, which is what a fix looks like: the
-complexity did not change, the tests did.
+It prints every scored function in `SCOPE`, the threshold it is judged against and the verdict, and
+leaves `target/crap/baseline.json` behind for `just crap-delta`.
+What is worth knowing about the output is the part that does not change with a re-run:
+
+- **`fail-above` is exclusive**, so a function sitting exactly on the threshold passes. Those are
+  the ones the delta exists for: the number has no headroom left to give, and the only thing left
+  to say about them is whether they move.
+- **Nothing over the line is allowlisted.** For a function over it the fix is a test, not an entry
+  in a file.
+- **A high score is not always a finding.** Coverage scoped to one package sees only that
+  package's tests, so a function whose real tests live in another crate scores as uncovered - which
+  is the whole argument for `SCOPE` above being the crate whose suite is its own.
+
+`Grain::as_str` is the worked example of a fix, and it is history rather than a current number: it
+headed the table at CRAP 42, a five-arm `const fn` no test in the crate called, and is now CC 6 at
+100% coverage scoring 6.0. The complexity did not change; the tests did.

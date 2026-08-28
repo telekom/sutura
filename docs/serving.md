@@ -51,7 +51,7 @@ last, so a check against a file would be checking something the process is not r
 | --- | --- | --- |
 | `GET /health` | no | Liveness. The body is exactly `{"status":"ok"}` |
 | `GET /v1/catalog` | yes, when one is configured | The metrics this catalog defines, with grains, dimensions and the values a filter may use |
-| `POST /v1/query` | yes, when one is configured | One certified question. `200` for both outcomes; `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
+| `POST /v1/query` | yes, when one is configured | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
 | `GET /openapi.json` | yes, when one is configured | The generated interface description |
 | `GET /docs` | yes, when one is configured | A browser interface over that description |
 
@@ -64,17 +64,19 @@ who can route a packet.
 The interface description is served everywhere except production, where it is off by default. It
 describes the surface, which is business information even with no row of data in it.
 
-### A refusal is a `200`
+### A refusal carries a status
 
-`POST /v1/query` answers `200` for both outcomes, and the `outcome` field is what a caller branches
-on:
+`POST /v1/query` answers `200` when the question was **answered** and nothing else. A refusal carries
+an explicit status, the stable `code` it always carried, and a sentence saying what to change - all
+three, so a caller is told the same thing whether it reads the status, the code or the prose. The
+`outcome` field is what says which envelope arrived:
 
 ```json
 {
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
+    "definition_digest": "1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -84,10 +86,16 @@ on:
 }
 ```
 
+The second one comes back `404`:
+
 ```json
 {
   "outcome": "refusal",
-  "reason": { "code": "metric_unknown", "detail": "this catalog defines no metric called `customer_lifetime_value`" }
+  "reason": {
+    "code": "metric_unknown",
+    "status": 404,
+    "detail": "this catalog defines no metric called `customer_lifetime_value`"
+  }
 }
 ```
 
@@ -95,10 +103,46 @@ Both of those are `examples/single-player` over the wire, each captured as one l
 reformatted here. `examples/single-player/README.md` has the whole session: the startup output,
 the token gate, the liveness probe, the interface description and a refusal to start.
 
-A refusal is a *result*: the caller asked something they may not have, and the answer is no. An error
-status would invite a client library to retry, and retrying a governance decision until it succeeds
-is precisely the behaviour the refusal exists to prevent. See [Questions and answers](qa.md) for what
-is refused and why.
+A refusal is still a *result* rather than an error - the caller asked something they may not have,
+and the answer is no - and that is a statement about the domain, not about the status. Which status
+depends on why:
+
+| `code` | Status | What the caller does about it |
+| --- | --- | --- |
+| `metric_unknown` | `404` | Ask `GET /v1/catalog` which metrics this snapshot defines |
+| `grain_not_supported` | `422` | The metric exists; that grain is not rendered for it. Pick one the catalog lists |
+| `time_range_too_long` | `422` | Narrow the period. The sentence carries the maximum |
+| `too_many_dimensions` | `422` | Group by fewer. The sentence carries the maximum |
+| `duplicate_dimension` | `422` | Send it once |
+| `dimension_not_permitted` | `403` | The metric declares no such dimension |
+| `dimension_not_filterable` | `403` | It can be grouped by and not filtered on |
+| `dimension_value_not_allowed` | `403` | Use a value the catalog declares. The rejected value is never echoed back |
+| `plan_spans_two_sources` | `409` | Nothing. This deployment will not span two data systems |
+| `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
+| `source_unavailable` | `503` | The one refusal worth retrying |
+
+**The `403`s are not about your credential.** There is no per-caller identity here, so no token
+widens a metric's dimension set; a `403` is the catalog's answer to "may this be asked of this
+metric", and the sentence names the metric and the dimension so it cannot be mistaken for the other
+thing.
+
+**Two statuses are shared with something that is not a refusal**, and `code` is what separates them -
+as is the body shape, because only a refusal carries `outcome`:
+
+- `413` is `too_large` when the **request body** was over the limit, and `result_too_large` when the
+  **answer** was over the row cap.
+- `503` is `unavailable` or `at_capacity` from the failure side, and `source_unavailable` from the
+  refusal side.
+
+This used to be a `200` for both outcomes, on the argument that an error status invites a client
+library to retry a governance decision until it succeeds. The second half of that is right and the
+first half does not survive checking: nothing mainstream retries a `4xx` by default, and `422` - where
+four of the codes above land - is documented the other way round, as a status a client should expect
+to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
+a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
+success branch is `2xx`. A deployment refusing every question read as perfectly healthy.
+[Decision 0005](adr/0005-a-refusal-carries-a-status.md) is the record, and
+[Questions and answers](qa.md) is what is refused and why.
 
 Cells are rendered as text rather than as JSON numbers. A measure over integer minor units does not
 survive a round trip through a JSON number in every client, and an anchor is compared as text - one
@@ -120,7 +164,10 @@ or a driver message, and any of those handed to a caller describes the deploymen
 Two failures share the `503` status and differ in `code`, which is what a client branches on:
 `unavailable` is a data system that did not answer, and `at_capacity` is this service having no
 execution slot free - see [Capacity](#capacity). Both are worth retrying, and they are diagnosed in
-completely different places.
+completely different places. Only `at_capacity` carries a `Retry-After`, and only because there the
+number is already known: it is the admission window the caller just spent waiting out. Nothing here
+knows when a data system will come back, so nothing invents a number for it - the refusal side
+follows the same rule.
 
 ## Capacity
 

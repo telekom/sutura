@@ -10,9 +10,14 @@
 //!
 //! # The three properties a reader should check first
 //!
-//! **A refusal is a `200`.** `POST /v1/query` answers `200` with `outcome: refusal` when a question
-//! is one the caller may not have. An error status would invite a client library to retry, and
-//! retrying a governance decision until it succeeds is the behaviour the refusal exists to prevent.
+//! **A refusal says so three ways.** `POST /v1/query` answers a question the caller may not have
+//! with an explicit status - `403`, `404`, `409`, `413`, `422` or `503` depending on why - plus the
+//! stable `code` and the sentence it has always carried in `outcome: refusal`. It was a `200`, on the
+//! argument that an error status invites a client library to retry; the retry premise does not
+//! survive checking, and a `200` made a governance refusal indistinguishable from an answer to
+//! anything reading a status alone. `wire::refusal` holds the mapping, the citations and the reason
+//! for each status. The domain invariant is untouched: `ToolOutcome::Refusal` is still a result and
+//! not an `Err`.
 //!
 //! **There is no per-caller identity.** No request context reaches the query path, no credential is
 //! minted per request, and the `CredentialBroker` port that would do it is deliberately absent

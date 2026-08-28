@@ -2,11 +2,5 @@
 source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.params()
 ---
-- Date:
-    year: 2026
-    month: 6
-    day: 1
-- Date:
-    year: 2026
-    month: 6
-    day: 8
+- Date: 2026-06-01
+- Date: 2026-06-08
