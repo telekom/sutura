@@ -629,9 +629,9 @@ snapshot diff to review rather than as a README that used to be true.
 Two of the first test's assertions are not snapshots and are the reason a case cannot quietly
 leave. The `refused-` prefix is read as a convention in both directions, so a refusal question that
 started answering and a plain question that started being refused are each a failure rather than a
-passing corpus. And the measure vocabulary is asserted as four exact sets - shapes, terms, the terms a
-ratio holds, and the aggregates - so this section's table cannot claim coverage the catalog has
-stopped carrying.
+passing corpus. And the measure vocabulary is asserted as five exact sets - shapes, terms, the terms a
+ratio holds, the aggregates, and both meanings of a zero denominator - so this section's table cannot
+claim coverage the catalog has stopped carrying.
 
 That covers the command-line half. The serving session above is pinned in two pieces rather
 than by a third test. The numbers, the digest and the refusal reasons are the values this test

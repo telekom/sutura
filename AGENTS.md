@@ -74,8 +74,14 @@ just doctor         # is this machine set up
 `just` with no argument lists the rest.
 
 **`just validate` is the only thing that counts as verified.** It runs the nix checks, which build
-a filtered copy of the tree - the only way to catch a file the build needs and the source filter
-drops. Every other command reads the real tree and cannot see that class of bug.
+their own copy of the tree - the only way to catch a file the build needs and that copy does not
+have. Every other command reads the real tree and cannot see that class of bug. The copy is
+GIT-DERIVED, and that is the mechanism: an untracked file is invisible to it, so a new module
+compiles under `cargo` and then does not exist in the sandbox. `git add -N` is enough to make it
+visible. **The source filter is NOT the mechanism, and today it drops nothing:** `flake.nix`'s
+`.*/nix(/.*)?$` arm matches every path in the tree, because a nix source root IS
+`/nix/store/<hash>-source` - so the filter's whole `||` chain short-circuits to true. Fixing it
+changes what `clippy`, `doctest`, `fmt` and the release builds see, so it is its own commit.
 
 Rules:
 
@@ -99,7 +105,7 @@ regeneration is checked rather than trusted.
 | MCP tool schemas, the OpenAPI spec | *(planned)* `schemars` derives on the domain types | One source for both. Not built; `schemars` returns with the tool surface |
 | The executed SQL | `sutura-sql` | Goldens per dialect, regenerated and reviewed as a diff, never typed. The plan's serialized form is pinned too. `differential.rs` runs one plan both ways and compares rows |
 | Compiler version, anything shipped | `rust-toolchain.toml` | One pin for CI, the release build and the image. Do not add a second one to any of those |
-| Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Two narrow uses. Locally: the cranelift backend. In CI: `checks.api-docs` only, and only to EMIT RUSTDOC JSON - `--output-format json` is unstable and has no stable equivalent. It builds no artifact any gate reads: the `xtask` binary that drives the check is compiled by `rust-toolchain.toml` on the same `ci` closure the other six checks reuse, and nightly is a command prefix around the `cargo rustdoc` child alone. It does still compile that child's INPUTS - 314 third-party crates, plus 6 first-party libs as path dependencies of the documented ones - at `--profile ci` and mostly as `rmeta`. None of it is linted, tested, linked, shipped or read by another gate, and the child gets its own `CARGO_TARGET_DIR` so the two channels never share artifacts. Every gate that lints, tests or ships is `rust-toolchain.toml`. `nix/toolchains.nix` is the single code path from either file to a compiler |
+| Compiler version, local inner loop | `devco/rust-toolchain-nightly.toml` | Two narrow uses. Locally: the cranelift backend. In CI: `checks.api-docs` only, and only to EMIT RUSTDOC JSON - `--output-format json` is unstable and has no stable equivalent. It builds no artifact any gate reads: the `xtask` binary that drives the check is compiled by `rust-toolchain.toml` on the same `ci` closure the other five checks and `packages.xtask` reuse, and nightly is a command prefix around the `cargo rustdoc` child alone. THE REUSE IS CHECKABLE, and was checked rather than asserted: `nix-store -q --references` on each of those seven derivations names ONE `sutura-deps`, and the flake declares nightly as a PACKAGE - `nightlyToolchain` - so there is no second `crane.mkLib` for it to hang a second closure off. **Not "nightly never compiles first-party code":** it compiles the `cargo rustdoc` child's INPUTS, which are ~313 third-party crates PLUS six of our own libs as `rmeta` dependencies of the ten that get documented - `sutura-app`, `sutura-config`, `sutura-domain`, `sutura-runtime`, `sutura-semantic`, `sutura-sql` - all at `--profile ci`. Re-measure with `cargo rustdoc -p <lib> --all-features --profile ci -Z unstable-options --unit-graph`, which lists the units WITHOUT building them: 482 distinct units over the ten crates, ten of which are the `doc` units themselves. None of it is linted, tested, linked, shipped or read by another gate, and the child gets its own `CARGO_TARGET_DIR` so the two channels never share artifacts. Every gate that lints, tests or ships is `rust-toolchain.toml`. `nix/toolchains.nix` is the single code path from either file to a compiler |
 | `Cargo.lock`, `devenv.lock`, `pixi.lock` | their own tools | Regenerate, never hand-merge |
 | Third-party derived code | `VENDOR.md` - upstream repo, commit, date, local changes | The `cargo-deny` licence gate plus a `NOTICE` check keep the obligation from rotting. "Inspired by" is not a licence position |
 | The leak-guard pattern list | a private repo | Deliberately not vendored here; the hook calls it by path and fails closed |
@@ -126,7 +132,7 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | The panicking fragment API cannot be called | `clippy.toml` bans `polyglot_sql::parser::Parser::new` and `::parse_expressions`, both **verified to resolve** by writing the call and watching clippy reject it. They panic on an empty token list, which is what empty, whitespace-only and comment-only input tokenize to - an abort reachable from a catalog file |
 | A definitional filter is always applied | `required_filters` compile into every plan for the metric, marked `PredicateOrigin::Definition`. A caller has no field that could name or remove one |
 | A join cannot silently change a measure | `Definitions::assemble` refuses a dimension reached through a relationship whose *declared* cardinality may duplicate rows, and a reconciliation test checks grouped rows against the ungrouped total. **Catalog cardinality is a trusted precondition:** nothing checks the declaration against the data, and an anchor cannot see it because an anchor is asked with no dimensions |
-| A result that hit the row cap is refused, not truncated | `row_limit()` is `max_rows + 1`, so a result at the cap is distinguishable from one cut off by it; `answer()` returns `ResultTooLarge`. Both legs pinned: 39 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch on its logical plan |
+| A result that hit the row cap is refused, not truncated | `row_limit()` is `max_rows + 1`, so a result at the cap is distinguishable from one cut off by it; `answer()` returns `ResultTooLarge`. Both legs pinned: 63 SQL goldens read `LIMIT 10001`, and the engine leg asserts the fetch on its logical plan. `check-guidance` counts the goldens and fails if that number drifts |
 | Two result columns cannot share a label | `Definitions::assemble` refuses a dimension named after the time bucket or after its own metric |
 | A catalog document's fields are exactly what it declares | `deny_unknown_fields` on every on-disk shape |
 | A plan cannot silently span two sources | The plan stage collects sources into a `BTreeSet` and refuses `PlanSpansTwoSources` unless exactly one is in it |
@@ -150,7 +156,7 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | No server-side phrase resolution | There is nothing to resolve into: the glossary renders into the agent-facing prompt and the AGENT states which metric it chose, in its own transcript. `RefusalReason` has no `PhraseNotDefined`, and a variant no test can provoke is what that enum refuses to carry |
 | Content for a knowledge capability nobody declared fails the load | `Knowledge::assemble` walks `Capability::every()` and refuses `UndeclaredContent`. The walk cannot be walked past: `Capability::next` and `Capability::previous` are two exhaustive matches, a `const` assertion holds `every()`'s seed, and `prompt::knowledge::claim` is a third match that decides what a capability licenses the document to say |
 | A note is attached to something the bundle declares | `CaveatAboutNothing` refuses an unscoped caveat, and every other kind carries a `Referent`, a `Phrase` checked against the definitions, or a `Query`. There is no `rules` kind, and adding one would be an unscoped text channel from the catalog into the prompt's preamble |
-| Note prose is bounded, and refused at load rather than cut at render | `NoteBody::parse` caps bytes and lines and refuses a body that would render as nothing; `MAX_KNOWLEDGE_BYTES` caps the aggregate, so N conforming notes cannot do what one oversized note cannot; `Phrase::parse` bounds one line and normalises it, so two phrases a reader cannot tell apart cannot both load. Nothing anywhere shortens a body |
+| Note prose is bounded, and refused at load rather than cut at render | `NoteBody::parse` caps bytes and lines and refuses a body that would render as nothing; `MAX_KNOWLEDGE_BYTES` caps the aggregate, so N conforming notes cannot do what one oversized note cannot; `Phrase::parse` bounds one line and normalises it - invisible code points removed, every run of whitespace one space, trimmed, and case folded for the identity only - so two phrases differing in *those* cannot both load. **Not a Unicode-normalisation claim:** there is no NFC/NFD anywhere in the workspace, so a decomposed spelling and a Cyrillic homoglyph are each a second phrase. Nothing anywhere shortens a body |
 | A worked example is a question this surface would accept | `Knowledge::assemble` checks each example's `Query` against the metric, its grains, its dimensions and its allowlists, and against `MAX_RANGE_DAYS` and `MAX_DIMENSIONS` read from `sutura_domain::query`. The prompt tells an agent an example is a question this deployment answers, and a bundle carrying one it would decline does not load |
 | The knowledge declaration is under the definition digest | `PinnedDefinitions::pin` hashes the `Knowledge` alongside the definitions, the `KnowledgeCapabilities` included. A deployment that quietly stopped declaring `not_defined` has changed what its prompt claims, and provenance that did not move would certify the old claim |
 
@@ -276,6 +282,13 @@ for the evidence instead: the command you ran, the failure before the fix, the p
 ## Where Detailed Guidance Lives
 
 - `devenv.nix` - the shell, the tool pins, and the task names used above.
+- `nix/*.nix` - the modules `flake.nix` imports, one topic each: `toolchains`, `duckdb` and
+  `crap` are shared with `devenv.nix` so a pin cannot differ between the shell and CI;
+  `mimalloc`, `oci`, `api-docs` and `cargo-env` are flake-only, carved out when `flake.nix`
+  reached the 1000-line limit. **What may NOT move out of `flake.nix`:** `apps.<name>`, the
+  `packages = ` block and the `checks = {` block, because `xtask/src/pins.rs` and
+  `xtask/src/workflows.rs` scan that file for them textually and both fail closed on finding
+  none. A module holds what an app or a check *points at*, never the declaration.
 - `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push.
 - `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.

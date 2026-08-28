@@ -41,8 +41,15 @@
 //! `devenv.nix`. There is no `RUSTFLAGS` and no `CARGO_TARGET_*_RUSTFLAGS` in the dev shell at
 //! all - verified by reading the environment on both sides of `nix/stable-env.sh` - and the
 //! per-target tables in `.cargo/config.toml` carry linker and target-feature flags only. So
-//! `stable-env.sh`, which unsets exactly those two variables, already covers the case jubust's
-//! gate script strips per-target rustflags for.
+//! `stable-env.sh`, which unsets exactly those two variables, already covers this repo's whole
+//! surface. The case it does NOT cover - a `CARGO_TARGET_<TRIPLE>_RUSTFLAGS` variable carrying the
+//! cranelift flag, which unsetting the two variables would leave in place - is real and is why
+//! [`coverage_env`] cleans the rustflag variables in [`RUSTFLAG_VARS`] as well; it is simply not
+//! set anywhere here. What neither covers is a per-target table in `.cargo/config.toml` naming a
+//! backend, because that is a file and not an environment variable - and nothing in this repo's
+//! tables names one. Stated as the mechanism rather than by where the idea came from: an
+//! attribution belongs in `VENDOR.md` with an upstream and a licence, and a bare project name on
+//! a public repo resolves to nothing for a reader.
 //!
 //! [`coverage_env`] hardens it anyway, and the reason is not belt-and-braces: this gate is the
 //! one whose failure mode is a silent empty report, so it must not depend on a caller having

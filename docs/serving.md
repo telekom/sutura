@@ -137,7 +137,7 @@ as is the body shape, because only a refusal carries `outcome`:
 This used to be a `200` for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
 first half does not survive checking: nothing mainstream retries a `4xx` by default, and `422` - where
-five of the codes above land - is documented the other way round, as a status a client should expect
+four of the codes above land - is documented the other way round, as a status a client should expect
 to fail again on an unchanged request. What the `200` did cost was legibility to everything that reads
 a status and not a body: an ingress log, a dashboard, an error-rate alert, a generated client whose
 success branch is `2xx`. A deployment refusing every question read as perfectly healthy.

@@ -34,7 +34,7 @@ checked against the current documentation of four:
 | Go `net/http` | The `Client`, `Transport` and `RoundTripper` reference documents no status-driven retry at all |
 
 Nothing mainstream retries a `4xx` by default. The two statuses retried by convention are `429` and
-`408`, and no refusal maps to either. `422`, where five of the eleven refusal codes now land, is
+`408`, and no refusal maps to either. `422`, where four of the eleven refusal codes now land, is
 documented the other way round from the premise: clients receiving a `422` "should expect that
 repeating the request without modification will fail with the same error".
 

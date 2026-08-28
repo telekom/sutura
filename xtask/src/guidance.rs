@@ -8,17 +8,40 @@
 //! Scope: documentation and configuration (`.md`, `.nix`, `.yml`, `.yaml`, `.toml`, `.sh`).
 //! Rust source is deliberately out of scope - see the filter in `run`.
 //!
-//! Three checks, one theme: a claim in prose is only as good as the thing that verifies it.
+//! Five checks, one theme: a claim in prose is only as good as the thing that verifies it.
 //!
 //! * `stale` - a forbidden phrase, each with the replacement and the reason
 //! * `versions` - a version written anywhere must match the pin it describes
+//! * `claims` - a statement about what this repo has, checked against what it has
+//! * `counts` - a number in prose that counts something, checked against the count
 //! * `references` - a gate, task or skill named in prose must exist
+//!
+//! `claims` and `counts` exist because of one review, and because of one CAUSE rather than
+//! nineteen mistakes: nineteen false sentences across `README.md`, `docs/` and `AGENTS.md`, four of
+//! them saying there is no HTTP surface while two crates and a published page ship one, and in
+//! almost every case the corrected sentence already existed in a sibling document. The correction
+//! had landed in one file and had not been carried to the others. So what is checked here is the
+//! CLAIM rather than the file: one `Contradicted` entry carries every wording of one claim, which
+//! is what makes a sibling that was missed a failure rather than a survivor.
+//!
+//! **What these two cannot do, stated before a reader trusts them.** They match a literal, so a
+//! paraphrase escapes - the same limit `AGENTS.md` records for the leak guard. They are a ratchet
+//! on a sentence somebody has already written once, not a reader.
 
 use std::collections::BTreeSet;
 use std::path::Path;
 
 use crate::Verdict;
 use crate::repo;
+
+// MECHANICAL SPLIT, and nothing moved across it changed. `max-lines` caps a file at 1000 and
+// cannot exempt anything under `xtask/`, and the two tables below grow by ENTRY - one claim is
+// about twenty lines - so the file that holds them is the one that has to have room. The
+// boundary is the one seam here: `stale`, `versions` and `references` judge a LINE, while
+// `claims` and `counts` judge a claim across lines and need a flattened view to do it.
+mod claims;
+
+use claims::{CONTRADICTED, COUNTS, contradicted_claims, count_mismatches};
 
 /// A phrase that should not appear, and what to write instead.
 struct Forbidden {
@@ -46,9 +69,10 @@ const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
         needle: "--all-targets -- -D warnings",
         instead: "--all-targets --all-features -- -D warnings",
-        why: "no crate here declares a feature today, so this is a no-op - and that is the \
-              point: the flag is in every entry point already, so the day an adapter goes \
-              behind one, coverage does not silently drop to nothing",
+        why: "the flag went into every entry point while it was still a no-op, which is the \
+              cheapest time to do it. It is load-bearing now: `sutura-config`, `sutura-http` and \
+              `sutura-serve` each declare `tls`, so an entry point missing the flag lints and \
+              tests nothing behind it",
         only: &[],
         except: &[".agents/skills/engineering/rust/SKILL.md"],
     },
@@ -73,7 +97,8 @@ const FORBIDDEN: &[Forbidden] = &[
     Forbidden {
         needle: "cargo nextest run --workspace\"",
         instead: "cargo nextest run --workspace --all-features",
-        why: "same reason as clippy: a no-op today, in place so it stays correct later",
+        why: "same reason as clippy: adopted while it was a no-op, load-bearing since `tls` \
+              landed on three crates",
         only: &[],
         except: &[],
     },
@@ -329,9 +354,13 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         return Verdict::Fail;
     };
 
-    // Only text we might make a claim in.
+    // Only text we might make a claim in. `files` is kept whole for `count_mismatches`, which
+    // counts things in Rust, in snapshots and in anything else the claim is about - the scope
+    // limit below is about where a CLAIM may be made, not about what may be counted.
+    // Filtered BEFORE cloning, which `iter_overeager_cloned` requires and is also the cheaper
+    // order: the strings that do not survive the filter are never copied.
     let text_files: Vec<String> = files
-        .into_iter()
+        .iter()
         // Documentation and configuration, NOT Rust source. Two reasons, and the second is
         // the one that matters: a rule table written in Rust contains the very phrases it
         // forbids, so scanning `.rs` makes this gate report itself - and the only fix would
@@ -342,19 +371,24 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         .filter(|f| !f.starts_with(".agents/skill-library/"))
         .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/0"))
         .filter(|f| !f.starts_with(".agents/skills/engineering/ms-rust/1"))
+        .cloned()
         .collect();
 
     let mut problems = stale_phrases(&root, &text_files);
     problems.extend(version_mismatches(&root, &text_files));
+    problems.extend(contradicted_claims(&root, &text_files));
+    problems.extend(count_mismatches(&root, &files, &text_files));
     problems.extend(bad_task_references(&root, &text_files));
     problems.extend(dead_paths(&root, &text_files));
 
     if problems.is_empty() {
         println!(
-            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s)",
+            "xtask check-guidance: ok - {} file(s), {} phrase rule(s), {} pin(s), {} claim(s), {} count(s)",
             text_files.len(),
             FORBIDDEN.len(),
-            PINS.len()
+            PINS.len(),
+            CONTRADICTED.len(),
+            COUNTS.len()
         );
         return Verdict::Pass;
     }
@@ -365,7 +399,10 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
     }
     eprintln!();
     eprintln!("Guidance that no longer matches the repo is read as current. Fix the text, or");
-    eprintln!("if the rule itself is wrong, change it in xtask/src/guidance.rs with a reason.");
+    eprintln!(
+        "if the rule itself is wrong, change it in xtask/src/guidance.rs - or in\n\
+         xtask/src/guidance/claims.rs for a claim or a count - with a reason."
+    );
     Verdict::Fail
 }
 

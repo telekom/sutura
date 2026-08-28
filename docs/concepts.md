@@ -170,10 +170,13 @@ A **catalogue** supplies definitions: metrics, dimensions, the glossary, lineage
 documents in git and a metadata catalogue with an HTTP API are two adapters behind one trait. The
 first exists; the second is a design target.
 
-A **data system** executes. ClickHouse and Postgres are the near-term targets, with DuckDB for
-local and single-file work. The port is named `Warehouse`, which says nothing about what sits
-behind it. DuckDB is the one adapter that exists; the statement is rendered for the other two
-dialects and parse-checked without either being connected to.
+A **data system** executes. ClickHouse and Postgres are the near-term targets. The port is named
+`Warehouse`, which says nothing about what sits behind it. Two adapters exist and they are different
+kinds of thing: `sutura-exec-datafusion` is **the engine** - it reads the CSV and Parquet files
+itself, executes the plan over Arrow and generates no SQL, and it is what the shipped binary links;
+`sutura-exec-duckdb` is a **data source** - it renders the plan into `DuckDB` SQL and pushes the
+statement down, and it is a development dependency, there to prove the rendered SQL runs somewhere.
+Postgres and ClickHouse are rendered for and parse-checked without either being connected to.
 
 A plan resolves to exactly **one** data system. Spanning two is not a bigger version of the same
 problem, it is a second identity to satisfy, and a plan whose legs cannot all run as one subject
@@ -224,8 +227,8 @@ an absence enforced are not the same thing:
 
 **A governed single-player semantic compiler and executor over local files.** That is what is here:
 `sutura compile` renders the statement for a question and `sutura query` answers it, over a
-catalogue of documents in git and a `DuckDB` file, with every certified number re-executed before
-the bundle may be served.
+catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
+certified number re-executed before the bundle may be served.
 
 Everything marked *design target* above is unbuilt, and the identity claims are all of them. There
 is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.

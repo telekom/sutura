@@ -294,8 +294,11 @@ path below has a precondition - something upstream must already have rendered di
 and on a laptop, or over a single file, there is no upstream to have done it.
 
 Its load-bearing constraint is that **a model may not contain a free-text SQL expression.** A measure
-is one of three closed shapes - one aggregate over a named column, a conditional count, or a ratio of
-two aggregates over possibly different columns; a relationship is a pair of columns and a join type; a
+is one of two closed shapes over a `Term` of two terms - a term is one aggregate over a named column
+or a conditional count, and a measure is either a single term or a ratio of two of them, which is what
+lets a conditional count be half of a ratio rather than only a whole measure
+([decision 0002](adr/0002-a-closed-vocabulary-for-measures.md) records why that was factored one level
+lower than it first was); a relationship is a pair of columns and a join type; a
 dimension is a column, optionally one declared relationship away. A metric may also carry required
 filters, predicates from a closed set of four operators that are **part of what the metric means
 rather than something a caller asks for**: they are applied to every question about it, and a caller
@@ -513,9 +516,11 @@ framework with it.
 Two consequences follow from the direction rather than from taste. The domain names no framework, so
 its test suite compiles nothing heavy and runs in well under a second, which is what makes it the
 inner loop. And every lint and test entry point passes `--all-features`, so an adapter placed behind
-a feature is inspected from the day it lands rather than from the day somebody remembers the flag -
-no crate declares a `[features]` table today, which is exactly when a habit like that is cheap to
-keep; [Contributing](contributing.md) has the commands.
+a feature is inspected from the day it lands rather than from the day somebody remembers the flag.
+That habit was adopted while no crate declared a `[features]` table at all, which is when it is
+cheapest to adopt; it is load-bearing now, because `sutura-config`, `sutura-http` and `sutura-serve`
+each declare `tls` - see [Serving over HTTP](serving.md#tls) - and code behind a flag nothing passed
+would be linted and tested by nothing. [Contributing](contributing.md) has the commands.
 
 ## What ships
 
@@ -565,8 +570,9 @@ holds the repo gates and `sutura-dev` the local development CLI.
 What that adds up to: a question naming a metric, a grain, a bounded range, up to four dimensions and
 a filter compiles to a plan; the plan renders as one statement in `DuckDB`, Postgres or `ClickHouse`
 dialect when somebody asks for SQL, and it **executes through the engine, over the CSV or Parquet
-files in the directory the caller named**. A measure may be one aggregate over a column, a conditional
-count or a ratio of two aggregates, and a metric may carry required filters that every question about
+files in the directory the caller named**. A measure is a single term or a ratio of two, where a term
+is an aggregate over a column or a conditional count - so a conditional count can be either a whole
+measure or half of a ratio - and a metric may carry required filters that every question about
 it is answered under. Every metric that declares a certified number re-executes and reproduces it
 before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
 path because there is no constructor that produces one.

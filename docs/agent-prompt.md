@@ -29,10 +29,14 @@ pinned bundle, or from a file an operator named.
 | What this is | Fixed text. Two facts: the set of answerable questions is finite and listed, and a question outside it is declined rather than approximated |
 | What to do for every question | **The tool list.** The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not |
 | A refusal is an answer, not an error | Every `RefusalReason` variant, with what it means and what to change. The most load-bearing section in the document |
+| Terms this deployment records as NOT defined | **The pinned bundle's knowledge**, `not_defined` kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing |
 | The bounds a question is held to | `MAX_DIMENSIONS`, `MAX_RANGE_DAYS` and `MAX_ROWS`, read from the code rather than typed |
 | What this surface has no field for | Fixed text, and deliberately short - see below |
 | The operations you have | **The tool list**, rendered from the same slice the workflow was composed from |
-| The metrics this deployment defines | **The pinned bundle.** Name, grains, dimensions, permitted values, and the catalog author's own prose |
+| What this deployment records about its own definitions | **The declared knowledge capabilities**, and what is *not* declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from |
+| The words a question may arrive in | **The pinned bundle's knowledge**, `glossary` kind. Rendered so the *agent* does the resolving; there is no field on a question a phrase fits in |
+| The metrics this deployment defines | **The pinned bundle.** Name, grains, dimensions, permitted values, the catalog author's own prose, and any `caveat` printed under the metric it is about |
+| Worked questions | **The pinned bundle's knowledge**, `example` kind. Each carries a `Query` the bundle would not load if this surface would decline it |
 | Provenance | Fixed text: quote the version and digest with every number |
 | Instructions from this deployment's operator | `prompt.instructions_file`, when one is configured. Omitted entirely when none is |
 
@@ -58,12 +62,19 @@ attempt something the surface refuses by construction. What replaces it is one s
 the field does not exist and that there is no way to widen it. A long section about what is absent
 would hand an agent a long list of things to try.
 
-**No column, table, model or measure expression.** The prompt renders exactly what
-`GET /v1/catalog` renders and not one field more. A caller needs a metric's name, prose, grains,
+**No column, table, model or measure expression.** Of what a metric *is*, the prompt renders what
+`GET /v1/catalog` renders and no further field: a caller needs a metric's name, prose, grains,
 dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
 column name in an agent's context is a name it will eventually try to use. This is asserted rather
 than intended: a test renders a bundle whose model, table and column names appear in no prose and
 checks that none of them reaches the output.
+
+That is a claim about *fields of a metric*, and not about the document being a rendering of the
+endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
+field for at all, listed in the table above: the glossary, the terms recorded as not defined, what
+this deployment records about its own definitions, and the worked questions - plus any caveat, under
+the metric it is about. All five are knowledge from the pinned bundle, all are descriptive, and none
+of them names a column, a table or a model either.
 
 **Nothing about identity.** There is none. The bearer token authenticates the *deployment*, not the
 caller - see [Serving over HTTP](serving.md) - and a prompt that described per-caller scoping would

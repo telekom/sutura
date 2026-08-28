@@ -16,7 +16,7 @@ The split is about identity, which is the thing sutura exists for.
 
 **`single-player/`** is one catalog in git, one file per model on disk, and the access the
 process already has. There is nobody else to be, so "every query runs as the calling
-principal" holds trivially: a `DuckDB` file has no login to present. That makes it the
+principal" holds trivially: a local file has no login to present. That makes it the
 right shape for learning the format, and it is also exactly the claim that a laptop
 cannot test.
 

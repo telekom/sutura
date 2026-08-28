@@ -98,6 +98,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```sql
+-- dialect duckdb
 SELECT "dim_customer"."region" AS "region",
        CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period",
        SUM("fct_subscription_monthly"."mrr_cents") AS "recurring_revenue"
@@ -290,6 +291,7 @@ Four things about all that are worth knowing before you write one:
   before the bundle is served, so a definition that has stopped meaning what it claimed fails
   readiness instead of answering. Declare one for any metric whose value you would act on.
 
-For the data, `query` expects one CSV per model, named after the model's table, in the directory you
-pass it. Nothing is written: the database is built in memory from the CSVs on every run, so it cannot
-drift from them.
+For the data, `query` expects one file per model, named after the model's table, in the directory you
+pass it - `<table>.parquet` if it is there, `<table>.csv` otherwise. Nothing is written and there is
+no database: the engine registers each file in process and reads it where it lies on every run, so
+the answer cannot drift from the files.

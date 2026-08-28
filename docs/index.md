@@ -18,8 +18,10 @@ becomes decorative.
 
     sutura today is **a governed single-player semantic compiler and executor over local files.**
     The half of the design that fixes the *second* failure above is not built: there is no request
-    context, no credential broker, no audit sink, no Arrow result envelope, and neither an MCP nor
-    an HTTP surface. Every claim on this site is marked *enforced today* or *design target* at the
+    context, no credential broker, no audit sink, no Arrow result envelope and no MCP surface.
+    There **is** an [HTTP surface](serving.md), and its bearer token authenticates the *deployment*
+    rather than the caller - so it serves the tool surface over a network and makes no per-caller
+    claim true. Every claim on this site is marked *enforced today* or *design target* at the
     point it is made, and the identity claims are all design targets.
 
 ## The four properties
@@ -77,7 +79,8 @@ What is not built is the part that makes the first sentence of this page true of
 is no request context type, so no caller identity reaches the query path at all, and no credential
 broker, so "as the person or agent asking" holds here only because a file has nobody else to be.
 There is no audit sink either, so a refusal is a value the caller receives and is recorded nowhere.
-The MCP and HTTP surfaces, Arrow results and federation are also still ahead.
+The MCP surface, Arrow results and federation are also still ahead. [The HTTP
+surface](serving.md) is not, and its token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Where to start

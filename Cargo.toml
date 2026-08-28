@@ -94,7 +94,9 @@ serde_norway = "0.9"
 #   * `stacker` is default-on upstream for stack-growth protection, and turning defaults off
 #     removes it. We only generate and never parse, so no recursion here is input-driven, but
 #     an abort is an availability bug and the guard costs nothing.
-#   * `transpile` is deliberately ABSENT. See `clippy.toml`: translating between dialects is a
+#   * `transpile` is deliberately ABSENT, and this list is where that is enforced - there is no
+#     lint for it, deliberately, because an unresolvable path in `disallowed-methods` is ignored
+#     silently and would read as enforcement while doing nothing. Translating between dialects is a
 #     parse followed by a re-emit, it does not reliably repair the differences that matter, and
 #     not compiling it is a stronger statement than not calling it.
 polyglot-sql = { version = "0.9.2", default-features = false, features = [
