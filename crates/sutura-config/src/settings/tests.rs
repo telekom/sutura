@@ -1,10 +1,16 @@
 //! What the layering does, and what the posture refuses.
 //!
-//! Hermetic: no test here reads a file or the process environment. [`Sources::defaults`] supplies
-//! an empty variable map, which replaces the real environment, so a `SUTURA__*` variable in a
-//! developer's shell cannot change a verdict.
+//! Hermetic in the process environment: no test here reads a `SUTURA__*` variable, because
+//! [`Sources::defaults`] supplies an empty variable map that replaces the real one, so a variable in
+//! a developer's shell cannot change a verdict.
+//!
+//! **The three tests under *configuration layers* do read a disk**, and cannot not: what they assert
+//! is which files were found, which is not a question a source with no filesystem can be asked. They
+//! write into a scratch directory named after the process and remove it again; the variable layer
+//! stays empty, because [`Sources::with_directory`] does not reach for the process environment.
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 
 use super::{Environment, NotFitToServe, Settings, SettingsError, Sources};
 use crate::proxy::ClientAddressSource;
@@ -537,6 +543,79 @@ fn a_variable_overrides_the_environment_default_in_both_directions() {
         panic!("expected a posture refusal, got {error:?}");
     };
     assert_eq!(*refusals, vec![NotFitToServe::RateLimitingDisabledInProduction]);
+}
+
+// ------------------------------------------------------ configuration layers ----
+
+/// A scratch configuration directory, emptied first so a previous run cannot decide this one.
+///
+/// Named after the process and the case, which is the shape the catalog adapter's own filesystem
+/// tests use: `CARGO_TARGET_TMPDIR` is defined for an integration target and not for a unit test
+/// under `src/`.
+fn scratch(case: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("sutura-config-{case}-{}", std::process::id()));
+    drop(std::fs::remove_dir_all(&dir));
+    std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+    dir
+}
+
+#[test]
+fn the_files_a_deployment_is_running_on_are_carried_out_of_the_load() {
+    // THE BUG. `read` layered `base.yaml` and `<environment>.yaml`, both `.required(false)`, and
+    // threw away which of them existed - so nothing downstream could say where a value came from.
+    // Both files here, so the ORDER is asserted too: `base` first, then the environment's, which is
+    // the precedence the doc comment on `Settings::load` calls the contract.
+    let dir = scratch("both-layers");
+    std::fs::write(dir.join("base.yaml"), "server:\n  port: 9001\n").expect("a scratch file is writable");
+    std::fs::write(dir.join("development.yaml"), "server:\n  port: 9002\n").expect("a scratch file is writable");
+
+    let settings = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()))
+        .expect("two layers over the defaults load");
+
+    assert_eq!(
+        settings.layers().files(),
+        [dir.join("base.yaml"), dir.join("development.yaml")],
+        "the layers are not what was on disk, in order"
+    );
+    // The later layer won, which is what makes the list an explanation of the value beside it rather
+    // than a list of files that happen to be there.
+    assert_eq!(settings.server().bind().to_string().rsplit(':').next(), Some("9002"));
+    assert!(!settings.layers().is_empty());
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+#[test]
+fn only_the_files_that_are_there_are_reported() {
+    // The half that makes the list worth reading: a directory with one of the two layers reports one,
+    // not two. `.required(false)` means the absent one is not an error, and the old code could not
+    // tell an operator which of the two that was.
+    let dir = scratch("one-layer");
+    std::fs::write(dir.join("base.yaml"), "server:\n  port: 9003\n").expect("a scratch file is writable");
+
+    let settings =
+        Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone())).expect("one layer loads");
+
+    assert_eq!(settings.layers().files(), [dir.join("base.yaml")]);
+    assert_eq!(settings.layers().to_string(), dir.join("base.yaml").display().to_string());
+    drop(std::fs::remove_dir_all(&dir));
+}
+
+#[test]
+fn a_deployment_on_embedded_defaults_says_so_and_a_wrong_directory_looks_the_same() {
+    // The line that was missing from the startup log, and the honest limit on it. A configuration
+    // directory that is not there resolves EXACTLY like no directory at all - that is what
+    // `.required(false)` means - so what this reports is that no file contributed, not which of the
+    // two situations produced it. A mistyped path is then visible as the absence of the file the
+    // operator expected to see named, which is the whole of what the log can offer.
+    let no_directory = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
+    assert!(no_directory.layers().is_empty());
+    assert_eq!(no_directory.layers().to_string(), "embedded defaults only");
+
+    let mistyped = Settings::load(
+        &Sources::defaults(Environment::Development).with_directory(std::env::temp_dir().join("sutura-config-no-such-dir")),
+    )
+    .expect("a directory that is not there is not an error - that is the posture being reported");
+    assert_eq!(mistyped.layers(), no_directory.layers());
 }
 
 // ------------------------------------------------------------------ secrets ----

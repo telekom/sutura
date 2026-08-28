@@ -55,11 +55,36 @@ pub fn announce(settings: &Settings) {
         resolved = ?settings,
         "configuration resolved"
     );
+    announce_provenance(settings);
     announce_perimeter(settings);
     announce_limits(settings);
     announce_capacity(settings);
     announce_surface(settings);
     announce_identity_gap();
+}
+
+/// Where the configuration came from.
+///
+/// **The line whose absence made every other line in this report unfalsifiable.** The report
+/// described the resolved values in detail and named no source, so a mistyped configuration
+/// directory, a config volume that failed to mount and a deployment that genuinely has no files
+/// produced identical logs - all three starting on embedded defaults, none of them saying so. An
+/// operator reading a value they did not write had nothing to look at.
+///
+/// `info` rather than `warn`, and running on defaults is deliberately not a warning: it is the
+/// documented posture for a developer on a laptop, and the defaults are loopback-only precisely so
+/// that it is safe. What is off-posture is caught by the refusals in `sutura-config`, which decline to
+/// start rather than log about it - this line is the evidence an operator needs when the values are
+/// legal and still not the ones they wrote.
+///
+/// Paths only. `ConfigLayers` has nowhere for a value to go, which is what makes this safe to log
+/// next to a tree that contains an access token.
+fn announce_provenance(settings: &Settings) {
+    tracing::info!(
+        config_layers = %settings.layers(),
+        "the configuration files in effect, in the order they were applied - later beats earlier, and \
+         a variable beats both"
+    );
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.
@@ -207,7 +232,54 @@ fn announce_identity_gap() {
 
 #[cfg(test)]
 mod tests {
-    use super::BANNER;
+    use sutura_config::{Environment, Settings, Sources};
+
+    use super::{BANNER, announce_provenance};
+
+    #[test]
+    fn the_startup_report_says_which_configuration_files_are_in_effect() {
+        // THE BUG. `announce` logged every resolved value in detail and named no source, so a
+        // deployment started on embedded defaults - because the configuration directory was mistyped,
+        // or a volume failed to mount - looked in the log exactly like one running the operator's own
+        // files. Asserted on the bytes, because a `tracing` call has no return value to check.
+        let recorded = crate::testing::capture(|| {
+            let settings = Settings::load(&Sources::defaults(Environment::Development)).expect("the defaults load");
+            announce_provenance(&settings);
+        });
+        assert!(recorded.contains("config_layers"), "the field is missing:\n{recorded}");
+        assert!(
+            recorded.contains("embedded defaults only"),
+            "an empty layer list has to say so rather than log a blank:\n{recorded}"
+        );
+    }
+
+    #[test]
+    fn a_configured_file_is_named_in_the_report() {
+        // The other half: the line is worth nothing if it says the same thing either way. One real
+        // file, so what is asserted is the path reaching the log - which is the thing an operator
+        // compares against the path they meant to mount.
+        let dir = std::env::temp_dir().join(format!("sutura-runtime-layers-{}", std::process::id()));
+        drop(std::fs::remove_dir_all(&dir));
+        std::fs::create_dir_all(&dir).expect("a scratch directory is creatable");
+        std::fs::write(dir.join("base.yaml"), "server:\n  port: 9101\n").expect("a scratch file is writable");
+
+        let recorded = crate::testing::capture(|| {
+            let settings = Settings::load(&Sources::defaults(Environment::Development).with_directory(dir.clone()))
+                .expect("one layer over the defaults loads");
+            announce_provenance(&settings);
+        });
+        assert!(recorded.contains("base.yaml"), "{recorded}");
+        assert!(
+            !recorded.contains("embedded defaults only"),
+            "a deployment with a file is not running on defaults only:\n{recorded}"
+        );
+        // Paths, and never a value: the port came out of that file and has no business on this line.
+        assert!(
+            !recorded.contains("9101"),
+            "a value from a file reached the provenance line:\n{recorded}"
+        );
+        drop(std::fs::remove_dir_all(&dir));
+    }
 
     #[test]
     fn the_banner_is_ascii_and_carries_no_trailing_whitespace() {
