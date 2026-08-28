@@ -49,6 +49,40 @@ Extending it to the rest of a metadata adapter's surface - metrics, dimensions, 
 lineage, whatever a Datahub or OpenMetadata adapter can and cannot answer - keeps all three. The
 vocabulary stays closed and the enum stays the contract.
 
+
+## How long a metadata answer may be cached
+
+A metadata connector that is a live service puts that service on the query path. Datahub or
+OpenMetadata being down would then stop sutura answering, and it does not, because of something already
+built: **definitions are PINNED.** The load takes no request context, the bundle is read once and
+hashed, and a request reads the pinned copy rather than the catalog. A metadata outage is therefore
+survivable, which is an unclaimed benefit of pinning rather than a feature anyone added for this.
+
+What is missing is the refresh, and it is **configurable per metadata source**:
+
+- **A TTL per source**, configurable, on which the pinned bundle is refreshed.
+- **A refresh swaps a WHOLE validated bundle, atomically, and bumps the definition version.** Never one
+  metric's definition in place. Two replicas answering from two halves of a bundle is precisely the
+  failure pinning exists to prevent, and a partial swap is how it arrives.
+- **An unreachable catalog at refresh time keeps the last validated bundle serving, and says so
+  loudly.** This is the same rule as the certificate swap in
+  [transport security](0010-transport-security-for-a-source.md): reloading into a broken state is worse
+  than not reloading, because it breaks everything rather than leaving something stale.
+- **An unreachable catalog at STARTUP, with no bundle, is fail-closed.** There is nothing to serve and
+  serving nothing is the correct answer.
+
+**The cache is sound because it holds no rows - and only while the metadata view is not per subject.**
+In `SharedServiceUser` mode one view exists, so one cached bundle is the whole truth and a TTL is a
+freshness question rather than a security one. If a metadata source ever impersonates, meaning a catalog
+that shows different metrics to different people, then a shared cached bundle would serve one person's
+view to another. The rule is then the same one that governs rows: **keyed on the subject first, or not
+cached at all. There is no third option.**
+
+Worth separating from that, because they are easy to conflate: filtering what a caller may SEE out of an
+immutable pinned set is per request and is not cached. What is cached is the definitions, which are the
+same for everyone by construction - "a metric means one thing" is the reason they are pinned in the
+first place. Visibility is a filter over that set and never a source of definitions.
+
 ## Data: which mode the adapter is in
 
 **A data adapter declares its mode, and the mode is what the security argument keys on.**

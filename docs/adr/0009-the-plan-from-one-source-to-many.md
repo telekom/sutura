@@ -213,6 +213,7 @@ Stacked, smallest first, each step green before the next. `stax` manages the sta
 | 5 | **The conformance harness.** Extract the shared test functions; declared capabilities per source. | Adding a source touches a registry and a declaration, never a test function |
 | 6 | **The credential port.** `execute` taking a credential, the subject hoisted out of the legs. | No signature exists that can run as the process; a declared impersonation the deployment cannot perform refuses at boot |
 | 7 | **One network source, Postgres first**, on OAuth per Decision 1. | Two subjects, different rows, in the compose tier |
+| 7b | **Every deployment variant gets a working example.** Single user ships; two-data-systems-refused exists; federation is the same corpus answering; multi user is compose-backed and cannot be faked. | An example that drifts fails a test rather than misleading a reader |
 | 8 | **The compose tier and worktree-aware provisioning.** | Two worktrees provision simultaneously without collision; absent docker prints SKIPPED and exits 0 |
 
 Steps 0 to 2 need no decision from anyone and touch no adapter. Step 7 is where the identity story
@@ -259,6 +260,9 @@ now and impossible to retrofit, and they are marked.
   belongs in a refusal rather than a silent scrub.
 - **Advertised tools filtered by scope**, so a tool the caller may not invoke is invisible rather than
   rejected on call.
+- ~~Data-side identifiability~~. **Deferred deliberately for the start.** So a changed number means
+  the data or the semantics moved, and telling which is a question answered by hand until something
+  identifies the data side. Recorded so nobody mistakes the silence for an oversight.
 - **Determinism, now stated:** the same semantics over the same data must give the same result. A
   different number is therefore evidence that the data moved or the semantics did, and never evidence
   that the system is nondeterministic. Two consequences: nothing in the plan or the render may depend

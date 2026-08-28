@@ -160,8 +160,9 @@ observable.
 - `two_models_on_one_source_become_one_leg`.
 - `a_leg_that_was_pulled_rather_than_pushed_says_so`.
 
-**Done when** rows equal the single-source corpus, each leg's statement is pinned, and the row cap and
-memory bound are shown refusing on an oversized intermediate.
+**Done when** rows equal the single-source corpus, each leg's statement is pinned, the row cap and
+memory bound are shown refusing on an oversized intermediate, and **the two-source example flips from a
+refusal to an answer** - the same corpus, so the diff is the behaviour change.
 
 ## 7. Conformance packs
 
@@ -223,8 +224,9 @@ shared-pool-plus-role-switching.
 **Tests.** The two-subject test that cannot exist today: two identities, a row-level policy at the
 source, different rows, asserted. Compose tier by nature.
 
-**Done when** two subjects get different rows through the same question, and the artifact question from
-the ADRs is answered rather than deferred - which of the shipped binaries links a native driver.
+**Done when** two subjects get different rows through the same question, **the multi-user example
+demonstrates exactly that end to end**, and the artifact question from the ADRs is answered rather than
+deferred - which of the shipped binaries links a native driver.
 
 ## 10. The compose tier
 
@@ -253,6 +255,35 @@ for serving rather than a second path.
 the middle one, the one that gets forgotten, has a test of its own.
 
 ---
+
+## The examples are the demo, one per deployment variant
+
+**Every deployment variant gets a WORKING end-to-end example, and "working" means a test runs it.** Not
+a README describing what would happen. The existing example is already exercised by
+`crates/sutura-cli/tests/example.rs`, which asserts five exact measure sets, so the bar is set: an
+example that drifts fails a test rather than misleading a reader.
+
+| Variant | Example | What it demonstrates | Lands with |
+| --- | --- | --- | --- |
+| **Single user** | `examples/single-player` (exists) | One source, static credentials, the whole measure vocabulary | shipped |
+| **Two data systems, refused** | the two-source corpus (written, unmerged) | That crossing two `SourceName`s is refused today, from a real on-disk catalog. A permanent governance boundary rather than a placeholder | before step 6 |
+| **Federation** | the same corpus, answering | The same question that was refused now answers across two sources, so the diff shows exactly what changed in behaviour | step 6 |
+| **Multi user** | a new corpus, compose-backed | Two subjects, the same question, DIFFERENT rows, enforced by the source | step 9 |
+
+Three things this ordering buys, and the middle one is the reason to do it this way:
+
+1. **The refusal corpus is the red half.** It exists before federation, asserts today's behaviour, and
+   the day federation lands the same example flips from a refusal to an answer. That is red-before-green
+   at the level of a demo rather than a unit test.
+2. **The multi-user example cannot be faked.** No local file enforces a row-level policy, so this one is
+   compose-backed by nature and lands with step 9, not before. A fixture that answered the same rows for
+   both subjects and passed would be worse than no example at all - it would look like proof.
+3. **The federation example is the same corpus, not a new one.** Reusing it is what makes the behaviour
+   change legible; a fresh corpus would hide the change in unrelated diff.
+
+**A note on naming.** The refusal corpus is currently `examples/federation`, whose README has to open by
+saying it is not the federation example. Rename it to what it demonstrates - two data systems - and let
+`federation` name the one that federates. Cheap now, one test and two READMEs.
 
 ## What is not in this plan
 
