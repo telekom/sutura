@@ -36,8 +36,8 @@ anything outside this repository.
 
 The single-player catalog is also an input to `sutura-serve`, the second binary, and that
 surface has a threat model the command line does not: a token is required beyond loopback and
-it authenticates the deployment rather than the caller, a refusal comes back `200` with an
-outcome instead of a `4xx`, and the service refuses to start in a posture nobody chose.
+it authenticates the deployment rather than the caller, a refusal carries an error status AND a
+machine-readable `code` AND a sentence, and the service refuses to start in a posture nobody chose.
 `single-player/README.md` has a captured session showing all of that - the startup output
 including the line saying there is no per-caller identity, a question and its `provenance`, a
 refusal over the wire, the token gate, the liveness probe, the generated interface description,

@@ -656,8 +656,17 @@ pub enum Capability {
 //
 // `const _` rather than a named constant: a name would be an item nothing reads, and `dead_code` is
 // denied in this workspace.
+// ON THE DISCRIMINANT, not on `previous()`, and the difference is the whole guard. A
+// `previous().is_none()` assertion catches the CAREFUL author - who inserts `Foo` before `Glossary`
+// and writes `Glossary => Some(Foo)` - and misses the mechanical one, who writes the natural pair
+// for a new first variant (`Foo => None`, leaving `Glossary => None`) and satisfies every exhaustive
+// match, the assertion, and the round-trip test, while `every()` still starts at `Glossary` and never
+// yields `Foo`. That is the inverse of what this is for.
+//
+// A fieldless enum casts without `#[repr]`, so a variant declared ahead of `Glossary` shifts the
+// discriminant off zero and this fails to compile however the matches are spelled.
 const _: () = assert!(
-    Capability::Glossary.previous().is_none(),
+    Capability::Glossary as u8 == 0,
     "Capability::every is seeded with Glossary, so no capability may be declared before it"
 );
 
@@ -693,10 +702,20 @@ impl Capability {
     /// total, and both of the guard's own tests still passed: content for the new capability was never
     /// looked at, because the walk never reached it.
     ///
-    /// So the seed is checked rather than trusted. The const assertion below this `impl` block reads
-    /// this function, so a variant declared before `Glossary` fails to compile in this file rather than
-    /// disappearing out of a list. One more match the compiler forces, which is the same trade
-    /// [`Self::next`] already makes.
+    /// So the seed is checked rather than trusted - but NOT by this function, and that correction is
+    /// the point. An assertion on `previous().is_none()` caught the CAREFUL author, who inserts a
+    /// variant before `Glossary` and writes `Glossary => Some(Foo)`, and MISSED the mechanical one,
+    /// who writes the natural pair for a new first variant (`Foo => None`, leaving
+    /// `Glossary => None`) and satisfies every exhaustive match, the assertion and the round-trip
+    /// test while `every` still starts at `Glossary`. The guard below this `impl` block is on the
+    /// DISCRIMINANT, which no spelling of these matches can satisfy.
+    ///
+    /// What survives here is the inverse WITNESS: the round-trip test asserts `next` and this
+    /// function are inverses over the whole chain, which is what makes `next` a bijection rather
+    /// than merely total. Scoped to test builds because that test is its only reader and
+    /// `dead_code` is denied in this workspace - an `#[expect]` would keep a function alive in
+    /// shipped code to satisfy a test.
+    #[cfg(test)]
     const fn previous(self) -> Option<Self> {
         match self {
             Self::Glossary => None,
