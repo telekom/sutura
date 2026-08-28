@@ -163,6 +163,7 @@ nav:
       - The plan, from one source to many and one user to many: adr/0009-the-plan-from-one-source-to-many.md
       - Transport security for a source: adr/0010-transport-security-for-a-source.md
       - Pluggable by declaration: adr/0011-pluggable-by-declaration.md
+      - Conformance packs for inputs and adapters: adr/0012-conformance-packs-for-inputs-and-adapters.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
