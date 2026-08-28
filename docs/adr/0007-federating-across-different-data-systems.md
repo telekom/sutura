@@ -1,6 +1,6 @@
 ---
 title: Federating across different data systems
-description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source subplans rendered by sutura-sql and combined by DataFusion - why the combiner is ours and not an unparser, why a compiled dialect is a golden and not a feature flag, which of the six single-source assumptions each track forces in what order, and why attaching several databases was declined outright rather than sequenced.
+description: The two tracks for BigQuery, Postgres and Oracle - one source is a whole-query pushdown in that system's dialect and involves no federation, several sources are per-source legs rendered by sutura-sql and combined above the port - the three leg shapes and the two-variant plan type that expresses them, why the combiner is ours and not an unparser, why a compiled dialect is a golden and not a feature flag, where the RowSet-to-Arrow boundary lives and what the leg size bound does and does not reach, which of the six single-source assumptions each branch forces in what order, and why attaching several databases was declined outright rather than sequenced.
 ---
 
 # Federating across different data systems
@@ -11,13 +11,25 @@ no dependency.
 both a federation crate and attaching several databases below the port. This record decides
 what is built instead, for the systems that are three separate logins: BigQuery, Postgres and Oracle.
 
-**Amended.** This record decided that a measure which cannot be re-aggregated across legs is
-REFUSED. [The plan](0009-the-plan-from-one-source-to-many.md) decides the opposite and supersedes it:
-push what descends, and otherwise retrieve finer-grained rows and compute above. Three things below
-are therefore superseded and marked in place - step 1's `RefusalReason` variant, the consequence that
-six of eleven metrics refuse a cross-source dimension, and the open question of whether `Avg` is
-rewritten or refused. The reasoning that produced the refusal is kept, because it is why the pull-up
-needs a bound.
+**Amended, and the amendment is finished rather than announced.** This record decided that a measure
+which cannot be re-aggregated across legs is REFUSED.
+[The plan](0009-the-plan-from-one-source-to-many.md) decides the opposite and supersedes it: push what
+descends, and otherwise retrieve finer-grained rows and compute above. Decision 3 of the same record
+retires the per-leg **row** cap in favour of a working set bounded in bytes.
+
+A previous revision of this page put those two facts in this paragraph and left four later parts
+arguing the withdrawn design: an ordered step whose evidence was a refusal that no longer exists, a
+guarantee table asserting both that a non-combinable measure refuses and that a per-leg cap is
+asserted, and two open questions that were closed. **Each is rewritten below rather than struck.** A
+banner over a live design is the shape this repository has already paid for once, and a reader who
+opens this record in the middle has no way to know a banner exists at the top.
+
+**What the reversal costs, said where the withdrawal is.** The refusal was cheap and the pull-up is
+not. A measure that does not descend is answered by transporting finer-grained rows, so the resource a
+refusal used to protect is now protected by a bound - and it also forces a shape decision the refusal
+let this record avoid, because a leg carrying distinct keys is not an aggregate and cannot be
+represented by the type an aggregate leg uses. *Three leg shapes, and what each costs* below is the
+section the reversal wrote, and it is the part of this record the plan has to be reconciled against.
 
 ## The decision
 
@@ -30,10 +42,12 @@ adds a `Dialect` variant, a golden family and an adapter, and relaxes **none** o
 single-source assumptions. No federation is involved and none should be implied.
 
 **Track 2 - several data sources: our renderer per source, DataFusion as the combiner.** The
-semantic plan splits into per-source subplans, **each of which is itself a whole mono-source
-`QueryPlan`**; each is rendered by `sutura-sql` in its own dialect with its bind parameters and forced
-quoting intact; each executes through its own `Warehouse` adapter under its own credential; and
-DataFusion joins and re-aggregates the results. This is the architecture.
+semantic plan splits into per-source legs, **each of which is itself a whole mono-source plan** -
+never a fragment, and *not* a `QueryPlan`, for the reason *Three leg shapes* gives below: two of the
+three leg shapes are things `QueryPlan` cannot say. Each leg is rendered by `sutura-sql` in its own
+dialect with its bind parameters and forced quoting intact; each executes through its own `Warehouse`
+adapter under its own credential; and DataFusion joins and re-aggregates the results above the port.
+This is the architecture.
 
 **The combiner is DataFusion. The generator is never DataFusion.** `datafusion-federation`'s route -
 DataFusion's unparser rendering the pushed statement - is declined, and this is the sentence that
@@ -43,9 +57,8 @@ closure. Stating that precisely, because an overstated control is itself the def
 `polyglot-sql` IS a parser and is already in the closure, the golden suite parses every statement it
 pins, and `sutura_sql::expression` parses at load. What holds is narrower and still worth having -
 nothing parses on the QUERY PATH, and `datafusion`'s `sql` feature stays off, so no second parser and
-no unparser arrive. `polyglot-sql` occupies
-the position `sqlglot` occupies in comparable systems: **generation per dialect, never
-transpilation.**
+no unparser arrive. `polyglot-sql` occupies the position `sqlglot` occupies in comparable systems:
+**generation per dialect, never transpilation.**
 
 **Attaching several databases is declined, DuckDB included.** Every source reaches the semantic
 compiler and standard credentialed access; there is no shape in which one connection stands in for
@@ -57,7 +70,9 @@ track 2**, and that is where the machinery gets built. The argument is in its ow
 **And the first thing built is neither track.** It is a decision about which aggregates survive being
 computed at a finer grouping and added back up, because two of the six in the vocabulary do not, and
 **six of the eleven metrics in the shipped corpus use one of those two.** That is track 2's version of
-the change that compiles, passes and answers wrongly.
+the change that compiles, passes and answers wrongly. The answer is a pull-up rather than a refusal -
+finer-grained rows, computed above - and it is the pull-up that makes a leg a shape today's plan type
+cannot express, which is the next-to-last section of the decision below.
 
 ### The connectors this is built for
 
@@ -220,52 +235,299 @@ a relationship that does not start there, and no join may duplicate rows, becaus
 declared `OneToMany`. That shape is what makes the split expressible: the measure and the bucket
 always live on the fact model, and a dimension is always a one-hop lookup beside it.
 
-- **One aggregate leg**, on the metric's own model's source. A whole `QueryPlan`, grouped by the time
-  bucket, the local keys **and the join key of every remote dimension**, carrying every filter whose
-  column lives in that source.
+- **One fact leg**, on the metric's own model's source. Grouped by the time bucket, the answer's local
+  keys, **the join key of every remote dimension**, and - for a term that cannot descend - **the
+  distinct key that term needs**; projecting one column per term that CAN descend; carrying every
+  filter whose column lives in that source. One leg per source and not one per term, and *Three leg
+  shapes* below is why fusing them is free.
 - **One lookup leg per remote dimension model.** The join key and the needed columns, distinct, with
   any filter that belongs there.
-- **The combine, in DataFusion, above the port.** Join each lookup onto the aggregate leg - INNER where
-  that dimension carries a filter, LEFT where it does not, and *A second finding* below is why that
-  distinction is not cosmetic - re-aggregate, then apply a ratio's division and its zero handling, then
-  project into the labels `QueryPlan::result_labels` already fixes.
+- **The combine, above the port.** Join each lookup onto the fact leg - INNER where that dimension
+  carries a filter, LEFT where it does not, and *A second finding* below is why that distinction is not
+  cosmetic - re-aggregate the descended columns, count distinct over the key columns that were carried
+  instead, then apply a ratio's division and its zero handling, then project into the labels
+  `QueryPlan::result_labels` already fixes.
 
-Four dimensions and one hop mean **at most five legs**, and that bound is a consequence of checks that
-already exist rather than a new budget.
+Four dimensions and one hop mean **at most five legs** - one fact leg plus one lookup per remote
+dimension model - and that bound is a consequence of checks that already exist rather than a new
+budget. **The leg COUNT is the easy bound and it is not the one that matters;** the leg SIZE bound is
+below, with the number it has and the number it does not.
 
-### The finding that decides the cost: two of six aggregates do not survive the split
+### Three leg shapes, and what each costs
+
+**This is the decision this record was missing, and it is why the plan could not be executed.** Naming
+*an aggregate leg* and *a lookup leg* was sufficient while a non-decomposable measure was refused. It
+is not sufficient now: pulling `CountDistinct` up means the fact leg has to transport the distinct
+**keys** rather than a count, and neither an aggregate leg nor a dimension lookup represents that. So
+the shapes are enumerated here against the types that exist, and each is priced. **The plan executes;
+this record decides.**
+
+**Read the existing type first, because it cannot express any of the three.** `QueryPlan` at
+`crates/sutura-domain/src/plan.rs:319-332` holds twelve fields and four of them decide this section:
+`bucket: PlanBucket` and `measure: PlanMeasure` are required and not `Option`; `measure_label` is one
+label; and `max_rows` is set to `MAX_ROWS` by the constructor, which takes no parameter for it.
+`generate` at `crates/sutura-sql/src/generate.rs:233` projects the keys, then one bucket expression,
+then **exactly one** measure expression; groups by the keys and the bucket; and always emits
+`LIMIT plan.row_limit()`.
+
+| Shape | What it is | Can today's `QueryPlan` say it? |
+| --- | --- | --- |
+| **Aggregate fact leg** | grouped by the bucket, the local keys and every remote join key, projecting one column per PUSHED term | **No.** A ratio must not be divided per leg and a decomposed `Avg` is a sum beside a count, so a leg projects a LIST of terms. `measure` is one `PlanMeasure` and `measure_label` is one label. `measure_expression` renders `Ratio` as a division with a `NULLIF`, which is exactly the thing 0009's Decision 2 forbids per leg |
+| **Distinct-key fact leg** | the same grouping plus the distinct key itself, with **no aggregate over that column** | **No.** There is no `PlanMeasure` that means "nothing", and adding one would put an absent case on the closed measure vocabulary - the shape AGENTS.md's row about `Option<String>` on `Measure` exists to keep out |
+| **Dimension lookup leg** | the join key and the needed columns, distinct, off the dimension table | **No.** A dimension table has no time column and no measure, and `bucket` and `measure` are both required |
+
+And one row that is not a shape but fails the same way for all three: **no leg carries an answer-shaped
+row cap.** 0009's Decision 3 retires it, and `QueryPlan::new` has no parameter that could omit it.
+
+**So the decision, in one sentence: `QueryPlan` is not touched, and a leg is a new domain type with two
+variants.**
+
+#### The type
+
+`LegPlan`, in `sutura_domain::plan`, and the reason it is an enum rather than a struct with four
+`Option`s is the habit this repository states as *prefer unrepresentable to checked*: there are exactly
+two legal shapes and the illegal combinations - a measure with no bucket, a range on a table with no
+time column - should not be constructible at all.
+
+| Variant | Fields | Reads |
+| --- | --- | --- |
+| `Fact` | `source`, `metric`, `table`, `joins` (same-source hops only), `bucket`, `keys`, `terms`, `filters`, `params`, `range` | the metric's own model |
+| `Lookup` | `source`, `table`, `keys`, `filters`, `params` - no bucket, no terms, no range | one remote dimension model |
+
+**Two variants and not three, and the factoring is the decision rather than a preference.** There are
+three SHAPES and two axes to split them along, and only one of the two splits is worth a variant:
+
+- **Split by which model is read** and four fields move together: a dimension model has no time
+  column, so no bucket and no range; it is not the metric's own model, so no metric name; and a
+  one-hop dimension join does not start from it, so no joins. Four absences that always co-occur are
+  what a variant is for.
+- **Split by whether an aggregate is applied** and exactly one field moves: `terms` is empty or it is
+  not. A variant for that would duplicate the other nine fields to express one bit, and both halves
+  would render identically - project the key list, group by the key list.
+
+So the aggregate and distinct-key shapes are one variant differing in one field, and the lookup shape
+is the other. **The alternative collapse was considered and rejected:** putting the two DISTINCT shapes
+together as one variant and the aggregate on its own needs `Option<PlanBucket>` and
+`Option<TimeRange>` on the shared variant, which makes *a dimension leg with a time range* and *a fact
+leg with no bucket* both constructible - the checked shape, where this one is the unrepresentable one.
+
+Three things about `Fact` carry the whole decision:
+
+- **`keys` holds three kinds of column and the type does not distinguish them:** the answer's local
+  dimension keys, every remote dimension's join key, and every distinct key a non-descending term
+  needs. It does not distinguish them because the RENDERING does not care - all three are grouped by
+  and projected - and the combine reads which is which from the `FederatedPlan` beside the legs rather
+  than from the leg. Bounded by arithmetic that already exists: `MAX_DIMENSIONS` is 4, so at most four
+  dimension keys, plus one bucket, plus at most two distinct keys, because a `Measure` is one term or a
+  ratio of two. **Seven grouping columns, worst case, derived rather than budgeted.**
+- **`terms` is a `Vec<LegTerm>` and it may be EMPTY, and the empty case is the whole of the
+  distinct-key leg.** A `Fact` leg with no terms groups by its key list and projects it, which is
+  a distinct set of keys - so the third shape in the table above needs no third variant, only an empty
+  vector. At most four entries, because a `Measure` is one term or a ratio of two and `Avg` expands one
+  term into two.
+- **`LegTerm` holds a `PlanTerm` and a label, and NOT a `PlanMeasure`. That is the mechanism, and it is
+  a type rather than a convention.** `PlanMeasure` has exactly two variants and the only one that
+  carries two terms is the one that DIVIDES them: `measure_expression` at
+  `crates/sutura-sql/src/generate.rs:200` emits `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`
+  for a `Ratio`. So **a decomposed `Avg` travelling as a sum and a count, and a ratio travelling as an
+  undivided numerator and denominator, are not expressible by `PlanMeasure` at all** - which makes
+  Decision 2 a domain change rather than a generator one, and is the single sharpest reason a leg
+  needs its own type. With `LegTerm` there is no `Ratio` shape a leg can carry, so `ZeroDenominator`
+  cannot reach a leg's statement and a division per leg is not something a reviewer has to notice.
+  `PlanTerm` is reused unchanged, and that is free because `plan.rs:180-190` already mirrors `Term`
+  at the plan level for exactly this reason - *"so an adapter that renders one half of a ratio and
+  one that renders a whole measure reach for the same function"*.
+
+**One fact leg per source, fused across terms, and the fusion is what keeps the leg count at five.** A
+ratio of a `Sum` and a `CountDistinct` could be two fact legs against the same table - one grouped
+coarsely with the sum, one grouped finely with the key - and it is one leg instead, grouped at the
+finest grouping any term needs, because `Sum`, `Count`, `Min`, `Max` and `CountIf` all survive being
+computed at a finer grouping and added back up. That is the same property Decision 2 turns on, applied
+one level down. It costs the sum's column extra rows and saves a second scan of the same table, and
+which of those is cheaper depends on the data. **The shape would permit either and this record fixes
+one**, so that the leg count is a property of the shape rather than of an optimiser's mood - and so
+that a reviewer counting legs in a log has a number to compare against.
+
+#### What each shape does to `sutura-sql`
+
+**One new entry point, and "nothing new" is wrong.** `generate_leg(&LegPlan, Dialect) ->
+Result<GeneratedQuery, GenerateError>` beside `generate`, sharing `column`, `aliased`, `aggregate`,
+`term_expression` and `predicate`, and differing from `generate` in exactly four ways: it projects a
+list of term columns rather than one measure expression; it omits the bucket for a `Lookup`; it emits
+**no `LIMIT`**; and it never calls `measure_expression`, because there is no `PlanMeasure` in a
+`LegPlan` to hand it. One golden family, statement and parameters, per leg per dialect.
+
+**No existing golden moves, and that is checkable rather than asserted.** `QueryPlan` is untouched, so
+the 63 statement snapshots, the 63 parameter snapshots and the 21 `plan@markdown` snapshots are all
+renderings of a type this change does not edit. AGENTS.md's counted claim about 63 goldens reading
+`LIMIT 10001` therefore stands as written, and `check-guidance`'s counter -
+`xtask/src/guidance/claims.rs:273`, which holds the literal `LIMIT 10001` - does not need to move
+either. **The limit of that claim:** it holds because the new legs are new snapshots, so the first
+person to add a leg golden must not put a `LIMIT` in it, and nothing mechanical stops them. The
+generator emitting none is what makes it hard to get wrong.
+
+**And a correction this record owes, because it claimed a mechanism it does not have.** An earlier
+version of the ordered plan said the lookup-leg plan type would be *"the first step that moves the
+definition digest, because a new domain type changes a serialized form"*. **That is false.**
+`DefinitionDigest::of` at `crates/sutura-domain/src/definitions.rs:91` takes the `Definitions` and the
+`Knowledge` and nothing else. `QueryPlan` is not under the digest, `LegPlan` will not be either, and no
+plan-shape change moves a digest. What a new plan type moves is its own new snapshots, and what moves a
+digest is a catalog edit - including moving a model to a second source, which is the fact that actually
+matters here and is stated correctly in *What does not change* below.
+
+#### What each shape does to the port
+
+**`Warehouse::execute` does NOT keep its signature, and an earlier version of this record said it
+would.** That claim was true only while a leg was a `QueryPlan`, and the section above is why it is
+not. Corrected in the direction that costs us:
+
+> `execute` takes an `Executable` - a two-variant enum over a whole `QueryPlan` and a `LegPlan` - so
+> every adapter's top-level match is exhaustive and a third leg shape cannot be added without every
+> adapter stating what it does with it.
+
+The alternative considered and rejected was a second port method for legs. It is a smaller diff and it
+is worse in the way that matters: a second method invites a default, a default that returns an error
+lets an adapter be silently non-federating, and "adding a data system is a registration" then stops
+being true in the one direction nobody would notice. An exhaustive match is the mechanism this
+repository reaches for elsewhere - *a new shape is a domain variant plus a plan variant plus a
+generator arm plus a golden* - and this is the same case.
+
+What that costs, named rather than implied: **the signature of the one method every adapter and every
+fake implements changes**, across `sutura-exec-datafusion`, `sutura-exec-duckdb`,
+`crates/sutura-app/tests/support/oracle.rs` and `crates/sutura-http/src/testing.rs`, and `dry_run`
+changes with it. It is a wide mechanical diff and it lands in the same commit as the type, which is
+what keeps it a diff rather than a drift. And it is the same signature 0008's credential and 0009's
+deadline arrive on, which is an argument for one method rather than two.
+
+**What does NOT change, and it is the property that was worth protecting all along: the port still
+carries a WHOLE plan and returns a WHOLE result. It never carries a fragment.** A fragment protocol is
+what gives up the guarantee that push-down is complete, and no shape here needs one. The number of
+plan shapes the port carries went from one to two; the protocol did not move.
+
+**And a second driven port arrives, because the combine cannot live in `sutura-app`.** The combine
+needs DataFusion and `sutura-app` may not name a framework, so the domain declares a port - named for
+what the domain needs, beside `Warehouse` and `SemanticCatalog` - and a crate above that port
+implements it over DataFusion. `LocalService` becomes generic in both, and AGENTS.md's rule that a port
+trait arrives with its first implementor is what keeps the two in one commit. That is also the line
+about the engine belonging above the port once federation lands, arriving as a type:
+`sutura-exec-datafusion` keeps its `Warehouse` impl for local files, because the engine is also a data
+source, and the combiner is a separate implementor of a separate port. An adapter never calls another
+adapter, so the composition root wires both.
+
+**The port takes the legs' `RowSet`s and the `FederatedPlan`, and returns the answer's `RowSet`.** It
+gets a fake, for the reason *Conventions* gives: every refusal the combine can produce - the
+working-set ceiling, the deadline, the answer's row cap - has to be provokable without a data system,
+and a fake combiner is what makes the refusal corpus reach them.
+
+#### Where the `RowSet`-to-Arrow boundary lives
+
+**Every leg crosses it, so the record has to say where it is rather than leaving it to whoever writes
+the combine.** The decision: **the port's currency stays `RowSet` for the first federated milestone,
+and the conversion to Arrow lives in exactly one function inside the combiner crate.**
+
+Why not move the port to Arrow first, which is the direction `docs/architecture.md:113-127` records:
+`arrow` is a framework the domain may not name, `sutura-arrow` does not exist, and the pinned `duckdb`
+and `datafusion` disagree on the Arrow major - `arrow 58.4.0` under the driver and `59.2.0` under the
+engine, both in `Cargo.lock` today - so an Arrow-typed boundary between them is either IPC bytes,
+which copies every buffer, or the C data interface, which `unsafe_code = "forbid"` puts out of reach.
+ADR 0006 built both of those walls. Deciding an Arrow port here would be deciding a record 0009
+already says wants its own.
+
+**What that costs, and it is a real number rather than a shrug.** The engine's own leg pays Arrow into
+`RowSet` in `sutura-exec-datafusion`'s `collect.rs` and then `RowSet` back into Arrow in the combiner -
+two conversions for data that never left the process. Every SQL leg pays one. **One function, named,
+in one crate, is what makes that measurable and what makes it a single place to delete** when the Arrow
+record lands.
+
+**And that one function is where a leg's bytes get counted, which is the second decision this section
+owes.** 0009's Decision 3 says the working-set bound is the engine's memory pool and that the pool
+counts what its operators reserve - not a row set a driver handed back, and not a leg's buffers before
+conversion. So a leg held as a finished `RowSet` is **invisible to the bound that is supposed to
+protect the process from it**, and a bound that bites only when the combine reserves bites after the
+rows are already in memory. The decision:
+
+> **The byte budget is applied AS rows are converted, inside that one function, rather than to a
+> finished `RowSet`.** A leg is refused while it is arriving, which is the only place a bound can
+> refuse before the memory has already been spent.
+
+That is what makes *one function, in one crate* load-bearing rather than tidy: it is the single place
+that sees every leg's rows before anything holds all of them, so it is the only place the bound can be
+enforced at all. **The limit, stated with it:** this bounds the CONVERSION and the pool bounds the
+COMBINE, which are two bounds over two quantities, and neither covers what a driver buffered inside
+itself before handing rows back. `feat/query-bounds` owes a measurement of the third.
+
+#### The leg SIZE bound, which is the one that matters
+
+The count bound is five. **The size bound has one number and it is not per leg, and saying so is
+better than implying there is one.**
+
+| Leg | Rows it returns | Bounded by |
+| --- | --- | --- |
+| `Fact`, with terms only | the distinct (bucket x local keys x remote join keys) tuples in the range | the **remote join key's** cardinality, which is the cardinality driver: `revenue by region` over 50,000 customers and 12 months is up to 600,000 rows of a key, a month and a sum |
+| `Fact`, carrying a distinct key | the above, times the distinct key | the FACT table's own grain. `active subscriptions by region` carries (month, customer key, subscription key) - one row per subscription per month in the range. Over five million subscription-months that is five million rows of three narrow columns, roughly 120 MB before any framing |
+| `Lookup` | the distinct keys and columns surviving its own filters | the dimension table's cardinality |
+
+**There is no per-leg number, deliberately, and 0009's Decision 3 is why:** a count of rows per leg
+protects nothing that is scarce, because it cannot tell 50,000 rows of two integers from 50,000 rows of
+wide text. The number that exists is the **per-query working set**, provisionally 1 GB, and it is
+provisional in the strict sense - nobody measured it, `feat/query-bounds` does, and it is written down
+so it cannot harden into a decision by having appeared in a record.
+
+Two consequences of that bound being per QUERY rather than per leg, and both are decisions rather than
+notes. **A question with a distinct-key leg and four lookups shares one budget**, so the legs compete
+rather than each having room. And **the distinct-key leg is the shape that reaches the ceiling first**,
+by roughly the ratio of the fact grain to the answer's grain - which is the price of the pull-up,
+stated as a quantity rather than as "we pay the processing cost".
+
+### The finding that decides the cost: two of six aggregates do not descend
 
 Grouping the fact leg by a remote join key is a strictly finer grouping than the answer, so the
 combine has to aggregate again. Whether that is correct depends entirely on the aggregate.
-`Aggregate` is the six-variant closed enum at `crates/sutura-domain/src/model.rs:190-197`:
+`Aggregate` is the six-variant closed enum at `crates/sutura-domain/src/model.rs:190-197`, and the
+third column is what each one costs a leg:
 
-| `Aggregate` | Combine step | Correct? |
+| `Aggregate` | How it travels | What the leg carries |
 | --- | --- | --- |
-| `Sum` | `SUM` | yes |
-| `Count` | `SUM` | yes, and note the function is not the same one |
-| `Min` | `MIN` | yes |
-| `Max` | `MAX` | yes |
-| `Avg` | `AVG` | **no.** Correct only if the leg is rewritten into a `SUM` and a `COUNT` divided after the combine, which is a different `PlanMeasure` than the metric declares |
-| `CountDistinct` | anything | **no, and no rewrite exists.** Two join keys can share a subscription, so adding two exact distinct counts over-counts. An exact answer needs the distinct values shipped rather than a count |
-| `CountIf`, the other `PlanTerm` | `SUM` | yes |
+| `Sum` | descends as written, `SUM` above | one term column |
+| `Count` | descends as written, `SUM` above - note the function is not the same one | one term column |
+| `Min` | descends as written, `MIN` above | one term column |
+| `Max` | descends as written, `MAX` above | one term column |
+| `Avg` | **descends decomposed:** a `SUM` and a `COUNT` per leg, divided once above. `AVG` of `AVG`s is wrong | **two** term columns |
+| `CountDistinct` | **does not descend at all.** Two join keys can share a subscription, so adding two exact distinct counts over-counts, and no re-aggregating function repairs it. The exact answer is the distinct KEYS in the leg and the count above | **zero** term columns and **one** grouping column |
+| `CountIf`, the other `PlanTerm` | descends as written, `SUM` above | one term column |
+
+**That third column is why `Aggregate::combine_with() -> Option<Aggregate>` is the wrong signature, and
+an earlier version of this record's ordered plan named it.** `Option<Aggregate>` has two outcomes and
+there are three: descends as itself, descends as two columns, does not descend and travels as a
+grouping key. So the exhaustive `const fn` returns a three-variant enum naming those three, and the
+compile error a new aggregate produces is *you have not said which of the three you are* rather than
+*you have not said whether you can*. That is the whole content of `feat/federation-decomposability`.
 
 Counted over `examples/single-player/catalog/metrics/`, which is both the quickstart and the test
 corpus:
 
-| Survives the split | Does not |
+| Descends whole | Must be pulled up |
 | --- | --- |
 | `recurring_revenue` (sum) | `active_subscriptions` (count_distinct) |
 | `voice_minutes` (sum) | `subscription_base` (count_distinct) |
-| `subscriptions_churned` (count_if) | `mean_subscription_mrr` (avg) |
+| `subscriptions_churned` (count_if) | `mean_subscription_mrr` (avg - decomposed, so the cheap kind) |
 | `subscription_months_billed` (count) | `churn_rate` (ratio, denominator count_distinct) |
 | `revenue_per_churned_subscription` (ratio: sum / count_if) | `data_per_subscription` (ratio, denominator count_distinct) |
 | | `revenue_per_customer` (ratio, denominator count_distinct) |
 
-**Six of eleven, and five of the six are blocked by `count_distinct` alone** - which is, after `sum`,
-the most-used aggregate in the corpus. Three of those six declare `region` and `segment`, which are
-exactly the dimensions a federated deployment would move to a second system. So the headline
-demonstration - *revenue by region, across two systems* - works, and *active subscriptions by region,
-across two systems* does not, and nothing in the code as it stands would say so.
+**Six of eleven, and five of the six turn on `count_distinct` alone** - which is, after `sum`, the
+most-used aggregate in the corpus. Three of those six declare `region` and `segment`, which are exactly
+the dimensions a federated deployment would move to a second system. So the headline demonstration -
+*revenue by region, across two systems* - works, and **so does *active subscriptions by region, across
+two systems*, at the cost of a leg carrying one row per subscription per month rather than one row per
+customer per month.** That is the pull-up, and the corpus is the demonstration of its price rather than
+of a refusal.
+
+Worth stating precisely, because the two are easy to run together: `mean_subscription_mrr` and the five
+`count_distinct` metrics are both "does not descend" and they are not the same cost. `Avg` decomposed
+returns exactly as many rows as a `Sum` would, in two columns instead of one. `CountDistinct` gives as
+many rows as the fact grain. **The expensive half of the pull-up is one aggregate, and it is the one
+five of the six metrics use.**
 
 A `Ratio` adds a second trap in the same place. `ZeroDenominator::Null` renders as `NULLIF(d, 0)`.
 Applied inside a leg, a subgroup whose denominator is zero becomes null, `SUM` skips nulls, and that
@@ -275,12 +537,12 @@ must fail on the final denominator, not on a leg's.
 
 ### A second finding, and this one is a wrong number rather than a refusal
 
-*Left-join each lookup onto the aggregate leg*, with *any filter that belongs there* pushed into the
+*Left-join each lookup onto the fact leg*, with *any filter that belongs there* pushed into the
 lookup leg, is **incorrect together**. Either half alone is fine. The pair silently drops a filter.
 
 Walk it. A question filters on a remote dimension - `region = 'south'` - and that column lives in the
 lookup source, so the filter goes to the lookup leg, which returns only southern customer keys. The
-aggregate leg is grouped by customer key and carries no such filter, because the column is not in its
+fact leg is grouped by customer key and carries no such filter, because the column is not in its
 source. Left-join the lookup onto the aggregate and **every non-southern key survives**, matched to
 nothing, its dimension column null. Re-aggregate and those rows land in a null `region` bucket - or,
 worse, get projected into the answer's `region` column as a null label beside the real ones. The
@@ -302,7 +564,7 @@ The left case has to stay left, for the same reason: a fact row whose join key i
 dimension table survives single-source rendering with a null dimension, and an inner join everywhere
 would silently drop it. Both kinds are needed and each is wrong in the other's place.
 
-**Two consequences worth writing down.** The aggregate leg does work that the inner join then throws
+**Two consequences worth writing down.** The fact leg does work that the inner join then throws
 away - it groups keys that no surviving lookup row matches - and that is acceptable rather than
 regrettable: pushing the dimension filter into the fact leg is not available, since the column is not
 in that source. And this is the case the conformance packs must contain by name: **a filter on a remote
@@ -310,52 +572,48 @@ dimension, plus an orphan key in the fact table**, asserted against the single-s
 half alone catches it - an unfiltered question passes with either join kind, and a filtered question
 with no orphans passes with an inner join everywhere.
 
-### What it does to the plan, the port and the goldens, which is less than it looks
+### What it does to the rest of the tree
 
-The important move: **a leg is a whole mono-source plan, not a fragment.** So
+*Three leg shapes* above priced the plan type, the generator entry point, the port and the Arrow
+boundary. What is left is everything else the shape touches, and the first bullet is the one that keeps
+the invariant table intact.
 
-- `QueryPlan` keeps its one `source` field. The invariant *a plan cannot silently span two sources* is
-  not relaxed, re-worded or re-keyed; it applies to each leg unchanged, and what the combine adds is a
-  new thing to refuse rather than an old thing to weaken.
-- `Warehouse::execute(&plan) -> RowSet` keeps its signature. A fragment protocol on the port is
-  avoidable, and avoiding it is most of the saving: a fragment protocol is what gives up the property
-  that push-down is complete.
-- `GeneratedQuery` stays one statement, one source, one parameter list. **No SQL golden moves**, so
-  AGENTS.md's counted claim about 63 goldens reading `LIMIT 10001` does not move for track 2 either.
-
-What is genuinely new, stated as cost rather than hidden in the shape:
-
-- **A second plan type for a lookup leg**, because `QueryPlan` requires a bucket, a measure and a
-  measure label and a dimension table has none of the three. A domain type, a `sutura-sql` entry
-  point, a golden family, and a port method or a second port.
-- ~~A per-leg row cap~~. **SUPERSEDED by [the plan](0009-the-plan-from-one-source-to-many.md): a leg is
-  bounded in BYTES, not in rows.** The arithmetic stays because it is why the bound moved. `row_limit()`
-  is `max_rows + 1` over an ANSWER. Grouped by a customer key rather than a region, the aggregate leg's
-  row count is the *key* cardinality: `revenue by region` over 50,000 customers refuses at 10,001 while
-  its answer is twelve rows - a correct answer refused at a threshold with no relationship to the
-  resource being protected, since 50,000 rows of two narrow columns is a few megabytes. So a federated
-  leg's statement carries no answer-shaped cap, the working-set ceiling refuses a runaway leg on the
-  quantity that would actually have exhausted the process, and the answer keeps its own row cap
-  unchanged. **No existing golden moves:** the mono-source path is untouched and a federated leg is a new
-  plan shape with its own goldens. What is given up is the early refusal - the ceiling bites when the
-  combine reserves memory rather than when the rows arrive. AGENTS.md's *anything that stores or forwards
-  rows* row still applies to the process holding more rows than it certifies, and that remains a human
-  review question rather than an agent's.
+- **A leg is a whole mono-source plan, not a fragment**, and *a plan cannot silently span two sources*
+  is therefore not relaxed, re-worded or re-keyed. It applies to `QueryPlan` unchanged and to each
+  `LegPlan` variant by construction, since neither carries more than one `SourceName`. What the combine
+  adds is a new thing to refuse rather than an old thing to weaken.
+- **`GeneratedQuery` stays one statement, one source, one parameter list.** Both generator entry points
+  return one, so the no-value-as-text row keeps its mechanism per leg with nothing added to it.
+- **`sutura-semantic` returns two shapes.** `compile` produces a `QueryPlan` for a mono-source question
+  and a `FederatedPlan` - the legs, plus which key is which, plus the join kinds, plus the metric's own
+  `PlanMeasure` for the combine to apply above - for a question that spans sources. **`PlanMeasure`
+  stops being a thing a leg renders and becomes a thing the combine reads**, which is how a ratio's
+  `ZeroDenominator` survives the split without being duplicated: the metric's measure travels whole and
+  is applied once, on the re-aggregated totals.
+- **The splitter is analysis over the join graph, not a `BTreeMap` keyed by `SourceName`.** Two lookup
+  models on one remote source with no declared relationship between them would fuse into a cross
+  product, so the rule is *same source AND connected by a declared relationship in this plan*. 0009
+  states it and this record is where the shape it constrains lives; the test that pins it is named for
+  the relationship rather than for the source.
+- **The answer's row cap moves location and not value.** `MAX_ROWS + 1` is applied by the combine on
+  the combined result, and `answer` still refuses `ResultTooLarge` above it. A leg carries no cap and
+  the answer carries the same one it always did.
 - **The join key's type is constrained.** `Value` has four variants and one is `Real`. Joining on a
   float is a wrong answer waiting for a rounding difference, so a cross-source join key is `Integer`
   or `Text`, refused otherwise.
-- **The combine forces the `RowSet` question.** Joining two row-oriented `RowSet`s inside the engine
-  means converting to Arrow and back - exactly the conversion `docs/architecture.md:113-127` records
-  as the reason a port returning Arrow IPC bytes is the direction. The combine is where that stops
-  being a note.
 - **`differential.rs` changes shape**, and its own module doc says so: when the engine moves above the
   port, DataFusion stops being a peer of a data source. That test is the cheap net for a statement
   that is valid SQL with different semantics, and it needs a replacement in the new arrangement rather
   than a deletion.
 - **A leg's failure is not the question's failure.** Five legs mean five ways to be slow and five ways
-  to be unavailable, and a partial result that must never become an answer. `Warehouse::execute`
-  returns a `RowSet` or its error and `answer` holds one warehouse; a failing leg has to refuse the
-  whole question, and saying *which* leg failed is a diagnostic the refusal enum does not carry.
+  to be unavailable, and a partial result that must never become an answer. A failing leg has to refuse
+  the whole question, and saying *which* leg failed is a diagnostic the refusal enum does not carry
+  today.
+- **The startup refusal's replacement is a per-source posture, not a count.** A federated deployment
+  holds several sources, each declaring how it establishes the identity a query runs as, so what
+  refuses at boot is a source whose declared posture the deployment cannot deliver rather than a
+  catalog that named more than one source. That is ADR 0008's and ADR 0011's mechanism and this record
+  only says which assumption it displaces - assumptions 1 and 2 in the table below.
 
 ## The attach route, declined
 
@@ -365,18 +623,27 @@ The direct answer, because it is the question this record was asked to settle.
 `SourceName`s, two `DuckDbWarehouse`s, two legs rendered in the already-golden `duckdb` dialect, one
 combine. That is the smallest possible instance of the real machinery: **no new dependency, no new
 dialect, no network, no credential, no licence review** - and every track-2 mechanism gets built and
-tested against it, from the decomposability refusal to the keyed warehouse set to the working-set ceiling.
+tested against it, from the decomposability match to `LegPlan`'s two variants to the keyed warehouse
+set to the working-set ceiling.
 
 Being precise so this is not over-claimed: by ADR 0006's own definition two files under one process
 and one set of file permissions are **one** data system storing its tables in two places. Declaring
 them two sources is a *test-bed* choice that exercises the plumbing. It does not deliver the identity
 property and must never be described as doing so.
 
-What attaching would buy instead: the same user-facing capability, delivered below the port, at a
-tenth of the runtime cost measured in ADR 0006's spike - 0.01s and 65 MiB against 0.10s and 123 MiB
-for the per-source shape on five million rows, in debug builds. That is a real number and it is not
-decisive at these sizes, and the memory ratio is two rather than the order of magnitude the time
-ratio suggests.
+What attaching would buy instead: the same user-facing capability, delivered below the port, buffering
+less. **65 MiB against 123 MiB for the per-source shape on five million rows** - a factor of two on
+peak resident set, which is not decisive at these sizes.
+
+**And a correction, because this record used to quote a ratio ADR 0006's table cannot support.** The
+sentence here said *a tenth of the runtime cost*. That came from 0.01s against 0.10s in the same table,
+and those two cells are not comparable: the attach leg is DuckDB's own release C++ inside the library
+and the per-source leg is first-party Rust built without optimisation. **Withdrawn rather than
+qualified.** ADR 0006 now says so at the table, the three Rust legs remain comparable to each other
+where the useful finding lives - a rendered pushdown and the federation layer are within noise, and
+pulling whole tables is six times the memory - and **no time ratio involving the attach row is quoted
+anywhere, here included.** Rerunning the three in release is the cheap way to make that column mean
+something and nobody has.
 
 What it does not buy: any of the machinery above. And the hazard, which is the argument: the cheapest
 next step from *attach two files* is *attach a Postgres* - one extension, no new Rust, the same code
@@ -408,61 +675,105 @@ roots; the compile-time `ENGINE_SOURCE` constant; `LocalService<W>` holding one 
 plan-stage `PlanSpansTwoSources`; the plan's one `source` field beside joins that carry only a table
 name; and `answer` refusing when the plan's source is not the warehouse's.
 
+**The fourth column names the branch that moves each one, and no longer a step number.** An earlier
+version of this table indexed into an ordered list further down this page, which made this record a
+second owner of a step number while [the implementation plan](../implementation-plan.md) was the first
+- the exact shape the *one owner per artefact* rule exists to prevent. The plan owns the numbering;
+this record names branches.
+
 | # | Assumption | Track 1 | Attach | Track 2 |
 | --- | --- | --- | --- | --- |
-| 1 | startup refusal, >1 source | untouched | untouched | **retired, step 5** |
-| 2 | `ENGINE_SOURCE` constant | **its wrong-name branch is what a second dialect meets**; the constant itself stays | untouched | **retired, step 5** |
-| 3 | one warehouse per service | untouched | untouched | **replaced by a keyed set, step 4** |
-| 4 | plan-stage `PlanSpansTwoSources` | untouched | untouched | **re-keyed to identity, step 8 - last** |
+| 1 | startup refusal, >1 source | untouched | untouched | **retired in `feat/source-registry`**, where more than one source becomes configurable and each declares its posture. The test is owed first, in `test/startup-source-refusals` |
+| 2 | `ENGINE_SOURCE` constant | **its wrong-name branch is what a second dialect meets**; the constant itself stays | untouched | **retired in `feat/source-registry`**, with the same test owed first |
+| 3 | one warehouse per service | untouched | untouched | **replaced by a keyed set, in `feat/source-registry`** |
+| 4 | plan-stage `PlanSpansTwoSources` | untouched | untouched | **re-keyed to identity, and it is the LAST thing to move** - after `feat/credential-port`, because a principal type has to exist for it to key on |
 | 5 | plan has one `source` | untouched | untouched | **stays. Permanently** |
-| 6 | `answer`'s source comparison | untouched | untouched | **becomes per-leg, step 7** |
+| 6 | `answer`'s source comparison | untouched | untouched | **becomes per-leg, in `feat/two-source-execution`** |
 
 The attach column is why that route is tactical: moving zero assumptions is what makes it cheap and
 what makes its networked continuation the refused shape. The checks an honest federation has to relax
 are the checks attaching leaves reading green.
 
-Assumption 5 never moves, and that is deliberate. Making a two-source `QueryPlan` representable would
-change a domain type whose serialized form is pinned by snapshots and hashed into the definition
-digest. Keeping every leg mono-source is what keeps that type, that digest and 126 statement and
-parameter goldens still.
+Assumption 5 never moves, and that is deliberate - **but for one reason rather than the two this record
+used to give.** Making a two-source `QueryPlan` representable would change a domain type whose
+serialized form is pinned by 21 `plan@markdown` snapshots, and keeping every leg mono-source is what
+keeps that type and the 126 statement and parameter goldens still.
 
-## The ordered plan
+**The second reason was false and is withdrawn:** this paragraph also said such a change would move the
+definition digest. It would not. `DefinitionDigest::of` at
+`crates/sutura-domain/src/definitions.rs:91` hashes the `Definitions` and the `Knowledge`, and
+`QueryPlan` is in neither. The plan and the digest are pinned by different snapshots on purpose, and
+saying otherwise made a plan-shape change sound like a provenance change - which spends exactly the
+trust this record needs for the shape decisions above. What is true about the digest and federation is
+one sentence, and it is about the catalog rather than the compiler: **the digest covers every model's
+`source`, so moving a model to a second system already moves it.**
 
-Dependent steps, so they stack: `stax` is in the dev shell and
-`.agents/skills/git-ops/stacked-branches/SKILL.md` is the guidance. Each step names the evidence it
-owes, because a step whose test passes against the base behaviour proves nothing.
+## The order, by branch
 
-1. **The decomposability decision.** `Aggregate::combine_with() -> Option<Aggregate>` as an exhaustive
-   `const fn`. ~~plus a `RefusalReason` variant~~ - **SUPERSEDED by 0009: a non-decomposable measure is
-   pulled up, not refused, so there is no variant here.** Before anything else, because it is
-   the change that answers wrongly if it comes last. Pure domain addition; evidence is the per-variant
-   test and the two total matches that will not compile until agent-facing guidance exists.
-2. **The multi-source fixture in `examples/multi-player`, and the two missing startup-refusal tests.**
-   The fixture makes step 1's refusal provokable from a question file. The tests cover the
-   **more-than-one** branch, which is the untested one, and they are owed *before* the thing they
-   guard is dismantled. Not the single-player corpus: moving a model there was costed and flips 7
-   questions from planned to refused, deletes 21 SQL goldens, and moves a sentence a gate counts.
-3. **Track 1 for Postgres**: the adapter, and a real Postgres to point it at. **Integration testing
-   arrives via docker compose** - `compose.dev.yaml` exists and carries no such service yet, and Datahub on the metadata side
-   is the other case it serves. Evidence is the anchor check and `differential.rs` against a real
-   server, which is what the DuckDB adapter exists to do for DuckDB.
-4. **Per-source configuration and a keyed set of warehouses** - assumption 3, and with it the single
-   `catalog.data_dir` and the source-to-adapter selection `docs/architecture.md:595-600` records as
-   deliberately absent. This is where `SourceName` stops being compared for equality and starts
-   selecting.
-5. **The two startup refusals retired** - assumptions 1 and 2, one at a time, each with its test
-   already written in step 2.
-6. **The lookup-leg plan type, its generator entry point and its goldens.** The first step that moves
-   the definition digest, because a new domain type changes a serialized form.
-7. **The combine, above the port, with two DuckDB files as its first instance** - assumption 6 becomes
-   per-leg. Where the working-set ceiling lands, where the `RowSet`-to-Arrow question is answered rather
-   than deferred, and where `differential.rs` gets its new shape.
-8. **Only then the plan-stage refusal** - assumption 4, re-keyed from *a plan spanning two sources* to
-   *a plan spanning two identities*, which is the property that was always meant. It cannot be written
-   before a principal type exists, and moving it first is the diff that produces a wrong number.
+Dependent work, so it stacks: `stax` is in the dev shell and
+`.agents/skills/git-ops/stacked-branches/SKILL.md` is the guidance. Each entry names the evidence it
+owes, because work whose test passes against the base behaviour proves nothing.
 
-Track 1 for BigQuery and Oracle runs beside this and blocks none of it: a dialect feature, a corrected
-bucket function, a row-limit clause, a golden family, and a transport decision.
+**Named by branch and NOT numbered, deliberately.** An earlier version of this section numbered eight
+steps while [the implementation plan](../implementation-plan.md) numbered its own branches differently,
+and the table above indexed into this list - two owners for one artefact, and a third reader having to
+reconcile them. The plan owns the numbering and the dependency graph. What is below is this record's
+*ordering argument*: which work must precede which, and why, in the vocabulary the plan already uses.
+
+- **`feat/federation-decomposability` - the decomposability decision, and no refusal in it.** An
+  exhaustive `const fn` over `Aggregate` returning the three-outcome enum *The finding that decides the
+  cost* derives: descends as itself, descends as two columns, does not descend and travels as a
+  grouping key. **There is no `RefusalReason` variant here and there must not be one** - 0009's
+  Decision 2 pulls a non-decomposable measure up rather than refusing it, and a variant no question
+  can provoke is what that enum refuses to carry. First, because it is the change that answers wrongly
+  if it comes last. Pure domain addition; evidence is the per-outcome test and the total matches that
+  will not compile until every aggregate has stated which of the three it is.
+- **`test/startup-source-refusals` - the two missing startup-refusal tests, plus the multi-source
+  corpus in `examples/multi-player` they and everything after them are asserted against.** The tests
+  cover the **more-than-one** branch, which is the untested one, and are owed *before* the arm they
+  guard is dismantled: red against a build with that arm removed. The corpus exists here rather than
+  later because every subsequent entry needs a real on-disk two-source catalog, and because in this
+  entry it demonstrates the refusal that holds TODAY - which is what makes the later flip from refusal
+  to answer a visible behaviour change in a diff rather than a new test appearing.
+  **Not the single-player corpus:** moving a model there was costed and flips 7 questions from planned
+  to refused, deletes 21 SQL goldens, and moves a sentence a gate counts.
+- **`feat/source-registry` - per-source configuration, a keyed set of warehouses, and the two startup
+  refusals retired.** Assumptions 1, 2 and 3 together, because they are one change seen from three
+  places: the single `catalog.data_dir` becomes per source, the source-to-adapter selection
+  `docs/architecture.md:595-600` records as deliberately absent arrives, and `SourceName` stops being
+  compared for equality and starts selecting. Each retirement lands with the test written in the entry
+  before it. This is also where each source declares its identity posture, which is what replaces the
+  count-based refusal rather than merely removing it.
+- **`feat/query-bounds` - the working-set ceiling and the deadline, before there is a combine to
+  overrun them.** It comes before the combine rather than inside it, because a bound built after the
+  thing it bounds is a bound nobody has watched bite. Evidence is each bound provoking its own typed
+  refusal, and the working-set one shown biting rather than described.
+- **`feat/leg-plan-types` - the leg types, their rendering and their goldens, and nothing that executes
+  them.** `LegPlan`, `FederatedPlan` and `generate_leg` with its golden family have evidence of their
+  own that needs no executor: a statement rendered, snapshotted and parse-checked in its target dialect
+  is exactly the evidence the mono-source corpus runs on. So this is its own branch, and the reason is
+  the evidence rather than the digest - **the definition digest does NOT move here**, per the
+  correction above. What may NOT happen is that the stack stops at this branch: a `LegPlan` nothing
+  renders and a `generate_leg` nothing calls is the *Built And Not Wired* shape, and AGENTS.md has a
+  section named after that mistake. The branch after it is not optional.
+- **`feat/two-source-execution` - the execution half, with two DuckDB files as its first instance.**
+  The splitter in `sutura-semantic`, keyed on the relationship graph rather than on `SourceName`; the
+  `Executable` enum on the port and the mechanical diff at every implementor and fake; the combiner
+  port and its DataFusion implementor above the `Warehouse` port; assumption 6 becoming per-leg. Where
+  the `RowSet`-to-Arrow conversion gets its one function and its byte budget, and where
+  `differential.rs` gets its new shape. Evidence: rows equal to the single-source corpus, each leg's
+  statement snapshotted, the filtered-remote-dimension-over-an-orphan-key case correct, and an exact
+  `CountDistinct` across sources correct - **not "correct or refused"**, because Decision 2 chose the
+  keys.
+- **`feat/credential-port`, and only then the plan-stage refusal.** Assumption 4, re-keyed from *a plan
+  spanning two sources* to *a plan spanning two identities*, which is the property that was always
+  meant. It cannot be written before a principal type exists, and moving it first is the diff that
+  produces a wrong number. **The plan's table has no row for this re-key** and needs one.
+
+Track 1 - `feat/postgres-adapter` and, after it, BigQuery and Oracle - runs beside all of this and
+blocks none of it: a dialect feature, a corrected bucket function, a row-limit clause, a golden family,
+and a transport decision. Where it sits in the plan's dependency graph is the plan's decision, and this
+record's only constraint on it is that nothing in track 2 waits for it.
 
 ## Identity
 
@@ -494,7 +805,7 @@ governance boundary is crossed that nothing in this system models.
 | Guarantee | Still held by |
 | --- | --- |
 | No SQL, table, predicate or row-id on the tool surface | Unchanged, and there is nothing to widen: a federated question is the same question. Every source is derived from the pinned bundle, and `Query`'s five `deny_unknown_fields` fields carry no source |
-| Refusal is a result, not an error | Unchanged. Everything new here refuses: a measure that cannot be combined, a leg over its cap, a join key that is a float |
+| Refusal is a result, not an error | Unchanged, and **narrower than this row used to claim.** It said a measure that cannot be combined refuses; 0009's Decision 2 pulls it up instead, so that is not a refusal and no variant may be added for it. What DOES refuse, each as a `RefusalReason` inside `ToolOutcome`: a cross-source join key that is a float, a query over the working-set ceiling, a query over the deadline, and a leg whose data system failed. `feat/query-bounds` owes the first three a provoking test each |
 | No value from a question reaches the statement as text | Unchanged, per leg. It is the specific thing the declined unparser route could not offer |
 | The executed SQL is owned by `sutura-sql` | Unchanged, and this is the point of the decision: every statement that runs anywhere is one this repository rendered and pinned |
 | We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and it is what Oracle costs: the per-dialect rewrites live behind `transpile`, which stays uncompiled |
@@ -502,7 +813,7 @@ governance boundary is crossed that nothing in this system models.
 | A join cannot silently change a measure | Unchanged and **now load-bearing in a new way.** The `OneToMany` refusal is what stands between a cross-source join and a wrong sum, on a declaration nothing compares against the data - and across sources neither side can see the other's key distribution. The reconciliation test needs a fixture whose unmatched key sits on the far side |
 | A catalog edit cannot change what executes | Unchanged. The digest covers every model's `source`, so moving a model to a second system already moves it |
 | A plan cannot silently span two sources | Unchanged, per leg, and this is the row the attach continuation would have left true and meaningless |
-| A result that hit the row cap is refused, not truncated | Held, and it gains a second number: a per-leg cap as well as the answer's. Both asserted |
+| A result that hit the row cap is refused, not truncated | Held for the ANSWER, unchanged in value and moved in location: the combine applies `MAX_ROWS + 1` to the combined result and `answer` still returns `ResultTooLarge` above it. **This row used to say the cap gains a second number, a per-leg cap, and that both are asserted. Withdrawn:** 0009's Decision 3 retires the per-leg row cap outright, because a row count cannot tell 50,000 narrow rows from 50,000 wide ones, and a leg is bounded in BYTES by the working-set ceiling instead. So there is one row cap and it is the answer's; the leg's bound is a different bound counting a different thing, and *The leg SIZE bound* above states what it does and does not reach |
 | No result cache | Unchanged. The combine buffers legs for one question; nothing is keyed and nothing is reused, and reuse across questions is what would make it a cache - at which point it is keyed on subject first or not at all |
 | No panic path reachable from input | Unchanged, and the combine is where to watch it: an arithmetic re-aggregation is where the overflow lints earn their keep |
 | The domain acquires no framework dependency | Unchanged. Nothing in this decision adds a dependency to the domain, and a dialect feature adds no dependency anywhere |
@@ -510,48 +821,73 @@ governance boundary is crossed that nothing in this system models.
 
 ## Consequences
 
-- **Track 1 is worth shipping on its own, and should not wait for track 2.** One BigQuery deployment
-  and one Oracle deployment are single-source deployments, which is most of the value and none of the
-  federation risk.
-- ~~**The corpus is the demonstration and also the counter-example.** Six of eleven metrics refuse a
-  cross-source dimension.~~ **SUPERSEDED by 0009.** Those six are the metrics whose aggregate is pulled
-  up instead, so the corpus demonstrates the pull-up and its cost rather than a refusal. What survives
-  is the count: six of eleven use `Avg` or `CountDistinct`, which is why the bound matters.
-- **`count_distinct` is the single biggest functional gap.** ~~There is no exact fix inside this
-  shape.~~ **SUPERSEDED by 0009:** the exact fix is transporting the distinct keys and counting above,
-  which is correct and is the most expensive thing the pull-up does - the leg's row count becomes the
-  key cardinality. An approximate one exists in every dialect and is not available here: an answer certified
-  under a definition digest cannot be approximate without saying so on the wire, which is a tool
-  surface change rather than an implementation.
+- **Track 1 is worth shipping on its own and blocks nothing in track 2, and that is a weaker claim
+  than this bullet used to make.** It said track 1 should not wait for track 2, which reads as an
+  ordering instruction - and [the implementation plan](../implementation-plan.md) puts
+  `feat/postgres-adapter` after the compose tier, for a reason this record agrees with: an adapter that
+  lands before there is a real server to point it at is tested against a fake asserting our own code
+  back to us. So the surviving claim is about **independence rather than precedence**: one BigQuery
+  deployment and one Oracle deployment are single-source deployments, which is most of the value and
+  none of the federation risk, and nothing in track 2 waits on either. Where track 1 sits in the
+  dependency graph is the plan's decision.
+- **The corpus is the demonstration of the pull-up and of its price, and no longer a counter-example.**
+  This bullet used to say six of eleven metrics refuse a cross-source dimension. **They do not** -
+  0009's Decision 2 pulls those six up instead. What survives is the count and what it now measures:
+  six of eleven use `Avg` or `CountDistinct`, five of those `CountDistinct`, so five of eleven metrics
+  demonstrate a fact leg carrying rows at the FACT grain rather than at the answer's. That is what the
+  bound is for, and it is why *active subscriptions by region across two systems* is the corpus
+  question worth watching rather than *revenue by region*.
+- **`count_distinct` is the most expensive thing this shape does, and it is exact.** The exact fix is
+  transporting the distinct keys and counting above - correct, reproducing the single-source rows
+  exactly, and priced in *The leg SIZE bound* at one leg row per distinct key per bucket. An
+  approximate count exists in every dialect and is **not** available here, and the reason is the tool
+  surface rather than the arithmetic: an answer certified under a definition digest cannot be
+  approximate without saying so on the wire, which is a tool surface change rather than an
+  implementation.
 - **Adding a dialect moves counted claims.** Oracle's row cap is not a `LIMIT`, so the sentence
   AGENTS.md holds with a counting gate becomes dialect-aware; and a golden family per dialect
   multiplies the snapshot count that gate reads.
-- **The `PLAN_SPANS_TWO_SOURCES` prompt guide becomes wrong** when step 8 lands, and one AGENTS.md
-  invariant row is deleted rather than demoted, per the rule at the head of that table. Two prose
-  statements - in ADR 0003 and `docs/concepts.md` - say the one-source rule is currently enforced and
-  move with it.
+- **The `PLAN_SPANS_TWO_SOURCES` prompt guide becomes wrong** when the plan-stage refusal is re-keyed
+  to identity, and one AGENTS.md invariant row is deleted rather than demoted, per the rule at the head
+  of that table. Two prose statements - in ADR 0003 and `docs/concepts.md` - say the one-source rule is
+  currently enforced and move with it.
+- **The port's signature change lands in one commit with the type, and every fake moves with it.**
+  `Executable` on `execute` and `dry_run` touches `sutura-exec-datafusion`, `sutura-exec-duckdb`,
+  `crates/sutura-app/tests/support/oracle.rs` and `crates/sutura-http/src/testing.rs`. It is a wide
+  mechanical diff and AGENTS.md's own rule covers it: a mechanical change repeated across files belongs
+  in one commit, not one per file.
 - **`dry_run` becomes more valuable and more awkward.** It is defaulted because an in-process engine
   cannot check more cheaply than it runs. Across a network it is worth a round trip per leg, and five
   dry runs before five executions is ten round trips for one question.
 - **Docker compose becomes part of the test story**, and with it the question of which gates require
-  a running service. `just validate` builds in a sandbox with no network, so a compose-backed test is
-  a tier above it rather than inside it, and saying which tier is a CI decision this record does not
-  make.
+  a running service. Precisely, because a looser sentence here would not survive a grep:
+  `compose.dev.yaml` exists at the repository root and is the dev-container wrapper - **there is no
+  compose file for services**, and standing one up is `feat/compose-tier`'s work. `just validate` runs
+  in a sandbox with no network, so a compose-backed test is a tier above it rather than inside it, and
+  saying which tier is a CI decision this record does not make.
 - **Nothing here needs the tool surface to change**, now or later, and that is worth restating
   because it is the strongest fact in the survey and the easiest to forget under a heading about
   federation.
 
 ## What is explicitly not decided
 
-- ~~**Whether the per-leg row cap is the answer's cap or a larger one.**~~ **DECIDED by 0009: neither -
-  the per-leg row cap is retired.** A leg is bounded in bytes by the working-set ceiling, which counts
-  the resource that is actually scarce; refusing at 10,001 grouped rows made correct twelve-row answers
-  unanswerable at a threshold unrelated to memory.
-- ~~**Whether `Avg` is rewritten or refused.**~~ **DECIDED by 0009: rewritten.** Rewriting it into a `SUM` and a `COUNT` is exact and
-  means a leg's `PlanMeasure` is not the metric's, which is a second place a measure can be
-  represented. Refusing it is honest and loses a shipped metric.
+**Two entries that used to be here are decided and are gone from this list rather than struck through**
+- whether the per-leg row cap is the answer's cap or a larger one, and whether `Avg` is rewritten or
+refused. 0009's Decisions 2 and 3 answer both: the per-leg row cap is retired in favour of a working
+set in bytes, and `Avg` travels as a sum and a count divided once above. Both answers are argued where
+they now belong, in *The finding that decides the cost* and *The leg SIZE bound*, so this list carries
+what is genuinely open and nothing that is closed.
+
 - **The transport, in the concrete.** Flight SQL is adopted as the direction and not built. Whether
   its prepared-statement binding carries our parameters is unverified and is the first thing to check.
+- **The value of the working-set ceiling, and of the deadline.** 0009 carries a provisional 1 GB and a
+  provisional three minutes and says plainly that nobody measured either. `feat/query-bounds` measures
+  them on this corpus, and the number this record most wants back is the one the section above names:
+  how much of a distinct-key leg the engine's memory pool can actually see.
+- **Whether the `RowSet`-to-Arrow conversion survives the first federated answer or is replaced before
+  it.** The boundary is decided - one function, in the combiner crate - and its lifetime is not. The
+  measurement above is what decides it, and an Arrow-typed port is a record 0009 already says is
+  wanted.
 - **Which artifact ships which adapter**, inherited unchanged from ADR 0006 and multiplied by the
   number of data systems.
 - **How a cross-source join key is declared and compared.** A relationship names two models and their
@@ -596,12 +932,21 @@ built ourselves is refused and only the signed per-version per-platform blob loa
 `allow_parser_override_extension` exists at all, described as allowing an extension to override the
 parser. Also a fifth mirror for `docs/enterprise-mirrors.md`, which covers four today.
 
-**A semi-join: push the far side's keys into the near side's statement as bind parameters.** The only
-shape that makes `count_distinct` exact across a boundary, and the one a careful reader will ask
-about. Declined on three counts: the parameter count is the far side's key cardinality, so the
-statement is no longer one of a fixed set of golden shapes; it needs a `VALUES` list or a temporary
-table, and the second is a write on a connection that should be read-only; and it moves one source's
-key values into another source's query log and plan cache.
+**A semi-join: push the far side's keys into the near side's statement as bind parameters.** The shape
+a careful reader will ask about, because it pushes the dimension filter into the fact leg and so avoids
+the fact leg grouping keys the combine will discard.
+
+**Not, however, "the only shape that makes `count_distinct` exact across a boundary" - this record said
+that and it was wrong.** Carrying the distinct keys in the fact leg and counting above is exact too,
+reproduces the single-source rows, and is what 0009's Decision 2 chose. The false claim matters because
+it made the semi-join look like the price of correctness when it is only a possible optimisation, and a
+declined alternative described as the only correct route is an invitation to reopen it for the wrong
+reason.
+
+Declined on three counts, none of which is correctness: the parameter count is the far side's key
+cardinality, so the statement is no longer one of a fixed set of golden shapes; it needs a `VALUES`
+list or a temporary table, and the second is a write on a connection that should be read-only; and it
+moves one source's key values into another source's query log and plan cache.
 
 **A hand-written pushdown renderer per source, without `sutura-sql`.** What the provider-per-source
 route looks like if the generator is not reused, and ADR 0006 measured it failing silently: an
@@ -619,7 +964,7 @@ staying silent on the real breakages. The invariant stands and the rewrite work 
 guards gone the plan carries only the metric's own model's source, the engine resolves the joined
 table in a flat single-level namespace out of one directory, and a question reaching across two nominal
 sources is *answered* under the metric's certified name and the bundle's digest. Not a refusal - a
-number. It is step 8 for a reason.
+number. That is why re-keying it is the last thing to move and not the first.
 
 **Export every source to Parquet and answer over the exports.** Works today with no code and is the
 baseline every option has to beat. It fails on freshness, it doubles the storage, and a copy is read
@@ -627,5 +972,6 @@ under whoever made it - the same objection ADR 0003 raised against an accelerati
 hand. Against three systems with grants it is decoration in its most literal form.
 
 **Track 1 only, and no federation ever.** The honest minimum, and it stays correct for as long as a
-deployment is one data system. It is what this record recommends *until* step 1 exists, because the
-one thing worse than no federation is a federated answer nobody can tell is wrong.
+deployment is one data system. It is what this record recommends *until
+`feat/federation-decomposability` exists*, because the one thing worse than no federation is a
+federated answer nobody can tell is wrong.

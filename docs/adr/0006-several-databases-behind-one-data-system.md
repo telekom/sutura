@@ -26,10 +26,25 @@ kept whole below, including the parts that were the argument *for* a route befor
 argument against it.
 
 **Which claims were run, and which were reasoned.** Every measurement was produced by a throwaway
-spike - crates with their own `[workspace]` table, on a branch that is not for merge - and re-run
-independently while this record was written. Where a claim was *not* executed it says so in the
-sentence that makes it. That distinction is the whole credibility of this document, so it is kept
-per claim rather than declared once.
+spike - crates with their own `[workspace]` table, outside this repository and not merged into it -
+and re-run independently while this record was written. Where a claim was *not* executed it says so
+in the sentence that makes it. That distinction is the whole credibility of this document, so it is
+kept per claim rather than declared once.
+
+**And a third category, because "run" is not "reproducible" and this record used to blur them.** The
+spike is not in this repository and cannot be reached from it, so for a reader "run" means *executed
+twice by the author* rather than *checkable from here*. A record whose credibility rests on the
+run/reasoned distinction owes the reader the version of that distinction which holds for the reader:
+
+- **Reproducible from this record alone.** Every version resolution, from `cargo generate-lockfile`
+  over the requirements in the table below. Both compiler errors, quoted verbatim with the two
+  versions in each graph named beside them. Every DuckDB transcript, because the statements are
+  quoted and the library is the pinned `v1.5.5 (Variegata) d8cdaa33fd` the dev shell provides. The
+  disallowed licence, because it is a registry field and `deny.toml` is in this repository.
+- **Run, and NOT reproducible from this record.** The four timings below, and the transposed
+  aggregate. For the second - the finding that outranks everything else here - the exact ingredients
+  are listed where it is stated, so it can be rebuilt from nothing but this page. For the timings
+  there is no such recipe, and the reading beside them is narrowed to what survives that.
 
 ## Context
 
@@ -76,6 +91,23 @@ assumes the record batch columns are correctly ordered."* Decimal and Int32 cast
 cleanly, so nothing raised an error. Reconciling by name inside the adapter repairs it, verified in
 the same spike by a switch that does exactly that; **nothing in the trait requires an adapter to do
 it**, and the crate's own example does not.
+
+**What it takes to see it again, in full, so the finding does not rest on a spike nobody else can
+open.** The recipe rather than the code, because the code is six declarations and a `main`:
+
+| Ingredient | Value |
+| --- | --- |
+| `datafusion` | `54.1.0` - the major the federation crate requires, not the `55.0.0` this workspace pins |
+| `datafusion-federation` | `0.5.5`, default features on, plus its SQL sub-crate |
+| `duckdb` | `1.10505.0`, which brings `arrow 58.4.0` |
+| The adapter | `SQLExecutor` implemented as the crate's own example implements it: execute the string, hand the driver's batches straight back, and **do not** reconcile the batch schema against the plan's by name |
+| The table | one DuckDB file, one table, one integer group column and one exact-decimal measure column, so each casts into the other without raising |
+| The question | one aggregate grouped by that integer column |
+
+The two column types are the load-bearing part and they are not exotic: an integer group key beside
+an exact decimal measure is the ordinary shape of every metric in this repository's own corpus. Make
+the group key a string instead and the defect stops being a transposition and becomes a null measure
+column, which is the second transcript below.
 
 With both tables in one database file the whole query fuses into one pushed statement, and then the
 shift is total:
@@ -205,21 +237,42 @@ one implementation of that and not the only one.
 
 ### The numbers, on five million rows
 
-Same question, same rows, all four legs agreeing on the answer. Warm runs; the three Rust legs are
-**debug builds**, so read the memory as the finding and the times as an ordering.
+Same question, same rows, all four legs agreeing on the answer. Warm runs.
 
-| Leg | Time | Peak resident |
-| --- | --- | --- |
-| Several databases attached to one DuckDB connection | 0.01s | 65 MiB |
-| A provider per source, each pushing its own filters | 0.10s | 123 MiB |
-| The federation layer, at DataFusion 54 | 0.09s | 119 MiB |
-| A provider per source, pulling whole tables | 0.46s | 767 MiB |
+**Read the build column before the numbers, because it decides which comparisons this table can
+carry.** The first row is DuckDB's own release C++ executing inside the library; the other three are
+first-party Rust compiled **without optimisation**. That is not a footnote, it is the reason the time
+column is not a finding: a debug Rust leg against a release C++ leg measures the compiler profile at
+least as much as it measures the route.
 
-Read this honestly in both directions. **Attaching is the fastest and lightest thing measured**, by
-an order of magnitude in time and a factor of two in memory, and that is a real property that the
-decline below does not dispute. And **federation buys nothing over a hand-written pushdown**: the two
-middle rows are within noise of each other. Only the last row is bad, and it is bad in the way that
-matters, because it is the one that pulls rows into this process.
+| Leg | Built as | Time | Peak resident |
+| --- | --- | --- | --- |
+| Several databases attached to one DuckDB connection | release C++, inside the library | 0.01s | 65 MiB |
+| A provider per source, each pushing its own filters | debug Rust | 0.10s | 123 MiB |
+| The federation layer, at DataFusion 54 | debug Rust | 0.09s | 119 MiB |
+| A provider per source, pulling whole tables | debug Rust | 0.46s | 767 MiB |
+
+There are two readings here and only one of them is a measurement.
+
+**What this table does establish** is the comparison among the three Rust legs, which were built
+identically and are therefore comparable to each other. **Federation buys nothing over a hand-written
+pushdown**: the two middle rows are within noise of one another on both columns. And **pulling whole
+tables is the one bad row** - six times the memory and five times the time of pushing the filters
+down - bad in the way that matters, because it is the row that pulls rows into this process.
+
+**What it does NOT establish is attaching against the rest.** Nothing here supports "an order of
+magnitude faster", and an earlier version of this record said exactly that while ADR 0007 quoted it
+back as a finding. **Withdrawn rather than qualified.** The honest claim is that **attaching buffers
+the least** - 65 MiB against 119 to 123 MiB - and peak resident set is the column where the profile
+mismatch does least damage, because what dominates it is the data a route holds rather than the
+instructions it took getting there. Even that is an indication and not a measurement, since an
+unoptimised build allocates more of its own, so it is stated as **a floor worth knowing** and never
+as a ratio. Its time is not comparable to the other three at all, and no number derived from that
+cell may be quoted anywhere.
+
+**Rerunning the three in release is the cheap way to make the time column mean something, and nobody
+has.** Until somebody does, a claim that attaching is faster is unsupported by this record - which is
+the state a reader should be left in rather than a ratio to repeat.
 
 **And a hand-written pushdown fails silently.** The same provider, against a column typed
 `TIMESTAMP` instead of `DATE`, emitted `SELECT * FROM orders` for five million rows: 0.54s and 896
@@ -264,14 +317,40 @@ two sections are why.
 ## The second decline: attaching forecloses the property that is the product
 
 AGENTS.md's first paragraph says end-to-end impersonation is the point of this system. That has since
-hardened from an aspiration into a requirement: in multi-user operation a data source must support
-impersonation, non-impersonating sources are permitted only in a single-user role that reads
-everything, and **the critical datasets are read under the asking user's own credentials in every
-case.** ADR 0008 is the record of that requirement - and of what sutura can and cannot check about it: a
-posture and an operator acknowledgement PER SOURCE, so the last clause is an operator obligation rather
-than something this system verifies per dataset. This section states only what the route in front of it
-costs, and does not restate the requirement itself. Note that the cost below is unaffected by that
-granularity: a route where no leg can EVER run as the caller fails the requirement at any resolution.
+hardened from an aspiration into a requirement, and the requirement is **per source rather than per
+dataset**:
+
+> Every source declares how it establishes the identity a query runs as, as a closed two-variant
+> `SourceIdentity`. `ImpersonationAtSource` - the query reaches the data as the asking subject - is the
+> strong posture. `SharedServiceUser` - one identity for every caller - is the weak one, and it is
+> permitted in **both** deployment modes: in single-user operation it is simply correct, because the
+> one configured credential *is* that one user's, and in multi-user operation it is reachable only
+> where an operator **acknowledged that specific source**, through a required per-source key that
+> `Settings::refusals` checks at boot, with the operator's stated reason printed at startup beside
+> the posture.
+
+**This record used to state it as "permitted only in a single-user role that reads everything", and
+that was wrong rather than merely narrow.** ADR 0008 and
+[Pluggable by declaration](0011-pluggable-by-declaration.md) own the posture, and both permit an
+acknowledged `SharedServiceUser` source in multi-user operation. The sentence is corrected here
+rather than qualified, because two records disagreeing about what a deployment may do is worse than
+either version of the rule. What survives from the old sentence is the part that was doing the work:
+the weak posture must be arrived at **on purpose**, and it must be visible in the answer rather than
+inferred from a deployment diagram.
+
+**Nothing about data sensitivity is declared here.** This record previously argued the decline from
+"the critical datasets are read under the asking user's own credentials in every case", which is a
+per-dataset classification that [the plan](0009-the-plan-from-one-source-to-many.md) withdrew: what a
+person may see lives in the data catalog and in that person's own permissions at the source, and a
+classification authored here would be a second opinion about somebody else's authorization. So the
+governing sentence is now an **operator obligation** and not a check - critical data goes on a source
+declared `ImpersonationAtSource` - and what sutura mechanises is that `SharedServiceUser` is
+unreachable by accident and unreachable in silence.
+
+None of that changes the cost this section prices, and that is why the correction is safe to make
+here: **a route where no leg can EVER run as the caller fails the requirement at every resolution**,
+per dataset, per source or per deployment. ADR 0008 is the record of the requirement and this section
+states only what the route in front of it costs.
 
 Against that, the three routes are not equivalent, and the difference is structural rather than a
 matter of effort:
@@ -280,13 +359,19 @@ matter of effort:
 | --- | --- |
 | Attaching several databases to one connection | **No, structurally.** One process, one connection, one operating-system identity for every attached file. `ATTACH` takes no credential, and a networked scanner's credential would be a connection-global secret rather than a per-request one |
 | A federation layer | **No.** `SQLExecutor::execute` receives a string, a schema and physical filters, and no session. Worse for this purpose: the layer's fusion key is the adapter's `compute_context`, so identity would have to be *inside* that string or two subjects' sub-plans could fuse into one - observed fusing in the spike when two sources shared a context |
-| A source per adapter | **Yes.** A whole `QueryPlan` crosses the port to one adapter that owns one connection, which is where a per-request credential belongs. Within the engine the same holds by a second route: `TableProvider::scan` receives `state: &dyn Session`, so per-request extensions are reachable. One hazard to design around rather than discover: `ExtensionOptions` requires an `entries` method that renders its values, which is exactly the shape `Secret` exists to prevent |
+| A source per adapter | **Yes.** A whole plan - never a fragment - crosses the port to one adapter that owns one connection, which is where a per-request credential belongs. ADR 0007 decides which plan shapes those are and the property that matters here holds for all of them: one plan, one source, one credential. Within the engine the same holds by a second route: `TableProvider::scan` receives `state: &dyn Session`, so per-request extensions are reachable. One hazard to design around rather than discover: `ExtensionOptions` requires an `entries` method that renders its values, which is exactly the shape `Secret` exists to prevent |
 
-**So the cheapest route forecloses the headline property, and a single-user reading everything is the
-only role it could ever serve.** That was survivable while the goal was one person on a laptop. It is
-not survivable as an architecture, because the critical datasets are exactly the ones that must be
-read as the caller, and a connection with one operating-system identity cannot be told who is asking.
-Attaching could never have carried them.
+**So the cheapest route forecloses the headline property, and the weak posture is the only one it
+could ever declare.** That was survivable while the goal was one person on a laptop, and it stays
+correct for a single-user deployment - which is the mode `examples/single-player` is, and a first-class
+one rather than a degraded one. It is not survivable as an architecture, and the reason is narrower
+than the sentence this paragraph used to carry: not that some datasets are classified critical, since
+nothing here classifies data, but that **a source served under one identity for every caller is a
+posture an operator has to be able to choose per source** - and attaching removes the choice. Every
+attached database inherits the one process identity, so a deployment that wanted one source
+`ImpersonationAtSource` and one `SharedServiceUser` has no way to say so, and no way to record which
+posture produced an answer. A connection with one operating-system identity cannot be told who is
+asking, so it cannot be the strong posture for anything.
 
 There is a second, sharper version of the same point, and it is the one that decides the case rather
 than merely weakening it. **The cheapest next step from attaching two local databases is attaching a
@@ -409,8 +494,19 @@ produces precisely the state the one-source rule exists to prevent, while every 
 What does hold, mechanically, is narrower and worth stating beside it. **A plan cannot represent two
 sources:** the plan holds one source name, and a join and a column hold none, so a table in a plan
 carries no source at all. Making a two-source plan representable means changing a domain type whose
-serialized form is pinned by snapshots, and the definition digest is taken over that same serialized
-form, so the first commit of any such attempt moves goldens and moves the digest.
+serialized form is pinned by snapshots, so the first commit of any such attempt moves the 21
+`plan@markdown` goldens.
+
+**And a correction this record owes, because it claimed a stronger mechanism than exists.** An earlier
+version of this paragraph said the definition digest is taken over that same serialized form, so such
+a change "moves goldens and moves the digest". **The second half is false.** `DefinitionDigest::of`
+takes the `Definitions` and the `Knowledge` and nothing else, so the digest covers what a catalog
+authored and not what the compiler decided; `QueryPlan` is not in it, and no change to `QueryPlan`
+moves a digest. The two are pinned by different snapshots on purpose - the plan by `plan@markdown`,
+the digest by `catalog_digest@markdown` - and conflating them made a plan-shape change sound like a
+provenance change. What is true and is the point that survives: the digest covers every model's
+`source`, so a catalog that **moves a model to a second system** already produces a different digest,
+which is a fact about the catalog rather than about the plan type.
 
 ## The tool surface: there is nothing to widen
 
@@ -434,7 +530,7 @@ the domain query type and the wire body, with a test that provokes it.
 | No value from a question reaches the statement as text | Unchanged, and it is the specific thing the declined federation route could not offer: `SQLExecutor::execute` takes a string and no parameter list, while a `GeneratedQuery` keeps statement and parameters in separate fields |
 | The executed SQL is owned by `sutura-sql` | Unchanged, and it is the line ADR 0007 makes load-bearing: DataFusion may combine legs and never generates one |
 | We never translate SQL, and the one thing we parse is parsed at load | Unchanged, and nothing here parses anything. Precise about the declined route: its unparser is a generator rather than a transpiler, so what it would have broken is the ownership of the executed statement, not the transpile ban |
-| A result that hit the row cap is refused, not truncated | Unchanged. Both declined routes would have raised the question of a per-leg cap; neither is adopted, so neither does |
+| A result that hit the row cap is refused, not truncated | Unchanged. Both declined routes would have raised the question of how an intermediate result is bounded; neither is adopted, so neither does. Where that question is answered is [the plan](0009-the-plan-from-one-source-to-many.md), and the answer is a working set in bytes rather than a row count per leg |
 | No result cache | Unchanged. Both declined routes buffer inside this process and the measurements above are how much. **Not a cache**, because nothing is keyed and nothing is reused across questions, and the honest way to say it is that reuse across questions is what would make it one, at which point AGENTS.md's rule applies and it is keyed on subject first or not at all |
 | Adding a data system is a registration, not a test edit | Unchanged, and narrower than it reads: the test matrix's axis is *which adapter*, one warehouse per cell, one source name shared by all of them. A second SOURCE is a signature change on the harness, which is one of the costs ADR 0007 carries |
 | The domain acquires no framework dependency | Unchanged. This record adds no dependency at all |
@@ -447,11 +543,14 @@ the domain query type and the wire body, with a test that provokes it.
   more expensive shape, and the value of this record is that the expense is now a known quantity
   rather than a suspicion: a wrong number from one route, a foreclosed product property from the
   other.
-- **The measurements survive the decline and are the baseline for the route that is built.** Attaching
-  at 0.01s and 65 MiB is the floor any per-source shape is measured against; 0.10s and 123 MiB is what
-  a rendered-per-source leg cost on the same question; 767 MiB is what pulling whole tables costs, and
-  it is the number to quote whenever pushdown per leg is described as an optimisation rather than a
-  requirement.
+- **The measurements survive the decline and are the baseline for the route that is built - the memory
+  column of them.** 65 MiB for attaching is the floor any per-source shape is measured against; 123
+  MiB is what a rendered-per-source leg buffered on the same question; **767 MiB is what pulling whole
+  tables costs, and it is the number to quote whenever pushdown per leg is described as an optimisation
+  rather than a requirement.** The times are carried in the table for completeness and are not a
+  baseline: three of the four legs are unoptimised builds and the fourth is not, so the only valid time
+  comparison is among the three, where a rendered pushdown and the federation layer are within noise
+  and pulling whole tables is five times either.
 - **A silent-degradation hazard transfers to the route that is built.** A renderer that returns no SQL
   for an uncovered literal type does not fail; it stops pushing. Measured at 0.54s and 896 MiB with a
   correct answer and no diagnostic. Anything rendering per source needs that to be observable.
@@ -490,13 +589,29 @@ the domain query type and the wire body, with a test that provokes it.
 - **The impersonation requirement itself** and its roles. ADR 0008 is that record, and ADR 0009 settles
   the part it got wrong: nothing here classifies data, because the catalog and the asking person's
   permissions at the source do. This one only says which routes can and cannot satisfy it.
-- **Whether DataFusion 56 moves to Arrow 59, and whether the federation crate follows.** That single
-  event would remove both the bridge problem and the version skew at once, and it is the thing to watch
-  before anyone reopens the declined federation route. Nothing here predicts it, and the wrong-number
-  finding would still stand afterwards.
-- **Whether the column-order defect is reported upstream.** It reproduces in about twenty lines and the
-  repair is to reconcile by name; whether that becomes an issue, a pull request, or neither is a choice
-  about how this project spends its time.
+- **Which upstream release closes the Arrow gap, and which closes the version skew. They are two
+  different events and this record used to name a third that is neither.** An earlier version said the
+  thing to watch was "whether DataFusion 56 moves to Arrow 59" - which the table above already
+  contradicts: the pinned `datafusion 55.0.0` is **already** on `arrow 59.2.0`, and a DataFusion 56
+  would move nothing here. Corrected, from `Cargo.lock` rather than from memory:
+    - **The Arrow gap is the `duckdb` crate.** It is pinned at `1.10505.0`, it requires `arrow ^58`
+      non-optionally, and that is where `arrow 58.4.0` in the lock comes from. So what removes the
+      bridge problem is **the `duckdb` crate reaching Arrow 59** - or, symmetrically, this workspace
+      holding the engine at 58, which is a downgrade of the thing that executes every query and is not
+      a trade anybody has argued for. That gap constrains one implementation of the built route and
+      nothing about whether the route is right.
+    - **The version skew is `datafusion-federation`.** It requires `datafusion ^54` on the registry and
+      on its repository main alike, while this workspace pins `55.0.0`. What removes that is the crate
+      following DataFusion forward, and it is independent of the Arrow question.
+  Nothing here predicts either, and **the wrong-number finding would still stand after both**: the
+  transposed aggregate is a cast-by-position defect in the layer, not a version mismatch, and it is
+  what the decline actually rests on.
+- **Whether the column-order defect is reported upstream.** The repair is to reconcile by name, and the
+  ingredients for rebuilding it are in the recipe above, so a report is a matter of somebody spending
+  the afternoon rather than of anything being unknown. Stated as narrowly as this record can honestly
+  put it: **at these pins, with an adapter written the way the crate's own example writes one, the
+  layer returned a transposed aggregate.** Whether that becomes an issue, a pull request, or neither is
+  a choice about how this project spends its time, and no claim here depends on the answer.
 - **Whether the engine ever reads DuckDB storage directly.** At these pins it cannot, and the two
   bridges are above. The C data interface route additionally has nothing to call it with today, which
   makes it a driver question rather than a design one.
@@ -530,11 +645,12 @@ this workspace does - and rejected on the rest: the previous DataFusion major, t
 major, and a normal dependency list that adds a third SQL builder, a second error library and a second
 secret type to a workspace with considered opinions about all three.
 
-**Attach several databases to one connection and serve it.** The cheapest measured route, working, with
+**Attach several databases to one connection and serve it.** The lightest measured route, working, with
 no change to any generated statement. Rejected on impersonation: one connection is one
-operating-system identity, `ATTACH` takes no credential, and the critical datasets must be read as the
-caller. Its cheapest continuation is the composing adapter with a synthetic source name, which is
-refused in advance above.
+operating-system identity and `ATTACH` takes no credential, so every attached database has the same
+posture and it is the weak one - the deployment cannot declare a posture per source, cannot be told who
+is asking, and cannot record which posture produced an answer. Its cheapest continuation is the
+composing adapter with a synthetic source name, which is refused in advance above.
 
 **Attach several databases only in the fast test tier.** Tempting, and rejected on the shape rather
 than on the cost: the fixture would exercise something this system does not ship, while two

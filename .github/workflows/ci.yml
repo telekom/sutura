@@ -51,14 +51,24 @@ name: ci
 # under docs/ has its own workflow and must never start this 120-minute one, not even if
 # somebody writes `docs/.../catalog/x.md`.
 #
-# `!mkdocs.yml` and `!.github/workflows/docs.yml` sit beside it, and they are a FIX rather than a
-# refinement. This file and docs.yml each claim to be complements - "exactly one workflow starts
-# for any given edit" - and they were not: both of those paths are in docs.yml's filter AND matched
-# the leading `**` here, so an ADR-only pull request that added a nav entry started BOTH, paying
-# this 120-minute chain and the docs job's own gates for a prose change. Neither path can affect
-# what cargo produces: `mkdocs.yml` is read by mkdocs and by `check-docs`, which docs.yml runs,
-# and a workflow file is read by nothing but Actions. Measured on the pull request that found
-# this, `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
+# `!mkdocs.yml` sits beside it, and it is a FIX rather than a refinement. This file and docs.yml
+# each claim to be complements - "exactly one workflow starts for any given edit" - and they were
+# not: `mkdocs.yml` is in docs.yml's filter AND matched the leading `**` here, so an ADR-only pull
+# request that added a nav entry started BOTH, paying this 120-minute chain and the docs job's own
+# gates for a prose change. It cannot affect what cargo produces: `mkdocs.yml` is read by mkdocs
+# and by `check-docs`, which docs.yml runs. Measured on the pull request that found this,
+# `docs/adr/**` plus `mkdocs.yml` was the whole diff bar one line.
+#
+# **WORKFLOW CODE IS THE EXCEPTION TO "exactly one workflow", and it is deliberate.** An earlier
+# version of this filter also excluded `.github/workflows/docs.yml`, by the same argument - a
+# workflow file is read by nothing but Actions. That argument is wrong, and review caught it: the
+# only static analysis any workflow gets is `zizmor`, `actionlint` and `shellcheck`, and all three
+# are STEPS IN THIS FILE rather than part of `hygiene`. `cargo xtask check-workflows` does not
+# cover the gap either - it cross-checks referenced nix output names and nothing else. So excluding
+# docs.yml meant a change to it could merge with no workflow analysis at all, and invalid YAML in a
+# workflow can stop that workflow from running its own checks. A docs.yml-only pull request now
+# pays for this chain, which is the honest price of linting the thing that decides what gets
+# linted. Any `.github/**` path is in the same class: do not add an exclusion for one.
 #
 # NOT excluded, and deliberately: `devco/**`. `devco/max-lines-ignore` decides what `max-lines`
 # exempts, so a change to it changes what a gate accepts and the gate has to run. It is a
@@ -83,7 +93,6 @@ on:
       - "**/fixtures/**/*.md"
       - "!docs/**"
       - "!mkdocs.yml"
-      - "!.github/workflows/docs.yml"
   # The same list twice, and it has to stay the same list. A filter that let a path start a run
   # on `main` but not on the pull request that introduced it would report the merge green and
   # then fail immediately after it.
@@ -97,7 +106,6 @@ on:
       - "**/fixtures/**/*.md"
       - "!docs/**"
       - "!mkdocs.yml"
-      - "!.github/workflows/docs.yml"
 
 permissions:
   contents: read

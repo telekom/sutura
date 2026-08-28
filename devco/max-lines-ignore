@@ -24,9 +24,15 @@ devenv.lock
 flake.lock
 pixi.lock
 
-# Dumped contracts: the MCP tool schemas and the OpenAPI spec are written by
-# `cargo xtask dump-schemas` from the `schemars` derives and byte-compared in CI. Their
-# length is a function of the domain types.
+# Dumped contracts: the MCP tool schemas and the OpenAPI spec, once they exist. Their length
+# will be a function of the wire types they are derived from.
+#
+# NOTHING MATCHES THIS PATTERN TODAY, and the comment here used to claim otherwise - it said the
+# files are "written by `cargo xtask dump-schemas` from the `schemars` derives and byte-compared
+# in CI", and none of those three things exists: no `docs/generated/` directory, no such xtask
+# subcommand, no `schemars` in `Cargo.toml` or `Cargo.lock`. Kept as a pattern rather than deleted
+# because the exemption should be in place before the first dump lands, but a false present tense
+# in an exemption list is how a reader concludes a gate is watching something it is not.
 docs/generated/*
 
 # The API reference pages, written by `nix run .#api-docs` from rustdoc JSON and byte-compared

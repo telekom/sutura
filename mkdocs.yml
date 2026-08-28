@@ -152,6 +152,7 @@ nav:
     - Architecture: architecture.md
     - Serving over HTTP: serving.md
     - The implementation plan: implementation-plan.md
+    - The plan, identity and services: implementation-plan-identity-and-services.md
     - Decisions:
       - First-party semantic models: adr/0001-first-party-semantic-models.md
       - A closed vocabulary for measures: adr/0002-a-closed-vocabulary-for-measures.md
