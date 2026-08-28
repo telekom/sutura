@@ -5,8 +5,9 @@
 #
 # Two sections, and the difference between them is the whole point:
 #
-#   [silent]  Generated, vendored or lock-like output. Nobody hand-edits it and a line
-#             budget could only be met by deleting the thing it describes. No output.
+#   [silent]  Output whose length is a function of what it describes rather than of how well it
+#             is written: generated, vendored or lock-like files nobody hand-edits, AND decision
+#             records, where a line budget would be a budget on evidence. No output.
 #   [warn]    Hand-written files over the limit with a split already agreed. Prints WARN
 #             on every run and does NOT fail - visible debt, not an exemption.
 #
@@ -34,6 +35,13 @@ docs/generated/*
 # Editing one by hand is already caught: every page carries a generated-file header and the gate
 # regenerates and compares.
 docs/api/*.md
+
+# Decision records. An ADR's length is a function of the decision it carries - the options weighed,
+# the measurements that decided it, and what was tried and rejected. Splitting one across files makes
+# it LESS reviewable, because a decision has to be readable in one place, and the failure the cap
+# exists to catch - a source file accreting responsibilities nobody notices - is not a thing prose
+# does. Hand-written and exempt on purpose, which is why the section header above says so.
+docs/adr/*.md
 
 # Vendored third-party source: the allocator's C and the two crates that wrap it. Upstream's
 # file lengths are not ours to budget, and pinning individual paths would mean editing this
