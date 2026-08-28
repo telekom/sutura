@@ -34,3 +34,11 @@ devenv.local.nix
 
 # The rendered site. `mkdocs build` writes it; the markdown in docs/ is the source.
 /site
+
+# The CRAP delta's working files: this commit's baseline lifted out of the Nix store, the base
+# commit's downloaded artifact, and the rendered pull-request comment. `.github/workflows/ci.yml`
+# writes all three into the workspace and `just crap-delta` can too; none of them is source, and
+# the committed one would rot the moment anything changed.
+/crap-baseline.json
+/crap-base/
+/crap-delta.md

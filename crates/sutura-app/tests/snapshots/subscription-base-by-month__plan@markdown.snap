@@ -1,0 +1,58 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: subscription_base
+table: fct_subscription_monthly
+joins: []
+bucket:
+  label: period
+  grain: month
+  column:
+    table: fct_subscription_monthly
+    column: month
+keys: []
+measure:
+  simple:
+    term:
+      aggregate:
+        aggregate: count_distinct
+        column:
+          table: fct_subscription_monthly
+          column: subscription_key
+measure_label: subscription_base
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 1
+params:
+  - Date:
+      year: 2026
+      month: 1
+      day: 1
+  - Date:
+      year: 2026
+      month: 7
+      day: 1
+range:
+  start:
+    year: 2026
+    month: 1
+    day: 1
+  end:
+    year: 2026
+    month: 7
+    day: 1
+max_rows: 10000

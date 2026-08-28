@@ -74,3 +74,7 @@ expression: stable(rows)
   - tv
   - 2026-06-01
   - "1249"
+- - "null"
+  - mobile
+  - 2026-06-01
+  - "4999"

@@ -2375,8 +2375,8 @@ where the cap goes.
 3652 or 3653 days depending on where the leap days fall, so this number is the one that lets
 *any* ten-year window through rather than most of them. Ten years is chosen because it covers the
 reporting a person actually does - a decade of annual figures, five years of quarters, three years
-of months - and the longest range anywhere in this repository's fixtures, examples and anchors is
-181 days, so nothing authored today is anywhere near it.
+of months - and the longest range anywhere in this repository's example corpus, in its questions
+and in its anchors alike, is 181 days - so nothing authored today is anywhere near it.
 
 It also stays under `plan::MAX_ROWS`, and that is not a coincidence worth losing: at `day` grain
 the time axis of a permitted question is at most 3653 buckets, so the row cap can only ever be

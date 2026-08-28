@@ -135,11 +135,12 @@ mod tests {
             let from_engine = answer(&validated, &question, &engine);
             let from_other = answer(&validated, &question, &other);
 
-            // A third outcome, and it is the one that used to be missing. `revenue_per_refunded_order`
-            // declares `zero_denominator: fails`, and its July statement divides by zero: both sides
-            // cast the numerator to a floating type first, so both got `inf` back, so both ANSWERED and
-            // this test compared "inf" against "inf" and passed. The two sides now have to fail
-            // together, for the same column, which is a comparison rather than an unwrap.
+            // A third outcome, and it is the one that used to be missing.
+            // `revenue_per_churned_subscription` declares `zero_denominator: fails`, and its January
+            // statement divides by zero: both sides cast the numerator to a floating type first, so both
+            // got `inf` back, so both ANSWERED and this test compared "inf" against "inf" and passed.
+            // The two sides now have to fail together, for the same column, which is a comparison
+            // rather than an unwrap.
             let (from_engine, from_other) = match (from_engine, from_other) {
                 (Ok(engine_outcome), Ok(other_outcome)) => (engine_outcome, other_outcome),
                 (Err(ref engine_error), Err(ref other_error)) => {
@@ -245,7 +246,7 @@ mod tests {
         );
         assert!(
             !from_engine.checks().is_empty(),
-            "the fixture catalog declares no anchor, so this proved nothing"
+            "the example catalog declares no anchor, so this proved nothing"
         );
         // And once more through the operation that mints the proof. It re-runs the anchors rather than
         // being handed the report above, which is the point: a report is evidence a caller could have

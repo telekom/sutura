@@ -1,5 +1,12 @@
 //! The golden suite: one corpus of questions, expanded over every registered adapter.
 //!
+//! **The corpus is `examples/single-player`, outside this crate, and that is the arrangement rather
+//! than a shortcut.** It is the directory a reader is told to run and the one this suite pins, so a
+//! quickstart that stopped working fails here instead of failing the next person who tried it, and
+//! there is no second catalog for this suite to agree with while the documented one drifts.
+//! `crates/sutura-cli/tests/example.rs` reads the same bytes for the narrower claim about the
+//! shipped binary. `adapters::example_root` is where the path is named, once.
+//!
 //! Everything here is arranged so a change to what we compile shows up as a reviewable diff rather
 //! than as a different number. **The snapshots are regenerated and read as a diff, never typed.** A
 //! hand-written expectation asserts what somebody wished the generator did.
@@ -31,7 +38,7 @@
 //!   opened, are decided above the port - so the honest instrument is one fake and not a matrix.
 //!
 //! **One test target, split by axis.** `tests/*.rs` at the top level is a test target each, so the
-//! axes live under `tests/golden/` and are modules of this one: they share the fixtures, the fakes and
+//! axes live under `tests/golden/` and are modules of this one: they share the corpus, the fakes and
 //! the compile time of linking an engine and a data source. `no file exceeds 1000 lines` is a gate
 //! here and the only way past it is to split, which is what made the seam visible - and one file per
 //! axis is where it was always going to be.
@@ -42,8 +49,8 @@
 
 // `cfg(test)` because an integration test target is compiled with `--test`, so it is true here - and
 // clippy only honours `allow-expect-in-tests` for code inside a `#[cfg(test)]` item. Without it every
-// `expect` in a fixture builder is a lint error, and writing fixture setup in the `?`-ceremony the ban
-// would demand makes the fixtures worse, which is what that exemption exists to avoid.
+// `expect` in a corpus helper is a lint error, and writing that setup in the `?`-ceremony the ban
+// would demand makes those helpers worse, which is what that exemption exists to avoid.
 #[cfg(test)]
 mod adapters;
 #[cfg(test)]

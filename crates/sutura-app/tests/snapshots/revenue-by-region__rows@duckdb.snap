@@ -1,9 +1,0 @@
----
-source: crates/sutura-app/tests/golden/data_systems.rs
-expression: stable(rows)
----
-region	period	revenue
-Text(north)	Text(2026-06-01)	Integer(225072)
-Text(south)	Text(2026-06-01)	Integer(244950)
-Text(west)	Text(2026-06-01)	Integer(1)
-Null	Text(2026-06-01)	Integer(99999)

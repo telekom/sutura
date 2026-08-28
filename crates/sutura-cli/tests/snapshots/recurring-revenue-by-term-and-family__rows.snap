@@ -1,0 +1,36 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - annual
+  - convergent
+  - 2026-06-01
+  - "11374"
+- - annual
+  - fixed_internet
+  - 2026-06-01
+  - "30661"
+- - annual
+  - mobile
+  - 2026-06-01
+  - "20536"
+- - annual
+  - tv
+  - 2026-06-01
+  - "2436"
+- - monthly
+  - convergent
+  - 2026-06-01
+  - "32914"
+- - monthly
+  - fixed_internet
+  - 2026-06-01
+  - "49822"
+- - monthly
+  - mobile
+  - 2026-06-01
+  - "49507"
+- - monthly
+  - tv
+  - 2026-06-01
+  - "4871"

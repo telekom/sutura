@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+TimeRangeTooLong:
+  days: 3652058
+  limit: 3653

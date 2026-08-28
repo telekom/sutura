@@ -29,7 +29,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: "0.04918032786885246"
+  value: "0.04838709677419355"
 ---
 What share of the month's subscriptions terminated inside it.
 
@@ -68,8 +68,8 @@ is the case that is genuinely different: a sum of decimal gigabytes over a count
 engines may legitimately differ in the last place.
 
 Both halves are also separately certified, which is what makes the anchor readable rather than
-opaque: 3 under `subscriptions_churned` and 61 under `subscription_base`, over this same month.
-A reader checks `0.04918032786885246` against those two, and a run that produced different
+opaque: 3 under `subscriptions_churned` and 62 under `subscription_base`, over this same month.
+A reader checks `0.04838709677419355` against those two, and a run that produced different
 digits would have done different arithmetic rather than different formatting.
 
 And it is the only anchor in this repository that re-executes a conditional count inside a

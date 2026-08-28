@@ -1,0 +1,5 @@
+metric: revenue_per_churned_subscription
+grain: month
+range:
+  start: 2026-01-01
+  end: 2026-02-01

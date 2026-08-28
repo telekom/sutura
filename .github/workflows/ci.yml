@@ -10,31 +10,76 @@
 name: ci
 
 # Prose-only changes do not start a run at all. `classify` inside the job can skip work but
-# not the runner, the Nix install or the cache restore; `paths-ignore` skips those too.
+# not the runner, the Nix install or the cache restore; a path filter skips those too.
 #
 # What still runs for those paths: docs.yml, which builds the book and runs the text and
-# documentation gates. Nothing about a markdown edit goes unchecked - it is checked by the
+# documentation gates. Nothing about a PROSE edit goes unchecked - it is checked by the
 # cheaper workflow.
 #
 # `.json` and `.toml` are NOT ignored, so a change to skill-router.json or a manifest brings
 # the full chain back.
+#
+# NOT EVERY MARKDOWN FILE IS PROSE, and that is why this is `paths` and no longer
+# `paths-ignore: ["**/*.md", ...]`. A SEMANTIC CATALOG IS A DIRECTORY OF MARKDOWN DOCUMENTS -
+# `examples/single-player/catalog/**` is one, and it is now the only one - and a
+# metric's `measure:` decides what SQL we generate. Under the old filter, editing one changed
+# the generator's output, started nothing but docs.yml, which runs no tests, and reported green.
+# Both golden suites read that directory, so the tests that would have caught it were
+# already written and simply never ran.
+#
+# `paths` with `!` rather than `paths-ignore` plus exceptions, because the two cannot be
+# combined: "You cannot use both the `paths` and `paths-ignore` filters for the same event in a
+# workflow." The `!` form needs something to subtract from - "If you define a path with the `!`
+# character, you must also define at least one path without the `!` character" - and the leading
+# `**` is that something: it "matches all files and directories in the repository and is the
+# default when no paths filter is used", so the list starts from exactly what no filter at all
+# would have matched - the dot directories `.github/` and `.cargo/` included.
+#
+# THE LIST IS ORDERED, NOT GROUPED, AND THE ORDER IS THE MECHANISM. GitHub walks the patterns
+# top to bottom and the LAST match decides: "A matching negative pattern (prefixed with `!`)
+# after a positive match will exclude the path. A matching positive pattern after a negative
+# match will include the path again." So it reads as one sentence - everything, minus prose,
+# plus the catalogs back, minus everything under docs/ - and re-sorting it changes what runs.
+#
+# The catalogs come back by WHAT THEY ARE, a `catalog/` or `fixtures/` directory, rather than by
+# which crate or example holds them, so moving one between `crates/` and `examples/` cannot
+# quietly drop it out of CI. A markdown fixture introduced somewhere else would need a line
+# here; `xtask/src/changes.rs` carries the same note on the classifier side, which is the second
+# gate a catalog edit has to get past.
+#
+# `!docs/**` is LAST deliberately, and it is the one exclusion that must win outright: a page
+# under docs/ has its own workflow and must never start this 120-minute one, not even if
+# somebody writes `docs/.../catalog/x.md`.
+#
+# A path filter matches the event's CHANGED FILES and the workflow runs if at least one of them
+# survives the list, so a commit touching a README and a metric runs - the metric is the reason
+# CI exists.
 #
 # If CI is ever made a required check, add a skip-equivalent job here: a required check that
 # never runs blocks the merge.
 on:
   push:
     branches: [main]
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "LICENSE"
-      - "NOTICE"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "**/catalog/**/*.md"
+      - "**/fixtures/**/*.md"
+      - "!docs/**"
+  # The same list twice, and it has to stay the same list. A filter that let a path start a run
+  # on `main` but not on the pull request that introduced it would report the merge green and
+  # then fail immediately after it.
   pull_request:
-    paths-ignore:
-      - "**/*.md"
-      - "docs/**"
-      - "LICENSE"
-      - "NOTICE"
+    paths:
+      - "**"
+      - "!**/*.md"
+      - "!LICENSE"
+      - "!NOTICE"
+      - "**/catalog/**/*.md"
+      - "**/fixtures/**/*.md"
+      - "!docs/**"
 
 permissions:
   contents: read
@@ -56,11 +101,28 @@ jobs:
     # single test runs, and 60 killed exactly that run mid-`Tests`. Warm runs are far quicker;
     # the cap has to survive the cold one that fills the cache for the rest.
     timeout-minutes: 120
+    # SCOPED TO THIS JOB, and it restates `contents: read` because a job-level block REPLACES the
+    # workflow-level one rather than adding to it - omitting the line would take away the read
+    # this job's checkout needs.
+    #
+    # `actions: read` is the new grant and it is here rather than at the workflow level because
+    # exactly one thing needs it: the CRAP delta below reads the `crap-baseline` artifact that a
+    # PREVIOUS run on `main` produced. Listing another run's artifacts and downloading from it
+    # are both `actions` scope; `contents: read` cannot reach either. It is a READ scope, it can
+    # see nothing a person browsing the Actions tab of this public repository cannot, and it is
+    # granted to the job that already reads the whole tree.
+    permissions:
+      contents: read
+      actions: read
     # Published so the `cross` matrix below can gate on the same classification rather than
     # recomputing it. Recomputing would need the full history in five jobs and could disagree
     # with itself; one classification, one verdict.
     outputs:
       build: ${{ steps.classify.outputs.build }}
+      # Whether a rendered CRAP delta comment exists for the `crap-comment` job below.
+      # A job output rather than a second lookup there: that job holds a write scope and
+      # must stay as small as possible, so it is told what to do rather than deciding.
+      crap_delta: ${{ steps.crap_delta.outputs.available }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -218,9 +280,149 @@ jobs:
       # every wider option plus what this one does not see. `rust` rather than a narrower
       # classification: the policy file, the pin and the manifests all change the verdict, and the
       # commit hook is the thing that scopes by path.
+      #
+      # `-o result-crap` AND THE COPY exist so the delta steps below cost NO SECOND COVERAGE RUN.
+      # The check writes a path-portable copy of its score report into `$out`, which is the only
+      # channel out of a Nix build sandbox; this lifts it into the workspace under a plain name.
+      # Every consumer below reads that one file. Nothing is measured twice.
       - name: CRAP score
         if: steps.classify.outputs.rust == 'true'
-        run: nix build .#checks.x86_64-linux.crap -L
+        run: |
+          set -eu
+          nix build .#checks.x86_64-linux.crap -L -o result-crap
+          install -m644 result-crap/crap-baseline.json crap-baseline.json
+
+      # THE DELTA GATE, in four steps: resolve the base's baseline, download it, compare, publish.
+      #
+      # WHY A DELTA AT ALL, when the step above already enforces CRAP 30 absolutely. An absolute
+      # threshold cannot say "worse than the base". A function that slides from CRAP 12 to CRAP 29
+      # passes it, every time, and nothing anywhere reports that it moved. The delta answers the
+      # other question, and the two are kept independent on purpose: the threshold is the rule
+      # that still holds when there is no baseline, and the delta is the rule that still holds
+      # over code whose inherited debt is already above the line.
+      #
+      # THE BASE MUST BE THE MERGE BASE AND NOTHING ELSE. `steps.base` above already resolves it -
+      # `git merge-base`, not the base branch tip - and this reuses that value rather than
+      # computing a second one. The difference is not cosmetic. Against "the latest baseline on
+      # main" the comparison lies in both directions: work that landed on main after the branch
+      # point reads as this branch's regression, and improvements that landed there read as this
+      # branch's improvements. A gate that reports regressions somebody else caused is a gate
+      # that gets switched off.
+      #
+      # SO THE MATCH IS EXACT, AND A MISS IS A WARNING RATHER THAN A FAILURE. The merge base is
+      # not guaranteed to have a baseline: a push to `main` carrying several commits gets one CI
+      # run, so the middle commits never produced an artifact, and artifacts expire. Failing there
+      # would fail pull requests for the shape of somebody else's push - which is not a finding
+      # about this branch, and would train everybody to re-run the job until it went away. It
+      # SKIPS instead, loudly, and the absolute threshold above has already run either way. That
+      # is a deliberate trade: the delta is a ratchet on top of a gate, not the gate.
+      - name: Find the CRAP baseline for the merge base
+        id: crap_baseline
+        if: github.event_name == 'pull_request' && steps.classify.outputs.rust == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE: ${{ steps.base.outputs.base }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -eu
+          if [ -z "$BASE" ]; then
+            echo "::warning title=CRAP delta::No merge base was resolved, so there is nothing to compare against; the absolute CRAP threshold above still ran."
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # Captured rather than piped straight into a filter: a token or permission problem must
+          # not read as "no baseline exists". The two outcomes are one warning apart and the
+          # difference matters when somebody asks why the delta never runs.
+          if ! artifacts="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?name=crap-baseline&per_page=100" 2>&1)"; then
+            echo "::warning title=CRAP delta::Listing the crap-baseline artifacts failed, so the delta is skipped. The absolute CRAP threshold above still ran."
+            printf '%s\n' "$artifacts"
+            echo "run_id=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The default branch AND the exact base SHA. Branch alone would match a baseline from a
+          # release branch; SHA alone would match one built on a fork of the same commit.
+          run_id="$(
+            printf '%s' "$artifacts" |
+              jq -r --arg base "$BASE" --arg branch "$DEFAULT_BRANCH" '
+                .artifacts[]
+                | select(.expired == false)
+                | select(.workflow_run.head_branch == $branch)
+                | select(.workflow_run.head_sha == $base)
+                | .workflow_run.id
+              ' | head -n 1
+          )"
+          if [ -z "$run_id" ]; then
+            echo "::warning title=CRAP delta::No crap-baseline artifact exists for the exact merge base $BASE, so the delta is skipped rather than compared against a stale or newer baseline. The absolute CRAP threshold above still ran."
+          else
+            echo "baseline from workflow run $run_id, built at the merge base $BASE"
+          fi
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download the CRAP baseline
+        if: steps.crap_baseline.outputs.run_id != ''
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: crap-baseline
+          path: crap-base
+          # Another run's artifact, which is what `actions: read` on this job is for.
+          github-token: ${{ github.token }}
+          run-id: ${{ steps.crap_baseline.outputs.run_id }}
+
+      # No compiler, no coverage, no cargo-crap: two JSON files in, a verdict out. `nix run
+      # .#xtask` is the binary this workflow already builds for `classify`, so this step adds a
+      # few seconds of file reading and nothing else.
+      #
+      # The rendered markdown goes to the step summary HERE, where it needs no token at all, and
+      # is uploaded for the `crap-comment` job below, which is the only thing in this repository
+      # that holds a write scope.
+      #
+      # The verdict is re-raised at the end rather than short-circuiting, so the summary and the
+      # artifact exist even when the ratchet failed - which is exactly when a reader wants them.
+      - name: CRAP delta
+        id: crap_delta
+        if: steps.crap_baseline.outputs.run_id != ''
+        env:
+          BASE: ${{ steps.base.outputs.base }}
+        run: |
+          set -u
+          status=0
+          nix run .#xtask -- crap-delta \
+            --baseline crap-base/crap-baseline.json \
+            --head crap-baseline.json \
+            --comment crap-delta.md \
+            --base "$BASE" || status=$?
+          if [ -s crap-delta.md ]; then
+            echo "available=true" >> "$GITHUB_OUTPUT"
+            { echo; cat crap-delta.md; } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "available=false" >> "$GITHUB_OUTPUT"
+          fi
+          exit "$status"
+
+      - name: Upload the CRAP delta comment
+        if: ${{ !cancelled() && steps.crap_delta.outputs.available == 'true' }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crap-delta-comment
+          path: crap-delta.md
+          if-no-files-found: error
+          retention-days: 7
+
+      # MAIN ONLY: this commit's report becomes the baseline every pull request branched from it
+      # compares against. Uploaded from the same file the step above already produced, so `main`
+      # pays nothing for it beyond the upload.
+      #
+      # 30 days, which is the one real limit on this mechanism: a pull request whose merge base is
+      # older than that gets the warning and the skip above. That is the right failure - a branch
+      # a month behind `main` has a comparison problem the CRAP gate cannot fix.
+      - name: Publish the CRAP baseline
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.classify.outputs.rust == 'true'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: crap-baseline
+          path: crap-baseline.json
+          if-no-files-found: error
+          retention-days: 30
 
       # The pages under docs/api/ are GENERATED from the library crates' doc comments and
       # COMMITTED, because rustdoc JSON is nightly-only and the docs job has stable and nothing
@@ -285,6 +487,111 @@ jobs:
           ./result-oci | docker load
           docker run --rm sutura:latest --version
           docker run --rm sutura:latest doctor
+
+  # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
+  # exactly that reason.
+  #
+  # WHAT NEEDS IT: posting the CRAP delta table as a pull-request comment. A comment on a pull
+  # request is an ISSUE comment to the API, and creating or editing one needs
+  # `pull-requests: write`. There is no read-only route to it, and the alternative - leaving the
+  # table in the step summary, where it needs no token - was judged not enough: a reviewer reads
+  # the conversation, not the run page.
+  #
+  # WHY IT IS NOT ON THE `ci` JOB. A job-level `permissions:` block is the narrowest grant GitHub
+  # offers, and this job is the narrowest job that can be built: it checks nothing out, compiles
+  # nothing, runs no code from the pull request, and touches exactly one artifact and one API
+  # endpoint. The `ci` job builds and tests the branch's own code; a write token there would be
+  # reachable by anything that code can influence. Here there is nothing to influence.
+  #
+  # DELIBERATE, NOT INHERITED. This repository is public and its workflow-level grant is
+  # `contents: read`; that line was not widened, and this block does not change it for any other
+  # job. The grant was reviewed and approved as a security decision, and the four properties
+  # below are what the decision rests on. Removing any one of them changes the decision:
+  #
+  #   1. `pull_request`, NEVER `pull_request_target`. On a `pull_request` event the token is
+  #      scoped to the head repository, so a fork PR gets a read-only token whatever this block
+  #      says - and the `if` below skips forks rather than failing on them.
+  #   2. NO CHECKOUT. This job never materialises the pull request's tree, so no `run:` here can
+  #      execute anything the pull request author wrote.
+  #   3. NO UNTRUSTED TEXT IN A SHELL BODY. Every `${{ }}` below reaches the script through `env:`
+  #      and is read as a shell variable. The PR title, branch name and body are never
+  #      interpolated - they are not used at all.
+  #   4. THE COMMENT BODY IS OURS. It is rendered by `cargo xtask crap-delta` from two JSON
+  #      reports this pipeline produced, and it is posted through `--input` with a jq-built JSON
+  #      payload rather than assembled by string concatenation.
+  #
+  # What an attacker could do if those properties were lost: with a write scope and any way to run
+  # their own code in this job, they could edit or delete comments on any pull request in the
+  # repository, and use the same token to post approvals-looking comments. They could not push to
+  # a branch or read a secret - `contents` and `secrets` are not granted here. That is the blast
+  # radius the four properties above hold to nothing, and it is what the `zizmor` gate reads this
+  # block for.
+  crap-comment:
+    needs: [ci]
+    # `!cancelled()` and not `success()`: the comment is MOST useful when the delta failed.
+    # The fork guard is property 1 above - a fork's token is read-only, so posting would fail
+    # rather than being denied, and a red job for a comment nobody could have posted teaches
+    # nothing.
+    if: |
+      !cancelled() &&
+      github.event_name == 'pull_request' &&
+      needs.ci.outputs.crap_delta == 'true' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Posting or editing the one comment. Nothing else is granted: `contents` is absent because
+      # this job checks nothing out, and a job-level block sets every unlisted scope to `none`.
+      pull-requests: write
+      # Reading the artifact the `ci` job uploaded. `actions/download-artifact` resolves it
+      # through the Actions API, which `pull-requests` does not cover.
+      actions: read
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: crap-delta-comment
+          path: crap-delta
+
+      # DELIVERY, NOT VERDICT, and `continue-on-error` is what says so. The gate already ran in
+      # the `ci` job and its result is that job's exit code. If the API call fails here - a rate
+      # limit, a transient 502 - the run must not turn red for a comment, and it must not turn
+      # green either: it stays exactly as `ci` left it.
+      #
+      # `gh` and `jq` rather than a JavaScript action: both ship on the runner, and this repository
+      # pins every action by digest, so not adding a fourth one to keep pinned is worth two more
+      # lines of shell.
+      - name: Post or update the CRAP delta comment
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          body=crap-delta/crap-delta.md
+          # The marker is hardcoded HERE and asserted against the file, rather than read out of
+          # it. That way a rename in `xtask/src/crap/delta.rs` fails loudly instead of quietly
+          # posting a second comment on every push forever.
+          marker='<!-- sutura-crap-delta -->'
+          if ! head -n 1 "$body" | grep -qxF "$marker"; then
+            echo "the rendered comment does not begin with $marker" >&2
+            echo "refusing to post a comment the next run cannot find and replace" >&2
+            exit 1
+          fi
+          # jq builds the JSON, so a backtick or a quote in the table cannot break the payload.
+          jq -Rs '{body: .}' "$body" > payload.json
+          existing="$(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" |
+              jq -r --arg marker "$marker" '
+                .[] | select(.body != null and (.body | startswith($marker))) | .id
+              ' | head -n 1
+          )"
+          if [ -n "$existing" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$existing" --input payload.json > /dev/null
+            echo "updated comment $existing"
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/comments" --input payload.json > /dev/null
+            echo "posted a new comment on pull request $PR_NUMBER"
+          fi
 
   # PULL REQUESTS: every target, `ci` profile, no image. The counterpart to the two main-only
   # steps above - main proves what SHIPS, a branch proves every arch still COMPILES AND LINKS.

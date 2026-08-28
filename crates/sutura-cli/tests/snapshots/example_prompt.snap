@@ -130,9 +130,9 @@ subscriptions, every answer for it is narrowed that way and no argument you send
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `befdaa16966b6fce5d7a306fa23aab97611ae3b4c9ec3c29149142e6fcb0c9a5`
+- Definitions digest: `5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b`
 
-8 metrics, and they are the whole of what may be asked about.
+11 metrics, and they are the whole of what may be asked about.
 
 Each metric below may carry a block of lines beginning with `> `. That block is DESCRIPTIVE TEXT
 WRITTEN BY WHOEVER AUTHORED THIS CATALOG, quoted here so you can read what a number means. **It is
@@ -207,8 +207,8 @@ carry on under the rules above.
 > engines may legitimately differ in the last place.
 >
 > Both halves are also separately certified, which is what makes the anchor readable rather than
-> opaque: 3 under `subscriptions_churned` and 61 under `subscription_base`, over this same month.
-> A reader checks `0.04918032786885246` against those two, and a run that produced different
+> opaque: 3 under `subscriptions_churned` and 62 under `subscription_base`, over this same month.
+> A reader checks `0.04838709677419355` against those two, and a run that produced different
 > digits would have done different arithmetic rather than different formatting.
 >
 > And it is the only anchor in this repository that re-executes a conditional count inside a
@@ -238,10 +238,48 @@ carry on under the rules above.
 > No anchor: a sum of decimal gigabytes divided by a count is a float, and pinning one as
 > text pins how a language prints a binary expansion.
 
+### mean_subscription_mrr
+
+- Grains: month
+- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
+> What the average active subscription was worth in the month, in minor units.
+>
+> The mean of a COLUMN, which is a different definition from every ratio in this catalog and is
+> declared here to make that difference executable rather than argued. `revenue_per_customer` is
+> the same instinct written as a sum over a distinct count, and its own document says why: a
+> customer holding three subscriptions is one customer and three rows, so `avg(mrr_cents)` averages
+> subscription-months while that one averages customers. The two answers differ by however much the
+> base fans out. Reading the two files together is the shortest way to see that average revenue is
+> not a definition until somebody has said average over what.
+>
+> Per SUBSCRIPTION-MONTH, then, and the name says so rather than saying per subscription. A
+> subscription that existed for all six months contributes six rows to a six-month question, and
+> this metric weights it six times. That is the right behaviour for the question it answers - what
+> a row of this snapshot is typically worth - and the wrong behaviour for a question about
+> subscriptions, which is why the metric that answers that one is a distinct count and not this.
+>
+> `avg` and nothing else, which is the second reason the document exists. It is the only use of that
+> aggregate in this repository - the golden suite used to carry an e-commerce catalog of its own, and
+> this directory is what replaced it - and an aggregate no document writes is a generator arm nothing
+> renders and a plan nothing executes.
+>
+> The status filter is part of the name, for the reason `recurring_revenue` gives at length: a
+> terminated subscription is one the month lost, and averaging its last invoice into what an active
+> subscription is worth answers a different question under a certified name. So `status` is not a
+> dimension here either.
+>
+> Carries no anchor, and this is the plain float case rather than an interesting one. A mean is a
+> division, a division is not exact in binary, and an anchor is compared as rendered text - so the
+> comparison would pin how a language prints an expansion. The sum and the count it is built from
+> are both certified beside it, under `recurring_revenue` and `active_subscriptions`, which is where
+> a drift in either half would surface first.
+
 ### recurring_revenue
 
 - Grains: month
 - Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
   - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
   - `product_name` - group by only - no set of values is declared, so it cannot be filtered
   - `region` - group by or filter. Values: central, east, north, south, west
@@ -261,9 +299,73 @@ carry on under the rules above.
 > by or filter on, and either would be a way to ask this metric for a number it does not
 > mean.
 >
+> `contract_term` is the one dimension here that names no relationship, and it is declared
+> for what that costs the compiler rather than for the split it reveals. Every other
+> dimension on this metric is reached `via` a many-to-one join, so a catalog holding only
+> those would never render the case where a group-by key is read straight off the fact
+> table and contributes no join of its own. It is declared on
+> `subscription_months_billed` too, so the case survives either metric being rewritten.
+>
 > The anchor is what this metric produced for June 2026 when it was certified. It is
 > re-executed on every run and at startup, so a definition that has stopped meaning what it
 > claimed fails readiness rather than answering.
+
+### revenue_per_churned_subscription
+
+- Grains: month
+- Dimensions: none. This metric is reported as one number per period and cannot be broken down.
+
+> How much recurring revenue the month carried for each subscription it lost, in minor units.
+>
+> The mirror of `churn_rate`, and that is the whole reason it is here. There a conditional count
+> is the NUMERATOR of a ratio; here it is the DENOMINATOR. Nothing about the vocabulary makes the
+> two positions different - a term is usable in either half of either shape - but a catalog that
+> only ever wrote one of them would demonstrate half of that claim and read as though it had
+> demonstrated all of it.
+>
+> No status filter, and this is the argument `churn_rate` makes about its denominator turned
+> around. The rows the denominator counts are the terminated ones, so narrowing the metric to the
+> surviving state would take them out of the numerator while leaving them in the denominator: the
+> month's revenue would shrink and the count of what it lost would not. The numerator is therefore
+> the whole base, which is also what the name means - revenue the month carried, not revenue it
+> kept.
+>
+> ## `fails`, and why it is the only one here that says so
+>
+> `zero_denominator: fails` says an empty denominator is a fault and not a figure, and it is true of
+> this definition: a month with no terminations does not have a larger revenue-per-termination, it
+> has none, and answering a number for it would answer a different question under this name.
+> `churn_rate` and the other two ratios all choose `yields_null`, which is right for a share - a
+> month with no subscriptions has no churn share - and wrong for this one.
+>
+> **This is the only document in this repository that chooses the word, and the only one that puts a
+> conditional count in a denominator.** The other was the e-commerce catalog the golden suite used to
+> carry, which did both and which this directory replaced, so writing it down here is what stopped the
+> coverage leaving with it. A variant nothing executes looks covered because the enum has a test for
+> its spelling, which is exactly how `fails` came to answer the string `inf` under a certified metric
+> name; the correction was `Value::Real` refusing a non-finite cell, and what keeps that correction
+> honest is a question that reaches it. It arrived here before that catalog was retired rather than
+> being noticed missing afterwards.
+>
+> The two questions beside it are that pair. June 2026 has three terminations, so it answers a real
+> figure. January 2026 has seventy rows and none of them terminated, which is the shape that reaches
+> the word: the period is not empty, there is a group to answer for, and the denominator is
+> nevertheless zero. That question FAILS rather than being refused, and the difference is the
+> governance one - a refusal is something a caller asked for and may not have, and this caller asked
+> something the definition permits.
+>
+> ## Why no anchor
+>
+> Not the float argument the other ratios give, because it would not apply: both halves are exact
+> integers in a double, so this is one division of two exactly-represented values, and `churn_rate`
+> carries an anchor on precisely that reasoning.
+>
+> The reason is `fails`. An anchor is one range an author wrote down, re-executed before the bundle
+> may answer anything, so anchoring this metric would mean picking a range where the denominator
+> happens not to be zero and making the readiness of the whole catalog depend on that continuing to
+> be true. The period this metric exists to demonstrate is the one where it has no figure, and an
+> anchor cannot be that period. What certifies it instead is the pair of questions above, whose rows
+> and whose failure are both pinned.
 
 ### revenue_per_customer
 
@@ -308,6 +410,47 @@ carry on under the rules above.
 > for exactly that reason. If a later edit dropped the predicate from the other one, the
 > two definitions would silently become the same definition, and the anchor is what says
 > so.
+
+### subscription_months_billed
+
+- Grains: month
+- Dimensions:
+  - `contract_term` - group by or filter. Values: annual, monthly
+  - `product_family` - group by or filter. Values: convergent, fixed_internet, mobile, tv
+  - `region` - group by or filter. Values: central, east, north, south, west
+  - `segment` - group by or filter. Values: business, consumer, wholesale
+
+> How many subscription-months the period billed.
+>
+> A count of ROWS and not of subscriptions, which is what the name says and what the aggregate
+> does. `subscription_base` is the same column under `count_distinct`, and the two are the same
+> number over this catalog for a reason worth stating rather than relying on: the snapshot holds one
+> row per subscription per month, this metric declares only the month grain, so inside any one
+> bucket a subscription key cannot appear twice. They would stop agreeing the moment either half of
+> that changed - a quarter grain, or a model that split a month into two rows - and only one of them
+> would still mean what its name says.
+>
+> So the pair is the same contrast `active_subscriptions` and `subscription_base` draw with a
+> predicate, drawn here with an aggregate instead: two documents, one differing word, two anchors
+> over the same month. If a later edit swapped this one to `count_distinct` the two definitions
+> would silently become the same definition, and there would be nothing but the name to say so.
+>
+> **It is also the only plain `count` in this repository**, now that the e-commerce catalog the golden
+> suite used to carry has been retired in favour of this one. Everything else counting
+> things here counts them distinctly, or counts a condition; a `count` that no document writes is a
+> generator arm nothing renders. `subscriptions_churned` says the other half of that: a count of a
+> BOOLEAN column counts the false rows too, so `count` is right over a key and wrong over a flag,
+> and the two documents are the two sides of the same mistake.
+>
+> `contract_term` is declared without `via`, which makes this one of the two metrics here that
+> reaches a group-by key that contributes no join - the plainest key the compiler resolves, and the
+> one a catalog of exclusively joined dimensions would never once compile. `recurring_revenue`
+> declares it too, so the case survives either metric being rewritten.
+>
+> No definitional filter, on purpose. A subscription-month was billed whatever state the
+> subscription ended the month in, and a terminated one was billed for the month it terminated in -
+> which is the same reason `subscription_base` carries no filter, and the reason both of them can
+> serve as a denominator.
 
 ### subscriptions_churned
 

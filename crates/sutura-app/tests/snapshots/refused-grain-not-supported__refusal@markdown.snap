@@ -3,5 +3,5 @@ source: crates/sutura-app/tests/golden/catalogs.rs
 expression: reason
 ---
 GrainNotSupported:
-  metric: average_order
+  metric: recurring_revenue
   grain: day

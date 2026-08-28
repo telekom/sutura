@@ -7,4 +7,5 @@ checks:
   churn_rate: Matched
   recurring_revenue: Matched
   subscription_base: Matched
+  subscription_months_billed: Matched
   subscriptions_churned: Matched

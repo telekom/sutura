@@ -540,7 +540,7 @@ a refusal needs a quota small enough to exhaust in two requests, so such a test 
 `rate_limit.enabled` and a tier down together - which is what
 `sutura-http`'s harness already does. So defaulting on here would buy no coverage, and would
 charge every unrelated test in the suite a limiter it never asked for, at a tier
-(`probe_burst: 5`) that a loop over fixtures can exhaust. A limiter nothing exercises is
+(`probe_burst: 5`) that a loop over a corpus of requests can exhaust. A limiter nothing exercises is
 untested code; the answer to that is a test that names the switch, not a default that fires
 during somebody else's assertion.
 

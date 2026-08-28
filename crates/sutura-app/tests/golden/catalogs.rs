@@ -110,10 +110,11 @@ where
 
 /// A required filter is what makes a metric mean what it says.
 ///
-/// `web_revenue` is revenue from the web channel, and a statement without that predicate
-/// returns total revenue under that name. A caller cannot ask for it and cannot turn it off,
-/// so nothing the caller does can make this pass or fail - which is exactly why it has to be
-/// asserted here, and why it is a property of the CATALOG rather than of a renderer.
+/// `recurring_revenue` is revenue from ACTIVE subscriptions, and a statement without that
+/// predicate returns revenue including the terminated ones under that name. A caller cannot ask
+/// for it and cannot turn it off, so nothing the caller does can make this pass or fail - which is
+/// exactly why it has to be asserted here, and why it is a property of the CATALOG rather than of a
+/// renderer.
 fn keeps_every_definitional_filter<C>()
 where
     C: CatalogUnderTest,

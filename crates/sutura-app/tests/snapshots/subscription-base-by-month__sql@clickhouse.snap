@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) AS "period", COUNT(DISTINCT "fct_subscription_monthly"."subscription_key") AS "subscription_base" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? GROUP BY CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) LIMIT 10001

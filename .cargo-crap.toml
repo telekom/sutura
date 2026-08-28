@@ -20,15 +20,26 @@
 # "no function here may be that big whatever its tests say". Below it, the trade is explicit -
 # CC 6 needs roughly 30% coverage to pass, CC 10 needs about 55%.
 #
-# THIS NUMBER IS THE RATCHET. There is no downloaded baseline: the Nix build sandbox has no
-# network and no `.git`, so a gate that fetched a `main` baseline could not run as a check at
-# all, and a committed JSON baseline is a generated file that needs a coverage run to refresh -
-# one more thing to keep honest. A single reviewed integer is the ratchet instead. Lowering it
-# is a diff; raising it is a diff somebody has to defend in review.
+# THIS NUMBER IS THE GATE, AND IT IS ALSO THE DELTA GATE'S ONLY KNOB. It is enforced two ways
+# and they are independent on purpose:
 #
-# What that gives up, stated because it is real: this gate cannot say "worse than main". A
-# function that goes from CRAP 12 to CRAP 29 passes. It answers "is anything over the line",
-# not "did anything get worse".
+#   absolutely - `cargo xtask crap` fails when any function scores above it. No baseline is
+#                involved, which is why this is the rule that still holds on a first run, on a
+#                fork, and on any commit whose base never produced one.
+#   as a delta - `cargo xtask crap-delta` fails when a function crosses it, when a function
+#                already above it gets worse, or when the points added to PRE-EXISTING functions
+#                sum to more than it. Same number, no second threshold to defend.
+#
+# THE DELTA IS NOT A CHECK AND CANNOT BE ONE, and the old reason still stands: a Nix build
+# sandbox has no network and no `.git`, so nothing sandboxed can fetch a baseline. What changed is
+# only where the fetch happens. The sandboxed run now WRITES its report - path-portable, so it
+# compares across machines - and CI downloads the merge base's copy from an artifact and joins the
+# two outside the sandbox. Nothing is measured twice and no baseline is committed.
+#
+# What the number alone gives up, stated because it is why the delta exists: it cannot say "worse
+# than main". A function that goes from CRAP 12 to CRAP 29 passes it, and the delta is what
+# reports that it moved. docs/crap.md has the three delta rules and why a single sub-threshold
+# regression is reported rather than failed.
 threshold = 30.0
 
 # Exit non-zero when something exceeds it. Without this the tool prints a table and returns 0,
@@ -69,12 +80,17 @@ exclude = [
 # that is a test. An entry is for code whose complexity the metric reads wrongly - a generated
 # match arm table, a vendored port - not for code we have not got round to covering.
 #
-# EMPTY ON PURPOSE. The current tree has one function over the line (`Grain::as_str`, model.rs)
-# and it is not listed here: it is uncovered by its own crate's tests, which is the finding, not
-# an exemption.
+# EMPTY, AND CURRENTLY WITH NOTHING TO PUT IN IT. No function in the scored crate is over the
+# line: the two highest sit exactly at 30.0 and pass. `Grain::as_str` used to be over it at CRAP
+# 42 and was never listed here, because it was uncovered by its own crate's tests - which is a
+# finding, not an exemption. It scores 6.0 now, and what changed was the tests.
 allow = []
 
 # `(file, function, line)` ordering rather than by score, so the report of a small change is a
-# small diff. Nothing consumes it as data today; it costs nothing and makes two runs comparable
-# by eye.
+# small diff.
+#
+# THIS IS LOAD-BEARING NOW. The report is written out as the baseline the delta gate compares
+# against, and a baseline sorted by score would reshuffle every time any function moved, turning
+# an artifact meant to be read by eye into noise. `cargo-crap` documents this value as the one to
+# use for committed JSON baselines, for the same reason.
 sort = "file"

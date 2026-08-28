@@ -23,6 +23,13 @@ pub(crate) struct Policy {
     pub(crate) threshold: f64,
     /// Whether exceeding it is a failure. Anything but `true` makes the file a report.
     pub(crate) fail_above: bool,
+    /// The regression tolerance, when the file states one.
+    ///
+    /// `Option` and not a defaulted `f64`, because the DEFAULT belongs to the module that
+    /// compares - `crap::delta::DEFAULT_EPSILON`, which is deliberately cargo-crap's own default
+    /// so that running the tool by hand agrees with the gate. A default baked in here would
+    /// silently become a second answer to the same question.
+    pub(crate) epsilon: Option<f64>,
     /// Allowlist entries, in file order.
     pub(crate) allow: Vec<AllowEntry>,
 }
@@ -50,6 +57,7 @@ pub(crate) struct AllowEntry {
 pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
     let mut threshold = None;
     let mut fail_above = None;
+    let mut epsilon = None;
     let mut allow = Vec::new();
     let mut in_allow = false;
     let mut previous_was_comment = false;
@@ -75,6 +83,8 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
             threshold = value.parse::<f64>().ok();
         } else if let Some(value) = value_of(line, "fail-above") {
             fail_above = Some(value == "true");
+        } else if let Some(value) = value_of(line, "epsilon") {
+            epsilon = value.parse::<f64>().ok();
         } else if line.starts_with("allow") && line.contains('[') {
             // `allow = []` on one line is an empty list, not the start of a block.
             in_allow = !line.contains(']');
@@ -101,6 +111,7 @@ pub(crate) fn parse_policy(text: &str) -> Result<Policy, String> {
     Ok(Policy {
         threshold,
         fail_above: true,
+        epsilon,
         allow,
     })
 }
@@ -402,5 +413,19 @@ mod tests {
     fn a_clean_report_has_no_offenders() {
         let entries = vec![entry("sutura-domain", "fine", 1.0)];
         assert!(offenders(&entries, 30.0).is_empty());
+    }
+
+    #[test]
+    fn the_regression_tolerance_is_read_when_stated_and_absent_when_not() {
+        // ABSENT and not defaulted here on purpose: the default belongs to the module that
+        // compares, where it is deliberately cargo-crap's own, so the tool and the gate agree
+        // about which functions moved. A number invented in this file would be a second answer.
+        let stated = parse_policy("threshold = 30.0\nfail-above = true\nepsilon = 0.5\n").expect("parses");
+        assert_eq!(stated.epsilon, Some(0.5));
+        let silent = parse_policy("threshold = 30.0\nfail-above = true\n").expect("parses");
+        assert_eq!(silent.epsilon, None);
+        // The committed file does not state one, which is what keeps the tool and the gate in
+        // step without a synchroniser.
+        assert_eq!(committed_policy().epsilon, None);
     }
 }

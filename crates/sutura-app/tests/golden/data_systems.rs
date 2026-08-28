@@ -37,7 +37,7 @@ where
     }
     assert!(
         !report.checks().is_empty(),
-        "the fixture catalog declares no anchor, so this proved nothing"
+        "the example catalog declares no anchor, so this proved nothing"
     );
     // And the same run, through the operation that mints the proof. `verify_anchors` above is
     // what an operator reads; this is the only thing that produces a bundle the service takes.
@@ -48,9 +48,9 @@ where
 ///
 /// This is what would catch a change that is valid SQL, plans identically, and returns a
 /// different number. Three outcomes, not two. A question may also be one the data system
-/// answered and the adapter would not carry: `revenue_per_refunded_order` declares
-/// `zero_denominator: fails`, so its July statement divides by zero, and IEEE float division by
-/// zero answers `inf` rather than raising. That value used to be pinned right here as
+/// answered and the adapter would not carry: `revenue_per_churned_subscription` declares
+/// `zero_denominator: fails`, so its January statement divides by zero, and IEEE float division
+/// by zero answers `inf` rather than raising. That value used to be pinned right here as
 /// `Real: inf` under the metric's own certified name, and the snapshot read as coverage.
 fn runs_the_corpus_and_pins_the_rows<W>()
 where
@@ -136,9 +136,10 @@ fn total(rows: &RowSet, label: &str) -> f64 {
 /// THE BUG THIS EXISTS FOR, and it shipped.
 ///
 /// The generator emitted an INNER join, so every fact row whose dimension row was missing
-/// silently vanished from a grouped answer. Order 12 in `data/orders.csv` names customer 5, and
-/// `data/customers.csv` stops at 4 - so before the fix, `revenue` for June answered 570022 and
-/// `revenue by region` totalled 470023. Two numbers, one metric, one period, and nothing
+/// silently vanished from a grouped answer. Subscription 1071 in
+/// `data/fct_subscription_monthly.csv` names customer 41 and `data/dim_customer.csv` stops at 40,
+/// so with an inner join `recurring_revenue` for June answers 202121 while
+/// `recurring_revenue by region` totals 197122. Two numbers, one metric, one period, and nothing
 /// raising an error anywhere.
 ///
 /// The catalog's existing guard could not see it. `may_duplicate_rows` refuses a join that
@@ -149,6 +150,10 @@ fn total(rows: &RowSet, label: &str) -> f64 {
 /// grouping by a dimension must partition the measure, not filter it. A left join makes the
 /// unmatched row group under a null key, so the totals agree. Per data system, because a join
 /// is one of the things each of them implements for itself.
+///
+/// Three groupings and not one, because the corpus reaches two relationships and the last of them
+/// reaches both at once: a `LEFT` that was fixed on one join path and missed on another would
+/// reconcile here and not there.
 fn partitions_the_measure_rather_than_filtering_it<W>()
 where
     W: DataSystemUnderTest,
@@ -162,11 +167,15 @@ where
         let ToolOutcome::Answer { ref rows, .. } = outcome else {
             panic!("{file} was refused: {outcome:?}");
         };
-        total(rows, "revenue")
+        total(rows, "recurring_revenue")
     };
 
-    let ungrouped = total_of("revenue-total-june.yaml");
-    for grouped_by in ["revenue-by-region.yaml", "revenue-by-channel.yaml", "revenue-by-segment.yaml"] {
+    let ungrouped = total_of("recurring-revenue-june.yaml");
+    for grouped_by in [
+        "recurring-revenue-by-region.yaml",
+        "recurring-revenue-by-segment.yaml",
+        "recurring-revenue-by-region-and-family.yaml",
+    ] {
         assert_eq!(
             format!("{:.12e}", total_of(grouped_by)),
             format!("{ungrouped:.12e}"),
@@ -179,9 +188,9 @@ where
     // unmatched key every join is a no-op and this reconciles trivially.
     assert_eq!(
         format!("{ungrouped:.12e}"),
-        format!("{:.12e}", 570_022.0_f64),
-        "the fixture no longer carries an order whose customer is absent, so this test proves \
-         nothing; restore it in data/orders.csv"
+        format!("{:.12e}", 202_121.0_f64),
+        "the corpus no longer carries a subscription-month whose customer is absent, so this test \
+         proves nothing; restore it in examples/single-player/data/fct_subscription_monthly.csv"
     );
 }
 
@@ -207,13 +216,13 @@ where
     let warehouse: W = open(&pinned);
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
 
-    // July has orders and none of them refunded, so there is a group to answer for and the
-    // denominator is nevertheless zero.
-    let july = question("revenue-per-refunded-order-july.yaml");
-    let error = answer(&validated, &july, &warehouse).expect_err("a zero denominator under `fails` must not answer");
+    // January has seventy subscription-months and none of them terminated, so there is a group to
+    // answer for and the denominator is nevertheless zero.
+    let january = question("revenue-per-churned-subscription-january.yaml");
+    let error = answer(&validated, &january, &warehouse).expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
     assert!(
-        rendered.contains("column revenue_per_refunded_order"),
+        rendered.contains("column revenue_per_churned_subscription"),
         "{} does not say which column it could not carry:\n{rendered}",
         W::NAME
     );
@@ -223,16 +232,22 @@ where
         W::NAME
     );
 
-    // And June, where three orders were refunded, still answers a figure - so this is not a
+    // And June, where three subscriptions terminated, still answers a figure - so this is not a
     // test that would pass with the metric refused outright.
-    let outcome = answer(&validated, &question("revenue-per-refunded-order-june.yaml"), &warehouse)
-        .expect("a non-zero denominator answers");
+    let outcome = answer(
+        &validated,
+        &question("revenue-per-churned-subscription-june.yaml"),
+        &warehouse,
+    )
+    .expect("a non-zero denominator answers");
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
-        panic!("June has refunded orders, so it is an answer, not {outcome:?}");
+        panic!("June has terminations, so it is an answer, not {outcome:?}");
     };
+    // 202121 minor units of recurring revenue over three terminations, which is the June anchor of
+    // `recurring_revenue` divided by the June anchor of `subscriptions_churned`.
     assert_eq!(
-        format!("{:.12e}", total(rows, "revenue_per_refunded_order")),
-        format!("{:.12e}", 190_007.333_333_333_34_f64),
+        format!("{:.12e}", total(rows, "revenue_per_churned_subscription")),
+        format!("{:.12e}", 67_373.666_666_666_67_f64),
         "{} answered a different figure for June",
         W::NAME
     );

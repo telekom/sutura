@@ -185,7 +185,9 @@ ship-check:
 # one is not the channel-consistency argument the lints have - it is that the instrumentation is
 # absent. `cargo xtask crap` re-establishes it anyway rather than trusting this line.
 #
-# Scope, cost and the reason there is no downloaded baseline are all in docs/crap.md.
+# Every run leaves `target/crap/baseline.json` behind, which is what `just crap-delta` below
+# compares. Scope, cost and the two halves of the ratchet - the absolute threshold and the delta
+# against the base - are all in docs/crap.md.
 
 # The CRAP score: complexity weighted by the tests that cover it. Scoped to sutura-domain.
 crap:
@@ -194,6 +196,27 @@ crap:
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
     bash nix/run-gate.sh crap
+
+# Did the CHANGE make anything worse? The other half of the CRAP gate.
+#
+# TWO FILES, NO COVERAGE RUN. Both sides are baselines an earlier `just crap` wrote, so this is
+# file reading and costs nothing. Locally that means: run `just crap` on the base commit, copy
+# `target/crap/baseline.json` somewhere, come back to the branch, run `just crap` again, then
+# point this at the two files.
+#
+# CI does not do it that way and does not need to. There the base's baseline was computed when
+# the base commit was built and has been sitting in the `crap-baseline` artifact since; the
+# workflow resolves the artifact for the pull request's exact merge base, and when no such
+# artifact exists it warns and skips rather than comparing against a baseline from a different
+# commit. See docs/crap.md and .github/workflows/ci.yml.
+#
+# NO `gh run download` HERE, deliberately. A recipe that fetched a baseline would need the
+# GitHub CLI, an authenticated token and network, and would then silently disagree with CI about
+# which commit the baseline came from. Two paths in, no guessing.
+
+# `just crap-delta <base-baseline.json> [head-baseline.json]`
+crap-delta base head="target/crap/baseline.json":
+    cargo run -q -p xtask -- crap-delta --baseline {{ base }} --head {{ head }}
 
 # What a diff requires. `just classify origin/main`
 classify base="origin/main":

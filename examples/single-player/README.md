@@ -11,14 +11,14 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 937f8070916afd0fed6338cb17ba6a72da0bc53dd0daba520c0d54f4059544fe
+-- definitions local-working-tree 5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b
 period  recurring_revenue
 2026-01-01      237320
 2026-02-01      232822
 2026-03-01      216700
 2026-04-01      206160
 2026-05-01      202994
-2026-06-01      197122
+2026-06-01      202121
 ```
 
 Four things happened before that table appeared. The catalog was read and hashed, so the
@@ -75,9 +75,18 @@ expression, and every combination below is here:
 | --- | --- | --- |
 | `voice_minutes` | `simple` + `aggregate` | One aggregate over one column. Most metrics look like this |
 | `recurring_revenue` | `simple` + `aggregate` + `required_filters` | The active-only predicate is part of the name, and a caller can neither see it nor remove it |
+| `mean_subscription_mrr` | `simple` + `avg` + `required_filters` | The mean of a COLUMN. The only `avg` here, and the thing `revenue_per_customer` is not |
+| `subscription_months_billed` | `simple` + plain `count` | The only plain `count` here. Everything else counting things counts them distinctly, or counts a condition |
 | `subscriptions_churned` | `simple` + `count_if` | A count of a boolean column would count the `false` rows too |
 | `revenue_per_customer` | `ratio` of two aggregates | A sum over a distinct count of customers. Not the mean of a column, and computing it as one is a different number |
 | `churn_rate` | `ratio` with a `count_if` numerator | A conditional count over a distinct count. This is the one that needed the two levels |
+| `revenue_per_churned_subscription` | `ratio` with a `count_if` DENOMINATOR, and `zero_denominator: fails` | The mirror of `churn_rate`, and the only document here that says an empty denominator is a fault rather than a figure |
+
+Between them those eight write every shape, every term, both meanings of a zero denominator and
+four of the six aggregates, and `crates/sutura-cli/tests/example.rs` asserts each of those sets as
+an equality rather than as a lower bound - so dropping a case is a failing test and adding one is
+a line in a diff. `min` and `max` are the two that are absent, because a metric using either would
+have to mean something first.
 
 `churn_rate` is worth opening for the second reason as well: the catalog could not express it
 until the vocabulary stopped treating a conditional count as a whole measure, and both files
@@ -85,14 +94,38 @@ say so - one as the metric, the other as the record of what it cost.
 
 The pair worth reading together is `active_subscriptions` and `subscription_base`. They are
 the same aggregate over the same rows in the same month; one carries `status = active` as a
-definitional filter and the other does not. For June 2026 their certified numbers are 58
-and 61, and `subscriptions_churned` reports 3 for the same month. One predicate, three
+definitional filter and the other does not. For June 2026 their certified numbers are 59
+and 62, and `subscriptions_churned` reports 3 for the same month. One predicate, three
 numbers that add up, and no caller can reach any of them. `churn_rate` is the fourth: 3 over
-61, certified as `0.04918032786885246`.
+62, certified as `0.04838709677419355`.
+
+`subscription_months_billed` is the pair drawn a second way, with an aggregate instead of a
+predicate: it is `subscription_base`'s column under a plain `count`, and 62 for the same month
+because this snapshot holds one row per subscription per month and the metric declares only the
+month grain. The two would part company the moment either of those changed, which is why they are
+two documents and two anchors rather than one.
+
+## The dimension that needs no join
+
+Every dimension in this catalog is reached `via` a declared relationship except one.
+`contract_term` - `monthly` or `annual` - sits on the snapshot row itself, so it names no
+relationship and contributes no join: the compiler reads the group-by key straight off the fact
+table. It is declared on `recurring_revenue` and on `subscription_months_billed`, so the case
+survives either of them being rewritten, and
+`questions/recurring-revenue-by-term-and-family.yaml` is the mixed plan: one local key and one
+reached through `subscription_product`, in the same statement. Every join in that statement is
+there because of the *other* key, which is the readable form of the claim.
+
+One customer key in `data/fct_subscription_monthly.csv` matches no row in `data/dim_customer.csv`,
+also on purpose. The join is a LEFT join because a fact must not vanish for want of a dimension
+row, so that subscription appears under a `null` group rather than dropping out of the total -
+which is what makes `questions/recurring-revenue-june.yaml` and
+`questions/recurring-revenue-by-region.yaml` reconcile. Group the June figure by region and the six
+groups still sum to 202121.
 
 ## Anchors
 
-Five metrics declare an `anchor`: a range and the number the metric produced over it when
+Six metrics declare an `anchor`: a range and the number the metric produced over it when
 it was certified.
 
 ```yaml
@@ -100,7 +133,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: 197122
+  value: 202121
 ```
 
 Each one is re-executed before the catalog can answer anything. Change a number in
@@ -114,15 +147,22 @@ pin how a language prints an expansion rather than pinning a number. Money is he
 units throughout for the same reason: `mrr_cents` is an integer, so a total is exact and
 the comparison is too.
 
-The three metrics without anchors are the ones that argument reaches. `churn_rate` is the
+Four of the five metrics without anchors are the ones that argument reaches. `churn_rate` is the
 one float that carries one, because both of its halves are counts: exact integers in a
 double however they were summed, so the whole measure is a single rounding of two
 exactly-represented values, and both of them are separately certified beside it. Its own
 file makes that case in full.
 
+`revenue_per_churned_subscription` is the fifth, and it is unanchored for a different reason worth
+keeping straight: the float argument would not apply to it either - both halves are counts again -
+but it declares `zero_denominator: fails`, so anchoring it would mean picking a range where the
+denominator happens not to be zero and making the readiness of the whole bundle depend on that
+staying true. The period that metric exists to demonstrate is the one where it has no figure, and
+an anchor cannot be that period.
+
 ## Refusals
 
-Five questions in the corpus are named `refused-*` because that is what they are for. A
+Nine questions in the corpus are named `refused-*` because that is what they are for. A
 refusal is a result rather than an error, decided before anything runs, and it names what
 was wrong:
 
@@ -137,9 +177,31 @@ cargo run -p sutura-cli -- \
 refused: DimensionValueNotAllowed { metric: MetricName("recurring_revenue"), dimension: DimensionName("region") }
 ```
 
-The other four ask for a grain the metric does not declare, a metric nobody has defined, a
-filter on a dimension that is group-by only, and a dimension on a metric that has none.
-None of them reach the data system.
+The other eight ask for a grain the metric does not declare, a metric nobody has defined, a
+filter on a dimension that is group-by only, a dimension on a metric that has none, the same
+dimension twice, five group-by keys where four is the limit, ten thousand years of history, and a
+dimension on a metric whose definitional filter is the reason it declares only one. None of them
+reach the data system.
+
+A refusal is not the only thing that is not an answer, and the corpus carries the other one too.
+`questions/revenue-per-churned-subscription-january.yaml` asks a question the definition permits,
+over a month that has seventy rows and no terminations, of a metric declaring
+`zero_denominator: fails`:
+
+```
+sutura: the data system did not answer
+  caused by: column revenue_per_churned_subscription came back as a value that is not a finite number
+  caused by: inf is not a finite number
+```
+
+That is a *failure* and not a refusal, and the distinction is the governance one. A refusal is
+something a caller asked for and may not have, decided before anything runs. Here the caller asked
+something the metric permits, the data system answered, and what refuses to carry the answer is
+`Value::Real`: the division was emitted unguarded because the definition says an empty denominator
+is a fault, and IEEE float division by zero returns `inf` rather than raising. Without that check
+the string `inf` would come back under a certified metric name, which is exactly what it used to
+do. The June question beside it answers a real figure, so this is not a metric that simply never
+works.
 
 ## Over HTTP
 
@@ -195,7 +257,7 @@ answers `401` to everything.
   INFO sutura_runtime::banner: generated interface description, docs: true
   INFO sutura_runtime::banner: catalog and log, catalog_dir: examples/single-player/catalog, data_dir: examples/single-player/data, definition_version: local-1, log_format: pretty, log_format_explicit: false
   WARN sutura_runtime::banner: NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. There is no request context, no per-request credential and no row-level scoping - every question is answered with whatever access this process already had, whoever asked it
-  INFO sutura_serve: catalog loaded and every anchor reproduced its number, definition_version: local-1, metrics: 8
+  INFO sutura_serve: catalog loaded and every anchor reproduced its number, definition_version: local-1, metrics: 11
   INFO sutura_http::router: rate limiting disabled - a no-op layer is in its place, environment: development
   INFO sutura_http::router: rate limit buckets are keyed on the peer address - behind a proxy that is ONE bucket for every caller, and rate_limit.client_address is what changes it, client_address: peer
   INFO sutura_http::server: listening, bound: 127.0.0.1:8080, tls: false
@@ -211,7 +273,7 @@ believing a `401` implies a per-caller identity behind it. Every response block 
 has its `date` header dropped for the same reason and nothing else; the status line, the other
 headers and the body are byte for byte what came back.
 
-`metrics: 8` and `every anchor reproduced its number` are the readiness gate, and they are why
+`metrics: 11` and `every anchor reproduced its number` are the readiness gate, and they are why
 this surface has no readiness endpoint to ask. Startup loads the catalog through its port and
 re-executes every declared anchor against the data; a bundle whose anchors do not hold starts
 nothing, so a process that is listening is a process whose definitions reproduced the numbers
@@ -247,7 +309,7 @@ content-length: 347
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "befdaa16966b6fce5d7a306fa23aab97611ae3b4c9ec3c29149142e6fcb0c9a5"
+    "definition_digest": "5de2c383b783698082a9e8142a1d032bbc014fe457da9126109df6dd03777e3b"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [
@@ -256,7 +318,7 @@ content-length: 347
     ["2026-03-01", "216700"],
     ["2026-04-01", "206160"],
     ["2026-05-01", "202994"],
-    ["2026-06-01", "197122"]
+    ["2026-06-01", "202121"]
   ]
 }
 ```
@@ -496,18 +558,43 @@ quarter, and the two metrics over it are anchored to nothing for the float reaso
 The monthly snapshot covers all six months of the first half of 2026, because a revenue
 series with one point is not a series.
 
+Three properties of it are load-bearing and look like defects, so they are written down here
+rather than left to be tidied up by somebody reading the CSV. `contract_term` is constant per
+subscription across the months, because a contract's term is not a monthly attribute. One
+subscription in June names a customer key that `dim_customer.csv` does not have, which is what
+puts a `null` group in every answer grouped by a customer attribute. And January has rows and no
+terminations at all, which is the month `revenue_per_churned_subscription` has no figure for.
+
 ## As a test
 
-The same directory is an integration test, and there is no second copy of it:
+**The same directory is the corpus of every test that reads a catalog, and there is no second copy
+of it anywhere.** That is a recent thing worth stating plainly: the golden suite under
+`crates/sutura-app/tests` used to carry a second, e-commerce catalog of its own, so the documented
+example and the certified one were two directories that agreed only as long as somebody kept them
+agreeing. There is now one, and this is it.
 
 ```bash
-cargo test -p sutura-cli --test example
+cargo test -p sutura-cli --test example   # the narrow claim: the quickstart still answers
+cargo test -p sutura-app                  # the wide one: every adapter, every dialect
 ```
 
-It loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and
-snapshots the generated SQL and the rows that came back. That is what stops the commands
-above from rotting: an edit that changes what this example does shows up as a snapshot diff
-to review rather than as a README that used to be true.
+The first loads the catalog, pins the digest, re-runs every anchor, runs the whole corpus and
+snapshots the generated SQL and whatever came back - rows, a refusal reason, or the error chain
+of the one question that fails. It runs on the one pair the shipped binary composes: the local
+catalog adapter and the engine.
+
+The second expands this same corpus over a matrix - every registered catalog adapter, every dialect
+the compiler renders for, every registered data system - and compares the parsed definitions
+against a statement of them written out by hand in Rust, so two readers of these documents cannot
+agree by sharing a bug. Between them: an edit that changes what this example does shows up as a
+snapshot diff to review rather than as a README that used to be true.
+
+Two of the first test's assertions are not snapshots and are the reason a case cannot quietly
+leave. The `refused-` prefix is read as a convention in both directions, so a refusal question that
+started answering and a plain question that started being refused are each a failure rather than a
+passing corpus. And the measure vocabulary is asserted as four exact sets - shapes, terms, the terms a
+ratio holds, and the aggregates - so this section's table cannot claim coverage the catalog has
+stopped carrying.
 
 That covers the command-line half. The serving session above is pinned in two pieces rather
 than by a third test. The numbers, the digest and the refusal reasons are the values this test

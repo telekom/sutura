@@ -1,0 +1,86 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: revenue_per_customer
+table: fct_subscription_monthly
+joins:
+  - relationship: subscription_customer
+    table: dim_customer
+    join_type: many_to_one
+    origin:
+      table: fct_subscription_monthly
+      column: customer_key
+    target:
+      table: dim_customer
+      column: customer_key
+bucket:
+  label: period
+  grain: month
+  column:
+    table: fct_subscription_monthly
+    column: month
+keys:
+  - label: segment
+    column:
+      table: dim_customer
+      column: segment
+measure:
+  ratio:
+    numerator:
+      aggregate:
+        aggregate: sum
+        column:
+          table: fct_subscription_monthly
+          column: mrr_cents
+    denominator:
+      aggregate:
+        aggregate: count_distinct
+        column:
+          table: fct_subscription_monthly
+          column: customer_key
+    zero_denominator: yields_null
+measure_label: revenue_per_customer
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_subscription_monthly
+          column: month
+        param: 1
+  - origin: definition
+    predicate:
+      equals:
+        column:
+          table: fct_subscription_monthly
+          column: status
+        param: 2
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 1
+  - Date:
+      year: 2026
+      month: 7
+      day: 1
+  - Text: active
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 7
+    day: 1
+max_rows: 10000

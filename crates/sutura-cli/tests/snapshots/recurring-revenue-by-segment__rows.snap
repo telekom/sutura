@@ -11,3 +11,6 @@ expression: stable(rows)
 - - wholesale
   - 2026-06-01
   - "7373"
+- - "null"
+  - 2026-06-01
+  - "4999"

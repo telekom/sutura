@@ -1,0 +1,65 @@
+---
+source: crates/sutura-app/tests/golden/catalogs.rs
+expression: plan
+---
+source: local
+metric: data_per_subscription
+table: fct_usage_daily
+joins: []
+bucket:
+  label: period
+  grain: day
+  column:
+    table: fct_usage_daily
+    column: usage_date
+keys: []
+measure:
+  ratio:
+    numerator:
+      aggregate:
+        aggregate: sum
+        column:
+          table: fct_usage_daily
+          column: data_gb
+    denominator:
+      aggregate:
+        aggregate: count_distinct
+        column:
+          table: fct_usage_daily
+          column: subscription_key
+    zero_denominator: yields_null
+measure_label: data_per_subscription
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: fct_usage_daily
+          column: usage_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: fct_usage_daily
+          column: usage_date
+        param: 1
+params:
+  - Date:
+      year: 2026
+      month: 6
+      day: 1
+  - Date:
+      year: 2026
+      month: 6
+      day: 8
+range:
+  start:
+    year: 2026
+    month: 6
+    day: 1
+  end:
+    year: 2026
+    month: 6
+    day: 8
+max_rows: 10000

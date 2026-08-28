@@ -3,7 +3,7 @@ kind: model
 name: subscriptions
 source: local
 table: fct_subscription_monthly
-columns: [month, subscription_key, customer_key, product_key, status, mrr_cents, churned_in_month]
+columns: [month, subscription_key, customer_key, product_key, status, mrr_cents, churned_in_month, contract_term]
 ---
 One row per subscription per month: what that subscription was worth in the month, and
 what state it was in at the end of it.
@@ -23,3 +23,10 @@ definition narrows on. `churned_in_month` is something that happened inside the 
 which is what a churn count counts. In the general case neither follows from the other:
 a subscription that terminates and is restored ends the month in a state that says
 nothing about the termination.
+
+`contract_term` is the one attribute here that belongs to the subscription rather than to the
+customer or to the product, so it is the one dimension a metric on this model reaches without a
+join. Every other dimension in this catalog is declared `via` a relationship, and a catalog
+where that was true of all of them would never once compile the plainest case there is: a
+group-by key read straight off the fact table, contributing no join of its own. It is
+declared on two metrics rather than one so the case survives either of them being rewritten.

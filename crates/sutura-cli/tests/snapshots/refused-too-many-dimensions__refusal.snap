@@ -1,0 +1,7 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: reason
+---
+TooManyDimensions:
+  requested: 5
+  limit: 4

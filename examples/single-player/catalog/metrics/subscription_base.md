@@ -26,7 +26,7 @@ anchor:
   range:
     start: 2026-06-01
     end: 2026-07-01
-  value: 61
+  value: 62
 ---
 How many subscriptions the month held, whatever state they ended it in.
 

@@ -1,5 +1,0 @@
-metric: revenue
-grain: day
-range:
-  start: 2026-06-28
-  end: 2026-07-01
