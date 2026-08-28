@@ -61,25 +61,33 @@ sutura obtains a credential the SOURCE accepts for that same subject. There is n
 fallback, because 0008 removes the signature that could have one - `execute` and `dry_run` take a
 credential.
 
-**Two things about the token topology are NOT decided by either record, and they are load-bearing.**
+**Two things about the token topology were NOT decided by either record, and they are load-bearing.**
 An earlier version of this section claimed the caller's token is never forwarded upstream and that it
 is audience-bound to sutura. Both cannot be true of BigQuery as 0008 describes it, where the caller's
 token IS the subject token posted to the exchange and must carry the workforce provider's audience. So
 either the front-door token is audience-bound to sutura and something exchanges it at our own
 authorization server first - an exchange 0008 does not describe - or it carries the pool's audience and
-"never forwarded" is wrong. **Who performs the exchange, and what audience the inbound token carries,
-is the question to answer before the credential port is built.** Written here as open rather than
-resolved in prose, because guessing it produces a port with the wrong signature.
+"never forwarded" is wrong.
 
-**It now has an OWNER, because an open question nobody owns blocks nothing.** The answer is a record
-rather than code, so it is `docs/inbound-identity` in
-[the implementation plan](../implementation-plan.md)'s stack: what the inbound token is, who verifies
-it, what audience it carries, what scopes sutura reads off it, and who performs the exchange. Two
-branches name it as a blocker rather than depending on it in spirit. `feat/credential-port`, because
-it decides that port's signature. And `feat/agent-surface-scope`, because advertisement filtered by
-scope needs scopes sutura has VERIFIED, while the bearer gate that ships today authenticates the
-deployment and not the caller - so a scope filter built before that is filtering on a claim nobody
-checked, which is worse than no filter because it looks like authorization.
+**ANSWERED, by [how a caller proves who it is](0014-how-a-caller-proves-who-it-is.md).** The first
+horn: the inbound token is audience-bound to sutura and we validate that unconditionally, whatever the
+client sends. And the exchange 0008 does not describe is real - so **the direct mode needs TWO
+exchanges to BigQuery rather than one**, the first at the caller's own identity provider to retarget
+the audience, the second the RFC 8693 exchange 0008 already works out. Behind a fronting component it
+stays one, because that component's token already carries the pool provider's audience. That
+asymmetry is itself an argument for supporting both inbound modes rather than only the direct one.
+
+**What that record does NOT settle, so this paragraph is narrower rather than deleted:** whether an
+enterprise identity provider can mint an *ID token* whose audience is a third party's client ID, which
+is what the Security Token Service requires as its subject token. A delegation flow characteristically
+returns an access token for the downstream resource instead. That is a verification which can
+invalidate the BigQuery adapter rather than delay it, and it carries the same *blocked on one
+verification, to do FIRST* marking the Postgres SASL question already has.
+
+So `feat/credential-port` can now be written without guessing, and the two branches that named this as
+a blocker are unblocked: that port's signature follows from one inbound audience and N outbound ones
+from a single exchange decision, and `feat/agent-surface-scope` has a claim shape to filter on. The
+record that answers it is the one this stack calls for; it exists rather than being owed.
 
 Per source, and each of these is a capability claim to re-verify before it is depended on:
 
@@ -453,7 +461,7 @@ number at all:
 | Branch | Done when |
 | --- | --- |
 | `feat/agent-surface` | One tool - ask a certified question - over the agent transport, its schema kept equal to the domain type by a test, and an uncertified question refused as a RESULT. **First, because it is the API we expose**, and thin because every other branch rebases on it |
-| `docs/inbound-identity` | **A record, not code.** What the inbound token is, who verifies it, what audience it carries, what scopes sutura reads off it, and who performs the RFC 8693 exchange. Decision 1 above states why it cannot be guessed: it decides the credential port's signature, and a scope filter has nothing verified to filter on without it |
+| ~~`docs/inbound-identity`~~ | **DONE:** [how a caller proves who it is](0014-how-a-caller-proves-who-it-is.md). Two inbound modes with no default, the audience validated against our own resource identifier whatever the client sends, ceilings from scopes rather than from the question, and the two-exchange chain the direct mode needs. What it leaves open is named there: whether an enterprise identity provider can mint an ID token for a third party's audience, and where scopes are authored |
 | `feat/agent-surface-scope` | The rest of the tool set, one schema source for both transports, and advertisement filtered by scope. Both properties need more than one tool to be testable. **Blocked on `docs/inbound-identity`**: a scope filter is authorization, and today's bearer gate authenticates the deployment rather than a caller, so there is no verified scope to filter on until that record exists |
 | `feat/federation-decomposability` | A new aggregate cannot compile without stating how it federates; a ratio divided per leg is impossible rather than discouraged |
 | `feat/principal-chain` | The chain is the key everywhere a subject is recorded, with both tail positions absent and no reader that assumes one position |
@@ -623,6 +631,15 @@ now and impossible to retrofit, and they are marked.
 - **Whether a custom DataFusion planner or extension carries the semantic extras.** It keeps the
   pushdown unit as sutura's own plan, so bind parameters and the dialect goldens stay on this side of
   the boundary. It is the most promising shape and it is unprototyped.
+- ~~**Whether Oracle can execute as the asking subject.**~~ **DEFERRED, and the posture is decided:**
+  an Oracle source declares `Shared` only.
+  [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) carries the whole finding -
+  the capability is present in the database, in the C interface and in the bindings this workspace
+  already depends on, and **no production-viable Rust crate exposes it**, Oracle's own official driver
+  included. So this is a missing safe wrapper rather than a missing capability, the enforcement is the
+  startup refusal that already exists for an adapter that cannot impersonate, and the consequence is an
+  operator obligation: keep critical data off that source in multi-user mode, because sutura declares no
+  data sensitivity and cannot see which dataset is critical.
 - **Oracle's dialect.** `dialect-oracle` exists upstream as an empty feature, but the rendering it
   needs - a row limit that is not `LIMIT`, a date truncation that is not `DATE_TRUNC`, a parameter
   marker that is not `?` - lives behind the transpile feature this workspace does not compile. Oracle

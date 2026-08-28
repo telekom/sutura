@@ -704,6 +704,12 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   Arrow major.
 - **A custom DataFusion planner or extension.** The most promising shape for keeping the pushdown unit
   as sutura's own plan, and unprototyped.
+- **Oracle impersonation, DEFERRED with the posture decided.** An Oracle source declares `Shared` only.
+  The capability exists in the database and no production-viable Rust crate exposes it, Oracle's own
+  official driver included, so it is a missing safe wrapper rather than a missing capability -
+  [a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md) has the full finding,
+  the preference order for closing it, and the one option ruled out rather than deferred. Native driver
+  is the committed transport.
 - **BigQuery and Oracle adapters.** Both wait on `feat/postgres-oauth` proving the shape, and Oracle additionally on a
   generator question: its dialect exists upstream as an empty feature, and the rendering it needs lives
   behind the transpile feature this workspace does not compile.

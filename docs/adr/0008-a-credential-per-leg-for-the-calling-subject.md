@@ -1,6 +1,6 @@
 ---
 title: A credential per leg, for the calling subject
-description: What end-to-end impersonation concretely requires of BigQuery, PostgreSQL and Oracle, why the credential is minted per request and never falls back to a service identity, the signature of the CredentialBroker port, why one asker and one deadline are hoisted above N legs so two legs cannot disagree, exactly what that makes true and what it does not, how a deployment may mix impersonating and shared-service-user sources - a posture and an operator acknowledgement per source, checked where settings are parsed - which identity re-runs the anchors at boot and at every refresh, why the legs run one after another, what is refused rather than degraded, and the two-subject test that makes the invariant real.
+description: What end-to-end impersonation concretely requires of BigQuery, PostgreSQL and Oracle, why the credential is minted per request and never falls back to a service identity, the signature of the CredentialBroker port, why one asker and one deadline are hoisted above N legs so two legs cannot disagree, exactly what that makes true and what it does not, how a deployment may mix impersonating and shared-service-user sources - a posture and an operator acknowledgement per source, checked where settings are parsed - which identity re-runs the anchors at boot and at every refresh, why the legs run one after another, what is refused rather than degraded, and the two-subject test that makes the invariant real. Oracle commits to the shared posture only and its impersonation is DEFERRED - the capability exists in the database and no Rust driver exposes it.
 ---
 
 # A credential per leg, for the calling subject
@@ -405,6 +405,129 @@ So path (c) removes both the per-subject account and the blind trust, because th
 the end-user token itself rather than taking sutura's word. It costs 26ai, the same
 two-identity-service constraint as (b), and an audience configured on the database. *Not verified:* its
 on-premises deployment matrix and its exact driver method names.
+
+### Oracle commits to the shared posture only, and the impersonation decision is DEFERRED
+
+**Decided: an Oracle source declares `Shared`. It does not offer `Impersonated`, and this record does not
+choose between the two mechanisms that could.** The deferral is explicit rather than implied, because
+the sections above work out both mechanisms in detail and a reader would otherwise reasonably conclude
+that one of them is the plan.
+
+**Why, and it is not an Oracle limitation.** Everything above about token authentication holds: the
+database validates an externally-issued token, `AUTHENTICATED_IDENTITY` carries the person, global roles
+activate from the token's claims, and the unified audit trail records the individual in
+`EXTERNAL_USERID`. The capability is present in Oracle, in the C interface below it, and in the
+`odpic-sys` bindings this workspace's driver already depends on - `dpiCommonCreateParams.accessToken`
+is exposed there today.
+
+**The gap is a Rust one, and it is a missing safe wrapper rather than a missing capability.** *Verified
+mechanically rather than from documentation:* the de-facto `oracle` crate's connection builder has no
+token method and its `connection.rs` on master contains no case-insensitive match for `token` or
+`oauth`, so `accessToken` stays null. *Verified:* Oracle's **own** official Rust driver reports token
+authentication as unsupported in its feature matrix, carries an unreferenced token-mode constant in its
+source, and its maintainer states on the open issue that the feature "is on the list of items to
+implement but it will take some time." No production-viable Rust crate exposes the path.
+
+**So the posture is shared, and the mechanism that enforces it already exists.** Part 5b's second,
+orthogonal fact is whether the *adapter* can carry a per-subject credential at all - a property of code
+rather than of configuration - and the cross-check is a startup refusal: `Impersonated` configured
+against an adapter with no support cannot be deployed. **The Oracle adapter declares no support, so a
+deployment that configures it as impersonated does not boot.** Nothing new is needed; this is that check
+meeting its first real case.
+
+**What follows for a multi-user deployment, stated plainly because it is the consequence somebody has to
+act on.** In multi-user mode a `Shared` source needs the per-source operator acknowledgement of part 5c,
+naming the reason. And since sutura declares no data sensitivity and cannot see which dataset on a
+source is critical, **keeping critical data off an Oracle source in multi-user mode is an operator
+obligation, not something this system checks.** That is the same limit part 5c already states in
+general; Oracle is the first source where it binds in practice rather than in principle.
+
+**Nothing above is deleted, and that is deliberate.** The token-authentication and proxy-authentication
+findings are the **input to the deferred decision**, not stale material: the day the driver gap closes,
+the choice is between them and the research is already done. A section that vanished would leave the
+next reader re-deriving it - the same reasoning that kept part 5c's derived-upward argument after its
+field was withdrawn.
+
+**What would close the deferral, in preference order:**
+
+1. **Contribute the token wrapper upstream.** `odpic-sys` already exposes the field, so this is a safe
+   wrapper over a binding that exists - small, and the only option that reaches real token
+   authentication without a fork. It also benefits every other consumer of that crate, which is the
+   right shape for a dependency gap.
+2. **Oracle's official Rust driver implements it.** Indefinite, and outside our control.
+3. **Proxy authentication**, which works with today's drivers and is fully worked out above - carrying
+   its own recorded limit that under a username proxy the caller's token never enters the database.
+4. **A REST transport instead of a native driver.** Oracle exposes SQL over HTTP through its REST data
+   service, which speaks OAuth2 and would need no native client at all - so it sidesteps the wrapper gap
+   rather than waiting for it, and would incidentally bear on two other open questions: which shipped
+   artifact links a native driver, and the musl cross-build that has no Oracle client any more than it
+   has a musl DuckDB. **Recorded and deliberately not investigated:** the committed transport is the
+   native driver, so this is the first thing to check if that commitment is revisited rather than work to
+   do now. Two things would decide it, and neither is known: whether the REST layer propagates the end
+   user's identity into the database session so row-level policies apply as that person - if it pools as
+   a fixed schema user it is the shared posture with extra steps and buys nothing - and what it costs per
+   query against the deadline and the working-set bound, row-by-row over HTTP rather than a native
+   protocol.
+
+**And one option is ruled out rather than deferred.** The Oracle Net `TOKEN_AUTH` / `TOKEN_LOCATION`
+parameters make the client library do the token work with no driver API at all, and they read the token
+**from a file on disk**. Per-subject impersonation would mean writing each caller's bearer token to the
+filesystem, which is precisely what *a credential does not travel through a path* forbids, for exactly
+the case the rule exists to cover. `TOKEN_LOCATION` is also per-descriptor, so per-subject tokens need a
+distinct connect string each and defeat connection reuse, and the path requires the thick client, which
+is glibc-only and cuts against the musl release story. **Not a fallback. A dead end, recorded so nobody
+finds it and mistakes it for one.**
+
+#### Why the option set is short: presentation versus delegation
+
+Oracle supports many authentication methods, and the deferred decision has only three candidates. That
+looks like an oversight until the discriminator is stated, so it is stated here to stop each method being
+re-argued in turn:
+
+> **A method that authenticates a secret the USER holds cannot impersonate from a middle tier. Only a
+> method shaped like delegation can.**
+
+| Method | Delegation-shaped | Why |
+| --- | --- | --- |
+| Token, with an on-behalf-of exchange | **yes** | The middle tier holds a token minted *for the user*, and never sees the user's own secret |
+| Proxy authentication | **yes** | The middle tier authenticates as itself and asserts the target user; the database records both |
+| Centrally managed users, password | no | The database validates the user's directory password, so the middle tier would have to hold it |
+| RADIUS | no | Authenticates a credential the user holds - a password, a one-time code - and has no delegation concept. Also gated behind a separately licensed option, which makes it worse rather than better |
+| Certificate / PKI | no | Requires the user's private key |
+| Centrally managed users with Kerberos constrained delegation | *possibly* | Genuinely delegation-shaped, and the only directory-based candidate. Needs the service to hold a directory identity with delegation rights granted administratively, and almost certainly meets the same Rust driver gap from the other side: a workspace with no wrapper for a token field is unlikely to have one for a GSSAPI context. Heavier prerequisites, same blocker |
+
+**One practical point that outlives the deferral.** Centrally managed users and token authentication share
+the same mapping machinery: both are `IDENTIFIED GLOBALLY`, both offer an exclusive schema per person or a
+shared schema with directory-group-to-global-role mapping. So a deployment that already maps its directory
+into Oracle schemas has **already done the mapping work the token path needs** - only the issuer string
+changes. That transfers, and it is the reason to know what an estate runs even while this decision is
+deferred.
+
+*Not established:* whether centrally managed users and `IDENTITY_PROVIDER_TYPE` may be configured on one
+database at once, or whether enabling one excludes the other. It does not block anything today and is
+listed so nobody assumes either answer.
+
+#### Two Oracle-side features that look like they close this and do not
+
+Both come up naturally when reading Oracle's own material, so both are recorded rather than left for the
+next person to chase:
+
+- **The cloud identity service, in its current identity-domains form.** This *is* the `OCI_IAM` issuer
+  named above - not a third path beside it. It changes nothing here for two reasons: the blocker is a
+  missing Rust wrapper rather than a missing issuer, and *verified:* that issuer is supported on the
+  managed and cloud-at-customer database services only, **not on-premises**, so where an on-premises
+  database is in scope it narrows the option set rather than widening it. Its tokens are also
+  proof-of-possession with a private key rather than bearer, which is a different shape for the
+  credential port than the directory-issuer path.
+- **Anything else on the authentication list.** See the delegation table above. The discriminator is
+  whether the middle tier can act without holding the user's own secret, and it disqualifies most of the
+  list on shape, before any question of driver support arises.
+
+**The general form of this, worth carrying beyond Oracle:** when a capability is present in a data system
+and absent from its Rust client, **no amount of further capability in the data system closes the gap.**
+Read the layer that is missing the wiring, not the layer that already has the feature. Three separate
+searches of Oracle's surface area reached the same wrapper, which is the evidence for stating it once
+rather than discovering it again per source.
 
 ### The three side by side
 
