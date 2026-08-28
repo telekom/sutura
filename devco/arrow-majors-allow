@@ -1,0 +1,19 @@
+# Arrow majors this workspace deliberately tolerates. One per line:
+#
+#   <major> <ISO date> <why it is acceptable, and what would end it>
+#
+# An entry is a DECISION somebody wrote down, not a suppression. The date is what makes a stale one
+# visible: an exception nobody has revisited in a year is a question, and a gate cannot ask it.
+#
+# The rule these are exceptions to: the ENGINE's Arrow major is the workspace's Arrow major. A data
+# source is replaceable and the engine is not, so every other Arrow-consuming dependency conforms to
+# it, and downgrading the engine to match an adapter is not on the table.
+#
+# Before adding an entry, establish which problem you have, because they differ in urgency and the
+# lock file cannot tell you: a DUPLICATE costs build time and supply-chain surface, while a TYPE
+# BOUNDARY - first-party code holding a value from one major and handing it to something expecting
+# the other - does not compile, or is undefined behaviour if forced across the C data interface. The
+# test is whether any first-party crate NAMES the type.
+
+59 2026-08-28 the engine's major, and the target every other Arrow consumer conforms to
+58 2026-08-28 the duckdb crate declares arrow ^58 and its newest release still does; measured to be a DUPLICATE and not a type boundary, because sutura-exec-duckdb declares no arrow dependency, names no Arrow type and converts to a neutral row type - and the adapter is a dev-dependency, so both majors coexist only in the test build and never in a shipped artifact. Ends when the duckdb crate reaches arrow 59: a one-line manifest bump was verified clean upstream (single arrow 59.2.0, its own suite 288 passed / 0 failed, identical to the arrow-58 control), so the fix is an upstream PR rather than a fork here. Vendoring is the fallback and buys back only CI compile time at the price of owning that copy's security response.
