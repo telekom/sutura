@@ -1,0 +1,61 @@
+[package]
+name = "sutura-mcp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "The agent-facing surface. Transport only: one tool over MCP, and it decides nothing a question depends on."
+
+[dependencies]
+# The service, behind the driving port. This crate calls `answer` and nothing else; every rule about
+# what may be answered lives on the other side of that call.
+sutura-app = { workspace = true }
+sutura-domain = { workspace = true }
+# For ONE function - `spawn_carrying_span` - and not for anything this crate installs. The `Surface`
+# port is synchronous and the engine behind it drives its own runtime, so a port call has to leave
+# the async worker; `clippy.toml` bans `tokio::task::spawn_blocking` because a pool thread has no
+# current span, and this crate is a caller routed through the one permitted call rather than a
+# second `#[expect]` for the same ban. Nothing here touches a subscriber, a panic hook or a signal
+# handler.
+sutura-runtime = { workspace = true }
+# The Model Context Protocol, spoken by the SDK rather than by us. See `src/lib.rs` for why a
+# hand-rolled JSON-RPC server was rejected: a server we frame ourselves cannot be shown to
+# interoperate, and the tests here drive it with this crate's own client.
+#
+# `default-features = false` on the workspace entry drops `macros`: the `#[tool]` attribute would
+# generate code inside this crate, and this workspace gates on the whole clippy `restriction`
+# category with `-D warnings`, so generated code is a lint surface nobody wrote and nobody can fix
+# locally. `ServerHandler` is implemented by hand instead - three methods.
+rmcp = { workspace = true }
+# THE schema source. `AskArgs` derives `JsonSchema` and `schema_for!` dumps it; nothing here hand
+# writes a tool schema. It is on a WIRE type in this crate and never on a domain type - see the
+# note on the workspace entry.
+schemars = { workspace = true }
+serde = { workspace = true }
+# The tool result's structured content is JSON, and the input schema is a `serde_json` object
+# because that is the type `rmcp::model::Tool` carries.
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+# For ONE type - `task::JoinError`, in `NotServed` - and for nothing this crate spawns itself: the
+# blocking call goes through `sutura-runtime`, which is where the ban on a bare `spawn_blocking` is
+# discharged. The workspace entry's `rt` is what makes that type exist.
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+# The committed schema dump. Reviewed as a diff, never typed: a new or widened tool input changes
+# the snapshot and the byte-compare fails until somebody re-accepts it.
+insta = { workspace = true }
+# The far side of every test in `src/server.rs`: a REAL MCP client from the same SDK, over an
+# in-memory duplex. That is what "with no client of ours in the loop" means - nothing this crate
+# wrote sits between the assertion and the protocol.
+rmcp = { workspace = true, features = ["client"] }
+# `macros` and `rt-multi-thread` for the tests themselves, `io-util` for `tokio::io::duplex`, which
+# is the pipe the client and the server are joined by.
+tokio = { workspace = true, features = ["io-util", "macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true
