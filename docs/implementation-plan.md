@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Eleven steps, four of which can start at once.** Every step is one branch, one pull request, and green
+**Twelve steps, four of which can start at once.** Every step is one branch, one pull request, and green
 before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill has the
 mechanics. Nothing in this plan is started.
 
@@ -23,6 +23,7 @@ mechanics. Nothing in this plan is started.
 | 9 | `feat/postgres-oauth` | 8, and the driver question | after 8 |
 | 10 | `feat/compose-tier` | 9 | after 9 |
 | 11 | `feat/source-mtls` | 5, 9 | after 9 |
+| 12 | `feat/demo-tasks` | 10, and one example to demo | after 10 |
 
 **Verification for every step**, and none of it is optional: `just validate` is the only thing that
 counts, it now runs seven checks including `api-docs`, and every new test must be RED against the base
@@ -255,6 +256,46 @@ for serving rather than a second path.
 the middle one, the one that gets forgotten, has a test of its own.
 
 ---
+
+## 12. `just demo`, and a chat interface for development
+
+**Goal.** One task per deployment variant that brings up a fully working demo: sutura serving that
+variant's example, and a chat interface pointed at it. `just demo single-user`,
+`just demo federation`, `just demo multi-user`.
+
+**This is a development and demonstration surface, and it must never become load-bearing.** A chat
+client has no governance role: removing it removes no guarantee, and anything it appears to enforce
+sutura enforces again. It is not in the release image, not in the default compose, and it is labelled
+ungoverned where a reader could mistake it.
+
+**What a chat interface needs from sutura, and this is the real decision.** Two routes exist and only
+one is built:
+
+- **The OpenAPI document, which ships today.** `crates/sutura-http/src/openapi.rs` generates it from
+  the handlers, so it is always current and needs nothing committed. A chat UI that can call an
+  OpenAPI tool server talks to sutura over it with no new code on our side. This is the cheap route.
+- **An MCP server, which is planned and absent.** There is no `sutura-mcp` crate. When it exists it
+  becomes the better route, because MCP is the surface agents actually speak - but the demo must not
+  wait for it.
+
+**And the part that cannot be waved away: a chat interface needs a MODEL.** Either a hosted provider,
+which means a key and egress from the demo environment, or a local one, which is heavy. Say which the
+demo assumes and make it configurable, because "bring up a demo" silently requiring an API key is the
+kind of surprise that wastes an afternoon. Neither belongs in a default that runs in CI.
+
+**Touches.** The justfile, a demo compose file separate from `compose.dev.yaml`, and the provisioning
+from step 10 - the same worktree-aware ports and project names, since two people demoing at once is
+the normal case.
+
+**Which UI is deliberately not decided here.** A ready-made chat container is the fast path; something
+lighter that speaks the OpenAPI surface directly is less to run. Pick it when the task is written,
+against one criterion: **can it call an OpenAPI tool server without us maintaining a plugin?** If it
+cannot, it is the wrong choice however good it looks, because a plugin we maintain is governance code
+in a client we said has no governance role.
+
+**Done when** `just demo federation` brings up a working scenario from a clean checkout, on host
+docker, with the ports derived from the worktree; when a missing docker prints SKIPPED and exits 0
+rather than failing; and when the README for each example says which `just demo` runs it.
 
 ## The examples are the demo, one per deployment variant
 
