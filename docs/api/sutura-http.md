@@ -28,13 +28,19 @@ anything reading a status alone. `wire::refusal` holds the mapping, the citation
 for each status. The domain invariant is untouched: `ToolOutcome::Refusal` is still a result and
 not an `Err`.
 
-**There is no per-caller identity.** No request context reaches the query path, no credential is
-minted per request, and the `CredentialBroker` port that would do it is deliberately absent
-because a port arrives with its adapter. Where an access token is configured, presenting it
-proves the caller holds a secret an operator configured - it authenticates the *deployment*, not
-the caller, and every question is still answered with whatever access the process already had.
-That sentence is in the generated document, in the startup log and in
-`sutura_config::security`, because those are three different readers.
+**There is no per-caller identity.** No credential is minted per request, and the
+`CredentialBroker` port that would do it is deliberately absent because a port arrives with its
+adapter. Where an access token is configured, presenting it proves the caller holds a secret an
+operator configured - it authenticates the *deployment*, not the caller, and every question is
+still answered with whatever access the process already had. That sentence is in the generated
+document, in the startup log and in `sutura_config::security`, because those are three different
+readers.
+
+A `sutura_domain::identity::RequestContext` *does* now reach the query path, and it does not
+weaken that: what it carries is a principal chain naming
+`sutura_domain::identity::Subject::TheDeploymentItself`, which is that same sentence expressed
+as a value instead of as prose. `crate::principal` is the one place it is constructed, and it
+takes no argument, so no field of a request can contribute to it.
 
 **`/health` carries nothing.** It is the one path an unauthenticated caller can always reach, so
 every field it might have is a field handed to anybody who can route a packet. No version, no
@@ -50,9 +56,15 @@ build, no configuration, no catalog. A test asserts the body byte for byte.
   document, and it buys nothing until somebody is asked to quote it; the honest state is that an
   operator can find a request in the log and a caller cannot yet name one. If a caller ever
   needs to, that is an additive field and this bullet is where it changes.
-* **No audit sink.** `AGENTS.md` records "every call is attributable, refusals included" as an
-  invariant enforced by one. There is none, and there is no principal to record if there were.
-  Every question and every outcome reaches the log, and the log is named for what it is.
+* **No audit sink *here*, and no store anywhere.** There is a sink now - the port is
+  `sutura_domain::audit::AuditSink` and `sutura_app::LocalService` writes one record per outcome
+  through it, before the outcome returns - but this crate neither implements it nor chooses it.
+  The composition root attaches one; the writer a deployment gets for free is
+  `sutura_runtime::TracingAuditSink`, which puts the record on the log this crate already emits
+  into. **Nothing retains a record**: sutura writes and keeps nothing, so what happens after the
+  write belongs to the deployment's log pipeline, including the case where that is nothing. The
+  per-outcome `tracing::info!` this handler used to write was replaced by that record rather than
+  joined by it - see `routes::v1::query`.
 * **No readiness route.** The module documentation on the liveness route says why: there is
   nothing it could report that is not
   already true of a process that is listening.
