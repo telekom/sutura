@@ -10,14 +10,11 @@ in the workspace. It decides the shape of the identity path before the first ada
 because both halves of that path are cheap to decide now and expensive to retrofit: the transport has
 to learn a subject, and the execution port has to stop being able to run without one.
 
-**Superseded in one part, by the plan.** Where this record has sutura declaring a dataset critical -
-per model, derived upward through joins - that is withdrawn. Sensitivity lives in the data catalog and
-in the asking person's own permissions at the source, which is what impersonation exists to reach, and
-a classification here would be a second opinion about someone else's authorization. What survives is
-everything about the credential, the chain, the mode a source declares, and the refusal for a mode the
-deployment cannot perform. See
-[the plan](0009-the-plan-from-one-source-to-many.md) and
-[pluggable by declaration](0011-pluggable-by-declaration.md).
+**Superseded in one part** by [the plan](0009-the-plan-from-one-source-to-many.md): sutura declares no
+data sensitivity. What a person may see lives in the data catalog and in their own permissions at the
+source, which is what reaching it as the subject is for, and a classification here would be a second
+opinion about someone else's authorization. Everything about the credential, the chain, the mode and
+the refusal survives; section 5c is marked where it is withdrawn.
 
 It supersedes nothing. It amends one sentence of
 [a refusal carries a status](0005-a-refusal-carries-a-status.md) - the note that "the `403`s are not
@@ -641,6 +638,10 @@ source `Shared` is single-user mode, any source `Impersonated` is multi-user mod
 artefact, and the startup log prints the mode and the per-source postures underneath it.
 
 **5c. The requirement is a property of the data, declared in the catalog, on the model.**
+
+> **WITHDRAWN by [the plan](0009-the-plan-from-one-source-to-many.md):** sutura declares no data
+> sensitivity. Kept because the derived-upward-through-joins argument is the right shape for anything
+> that IS declared per model, and a section that vanishes leaves the next reader re-deriving it.
 
 Criticality is a fact about data, and data lives in a model - so the declaration goes on the model
 rather than on the metric, and a metric's requirement is **derived as the strictest over the models

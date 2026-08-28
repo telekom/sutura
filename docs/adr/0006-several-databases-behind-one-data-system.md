@@ -484,8 +484,9 @@ the domain query type and the wire body, with a test that provokes it.
 
 - **What is built instead.** ADR 0007 decides the shape and the order; nothing in this record should be
   read as scheduling it.
-- **The impersonation requirement itself**, its roles and which datasets count as critical. ADR 0008 is
-  that record. This one only says which routes can and cannot satisfy it.
+- **The impersonation requirement itself** and its roles. ADR 0008 is that record, and ADR 0009 settles
+  the part it got wrong: nothing here classifies data, because the catalog and the asking person's
+  permissions at the source do. This one only says which routes can and cannot satisfy it.
 - **Whether DataFusion 56 moves to Arrow 59, and whether the federation crate follows.** That single
   event would remove both the bridge problem and the version skew at once, and it is the thing to watch
   before anyone reopens the declined federation route. Nothing here predicts it, and the wrong-number

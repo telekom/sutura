@@ -73,16 +73,16 @@ Three rules, each with the failure it prevents:
 sutura" to the source. The subject's identity is a separate mechanism per source, decided in
 [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md): a token that the source
 maps to a role, a federated exchange whose principal is the person, or proxy authentication that
-records the chain. A source reached over mTLS under a shared service identity is still a source that
-cannot carry critical data in multi-user mode.
+records the chain. A source reached over mTLS under a shared service identity still answers the same
+rows to every caller, and the answer says so, because the mode is recorded per leg.
 
 The two compose, and that is the intended shape: the channel is mutually authenticated, and the
 subject travels inside it. Writing them into the same configuration block without saying which does
 what is how a deployment ends up believing it has per-user access because it has certificates.
 
-**It is also not a substitute for the posture declaration.** Whether a source can execute as the
-asking subject is a declared property of that source, and mTLS does not change it. The startup refusal
-for a critical dataset behind a non-impersonating source fires regardless of how well the transport is
+**It is also not a substitute for the mode declaration.** Whether a source executes as the asking
+subject is a declared property of that source, and mutual TLS does not change it. A source declaring
+an impersonation the deployment cannot perform still refuses at startup, however well the transport is
 authenticated.
 
 ## Consequences
