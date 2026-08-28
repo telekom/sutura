@@ -5,17 +5,24 @@ description: Why a deployment may enable a general SQL tool beside the certified
 
 # A raw SQL tool, off by default, and the ramp it exists to build
 
-Status: **accepted as a decision, and deliberately UNSCHEDULED.** Nothing here is built, and this
-record does not amend an invariant yet - see *What this would change in the invariants* below, which
-says why the row cannot be written before the mechanism exists.
+Status: **accepted, and scheduled LAST.** Nothing here is built, and this record does not amend an
+invariant yet - see *What this would change in the invariants* below, which says why the row cannot be
+written before the mechanism exists.
+
+**Corrected:** this said "deliberately UNSCHEDULED" and "no branch in the implementation stack" while
+[the plan](../implementation-plan.md) carried `feat/raw-sql-tool` as a row, 0009's order table carried
+the same branch with a done-when, and the identity half of the plan said it has a row now. Three records
+against one is not a tie, and this was the stale one - exactly the cross-record contradiction class this
+set claims to have eliminated. It is scheduled, it is last, and what follows is why last rather than why
+never.
 
 This record decides that a rule previously stated as absolute - *no SQL on the tool surface* - is a
 rule about the CERTIFIED path rather than about the whole product. The reason is adoption rather than
 convenience.
 
-## Unscheduled on purpose, and here is the list
+## Last on purpose, and here is what has to exist first
 
-Accepted is not next, and the distance between the two is four things that do not exist. Naming them
+Scheduled last is not scheduled next, and the distance is four things that do not exist. Naming them
 here is what stops the record from reading as a feature waiting for a sprint:
 
 1. **A separate outcome type.** The load-bearing mechanism in this record is a result that has nowhere

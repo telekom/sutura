@@ -173,10 +173,13 @@ strongest available terms - *a caller that states its own identity does not have
 states its own ceiling does not have one either. `deny_unknown_fields` already makes the attempt a named parse
 error.
 
-What this composes with, rather than replaces: the working-set and deadline bounds from
-[the plan](0009-the-plan-from-one-source-to-many.md) Decision 3 are **per query and global with per-source
-overrides**. A scope-derived ceiling is **per caller**. A deployment can therefore be generous globally and
-narrow for one caller, which is what a ceiling is for.
+What this composes with, rather than replaces, and the shapes differ per bound:
+[the plan](0009-the-plan-from-one-source-to-many.md) Decision 3 makes the working-set ceiling
+**query-wide, with no per-source override at all** - a source declaration that tries to set one is
+refused at parse - while the **deadline** is the one that takes a per-source override. A scope-derived
+ceiling is a third shape again: **per caller**. So a deployment can be generous globally and narrow for
+one caller, which is what a ceiling is for, and it cannot be generous globally and narrow for one
+source on the working set, which is deliberate.
 
 ## Decision 3: the exchange chain differs per mode, and BigQuery is where that shows
 
@@ -229,11 +232,13 @@ an adapter is buildable, not when.
 **Per source, one audience, from one decision.** 0008 already rejects one `mint` call per leg because it
 puts the subject and the deadline in N places, and notes that RFC 8707 wants N audience-restricted
 tokens from one decision anyway. This is that shape made concrete: PostgreSQL 18's SASL OAUTHBEARER
-needs a token its own validator module accepts, which is a third audience again. Oracle is **pending
-verification** - it is believed to support database token authentication with an enterprise IdP or with
-cloud IAM tokens, which would make it a third exchange target rather than the proxy-authentication
-exception 0008 currently describes. That section changes when the verification lands, and this record
-does not pre-empt it.
+needs a token its own validator module accepts, which is a third audience again. Oracle is **decided, and it is not an
+exchange target**: [a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) verified
+that the database side does support token authentication with an enterprise issuer or cloud IAM tokens,
+found that no production-viable Rust crate exposes it, and therefore declares `SharedServiceUser` only
+with impersonation DEFERRED. So Oracle needs no audience here at all until that deferral closes. An
+earlier version of this paragraph said the verification was still pending; it had already landed, in a
+commit later than this record's own.
 
 **What sutura holds to perform an exchange, and it is the most sensitive value in the deployment.** A
 client credential at the authorization server, and the asymmetric assertion form of Decision 2 is

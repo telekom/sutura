@@ -398,9 +398,14 @@ fn render_refusal(reason: &RefusalReason) -> Result<String, String> {
     // the fields follow it at column zero. Both are reshaped here rather than taken as they come: the
     // tag marker is noise to a person, and the fields are indented so the block reads as one refusal.
     //
-    // The variant name itself is kept. It is the machine-readable identity of the refusal - what the
-    // HTTP surface sends as `code` and what the prompt tells an agent to expect - and it is the one
-    // part of the old `Debug` output that was worth anything.
+    // The variant name itself is kept: it is the machine-readable identity of the refusal, it is what
+    // the prompt tells an agent to expect, and it is the one part of the old `Debug` output that was
+    // worth anything.
+    //
+    // NOT the same string the HTTP surface sends, and an earlier version of this comment said it was.
+    // The wire `code` is snake_case - `metric_unknown` - assigned by the exhaustive match in
+    // `sutura_http::wire::refusal`; this is the PascalCase Rust variant. Same identity, two spellings,
+    // and a caller matching on one must not be told it is the other.
     let variant = lines.next().unwrap_or_default().trim_start_matches('!').trim_end_matches(':');
     let mut out = format!("refused: {variant}\n  {meaning}");
     for field in lines {
