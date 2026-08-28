@@ -53,14 +53,21 @@
 
 pub mod admission;
 pub mod banner;
+pub mod blocking;
 pub mod panics;
 pub mod shutdown;
 pub mod telemetry;
 
-#[cfg(test)]
-mod testing;
+/// The log-capture writer.
+///
+/// `cfg(test)` for this crate's own suite, and behind `test-capture` for another crate's. The
+/// feature's comment in `Cargo.toml` says why only the writer is exposed and not the helpers
+/// around it.
+#[cfg(any(test, feature = "test-capture"))]
+pub mod testing;
 
 pub use crate::admission::{Admission, AtCapacity, Slot};
+pub use crate::blocking::spawn_carrying_span;
 pub use crate::panics::install_panic_hook;
 pub use crate::shutdown::{Shutdown, ShutdownReason};
 pub use crate::telemetry::TelemetryNotInstalled;
