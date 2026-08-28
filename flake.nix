@@ -801,10 +801,10 @@
           # a command PREFIX with its own `CARGO_TARGET_DIR`, because alternating compilers in one
           # target directory invalidates every artifact in it; and `SUTURA_API_DOCS_PROFILE`, since
           # cargo's default `dev` optimises every dependency and build script at `opt-level = 3`.
-          # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the worse
-          # half, as crane does not even export `CARGO_PROFILE`. `src = ./.` for `hygiene`'s
-          # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. The win is
-          # BOUNDED: nightly still builds every documented crate's dependencies as `rmeta` - 467 of them - and that floor is 170 s of the 190.
+          # NAMED IN THE COMMAND both times - see above `hygiene`; a spawned child is the
+          # worse half, as crane does not even export `CARGO_PROFILE`. `src = ./.` for `hygiene`'s
+          # reason, and SUTURA_API_DOCS_PYTHON is `apiDocsWriter`'s interpreter. MEASURED: 10m01 of
+          # PRIVATE phases became 2m10 cold, floored by 484 rustdoc units - 293 of them `rmeta`.
           api-docs = craneLib.mkCargoDerivation (ciArgs // {
             cargoArtifacts = ciArtifacts;
             src = ./.;
