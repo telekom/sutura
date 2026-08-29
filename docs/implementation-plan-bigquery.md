@@ -52,6 +52,39 @@ the value belongs on the machine and only the hook belongs here.
 **This is tooling availability and not the adapter.** No Rust dependency, nothing in
 `sutura-config`, no `Dialect::BigQuery`. Everything below is still to do.
 
+### Which identity this login serves, and which it does not
+
+Stated because the answer is easy to get wrong in the direction that matters, and because a reader
+who gets it wrong concludes that BigQuery authentication is solved when the part that matters is not
+built. [Row 8](implementation-plan.md) gave a source exactly two spellings, and this login serves one
+of them:
+
+- **`SharedServiceUser` - what this login is for, and it is genuinely for it.** One identity reaches
+  the source on behalf of everybody who asks. On a developer's machine that identity is the developer,
+  established by `gcloud auth application-default login`; in a deployment it is a service account, and
+  the credential arrives as static configuration. **Not throwaway scaffolding:** single-user mode is a
+  first-class posture that [0008](adr/0008-a-credential-per-leg-for-the-calling-subject.md) part 5a
+  calls a shape rather than a degradation, and it needs exactly this. So the row below can be built and
+  demonstrated with nothing more than what `just gcloud-login` provides.
+- **`ImpersonationAtSource` - what this login is NOT, and cannot become.** A credential is minted per
+  leg for the subject who asked, so two subjects reading the same metric get different rows. Nothing on
+  this branch moves towards it. It needs the credential port, a workforce identity pool, and an
+  RFC 8693 exchange whose subject token this deployment does not hold when it starts - none of which an
+  application-default credential participates in.
+
+**They are not two points on a spectrum, and that is the whole reason this section exists.** An
+application-default credential is *one identity for every caller*. The federated exchange is *one
+identity per asker*. Widening the first never reaches the second; the second replaces it. A deployment
+that authenticated with `gcloud` and then read every row as the developer has not partially
+impersonated anybody - it has answered every question as one identity, which is the posture
+`SharedServiceUser` exists to make a deployment declare out loud.
+
+**Where a service account sits in the federated chain is a deployment decision and not settled here.**
+The federated principal can hold the dataset grants directly, or it can impersonate a service account
+that holds them - Google recommends the first and documents services where only the second works. Both
+are different from the credential this login writes, and the choice belongs with the pool's owner. The
+per-subject step below is where it gets recorded.
+
 ## BigQuery, on a service account
 
 **Goal.** The first cloud data source, and the one the deployment actually cares about. Queried
