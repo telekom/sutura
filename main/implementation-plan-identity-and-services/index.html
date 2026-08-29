@@ -2666,7 +2666,7 @@ one is built:</p>
 which means a key and egress from the demo environment, or a local one, which is heavy. Say which the
 demo assumes and make it configurable, because "bring up a demo" silently requiring an API key is the
 kind of surprise that wastes an afternoon. Neither belongs in a default that runs in CI.</p>
-<p><strong>Touches.</strong> The justfile, a demo compose file separate from <code>compose.dev.yaml</code>, and the <code>xtask</code>
+<p><strong>Touches.</strong> The justfile, a demo compose file separate from both <code>compose.services.yaml</code> and <code>compose.dev.yaml</code>, and the <code>xtask</code>
 provisioning from the compose tier - the same worktree-aware ports and project names, since two people
 demoing at once is the normal case.</p>
 <p><strong>Which UI is deliberately not decided here.</strong> A ready-made chat container is the fast path; something

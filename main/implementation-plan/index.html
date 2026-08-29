@@ -2902,7 +2902,11 @@ each leg ran under, and the expiry the credentials carried.</p>
 and sutura cannot vouch for a sink it does not retain. A deployment that attaches a sink which drops
 records, or attaches none, has no audit trail on this side and nothing here can tell it so - which is
 why the sources' own logs, written under the asking subject, carry the part of the obligation that
-matters. Searched rather than assumed: no <code>AuditSink</code> type exists anywhere in the workspace today.</p>
+matters. <strong>BUILT</strong>, and by <code>feat/principal-chain</code> rather than by a later step: <code>sutura_domain::audit::AuditSink</code>
+is the port and <code>sutura_runtime::TracingAuditSink</code> is its first implementor, because <code>AGENTS.md</code> requires
+a port to arrive with one. <code>LocalService::start</code> now REQUIRES a sink, so a deployment that forgot to
+attach one is not a state that exists - which is a stronger guarantee than the sentence this replaced
+assumed was unavailable.</p>
 <p><strong>Tests.</strong>
 - <code>a_principal_with_no_actor_is_a_bare_subject_and_says_so</code>.
 - <code>an_actor_chain_keeps_its_order</code>.
@@ -3002,8 +3006,12 @@ implementation, the two defaults are backed by a measurement on the corpus, and 
 impossible. <code>panic = "abort"</code> is why the working-set one matters at all: an allocation failure is
 process death for every caller, not an error for one.</p>
 <h2 id="the-startup-refusals-that-already-hold">The startup refusals that already hold<a class="headerlink" href="#the-startup-refusals-that-already-hold" title="Permanent link">&para;</a></h2>
-<p><strong>Goal.</strong> Test what is already true. The more-than-one-source arm of <code>open_engine</code> has no test in
-either binary, and it is the refusal that actually protects a deployment today.</p>
+<p><strong>Goal.</strong> Test what is already true. <strong>DONE</strong>, and the count in this paragraph was wrong: it said the
+more-than-one-source arm had no test in either binary, which undercounted. <code>test/startup-source-refusals</code>
+found <strong>four</strong> untested arms - more than one source, an empty catalog, a source this build has no adapter
+for, and a model with no data file behind it - and <strong>seven</strong> missing tests across the two binaries, since
+<code>sutura-serve</code> had none at all. Two arms were already covered and got nothing added; two remain untested
+and are named there rather than papered over, one being unreachable (a <code>const</code> that parses).</p>
 <p><strong>Touches.</strong> <code>crates/sutura-serve/src/main.rs</code> and <code>crates/sutura-cli/src/commands.rs</code> test modules
 only. No production code.</p>
 <p><strong>Tests.</strong> One per binary, each asserting the multi-source arm and asserting it is NOT the neighbouring

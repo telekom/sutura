@@ -2536,6 +2536,11 @@ depends on why:</p>
 <td>Narrow the period or group by fewer dimensions. Nothing was truncated to fit</td>
 </tr>
 <tr>
+<td><code>resources_exhausted</code></td>
+<td><code>422</code></td>
+<td>Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it</td>
+</tr>
+<tr>
 <td><code>source_unavailable</code></td>
 <td><code>503</code></td>
 <td>The one refusal worth retrying</td>
@@ -2554,6 +2559,11 @@ as is the body shape, because only a refusal carries <code>outcome</code>:</p>
 <li><code>503</code> is <code>unavailable</code> or <code>at_capacity</code> from the failure side, and <code>source_unavailable</code> from the
   refusal side.</li>
 </ul>
+<p><strong>And <code>422</code> rather than <code>503</code> for an exhausted working set, which is a distinction worth keeping.</strong>
+RFC 9110 defines 422 as a request that "repeating ... without modification will fail with the same
+error" - exactly true of a configured bound. Exhaustion used to arrive as <code>503 unavailable</code>, which is
+what a dead data system returns, so a caller was told to retry against a bound that would fire again.
+The two are now separable by <code>code</code> as well as by status, and a test asserts the refusal is not 503.</p>
 <p>This used to be a <code>200</code> for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the
 first half does not survive checking: nothing mainstream retries a <code>4xx</code> by default, and <code>422</code> - where
