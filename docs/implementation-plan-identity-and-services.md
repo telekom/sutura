@@ -522,7 +522,7 @@ which means a key and egress from the demo environment, or a local one, which is
 demo assumes and make it configurable, because "bring up a demo" silently requiring an API key is the
 kind of surprise that wastes an afternoon. Neither belongs in a default that runs in CI.
 
-**Touches.** The justfile, a demo compose file separate from `compose.dev.yaml`, and the `xtask`
+**Touches.** The justfile, a demo compose file separate from both `compose.services.yaml` and `compose.dev.yaml`, and the `xtask`
 provisioning from the compose tier - the same worktree-aware ports and project names, since two people
 demoing at once is the normal case.
 
