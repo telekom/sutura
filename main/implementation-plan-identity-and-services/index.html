@@ -945,6 +945,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-consumption-half-which-is-a-second-door-rather-than-the-same-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The consumption half, which is a second door rather than the same one
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2162,6 +2173,17 @@
   
 </li>
         
+          <li class="md-nav__item">
+  <a href="#the-consumption-half-which-is-a-second-door-rather-than-the-same-one" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The consumption half, which is a second door rather than the same one
+      
+    </span>
+  </a>
+  
+</li>
+        
       </ul>
     </nav>
   
@@ -2536,9 +2558,37 @@ wanted one.</p>
 checkout and no sibling worktrees, but several jobs per commit can land on the same runner class, and
 an ephemeral port is correct there for the same reason it is correct locally - nothing has to reason
 about what else is running.</p>
+<h3 id="the-consumption-half-which-is-a-second-door-rather-than-the-same-one">The consumption half, which is a second door rather than the same one<a class="headerlink" href="#the-consumption-half-which-is-a-second-door-rather-than-the-same-one" title="Permanent link">&para;</a></h3>
+<p>Publishing the file is not the same job as reading it, and building only the first half is how a
+mechanism ends up with no consumers: the file existed, <code>xtask</code> was its only reader, and a developer
+still had no supported way to learn a port. So consumption has its own door -
+<code>sutura_dev::provisioned</code> - and it carries the two things no caller should have to write twice.</p>
+<p><strong>The diagnostic is most of the value.</strong> A harness that reached the discovery file directly and found
+nothing would fall through to a connection attempt, and the symptom is a connection refused thirty
+seconds into somebody's test, attributed to the adapter under test. <code>Absent</code> is returned instead: it
+names the worktree, the file, what the file said, and which task to run - and the advice is chosen
+from a typed reason rather than printed unconditionally, because "run <code>just dev-up</code>" is the wrong
+thing to tell somebody whose tier is already up and whose service is behind a profile.</p>
+<p><strong>The skip-or-fail direction is decided in one place for both halves.</strong> It used to live in <code>xtask</code>
+alone, which was correct while provisioning was the only caller; a second copy in the harness would
+be a fail-open/fail-closed decision made twice and edited months apart. <code>sutura_dev::requirement</code> is
+that place now, and <code>xtask</code> reads it. <strong>The limit worth stating:</strong> "CI" is an environment variable, so
+a nix check is not in CI by this definition - and it has neither a network nor a docker socket, so
+the docker-gated tests skip there rather than failing.</p>
+<p><strong>And a skip has to be visible, which libtest cannot express.</strong> There are three outcomes - pass, fail,
+ignored - and <code>#[ignore]</code> is a compile-time decision, so a test that discovers at runtime that there
+is nothing to test against returns a pass, whose output nextest captures by default. The notice is
+written with SKIPPED in the first column, the same word <code>xtask dev-up</code> prints when it declines, and
+<code>.config/nextest.toml</code> turns <code>success-output</code> on for that one test binary so it reaches the log. A
+global setting would print every passing test's output and bury it, which is the same failure with
+more scrolling.</p>
+<p><strong>For a reader rather than a harness</strong>, <code>just dev-endpoint &lt;service&gt;</code> prints <code>host:port</code> on stdout and
+nothing else, so it substitutes into a shell. That is what lets <code>examples/README.md</code> document the
+service tier without a port in it: someone following an example never has to learn what a worktree
+scope or an ephemeral port is.</p>
 <p><strong>Adds.</strong> Ephemeral publishing and read-back, the per-worktree compose project name, the discovery
-file, readiness as a health gate rather than a sleep, teardown scoped so it cannot kill a neighbour,
-and the docker-absent behaviour below.</p>
+file, the consumption door above, readiness as a health gate rather than a sleep, teardown scoped so
+it cannot kill a neighbour, and the docker-absent behaviour below.</p>
 <p><strong>Absent docker SKIPS locally and FAILS in CI, and an earlier version of this section had those
 confused.</strong> It said the tier prints SKIPPED and exits 0, and said in the same breath that a missing
 service cannot produce a silent pass. Both cannot hold on one machine class, so:</p>

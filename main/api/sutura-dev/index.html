@@ -1929,6 +1929,18 @@
 harness has to be able to LEARN an endpoint, and a binary's modules are reachable from nothing.
 So <code>discovery</code> is a library door - the only one - and <code>scope</code> is beside it because the two
 answer halves of one question.</p>
+<h1 id="two-halves-and-the-second-one-is-what-a-caller-uses">Two halves, and the second one is what a caller uses<a class="headerlink" href="#two-halves-and-the-second-one-is-what-a-caller-uses" title="Permanent link">&para;</a></h1>
+<ul>
+<li><code>discovery</code> is the file: publishing it, reading it, and the fact that there is no other way
+  to learn a port. It is the door that <em>can</em> be opened.</li>
+<li><code>provisioned</code> is the door a caller <em>should</em> open. Same file underneath, plus the two things
+  no test should have to write twice: the diagnostic that names the task to run, and the
+  skip-or-fail decision from <code>requirement</code>. A harness that read <code>discovery</code> directly would
+  get a connection refused thirty seconds later, blamed on the code under test.</li>
+</ul>
+<p>Publishing has one door and consumption has one door, and they are not the same door because the
+two callers are not the same: provisioning knows it is provisioning, while a test does not know
+whether anything is up.</p>
 <h1 id="the-split-that-matters">The split that matters<a class="headerlink" href="#the-split-that-matters" title="Permanent link">&para;</a></h1>
 <ul>
 <li><strong>Naming is derived</strong> from the worktree path, in <code>scope</code>. It is stable, readable, and a
@@ -2062,6 +2074,180 @@ back through <code>Endpoints::discover</code>, so there is exactly one door and 
 <p>Remove this worktree's discovery file, if there is one.</p>
 <p>Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 stale file is the one way discovery could hand back a wrong answer instead of an error.</p>
+<h2 id="module-provisioned">Module <code>provisioned</code><a class="headerlink" href="#module-provisioned" title="Permanent link">&para;</a></h2>
+<p>The consumption half: how a test, an example or a demo reaches a service this worktree brought up.</p>
+<p><code>crate::discovery</code> is the door that <em>can</em> be opened; this module is the one a caller should
+actually use, and the difference is two things neither a test nor a reader should have to write
+twice.</p>
+<h1 id="1-the-diagnostic-which-is-most-of-the-value-here">1. The diagnostic, which is most of the value here<a class="headerlink" href="#1-the-diagnostic-which-is-most-of-the-value-here" title="Permanent link">&para;</a></h1>
+<p>Without it the failure a developer sees is a connection refused, thirty seconds into a test,
+attributed to the adapter under test rather than to a tier that was never started. Every path
+out of <code>here</code> and <code>in_worktree</code> carries <code>Absent</code> instead, which names the worktree, the
+file it looked in, what the file said, and the task to run. The whole point of allocating a port
+per worktree is that nobody has to know the port; the cost of that is that nobody can guess it
+either, so the message has to close the gap.</p>
+<h1 id="2-the-skip-or-fail-decision-made-once">2. The skip-or-fail decision, made once<a class="headerlink" href="#2-the-skip-or-fail-decision-made-once" title="Permanent link">&para;</a></h1>
+<p><code>here</code> applies <code>crate::requirement</code>: a missing tier skips loudly on a developer machine and
+fails where the tier is required. A test that made that decision for itself would make it
+differently from the next test, and one of them would make it silently.</p>
+<h1 id="what-is-deliberately-not-here">What is deliberately not here<a class="headerlink" href="#what-is-deliberately-not-here" title="Permanent link">&para;</a></h1>
+<p><strong>No fallback port, at any level.</strong> Not a default, not a "try the container port", not an
+environment variable a caller could set to a constant. A fallback connects to whatever else
+holds that port, and on a machine running two worktrees of this repository that is the
+neighbour's fixture - a test that passes against the wrong data and says nothing about it. That
+is the exact failure the per-worktree design removes, so re-introducing it as a convenience
+would remove the design.</p>
+<p><strong>No knowledge of docker</strong>, for the same reason the rest of this crate has none: bringing
+services up is <code>xtask</code>'s job. This module reads a file.</p>
+<h3 id="enum-provisioned"><code>enum Provisioned</code><a class="headerlink" href="#enum-provisioned" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
+</span></code></pre></div>
+<p>What a harness gets when it asks for a provisioned service.</p>
+<p>Two variants and no third, because the fail direction does not return: see <code>here</code>.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>At</code> - It is up, and this is where. Read from the discovery file, which is the only place a host port for this worktree exists.</li>
+<li><code>Skipped</code> - Nothing to connect to, on a machine class where that is not a failure.</li>
+</ul>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The endpoint, where there is one.</p>
+<p>For a caller that wants <code>let Some(endpoint) = .. else { return }</code> rather than a match. The
+skip has already been reported either way, so discarding the <code>Absent</code> loses nothing.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code></p>
+<h3 id="struct-absent"><code>struct Absent</code><a class="headerlink" href="#struct-absent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
+</span></code></pre></div>
+<p>Nothing to connect to, and what to do about it.</p>
+<p>The typed fields are the contract and the <code>Display</code> form is the message; a caller that wants to
+branch reads <code>Absent::reason</code> rather than the prose.</p>
+<p>Plain backticks on <code>Display</code> rather than a rustdoc link to <code>std::fmt::Display</code>, and that is the
+rule <code>AGENTS.md</code> states rather than a preference: the api-docs generator copies a link to another
+crate's path through verbatim, and <code>mkdocs build --strict</code> then aborts on an unrecognized
+relative link - which every nix check passes over, because none of them builds the site.</p>
+<p><strong>Boxed, and it is a lint that says so rather than taste.</strong> The diagnostic is four fields wide
+and one of them is another error, which puts the whole thing past <code>result_large_err</code>: every
+<code>Ok(Endpoint)</code> on the way back would carry room for it. This is the cold path and it can afford
+one allocation, so the box is here and not at the call sites - a public
+<code>Result&lt;Endpoint, Box&lt;Absent&gt;&gt;</code> would push it onto everybody instead.</p>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
+</span></code></pre></div>
+<p>What stopped it. Branch on this, never on the message.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The service that was asked for.</p>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-reason"><code>enum Reason</code><a class="headerlink" href="#enum-reason" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
+</span></code></pre></div>
+<p>Which half failed. A variant rather than a sentence, because "run <code>just dev-up</code>" is the wrong
+advice for two of these and a caller matching on prose has no contract.</p>
+<h4 id="variants_3">Variants<a class="headerlink" href="#variants_3" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NoWorktree</code> - The directory given is not inside a checkout of this repository, so there is no worktree whose discovery file could be read.</li>
+<li><code>NoScope</code> - A worktree root that could not become a <code>Scope</code>.</li>
+<li><code>NotDiscovered</code> - There is a worktree, and its discovery file does not answer.</li>
+</ul>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code></p>
+<h3 id="fn-in_worktree"><code>fn in_worktree</code><a class="headerlink" href="#fn-in_worktree" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Where one service in ONE named worktree is listening.</p>
+<p>The half with no environment and no printing in it, so a caller that already knows which
+worktree it means - a <code>just</code> task, a test over a fixture directory - can drive it directly.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>use sutura_dev::provisioned;
+</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
+</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
+</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
+</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
+</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
+</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>assert_eq!(problem.service(), "postgres");
+</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>assert!(problem.to_string().contains("just dev-up"), "{problem}");
+</span></code></pre></div>
+<h3 id="fn-here"><code>fn here</code><a class="headerlink" href="#fn-here" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
+</span></code></pre></div>
+<p>Where one service in THIS worktree is listening, with the skip-or-fail decision applied.</p>
+<p><code>inside</code> is any directory in the worktree; an integration test passes
+<code>Path::new(env!("CARGO_MANIFEST_DIR"))</code>, which is the one thing a test reliably knows about
+where it is. The worktree root is found by walking upwards - see <code>worktree_root</code>.</p>
+<h1 id="panics">Panics<a class="headerlink" href="#panics" title="Permanent link">&para;</a></h1>
+<p>In the <code>Requirement::Required</code> direction, and only there. The caller is a test, a panic is how
+a test fails, and returning <code>Provisioned::Skipped</code> there would be the silent green run this
+whole tier exists to prevent. On a developer machine the direction is
+<code>Requirement::Optional</code>, the notice goes to stderr, and nothing panics.</p>
+<h3 id="fn-worktree_root"><code>fn worktree_root</code><a class="headerlink" href="#fn-worktree_root" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The worktree root at or above <code>inside</code>, or <code>None</code> if there is not one.</p>
+<p><strong>Both markers, not either</strong>, and this is borrowed from <code>xtask</code>'s own root walk because the same
+two mistakes are available: <code>flake.nix</code> alone appears in unrelated directories, and <code>Cargo.toml</code>
+alone matches every crate on the way up - which would stop the walk at a workspace MEMBER and
+derive a scope for a directory no provisioning ever used.</p>
+<p>A walk rather than <code>git rev-parse</code>, deliberately. A harness runs where a <code>.git</code> directory may not
+be - a nix sandbox copies the tree without one - and shelling out to git from a test is a
+subprocess in the way of an assertion.</p>
+<h2 id="module-requirement">Module <code>requirement</code><a class="headerlink" href="#module-requirement" title="Permanent link">&para;</a></h2>
+<p>Whether an absent service tier is a skip or a failure - one definition, read by both halves.</p>
+<p>The decision has two call sites and they are on opposite sides of the tier:</p>
+<ul>
+<li><strong>Provisioning</strong> asks it when there is no container runtime to bring services UP with.</li>
+<li><strong>A harness</strong> asks it when there is nothing provisioned to CONNECT to.</li>
+</ul>
+<p>It lived in <code>xtask</code> while there was only the first, and it moved here when the second arrived.
+Two copies of a fail-open/fail-closed decision is the shape that drifts: the copies are edited
+months apart, one of them stops matching the documentation, and the direction a wrong answer
+costs the most is the one that silently flipped.</p>
+<p><strong>Neither direction is the default, and what a wrong answer costs decides it.</strong> A false failure
+blocks a contributor who is not touching services - docker is a host dependency this repository
+deliberately does not pin with nix. A false pass reports green having tested nothing, which is
+the failure the whole tier exists to prevent.</p>
+<p><strong>So the signal is "somebody provisioned a tier here", and it is NOT the <code>CI</code> variable.</strong> That
+distinction was learned rather than designed: this module first read <code>CI</code>, on the reasoning that
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
+provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
+job that runs the suite never brings the services up - so <code>CI=true</code> made a missing tier fatal in
+the one place its absence is expected, and it failed on the first push of the branch that added
+it, in a step that had tested nothing needing docker.</p>
+<p>Only the job that provisions the tier knows that it did. So that job opts in by setting the
+variable below and gets the fail-closed direction; everything else skips loudly and names what did
+not run. <strong>The limit, stated with the claim:</strong> nothing here verifies that a job setting the
+variable really did provision anything - it is a declaration, and a job that lies about it gets
+the failure it asked for.</p>
+<h3 id="enum-requirement"><code>enum Requirement</code><a class="headerlink" href="#enum-requirement" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
+</span></code></pre></div>
+<p>Whether a missing tier is fatal.</p>
+<h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Required</code> - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting <code>FORCE</code>: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.</li>
+<li><code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</li>
+</ul>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The direction this process is running under, read from the environment.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Is a missing tier fatal here?</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="fn-decide"><code>fn decide</code><a class="headerlink" href="#fn-decide" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
+</span></code></pre></div>
+<p>The decision, over the value rather than over the environment, so it is testable.</p>
+<p><strong>One parameter, and it used to be two.</strong> The other was <code>CI</code>, and it is gone rather than ignored:
+a parameter a function does not read is a parameter a caller believes in. See the module header for
+why that signal was the wrong one.</p>
+<h3 id="constant-force"><code>constant FORCE</code><a class="headerlink" href="#constant-force" title="Permanent link">&para;</a></h3>
+<p>The variable that overrides the machine class, in <strong>both</strong> directions.</p>
+<p>Named once, here, because a message that tells somebody to set it and a read that spells it
+differently is a fix that does not work and looks like it should.</p>
 <h2 id="module-scope">Module <code>scope</code><a class="headerlink" href="#module-scope" title="Permanent link">&para;</a></h2>
 <p>Per-worktree isolation: the part that has to be right.</p>
 <p>Several worktrees of this repo are open at once - that is the point of stacked branches -
@@ -2094,50 +2280,50 @@ reason one of the two moved and the other did not. A hash collision in a NAME is
 error somebody reads; a hash collision in a PORT is a test that passes against the wrong
 fixture.</p>
 <h3 id="struct-service"><code>struct Service</code><a class="headerlink" href="#struct-service" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
 </span></code></pre></div>
 <p>A dev service that gets its own container per worktree.</p>
 <p>No port field, derived or otherwise: what a service publishes on the host is allocated at
 provision time and read back, so a port here would be a second answer to a question this type
 is not allowed to answer.</p>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The port INSIDE the container. Provisioning publishes it ephemerally and reads back the
 host port docker chose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is this service started when no profile was asked for?</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Name used in the compose file, in the discovery file and in output.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The compose profile that turns this service on, or <code>None</code> for one always started.</p>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-scopeerror"><code>enum ScopeError</code><a class="headerlink" href="#enum-scopeerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
 </span></code></pre></div>
 <p>Why a worktree root could not become a scope.</p>
-<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotResolvable</code> - The path could not be canonicalised - it does not exist, or a component is not readable.</li>
 </ul>
-<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-scope"><code>struct Scope</code><a class="headerlink" href="#struct-scope" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
 </span></code></pre></div>
 <p>Everything derived from one worktree.</p>
 <p>If an instance exists, its root is canonical: <code>Scope::from_root</code> is the only public
 constructor and it canonicalises first, so no caller has to wonder which spelling of a path a
 scope was built from.</p>
-<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Short digest of the canonical root. Printed so a stray container can be traced back.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Derive a scope from a worktree root.</p>
 <p>The canonical constructor. It resolves the path first - symlinks included - so two spellings
@@ -2146,22 +2332,22 @@ case-folding filesystem that is what makes a case-only difference one worktree, 
 case-sensitive one it is what stops two real directories being folded into one. Neither
 property comes from lowercasing the string, which an earlier version did and which was wrong
 on exactly one of those two platforms.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>Compose project name. Lowercase alphanumeric and dashes only, which is all docker
 compose accepts, and prefixed so a stray container is identifiable as ours.</p>
 <p><strong>The one function that supplies this name</strong>, to start and to stop alike. Rule 3 of the
 teardown contract on <code>SERVICES</code> is about the two of them agreeing.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The canonical worktree root.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
 </span></code></pre></div>
 <p>Where provisioning keeps this worktree's state. Under the worktree, never shared.</p>
-<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-profiles"><code>fn profiles</code><a class="headerlink" href="#fn-profiles" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every profile any service declares, in declaration order and without repeats.</p>
 <p>Teardown enables all of them, and that is the reason this exists: <code>docker compose down</code> only
