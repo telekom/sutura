@@ -95,6 +95,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "source_unavailable",
             format!("the data system `{source}` is not one this process opened"),
         ),
+        RefusalReason::ResourcesExhausted { ceiling_bytes } => (
+            "resources_exhausted",
+            format!(
+                "answering this needed more working memory than this deployment allows \
+                 ({ceiling_bytes} bytes) and was refused rather than allowed to exhaust the \
+                 process. Asking again unchanged will be refused again: narrow the period, ask \
+                 for fewer dimensions, or add a filter."
+            ),
+        ),
     }
 }
 

@@ -49,3 +49,20 @@ devenv.local.nix
 /crap-baseline.json
 /crap-base/
 /crap-delta.md
+
+# Scratch written by agent tooling into the working tree. Neither is source, and neither should
+# ever reach a commit here - `.playwright-mcp/` holds verbatim dumps of whatever pages a browser
+# tool visited, which in THIS repository is a disclosure question rather than a tidiness one:
+# a page dump can carry a URL, a hostname or a header that the guidance at the top of AGENTS.md
+# says does not belong in a public repo.
+#
+# `.claude/worktrees/` and NOT `.claude/`: three paths under it are tracked on purpose - the
+# session-start hook, `settings.json` and the skills symlink - and ignoring the parent would hide
+# them from `git status` for everyone who edits one. Narrow the pattern to the scratch.
+#
+# Both were caught by `cargo xtask max-lines` walking into them rather than by anyone noticing,
+# which is the useful part: the gate that fails on a 4000-line page dump is the only thing that
+# was looking. The worktree half of that walk is fixed separately in the gate itself; ignoring
+# the directories is the half that keeps them out of a commit.
+/.playwright-mcp/
+/.claude/worktrees/
