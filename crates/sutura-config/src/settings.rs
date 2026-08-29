@@ -22,6 +22,7 @@ use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 use crate::api::ApiSettings;
 use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 use crate::environment::{Environment, UnknownEnvironment};
+use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
 use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
@@ -193,6 +194,36 @@ pub enum SettingsError {
         #[source]
         cause: InvalidTlsMaterial,
     },
+    /// A `security.inbound` block exists and does not say which mode.
+    ///
+    /// **The refusal `docs/adr/0014` asks for by name.** Both defaults are wrong in opposite
+    /// directions - `direct` makes a gateway deployment reject every caller, `behind-gateway` makes a
+    /// directly exposed deployment accept a forged proof - so a deployment that says nothing does not
+    /// start. Note what is *not* refused: no block at all, which is a single-player deployment and is
+    /// unaffected by any of this.
+    #[error(
+        "`security.inbound` is set and `security.inbound.mode` is not. It has no default because \
+         both would be wrong: `direct` makes a deployment behind a gateway reject every caller, and \
+         `behind-gateway` makes a directly exposed one accept a proof anybody can forge. Write one \
+         of: {}. Remove the whole block for a deployment with no per-caller identity",
+        InboundIdentity::MODES.join(", ")
+    )]
+    InboundModeUndeclared,
+    #[error("`security.inbound.mode` is `{found}` - one of: {}", InboundIdentity::MODES.join(", "))]
+    InboundModeUnknown { found: String },
+    /// A key this mode needs. The mode is in the message on purpose - see `required`.
+    #[error("`security.inbound.mode` is `{mode}`, which requires `{key}`")]
+    InboundKeyMissing { key: &'static str, mode: String },
+    #[error("a value in `security.inbound` is not usable")]
+    InboundValue {
+        #[source]
+        cause: InvalidInboundValue,
+    },
+    #[error("`security.inbound.algorithms` does not pin a usable set")]
+    InboundAlgorithms {
+        #[source]
+        cause: InvalidAlgorithms,
+    },
     #[error("a rate limit tier is not a quota")]
     Quota {
         #[source]
@@ -359,6 +390,33 @@ pub enum NotFitToServe {
          terminate TLS in front of this process and declare `sidecar` or `ingress`"
     )]
     InProcessTlsNotCompiledIn,
+    /// Two different credentials configured to arrive in one header.
+    ///
+    /// **A collision found by building leg 1 rather than by reading the record**, and it is worth
+    /// stating because `docs/adr/0014` says the deployment token and leg 1 both survive and answer
+    /// different questions. They do - in the `behind-gateway` mode, where the proof arrives in a
+    /// header of the component's own and `Authorization` stays the deployment token's.
+    ///
+    /// In the `direct` mode they cannot. RFC 6750 puts an access token in `Authorization: Bearer` and
+    /// an OAuth 2.1 client has no option to put it elsewhere, so a deployment that is its own resource
+    /// server owns that header. Configuring both is configuring a request that has to carry two
+    /// values in one field, and every alternative to refusing it is worse: sniffing whether the value
+    /// looks like a JWT is a guess, and checking one and then the other makes the *weaker* credential
+    /// sufficient.
+    ///
+    /// So the direct mode replaces the deployment token rather than joining it - which is why
+    /// [`Self::AccessTokenRequired`] does not fire when an inbound identity is configured. That is
+    /// not a weakening: a validated, audience-bound, expiring token per caller is strictly more than
+    /// a shared secret every caller holds.
+    #[error(
+        "security.access_token is set and security.inbound.mode is `direct`, and both are read from \
+         `authorization: Bearer`. A request cannot carry two credentials in one header. In the \
+         direct mode this deployment IS the resource server, so the caller's own token is what \
+         authenticates the request - remove security.access_token. To keep a deployment-wide \
+         perimeter as well, put the caller's identity behind a component and declare \
+         `behind-gateway`, whose proof arrives in a header of its own"
+    )]
+    DeploymentTokenSharesTheHeader,
 }
 
 /// Which configuration files were read, in the order they were applied.
@@ -499,20 +557,7 @@ impl Settings {
         }
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
-        if self.security.access_token().is_none() {
-            // Two different reasons, and the message says which: an operator whose production
-            // deployment refuses should not have to work out whether it was the bind or the
-            // environment that asked for the token.
-            if self.environment.is_production() {
-                refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this is a production deployment",
-                });
-            } else if off_host {
-                refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this service is bound where other hosts can reach it",
-                });
-            }
-        }
+        refusals.extend(self.credential_refusals(off_host));
         if self.environment.is_production() {
             if !self.rate_limit.enabled() {
                 refusals.push(NotFitToServe::RateLimitingDisabledInProduction);
@@ -546,6 +591,44 @@ impl Settings {
             refusals.push(NotFitToServe::TlsMaterialWithoutInProcessTermination {
                 declared: declared.as_str(),
             });
+        }
+        refusals
+    }
+
+    /// Everything wrong with what a request has to present, and with where it presents it.
+    ///
+    /// **Two rules that used to be one, and separating them is the change.** The deployment token was
+    /// required whenever the service was reachable off-host or was in production, because the
+    /// alternative was an unauthenticated way to read whatever the process can read. That argument is
+    /// about there being *no* credential - and a deployment that verifies every caller's own token has
+    /// one, per caller, audience-bound and expiring. So the requirement now reads "some credential",
+    /// and the message still names which of the two reasons asked for it.
+    ///
+    /// The second rule is the collision: see [`NotFitToServe::DeploymentTokenSharesTheHeader`]. The
+    /// two rules are here together rather than in two functions because they are one question asked
+    /// twice - what does a request present, and can it present it - and a deployment that got the
+    /// first wrong usually got the second wrong in the same edit.
+    fn credential_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        let inbound = self.security.inbound();
+        if self.security.access_token().is_none() && inbound.is_none() {
+            // Two different reasons, and the message says which: an operator whose production
+            // deployment refuses should not have to work out whether it was the bind or the
+            // environment that asked for the token.
+            if self.environment.is_production() {
+                refusals.push(NotFitToServe::AccessTokenRequired {
+                    because: "this is a production deployment with no inbound identity configured",
+                });
+            } else if off_host {
+                refusals.push(NotFitToServe::AccessTokenRequired {
+                    because: "this service is bound where other hosts can reach it and no inbound identity is configured",
+                });
+            }
+        }
+        // Asked of the requirement rather than of the variant, so a mode added later that also lands
+        // in `Authorization` cannot slip past this.
+        if self.security.access_token().is_some() && inbound.is_some_and(InboundIdentity::reads_the_authorization_header) {
+            refusals.push(NotFitToServe::DeploymentTokenSharesTheHeader);
         }
         refusals
     }
@@ -732,7 +815,11 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None | Some("") => TlsTermination::default(),
         Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
     };
-    Ok(SecuritySettings::new(token, termination))
+    let inbound = match raw.security.inbound {
+        None => None,
+        Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
+    };
+    Ok(SecuritySettings::new(token, termination, inbound))
 }
 
 fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {
@@ -825,6 +912,9 @@ fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
     };
     Ok(PromptSettings::new(instructions, prose))
 }
+
+/// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
+mod inbound;
 
 #[cfg(test)]
 mod tests;

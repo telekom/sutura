@@ -57,6 +57,8 @@
 //! that would cause the first - and the alternative to an error is either a panic for something the
 //! types already ruled out or a fail-open fallback. See `middleware::LimiterNotBuilt`.
 
+use std::sync::Arc;
+
 use axum::Router;
 use axum::extract::DefaultBodyLimit;
 use sutura_config::{Environment, Settings};
@@ -100,6 +102,20 @@ pub enum RouterNotBuilt {
         #[source]
         cause: std::io::Error,
     },
+    /// The settings declare an inbound identity and the state carries no gate to establish it.
+    ///
+    /// **The mechanism that makes attaching leg 1 unforgettable.** `crate::inbound::InboundGate` is
+    /// built by the composition root, because building it reads a key set - so there is a state in
+    /// which a deployment has declared `security.inbound` and nothing is verifying anything. Without
+    /// this refusal that deployment would serve, answer every question as
+    /// `sutura_domain::identity::Subject::TheDeploymentItself`, and log a startup line saying it
+    /// establishes a caller identity. It fails to assemble instead.
+    #[error(
+        "security.inbound.mode is `{mode}` and no inbound identity gate was attached to the service \
+         state, so nothing would verify a caller's token. The composition root builds one with \
+         `InboundGate::from_declaration` and attaches it with `ServiceState::with_inbound_identity`"
+    )]
+    InboundIdentityNotAttached { mode: &'static str },
 }
 
 /// The router, and the limiter state something has to keep sweeping.
@@ -174,6 +190,11 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // Innermost of this subtree: the body bound. Inside the JSON extractor, which is what makes it
     // a limit on what is read rather than on what parses.
     .layer(DefaultBodyLimit::max(settings.server().max_body().bytes()));
+    // Then leg 1, if this deployment has it: a verified caller, or a `401` with a challenge. INSIDE
+    // the deployment token gate added below, because `Router::layer` wraps what is already there - so
+    // the cheap comparison runs first and a signature verification is not work an unauthenticated
+    // caller can spend. See `crate::inbound::gate`.
+    let versioned = inbound_layered(versioned, state, settings.security().inbound())?;
     // Then the token gate, and only THEN the limiter - so the limiter is outside the gate and a
     // wrong-token attempt costs a cell. See the module documentation.
     let versioned = versioned.route_layer(axum::middleware::from_fn_with_state(state.clone(), middleware::require_token));
@@ -283,11 +304,52 @@ fn request_span(request: &axum::extract::Request) -> tracing::Span {
         correlation = %crate::correlation::CorrelationId::from_headers(request.headers()),
         metric = tracing::field::Empty,
         grain = tracing::field::Empty,
+        // `verified` or `deployment`, filled in by the query handler once the request context exists.
+        // The LABEL and not the identifier: a subject id on a span would raise the log's cardinality
+        // to the number of people who ever asked, and the audit record is where the id belongs.
+        asker = tracing::field::Empty,
     )
 }
 
 const fn limiter(cause: LimiterNotBuilt) -> RouterNotBuilt {
     RouterNotBuilt::Limiter { cause }
+}
+
+/// The versioned subtree with leg 1 in front of it, or refused, or unchanged.
+///
+/// Three outcomes from one declaration, and the middle one is the point: a deployment that declared an
+/// inbound identity and has no gate does not get a router. See
+/// [`RouterNotBuilt::InboundIdentityNotAttached`].
+///
+/// `route_layer` rather than `layer`, for the reason the token gate uses it: it runs only for a request
+/// that matched a route in this subtree, so a path under the version prefix that matches nothing falls
+/// through to the top-level `404` without a token check - which `crate::router`'s own documentation
+/// already states, along with why that is acceptable.
+fn inbound_layered(
+    versioned: Router,
+    state: &ServiceState,
+    declared: Option<&sutura_config::InboundIdentity>,
+) -> Result<Router, RouterNotBuilt> {
+    let Some(declared) = declared else {
+        // No declaration. Nothing is installed, `crate::principal::established` answers
+        // `TheDeploymentItself`, and the startup log says so - which is every deployment that shipped
+        // before leg 1.
+        return Ok(versioned);
+    };
+    let Some(gate) = state.inbound_identity() else {
+        return Err(RouterNotBuilt::InboundIdentityNotAttached { mode: declared.mode() });
+    };
+    tracing::info!(
+        inbound_mode = declared.mode(),
+        header = gate.header(),
+        establishes = declared.who_authenticated(),
+        limit = sutura_config::InboundIdentity::what_it_does_not_do(),
+        "leg 1 is installed on the versioned surface"
+    );
+    Ok(versioned.route_layer(axum::middleware::from_fn_with_state(
+        Arc::clone(gate),
+        crate::inbound::require_verified_caller,
+    )))
 }
 
 /// The generated document and the browser interface over it, or an empty router.

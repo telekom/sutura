@@ -1,0 +1,245 @@
+//! The layer that turns a presented token into a verified caller, or answers `401` with a challenge.
+//!
+//! # Where it sits, and why after the deployment token rather than before
+//!
+//! `crate::router` installs the layers so a request travels: limiter, then the deployment token gate,
+//! then this. Two reasons, and neither is style:
+//!
+//! - **Cost.** The deployment token comparison is two hashes; this is a signature verification. Doing
+//!   the expensive one first would let an unauthenticated caller spend this deployment's CPU.
+//! - **The limiter stays outermost**, which `crate::router` explains at length: a wrong-credential
+//!   attempt has to cost a rate-limit cell or it is an unlimited guessing loop. That argument applies
+//!   to a forged signature exactly as it applies to a wrong shared secret.
+//!
+//! In the `direct` mode there is no deployment token to be after -
+//! `sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination - so the
+//! order matters only in the `behind-gateway` mode, where both are configured and each reads its own
+//! header.
+//!
+//! # What a refused request is told, and what it is not
+//!
+//! A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
+//! validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
+//! naming where to look"*, and this is the half of that which exists: **the two metadata documents the
+//! record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
+//! client learns the authorization server out of band. That is a named gap rather than a silent one -
+//! see `crate::inbound`.
+//!
+//! What the response does **not** say is which check failed. The log says - through the `#[source]`
+//! chain on `TokenRejected` - and the caller does not, because "the signature verified and the
+//! audience did not" tells somebody which half of a forgery to fix.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use axum::extract::{Request, State};
+use axum::http::HeaderMap;
+use axum::middleware::Next;
+use axum::response::{IntoResponse as _, Response};
+use sutura_config::{InboundIdentity, TokenLocation};
+
+use crate::inbound::caller::VerifiedCaller;
+use crate::inbound::keys::{FileKeySet, KeySetCache, KeySetUnavailable};
+use crate::inbound::token::{TokenRejected, TokenValidator};
+use crate::problem::Failure;
+
+/// The scheme an `Authorization` token carries, and the header it arrives in.
+const AUTHORIZATION: &str = "authorization";
+const BEARER: &str = "Bearer ";
+
+/// Everything one deployment needs to establish who a caller is, built once at startup.
+///
+/// **Built by the composition root and not by [`crate::ServiceState::new`]**, because building it
+/// reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+/// or read it lazily on the first request, and both turn a refusal to start into a deployment that
+/// authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
+/// declare an inbound identity and whose state carries no gate, which is what makes forgetting to
+/// attach one a startup failure rather than an open door.
+pub struct InboundGate {
+    validator: TokenValidator,
+    keys: KeySetCache,
+    /// Where the token arrives, resolved from the declaration at startup rather than per request.
+    ///
+    /// An owned `String` rather than the borrowed `TokenLocation`, so the gate does not hold a
+    /// lifetime into the settings tree and can live in an `Arc` for the life of the process.
+    header: String,
+    /// Whether the value carries the `Bearer ` prefix. The `direct` mode does, per RFC 6750; a
+    /// component setting its own header does not.
+    bearer_prefixed: bool,
+    /// What the challenge names as its realm.
+    realm: String,
+}
+
+/// The gate could not be built.
+#[derive(Debug, thiserror::Error)]
+#[error("the inbound identity declared by this deployment is not usable")]
+pub struct InboundNotUsable {
+    #[source]
+    cause: KeySetUnavailable,
+}
+
+impl InboundGate {
+    /// Builds the gate from a declaration `sutura-config` already accepted, reading the key set once.
+    ///
+    /// **Called before the listener opens.** An unreadable or unusable key set is an error here, so it
+    /// is a process that does not start rather than one that answers `401` to everybody.
+    pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
+        let requirement = inbound.requirement();
+        let source = FileKeySet::at(requirement.key_set().path());
+        let keys = KeySetCache::primed(Box::new(source), Instant::now()).map_err(|cause| InboundNotUsable { cause })?;
+        Ok(Self::over(inbound, keys))
+    }
+
+    /// The same, over a key set that is already in hand.
+    ///
+    /// `pub(crate)` and the seam every test in this module uses: a fake
+    /// [`crate::inbound::keys::KeySetSource`] is how the rate limit and the rotation are asserted
+    /// without a filesystem, which is the same argument `AGENTS.md` makes for a port getting a fake.
+    pub(crate) fn over(inbound: &InboundIdentity, keys: KeySetCache) -> Self {
+        let requirement = inbound.requirement();
+        let (header, bearer_prefixed) = match requirement.location() {
+            TokenLocation::AuthorizationBearer => (String::from(AUTHORIZATION), true),
+            TokenLocation::Header { name } => (String::from(name.as_str()), false),
+        };
+        Self {
+            realm: String::from(requirement.audience().as_str()),
+            validator: TokenValidator::new(&requirement),
+            keys,
+            header,
+            bearer_prefixed,
+        }
+    }
+
+    /// The header this gate reads, for a startup log line and for a test.
+    #[inline]
+    #[must_use]
+    pub fn header(&self) -> &str {
+        &self.header
+    }
+
+    /// How many keys are cached, and their ids. For the startup log.
+    pub async fn describe_keys(&self) -> (usize, Vec<String>) {
+        self.keys.describe().await
+    }
+
+    /// The RFC 6750 challenge a refused request carries.
+    ///
+    /// **No `error_description`**, and that is the same decision the response body makes: a
+    /// description would have to say which check failed to be worth anything, and that is the one
+    /// thing a caller must not learn.
+    #[must_use]
+    pub fn challenge(&self) -> String {
+        format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm)
+    }
+
+    /// Establishes who is asking, or says why it could not.
+    ///
+    /// The whole request path of leg 1, in one function, so the order of the four steps is readable in
+    /// one place: read the header, read the key id it names, find the key, verify.
+    ///
+    /// **Takes the headers rather than the request, and both reasons are worth keeping.** The narrow
+    /// one is that it is the whole of what leg 1 may read: a gate that was handed a request could
+    /// establish an identity from a path, a query parameter or a body, and the signature is what makes
+    /// that unavailable rather than merely unwise. The mechanical one is that `axum::body::Body` is not
+    /// `Sync`, so a future holding `&Request` across an await is not `Send` and cannot run as a layer
+    /// at all - which is how the narrow reason got discovered.
+    pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
+        let presented = self.presented(headers).ok_or_else(|| TokenRejected::Absent {
+            location: self.header.clone(),
+        })?;
+        let id = TokenValidator::key_id(presented)?;
+        let key = self
+            .keys
+            .key_for(&id, now)
+            .await
+            .map_err(|cause| TokenRejected::NoKey { cause })?;
+        self.validator.verify(presented, &key)
+    }
+
+    /// The token as presented, without the scheme prefix where there is one.
+    ///
+    /// Returns `None` for an absent header, a header this HTTP implementation will not hand back as a
+    /// string, and - in the `Authorization` case - a value with no `Bearer ` prefix. All three are the
+    /// same fact from a caller's side: nothing was presented here.
+    fn presented<'request>(&self, headers: &'request HeaderMap) -> Option<&'request str> {
+        let value = headers.get(self.header.as_str())?.to_str().ok()?;
+        if self.bearer_prefixed {
+            return value.strip_prefix(BEARER);
+        }
+        Some(value)
+    }
+}
+
+impl core::fmt::Debug for InboundGate {
+    /// Hand-written, because the cache holds a trait object and because what a reader wants named is
+    /// which header and which audience. No key material and no token, at any depth.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("InboundGate")
+            .field("header", &self.header)
+            .field("realm", &self.realm)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Requires a verified caller, and puts one in the request extensions.
+///
+/// A `from_fn_with_state` middleware over the gate rather than over
+/// [`crate::ServiceState`](crate::state::ServiceState), so the state a handler is given has no way to
+/// reach the validator: the only thing that crosses into the handler is the *result*, as a
+/// [`VerifiedCaller`] extension that only this function inserts.
+///
+/// **The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
+/// with something already under that type - which nothing can construct, but the reasoning should not
+/// rest on that alone - is replaced rather than joined.
+pub async fn require_verified_caller(State(gate): State<Arc<InboundGate>>, mut request: Request, next: Next) -> Response {
+    // One clock read per request, passed down, so the rate-limit window is decided once and the same
+    // instant is what a retry inside it is measured against.
+    let now = Instant::now();
+    // Cloned rather than borrowed, so nothing holds a borrow of the request across the await: the
+    // whole request is not `Sync` - see `InboundGate::establish` - and a `HeaderMap` clone is a handful
+    // of small allocations against a signature verification.
+    let headers = request.headers().clone();
+    match gate.establish(&headers, now).await {
+        Ok(caller) => {
+            drop(request.extensions_mut().insert(caller));
+            next.run(request).await
+        }
+        Err(rejected) => refused(&gate, &rejected),
+    }
+}
+
+/// The `401`, its challenge, and the one place the reason is written down.
+///
+/// A function of its own so the middleware above stays a branch rather than a body: two log fields, a
+/// header that may not build and a response to return was over the cognitive-complexity threshold in
+/// `clippy.toml`, and the split puts the whole "what a refused caller is told" decision in one place.
+fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
+    // The cause chain, not the variant alone: which of signature, expiry, issuer and audience failed is
+    // what an operator needs, and it goes here rather than to the caller.
+    tracing::warn!(
+        error = %rejected,
+        causes = ?crate::surface::cause_chain(rejected),
+        header = gate.header(),
+        "no verified caller: the presented token did not establish one"
+    );
+    let mut response = Failure::Unauthorized.into_response();
+    challenged(&mut response, &gate.challenge());
+    response
+}
+
+/// Puts the challenge on a response, or says why it could not.
+///
+/// Its own function because the fallible-header branch put [`refused`] over the cognitive-complexity
+/// threshold in `clippy.toml`, and because the branch deserves the sentence: the failure is
+/// unreachable from a loaded configuration - the realm is a `sutura_config::ResourceIdentifier`, whose
+/// parse accepts an ASCII subset a header value can always carry - and it is logged rather than
+/// ignored. **The `401` goes out either way**: a missing challenge is a client somebody has to
+/// configure by hand, and answering anything else would be a hole.
+fn challenged(response: &mut Response, challenge: &str) {
+    match axum::http::HeaderValue::from_str(challenge) {
+        Ok(value) => {
+            drop(response.headers_mut().insert(axum::http::header::WWW_AUTHENTICATE, value));
+        }
+        Err(cause) => tracing::error!(error = %cause, "the configured resource identifier is not a header value"),
+    }
+}

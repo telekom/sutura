@@ -234,7 +234,21 @@ classify base="origin/main":
     cargo run -q -p xtask -- classify --since {{ base }}
 
 # Red-before-green for changed tests. `just causality origin/main`
+#
+# ON STABLE, and that is a bug fix rather than consistency. This gate RUNS THE SUITE - twice - so it
+# inherits every difference between the channels, and the dev shell's bare `cargo` is nightly for the
+# cranelift backend. One test in `sutura-runtime` behaves differently under the two: it installs a
+# panic hook and asserts on what the hook logged, and under nightly it fails while `just test` on
+# stable passes it. So this gate was red on every branch, for a reason that had nothing to do with any
+# of them, and the failure looked exactly like the one it exists to report.
+#
+# The rule `AGENTS.md` states for `clippy` - never conclude a branch is red from a bare `cargo` line -
+# applies to any gate that runs the compiler, and this recipe is now what makes it hold here.
 causality base="origin/main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
     cargo run -q -p xtask -- test-causality --since {{ base }}
 
 # ---------------------------------------------------------------- artifacts ---

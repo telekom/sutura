@@ -144,7 +144,17 @@ fn run() -> Result<(), String> {
     // them is looked at.
     let material = settings.server().tls().cloned();
     let grace = settings.runtime().shutdown_grace().duration();
-    let state = ServiceState::new(Arc::new(service), Arc::new(settings));
+    // Leg 1, and it is built HERE rather than inside the state for one reason: building it reads the
+    // key set the declaration names, so it can fail - and an unreadable key set has to stop the process
+    // rather than become a deployment that answers `401` to everybody while its startup log says it
+    // establishes a caller identity. `sutura_http::router` refuses to assemble when a declaration has
+    // no gate, so this cannot be forgotten in a later edit; the `?` here is what makes it a refusal to
+    // start rather than that refusal firing at assembly.
+    let inbound = inbound_gate(&settings)?;
+    let mut state = ServiceState::new(Arc::new(service), Arc::new(settings));
+    if let Some(gate) = inbound {
+        state = state.with_inbound_identity(Arc::new(gate));
+    }
     let router = sutura_http::router(&state).map_err(flatten)?;
 
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -158,6 +168,28 @@ fn run() -> Result<(), String> {
     let served = runtime.block_on(serve_until_stopped(router, address, material, stopping.clone()));
     stop(runtime, &stopping);
     served
+}
+
+/// Leg 1, for a deployment that declared one.
+///
+/// **`None` is a posture and not a gap.** A deployment with no `security.inbound` block is a
+/// single-player deployment - `docs/adr/0008` part 5a calls that a first-class shape - and every
+/// deployment that existed before leg 1 is one. `sutura_config` refuses a block that does not say
+/// which mode, so there is no third answer here.
+///
+/// The key set is read on this line, before the listener opens. What that buys is the difference
+/// between a process that does not start and a process that starts and authenticates nobody.
+fn inbound_gate(settings: &Settings) -> Result<Option<sutura_http::InboundGate>, String> {
+    let Some(declared) = settings.security().inbound() else {
+        return Ok(None);
+    };
+    let gate = sutura_http::InboundGate::from_declaration(declared).map_err(flatten)?;
+    tracing::info!(
+        inbound_mode = declared.mode(),
+        header = gate.header(),
+        "leg 1 is armed: the key set was read and a caller's token will be verified against it"
+    );
+    Ok(Some(gate))
 }
 
 /// Gives the blocking pool what is left of the grace period, and then stops waiting.

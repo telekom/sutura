@@ -586,7 +586,11 @@ async fn the_interface_description_is_served_in_development_and_not_in_productio
     let development = app(settings(Environment::Development, ""));
     let (status, body) = call(&development, request("GET", "/openapi.json", None, Body::empty())).await;
     assert_eq!(status, StatusCode::OK);
-    assert!(body.contains("NO PER-CALLER IDENTITY"), "{body}");
+    // The paragraph an integrator must not be able to miss. It used to read "NO PER-CALLER IDENTITY",
+    // which stopped being unconditionally true when leg 1 landed; what has to survive is the sentence
+    // about what identity does NOT buy, because that is the one somebody acts on wrongly.
+    assert!(body.contains("NEITHER IS PER-CALLER ACCESS"), "{body}");
+    assert!(body.contains("no row-level"), "{body}");
 
     // Production, fully configured, and the description is off by default: a map of the surface is
     // something a deployment turns on rather than something it has to remember to turn off.

@@ -35,6 +35,15 @@ pub struct ServiceState {
     surface: Arc<dyn Surface>,
     settings: Arc<Settings>,
     admission: Admission,
+    /// Leg 1, when a deployment declares one. `None` is the shape that ships today.
+    ///
+    /// **Attached by a builder rather than taken by [`ServiceState::new`]**, and the reason is that
+    /// building it reads a file: a `new` that could not fail would have to swallow an unreadable key
+    /// set or read it lazily on the first request, and both turn a refusal to start into a deployment
+    /// that authenticates nobody. What keeps the builder from being forgettable is not discipline -
+    /// `crate::router::assemble` refuses to build a router whose settings declare an inbound identity
+    /// and whose state carries no gate.
+    inbound: Option<Arc<crate::inbound::InboundGate>>,
 }
 
 impl ServiceState {
@@ -53,7 +62,30 @@ impl ServiceState {
             surface,
             settings,
             admission,
+            inbound: None,
         }
+    }
+
+    /// The same state, with leg 1 attached.
+    ///
+    /// Called by the composition root, after it has read the key set the declaration names. A state
+    /// whose settings declare an inbound identity and which has not been through this is a state
+    /// `crate::router::assemble` refuses.
+    #[must_use]
+    pub fn with_inbound_identity(mut self, gate: Arc<crate::inbound::InboundGate>) -> Self {
+        self.inbound = Some(gate);
+        self
+    }
+
+    /// Leg 1, if this deployment has it.
+    ///
+    /// Read by `crate::router` to install the layer, and by nothing else - a handler must not be able
+    /// to reach the validator, which is why the middleware takes the gate as its own state rather than
+    /// reading it back out of this one.
+    #[inline]
+    #[must_use]
+    pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>> {
+        self.inbound.as_ref()
     }
 
     /// The service, for a handler that is about to move the call onto the blocking pool.

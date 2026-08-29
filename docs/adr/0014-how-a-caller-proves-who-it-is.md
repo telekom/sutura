@@ -5,7 +5,9 @@ description: The other half of the identity path - leg 1, from the caller to sut
 
 # How a caller proves who it is
 
-Status: **accepted as a design, and nothing in it is built.**
+Status: **accepted, and the mechanism is built. Four things this record describes are not** - see
+*What is built, and what of this record is not* at the foot. That section is the authority on the
+state; every "not built" in the body below it is older than the code.
 
 [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) decides **leg 2** - sutura to a
 source, as the asking subject - in detail, and says at its head that both halves of the identity path are
@@ -307,3 +309,70 @@ mutual TLS.
   rather than about a query - but it is unanswered.
 - **Where scopes are authored.** A scope naming a metric couples the authorization server to the catalog, and a
   scope naming a capability does not. The second is almost certainly right and it is not yet argued.
+
+## What is built, and what of this record is not
+
+Added when leg 1 landed. **This section is the authority on the state of the code**, and where it
+contradicts a sentence above it, it wins: the body was written before any of it existed and its "not
+built" statements are older than the implementation.
+
+### Built
+
+| Decision | Where | The mechanism, not the intent |
+| --- | --- | --- |
+| Two modes, no default | `sutura_config::inbound` | `InboundIdentity` is a closed enum. A `security.inbound` block with no `mode` is `SettingsError::InboundModeUndeclared` and the process does not start. **A deployment with no block at all is a single-player deployment and is unaffected**, which is the consequence this record already names |
+| `BehindGateway` is not a header | `TransitProof` | Its fields are an issuer, an audience, a key set and a pinned algorithm. There is no field for the name of a header holding a username, and the subject is derived from the claims of a token whose signature checked out. A test presents a header holding `admin@example.com` and it establishes nobody |
+| Algorithm pinning, `none` and symmetric refused | `sutura_config::SigningAlgorithm` and `sutura_http::inbound::keys` | **Unrepresentable rather than checked, in two places**: the enum has no `None` and no `HS*` variant, so a configuration naming either cannot produce a value; and a key set holding an `oct` key is refused at load, because otherwise the library would build an HMAC verifier from a secret the issuer published. Nothing reads the `alg` of the token being validated in order to choose one |
+| Key rotation with a **rate-limited** refetch | `sutura_http::inbound::keys::KeySetCache` | The window is measured from the last *attempt*, so a failing source is limited too, and `key_for` takes the instant as an argument - which is what makes "ten forged key ids cost one read" assertable without a sleep. `MIN_REFETCH_INTERVAL` is a constant and not a key: a knob here would only ever be set wrong |
+| The audience, unconditionally | `sutura_http::inbound::token` | One value - this deployment's own resource identifier - and `aud` is in `required_spec_claims`, so a token carrying **no** audience is refused rather than passing an audience check that had nothing to compare. `ResourceIdentifier` is stored exactly as written, because a URL parser's normalisation would make us accept a token minted for a different spelling |
+| A subject with something behind it | `sutura_http::principal::of_verified` | `Subject::Verified` has a constructor at last, and `act` becomes an ordered `ActorChain` - RFC 8693 nests backwards in time and the domain's chain runs the other way, so the conversion reverses it. Every audit record for such a call names the person |
+| Wired | `sutura-serve` | The key set is read before the listener opens, so an unreadable one is a refusal to start. `sutura_http::router` refuses to assemble when the settings declare an inbound identity and no gate was attached, which is what makes forgetting it a startup failure rather than an open door |
+
+Two findings the record did not anticipate, both now refusals:
+
+- **`direct` and `security.access_token` cannot coexist.** RFC 6750 puts an access token in
+  `Authorization: Bearer` and an OAuth 2.1 client has no option to put it elsewhere, so a deployment
+  that is its own resource server owns that header. `NotFitToServe::DeploymentTokenSharesTheHeader`
+  refuses the pair. This record says the two controls both survive and answer different questions;
+  they do, in the `behind-gateway` mode, whose proof arrives in a header of the component's own.
+  The consequence is that the token requirement in production is satisfied by *either* credential -
+  a validated, audience-bound, expiring token per caller is strictly more than one shared secret
+  every caller holds - and without that change the two refusals are mutually unsatisfiable.
+- **A pinned algorithm list spanning two key families verifies nothing**, because one token is
+  verified by one key and the validator refuses a permitted list whose family disagrees with it. A
+  mixed list is refused at startup rather than becoming a deployment that starts and authenticates
+  nobody.
+
+### Not built, and named rather than left to be discovered
+
+1. **A JWKS endpoint.** Keys are read from a file - `security.inbound.key_set_file`. Everything a URL
+   source would need is built and tested behind a one-method port; what is missing is the outbound
+   HTTP client, which is a supply-chain change with its own review, and the consequence this record
+   already states: the authorization server becomes a hard runtime dependency whose outage must stay
+   *distinguishable from a dead data system*. A file is a real shape rather than a placeholder - a
+   sidecar that rewrites a mounted key set is how a process with no egress rotates - and its honest
+   limit is that a file has no cache header, so a key rotated *without* its id changing is one this
+   deployment keeps using.
+2. **The two metadata documents.** There is no protected-resource metadata route. The `401` carries an
+   RFC 6750 challenge naming the realm and no `resource_metadata` parameter, so a client is configured
+   with its issuer out of band. Decision 2's steps 2 and 3 are therefore undelivered.
+3. **Client registration and client authentication.** Decision 2's sub-sections 1 and 2 are decisions
+   for the authorization server and the client. This deployment is a resource server and validates
+   what arrives; nothing here excludes any of the three mechanisms and nothing here implements one.
+4. **A ceiling derived from a scope.** Decision 4's claim shape exists - `Scopes`, parsed and bounded,
+   on the verified caller - and **nothing reads it.** Scope-filtered advertisement is
+   `feat/agent-surface-scope`, the raw tool's gate is
+   [a raw SQL tool](0013-a-raw-sql-tool-off-by-default.md), and a per-caller budget has no port to
+   live behind. A reader must not take the presence of that type as a control.
+
+And Decision 3 - the exchange chain - is untouched: leg 1 establishes who is asking and performs no
+exchange. The verification it is blocked on is still open.
+
+### One transport, and the other left honest
+
+`sutura-http` is wired. `sutura-mcp` has its own `principal` module and it still answers
+`Subject::TheDeploymentItself`, truthfully: it speaks over standard input and output, where there is
+no header for a token to arrive in. Nothing in `sutura_http::inbound` is reachable from it - an
+adapter never calls another adapter - so wiring that surface means first deciding how it is reached
+at all, and then which crate the validator moves to. **That is an architecture decision, not a
+refactor**, and it is the same decision that leaves `serve_stdio` without a binary.

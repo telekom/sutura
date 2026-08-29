@@ -10,7 +10,7 @@
 //! whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 //! the ones about what this service does *not* do.
 
-use sutura_config::{Environment, SecuritySettings, Settings};
+use sutura_config::{Environment, InboundIdentity, Settings};
 
 /// The name, in block letters.
 ///
@@ -60,7 +60,7 @@ pub fn announce(settings: &Settings) {
     announce_limits(settings);
     announce_capacity(settings);
     announce_surface(settings);
-    announce_identity_gap();
+    announce_identity(settings);
 }
 
 /// Where the configuration came from.
@@ -237,19 +237,43 @@ fn announce_surface(settings: &Settings) {
     );
 }
 
-/// The one line an operator must not be able to miss.
+/// The one line an operator must not be able to miss, and it is now two lines because the answer
+/// stopped being one.
 ///
-/// A separate function with a name that says what it is, so it cannot be lost in the middle of a
-/// list of fields, and `warn` so it survives a filter that drops `info`. It is unconditional:
-/// there is no configuration that makes this untrue today, and the day there is, the function that
-/// answers it stops being a constant and this line changes with it.
-fn announce_identity_gap() {
-    tracing::warn!(
-        per_caller_identity = SecuritySettings::describes_identity(),
-        "NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. \
-         There is no request context, no per-request credential and no row-level scoping - every \
-         question is answered with whatever access this process already had, whoever asked it"
-    );
+/// A separate function with a name that says what it is, so it cannot be lost in the middle of a list
+/// of fields. **The day the constant stopped being a constant has arrived**: this used to call
+/// `SecuritySettings::describes_identity()` as an associated function that always answered `false`,
+/// with a comment saying the line would change when it did not. `security.inbound` is what changed
+/// it.
+///
+/// Both branches are `warn`, and that is not an oversight in the second one. A deployment with no
+/// inbound identity is warned that it has none; a deployment *with* one is warned about the half it
+/// still does not have - leg 1 establishes who is asking and does not make a source execute as that
+/// person - and both sentences are read from the config types rather than written here, so neither can
+/// drift into claiming the other.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "both arms are a tracing macro expanding into branches; the control flow is one branch"
+)]
+fn announce_identity(settings: &Settings) {
+    let security = settings.security();
+    match security.inbound() {
+        None => tracing::warn!(
+            per_caller_identity = security.describes_identity(),
+            inbound_mode = security.inbound_mode(),
+            "NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. \
+             There is no verified caller, no per-request credential and no row-level scoping - every \
+             question is answered with whatever access this process already had, whoever asked it. \
+             `security.inbound` is the key that changes it"
+        ),
+        Some(inbound) => tracing::warn!(
+            per_caller_identity = security.describes_identity(),
+            inbound_mode = security.inbound_mode(),
+            establishes = inbound.who_authenticated(),
+            limit = InboundIdentity::what_it_does_not_do(),
+            "PER-CALLER IDENTITY IS ESTABLISHED AND IS NOT PER-CALLER ACCESS"
+        ),
+    }
 }
 
 #[cfg(test)]
