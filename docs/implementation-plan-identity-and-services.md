@@ -392,11 +392,160 @@ conformance packs cover.
 corpus registration are already merged and green on a static credential, so this step changes exactly
 one thing: how the connection is authenticated.
 
-**Blocked on one verification, to do FIRST:** whether the client that adapter chose speaks SASL
-OAUTHBEARER. A pure-Rust protocol implementation may not - and if it does not, the choice is between a
-second client for this source and a different authentication route, which is a decision on merged code
-rather than a redesign of an unbuilt step. Also confirm that a validator module exists for the
-deployment's identity provider.
+**The verification this step was blocked on is DONE, and the answer is the unwelcome one.** It asked
+whether the client the adapter chose speaks SASL `OAUTHBEARER`. Neither Rust client does: `tokio-postgres`
+and `sqlx` each declare `SCRAM-SHA-256` and `SCRAM-SHA-256-PLUS` and nothing else, and neither repository
+carries an issue or a pull request about OAuth - checked on 2026-08-29, and `sqlx` has moved to
+`transact-rs/sqlx`, so a search of the old path finds nothing for the wrong reason. So the option this
+paragraph used to leave open - "a second client for this source" - has one occupant, `libpq`, and
+supplying a token you already hold to `libpq` goes through `PQsetAuthDataHook` with a
+`PGoauthBearerRequest`, which is the whole interface: **there is no connection parameter for a token.**
+**That is not the same as "reachable only from C", and this paragraph said so twice before it was
+corrected twice** - the hook takes a C function pointer, and `extern "C"` is how Rust supplies one, so
+no C source is required. What `libpq` costs is a linked native library on every target, which is the
+same artifact question `feat/postgres-adapter` exists to answer. The step therefore owes **first-party
+protocol code**, and that is scoped rather than open-ended - see *Adds*.
+
+**And the server side owes a module. The route is settled, and it is NOT the convenient one.** Core
+Postgres ships no validator; upstream's stub is `src/test/modules/oauth_validator/validator.c` and is a
+**test double rather than a starting point** - it authorizes every token it is handed, takes the answer
+from two GUCs of its own, checks no signature, issuer, audience or expiry, and **logs the bearer token at
+`LOG`**. It also reaches no installed artifact by three independent mechanisms: `src/Makefile`'s
+`SUBDIRS` never names `test/modules`, `src/test/Makefile` excludes `modules` from `install`, and the
+module's own Makefile sets `NO_INSTALLCHECK`. The official image then deletes its source and its
+toolchain.
+
+**The selection criterion is audience validation, and it is not negotiable.** A validator that does not
+read the token's `aud` claim accepts a token minted for some *other* service as a Postgres login. That
+is audience confusion. It is also the same control every other source in this stack depends on - a
+token audience-restricted to us is what stops one presented to us being replayed elsewhere, and a
+validator that ignores `aud` is the replay working in the inbound direction. It is spent once or not at
+all; a second mechanism relying on it is not defence in depth. Measured against that, the three
+candidates split cleanly and uncomfortably:
+
+| Module | Reads `aud` | Install | Licence |
+| --- | --- | --- | --- |
+| `proddata/pg_oauth_validator` | **Yes - mandatory, fail-closed.** The setting has **no default**, and its absence refuses to build a policy rather than skipping the check | **Compiler required.** PGXS, and no release and no tag exist | PostgreSQL License, statically linking **MPL-2.0** libjwt |
+| Percona's `pg_oidc_validator` | **No. Not at all** - the verifier is built with the issuer and never an audience, and no audience setting exists | **Package.** apt and RPM, a listed component of a real distribution with a release cadence | Apache-2.0 |
+| CloudNativePG's `kc_validator` | **No.** Its `audience` setting is the *request parameter* of a Keycloak decision call, not a claim check | Compiler required; README points at a `-testing:18-dev` image | Apache-2.0, marked **EXPERIMENTAL** |
+
+So the module that satisfies the criterion is the one with no package, and the one that installs as a
+package fails it. **We take the criterion over the convenience**, and the decision is two-part rather
+than one, because the second part is what eventually makes the first part unnecessary:
+
+- **Now: `proddata/pg_oauth_validator`, compiled into the image we control, pinned by commit.** Not by
+  tag, because there is no tag. This is third-party derived material in a shipped artifact, so it
+  arrives with a `VENDOR.md` entry - upstream repository, commit, date, local changes - and the
+  **MPL-2.0 static-link obligation stated rather than implied**, because *"inspired by"* is not a
+  licence position and neither is *"we only linked it"*. Its rigour is the reason it is worth the
+  packaging cost: signature before claims, exactly one JWKS entry accepted, RS256/ES256 only, a missing
+  expiry treated as its own error, and clock skew capped.
+- **Next, and upstream: one call to Percona's verifier.** Its gap is `.with_audience(...)` absent from a
+  builder chain that already carries `.with_issuer(...)`, plus a setting to feed it. That is a small
+  patch to an Apache-2.0 project that ships packages on a cadence, and if it lands we move to the
+  package and genuinely do install an addon and call it a day. It is the cheapest item on the upstream
+  contribution list this repository keeps, and the only one whose absence is a security property rather
+  than an inconvenience.
+
+**Two findings about Percona that belong next to the recommendation rather than in a footnote.** Its
+`aud` gap is **undocumented**, not a documented caveat - the published documentation says the validator
+*"verifies the token signature and claims"*, which actively implies otherwise, and its setup procedure
+configures no audience at all. An undocumented gap is the worse of the two readings, because an operator
+gets no signal. And independently of `aud`, it accepts a JWKS entry whose key type is **`oct`** - a
+symmetric key published in a key set and then used to verify a signature, which is a weakness in its own
+right and not one we would want to inherit even after the audience patch.
+
+**What the compose fixture needs is a smaller thing than any of this, and conflating the two would
+overpay.** The tier's assertion is the health gate: an `oauth` HBA line with an empty
+`oauth_validator_libraries` fails HBA parse, so the postmaster does not start. That test needs **no
+validator at all**, which is why `feat/compose-tier` records the route and deliberately does not wire a
+module. A fixture that authenticates real tokens is a later, separate need, and the packaged module is
+adequate *there* precisely because the tokens are ours and the audience risk is a production risk.
+
+### What a Postgres server must be configured with
+
+Written out because this is an operator obligation rather than something the deployment can do for
+itself, and because two of the defaults surprise people. Verified against `REL_18_STABLE` source and
+the PostgreSQL 18 documentation, with the line references kept so a reader can check rather than trust.
+
+**Postgres 18 or later.** The `oauth` method does not exist before it. It is compiled
+**unconditionally** - unlike `cert`, which sits behind `USE_SSL` - so no build flag gates it and the
+only question is the version.
+
+**`postgresql.conf`** names the validator library:
+
+```
+oauth_validator_libraries = 'pg_oauth_validator'
+```
+
+It is `PGC_SIGHUP`, so a **reload suffices - no restart** - and `GUC_SUPERUSER_ONLY`, so an ordinary
+role reading it gets `42501` rather than a value. It defaults to empty, and empty means every `oauth`
+HBA line is refused at parse, which means **the postmaster does not start.** That is the failure
+direction we want and it is stronger than "connections are refused".
+
+**"Only in `postgresql.conf`" is the documentation's phrasing for `PGC_SIGHUP` and it is easy to
+over-read.** That context also admits `ALTER SYSTEM`, which writes `postgresql.auto.conf`, and the
+server command line. What it excludes is a session-level `SET`. The distinction matters for a
+deployment that manages configuration through `ALTER SYSTEM` rather than by templating a file, and
+reading the phrase literally would have it conclude, wrongly, that it cannot.
+
+**`pg_hba.conf`** carries the rest. `issuer` and `scope` are both required:
+
+```
+hostssl  mydb  all  10.0.0.0/8  oauth  issuer="https://idp.example.invalid"  scope="openid"  validator=pg_oauth_validator  map=oauthmap
+```
+
+| Option | Required | What it does |
+| --- | --- | --- |
+| `issuer` | **yes** | Advertised to the client in the discovery response. A value with no `/.well-known/` segment gets `/.well-known/openid-configuration` appended |
+| `scope` | **yes** | Advertised to the client. `scope=""` is accepted, because the required-argument check tests for null rather than for empty |
+| `validator` | only if the GUC lists more than one | Picks the library. With exactly one listed it is implicit; with several and no `validator=`, the line is refused |
+| `map` | no | Runs the validator's identity through `pg_ident.conf`. **Without it, the identity must equal the requested role by exact case-sensitive comparison** |
+| `delegate_ident_mapping` | no | `1` hands the role decision to the validator entirely |
+
+**Three things that are not in the documentation and cost a day each:**
+
+- **`delegate_ident_mapping` is not parsed as a boolean.** The check is literally
+  `strcmp(val, "1") == 0`, so `=true`, `=on` and `=yes` all **silently mean off**, with no error and no
+  warning. Only `1` enables it.
+- **`map=` and `delegate_ident_mapping=1` together are refused at load**, with
+  `map cannot be used in combination with delegate_ident_mapping`.
+- **Under delegation, an identity the validator does not return is an audit trail you do not have.**
+  The identity is recorded before the authorization decision, so a validator returning none leaves
+  `SYSTEM_USER` null and emits no `connection authenticated` line at all. If a source declares
+  impersonation, a pseudonymous identifier is the minimum.
+
+**`hostssl` above is OUR policy, and stating it as PostgreSQL's would be wrong.** There is no
+server-side refusal - the "invalid authentication combinations" block rejects `cert` on anything but
+`hostssl` and says nothing about `oauth` - and there is no client-side refusal either: `libpq` has no
+transport check on this path and will send a bearer token over cleartext. PostgreSQL's own test suite
+authenticates OAuth over a **`local` Unix socket**, which cannot be encrypted at all, so this is a
+positive finding rather than an absence of evidence. The HTTPS enforcement that does exist is on a
+different leg - the client's calls to its identity provider - and conflating the two would be claiming
+a control we do not have. So: a bearer token is a bearer credential, `hostssl` is required by us, and
+the reason is ours to give.
+
+**And the finding that decides the validator choice above: the server never looks inside the token.**
+It checks the RFC 7628 framing, the `Bearer` prefix, and that every character is in the permitted set.
+That is all. It does not decode the token, and it does not check `exp`, `iss`, `aud`, `nbf` or the
+signature - there is no code in the OAuth path that could. The HBA's `issuer` and `scope` are used
+**only** to build the discovery response sent to the client; they are advertisement, never predicates
+on what arrives. Upstream says so plainly: *"the server cannot check the token itself; validator
+modules provide the integration layer."*
+
+So the validator is not one layer of the boundary - **it is the boundary.** An expired token, a token
+from another issuer and a token minted for another service are all indistinguishable to Postgres, and
+each is accepted or refused entirely on the module's own reading. That is why the selection criterion
+above is audience validation and not convenience, and it is why a module that reads no audience is not
+a weaker choice but a different posture: it authenticates that *somebody's* identity provider signed
+something.
+
+**One more consequence, for a deployment with two identity providers.** Different HBA lines may carry
+different `issuer` values against one server, and routing is by HBA match - connection type, database,
+role, address - never by anything in the token. The validator is **not told which line matched**: it
+receives the token, the requested role and its own state, and no issuer. So a two-provider deployment
+needs a validator that determines the issuer from the token itself, and a bundle that assumes
+otherwise is assuming a parameter that is not passed.
 
 **A third prerequisite was listed here and is withdrawn, because it was checked and it is false.** The
 earlier version required that the `libpq` in the toolchain be built with curl. Curl is needed only for
@@ -414,6 +563,43 @@ whoever picks it up a day.
 subject so the source maps it to a role. **Not** `SET ROLE` on a pooled connection: `RESET ALL` does
 not clear the role, `SET LOCAL ROLE` outside a transaction fails open, and four advisories name
 shared-pool-plus-role-switching.
+
+**Adds, second: a token-first `OAUTHBEARER` mechanism, and the scope is the smallest honest one.** The
+initial client response carrying the bearer token, and one challenge/response round for the failure
+case - which is deliberately the same scope the `node-postgres` work limits itself to. **Token-first**
+means the adapter supplies a token and the mechanism performs the SASL exchange and nothing else: no
+discovery, no device flow, no identity-provider conversation, because part 4's `LegCredentials` is
+already where the token comes from. `pgx` has a shipped implementation to read against - the OAuth
+support merged into `jackc/pgx` on 2026-03-01 - so this is a port of a known-good exchange rather than a
+protocol design. It belongs in the adapter crate, not in the driver: a fork of `tokio-postgres` is a
+maintenance liability this step does not need if the driver exposes enough of the authentication
+handshake, and **whether it does is the one thing to check before writing any of it.**
+
+**Adds, third: a boot refusal for a source that declares impersonation against a server that cannot do
+it - and its scope is smaller than it sounds, because the failure is already closed.** Today such a
+deployment discovers the problem at its first question; the deployment already opens a connection at
+boot, so the check has somewhere to live. What it must NOT be sold as is plugging a hole:
+[a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md) records the
+determinability findings, and two of them bound this check hard. An `oauth` line in `pg_hba.conf` with an
+empty `oauth_validator_libraries` is refused at HBA parse, so the postmaster does not start at all - that
+state is not reachable on a running server. And `oauth_validator_libraries` is `GUC_SUPERUSER_ONLY`, so
+the boot role usually cannot read it. So the check is three-valued and the middle value is the honest one:
+
+- **Refuse** when the server does not have the mechanism at all - `server_version_num < 180000`. Free,
+  needs no privilege, and it is the misconfiguration that actually happens: a source declared
+  `ImpersonationAtSource` pointed at a Postgres 17.
+- **Refuse** when `current_setting('oauth_validator_libraries', true)` returns an empty string, which is
+  readable only where the boot role holds `pg_read_all_settings` or is superuser.
+- **Record UNDETERMINED, in the startup log, naming the source** when that read raises `42501`. It must
+  not collapse into a pass: an operator who wants the stronger check grants the boot role
+  `pg_read_all_settings`, and the record says so with the cost - that role exposes every setting,
+  file paths included, so it is a deliberate grant rather than a default.
+
+**Tests, for that check specifically, and they are unit tests against a fake rather than a container:**
+`a_source_declaring_impersonation_against_a_server_without_the_mechanism_does_not_boot`, its green twin
+with an 18 server, and `an_unreadable_validator_setting_is_recorded_as_undetermined_rather_than_passing` -
+the third is the one that stops the check being written as a two-valued one that passes on refusal to
+answer, which is how it would fail to a false green in every deployment that did not grant the role.
 
 **Tests.** The two-subject test that cannot exist today, and three assertions rather than one, because
 "different rows" alone would pass against a fixture that differed for the wrong reason. Compose tier by

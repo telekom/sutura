@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish = false
-description = "Developer workflow: isolated worktrees and the per-worktree service scope."
+description = "Developer workflow: isolated worktrees, per-worktree service naming, and endpoint discovery."
 
 # Deliberately NOT named `sutura`. The shipped binary is one thing with no development
 # machinery in it - the image holds a single executable and the tool surface is the governance
@@ -14,7 +14,16 @@ description = "Developer workflow: isolated worktrees and the per-worktree servi
 name = "sutura-dev"
 path = "src/main.rs"
 
+# A library as well as a binary, and the library is the point of the pair. A test harness has to be
+# able to learn where a provisioned service is listening, and it cannot link a binary's modules -
+# so `discovery` is a library door and there is exactly one of it. `xtask` links the same library
+# for the compose project name, which is what keeps start and stop naming the same project.
+[lib]
+name = "sutura_dev"
+path = "src/lib.rs"
+
 [dependencies]
+serde_json = { workspace = true }
 sha2 = { workspace = true }
 
 [lints]

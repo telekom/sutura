@@ -75,6 +75,10 @@ sutura-http = { path = "crates/sutura-http" }
 # NO `sutura-mcp` entry, and `cargo xtask unused-deps` is why: nothing links the agent surface yet,
 # so a workspace pin for it would be a declaration no member inherits. It comes back with the
 # composition root that needs it.
+# Not shipped and not under `crates/`: the developer workflow. A LIBRARY as well as a binary,
+# because a test harness has to be able to learn where a provisioned service is listening and
+# `xtask` has to name the same compose project the harness sees.
+sutura-dev = { path = "dev" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
