@@ -150,6 +150,13 @@ crate. The task prints that in its own output, so you do not have to remember it
 question is "does what I touched compile", `just check-changed` with no arguments reads the working
 tree and narrows to those packages; `just lint` is the workspace gate.
 
+The second line runs **twice** in the hooks - once on commit and again on push, from the same YAML
+node so the two are the identical invocation and the second reuses the first's fingerprints. The
+push run is there because `git rebase` and `git rebase --continue` run no commit hook at all, so a
+conflict resolution used to reach the remote with nothing having compiled it. Do not resolve a
+conflict and trust `just check`: it compiles one crate, and the merge that broke this repo was a
+clean one whose call site no longer matched a changed signature.
+
 `sutura-domain` must acquire **no** framework dependency - no tokio, axum, rmcp, datafusion,
 arrow. `cargo xtask check-boundaries` enforces it.
 
@@ -164,6 +171,7 @@ Run `gates` before you claim done. Individually:
 | `cargo xtask line-endings` | CRLF. `fmt` fixes it |
 | `cargo xtask text-hygiene` | conflict markers, trailing whitespace, missing final newline, files over 512 kB |
 | `cargo xtask check-boundaries` | a framework dependency reaching the domain crate; and, in any library crate, a `pub` field on a `pub struct`, a declared dynamic-error crate, or a `Result` whose error type is `String` |
+| `cargo xtask check-hook-tiers` | a `pre-push` stage that compiles nothing, and a push-stage clippy invocation that is not the commit stage's own |
 | `cargo xtask commit-msg` | a subject that is not a conventional commit, over 72 chars |
 
 ## Conventions
