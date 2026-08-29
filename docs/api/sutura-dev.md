@@ -14,6 +14,19 @@ harness has to be able to LEARN an endpoint, and a binary's modules are reachabl
 So `discovery` is a library door - the only one - and `scope` is beside it because the two
 answer halves of one question.
 
+# Two halves, and the second one is what a caller uses
+
+* `discovery` is the file: publishing it, reading it, and the fact that there is no other way
+  to learn a port. It is the door that *can* be opened.
+* `provisioned` is the door a caller *should* open. Same file underneath, plus the two things
+  no test should have to write twice: the diagnostic that names the task to run, and the
+  skip-or-fail decision from `requirement`. A harness that read `discovery` directly would
+  get a connection refused thirty seconds later, blamed on the code under test.
+
+Publishing has one door and consumption has one door, and they are not the same door because the
+two callers are not the same: provisioning knows it is provisioning, while a test does not know
+whether anything is up.
+
 # The split that matters
 
 * **Naming is derived** from the worktree path, in `scope`. It is stable, readable, and a
@@ -219,6 +232,271 @@ Remove this worktree's discovery file, if there is one.
 
 Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 stale file is the one way discovery could hand back a wrong answer instead of an error.
+
+## Module `provisioned`
+
+The consumption half: how a test, an example or a demo reaches a service this worktree brought up.
+
+`crate::discovery` is the door that *can* be opened; this module is the one a caller should
+actually use, and the difference is two things neither a test nor a reader should have to write
+twice.
+
+# 1. The diagnostic, which is most of the value here
+
+Without it the failure a developer sees is a connection refused, thirty seconds into a test,
+attributed to the adapter under test rather than to a tier that was never started. Every path
+out of `here` and `in_worktree` carries `Absent` instead, which names the worktree, the
+file it looked in, what the file said, and the task to run. The whole point of allocating a port
+per worktree is that nobody has to know the port; the cost of that is that nobody can guess it
+either, so the message has to close the gap.
+
+# 2. The skip-or-fail decision, made once
+
+`here` applies `crate::requirement`: a missing tier skips loudly on a developer machine and
+fails where the tier is required. A test that made that decision for itself would make it
+differently from the next test, and one of them would make it silently.
+
+# What is deliberately not here
+
+**No fallback port, at any level.** Not a default, not a "try the container port", not an
+environment variable a caller could set to a constant. A fallback connects to whatever else
+holds that port, and on a machine running two worktrees of this repository that is the
+neighbour's fixture - a test that passes against the wrong data and says nothing about it. That
+is the exact failure the per-worktree design removes, so re-introducing it as a convenience
+would remove the design.
+
+**No knowledge of docker**, for the same reason the rest of this crate has none: bringing
+services up is `xtask`'s job. This module reads a file.
+
+### `enum Provisioned`
+
+```rust
+pub enum Provisioned
+```
+
+What a harness gets when it asks for a provisioned service.
+
+Two variants and no third, because the fail direction does not return: see `here`.
+
+#### Variants
+
+- `At` - It is up, and this is where. Read from the discovery file, which is the only place a host port for this worktree exists.
+- `Skipped` - Nothing to connect to, on a machine class where that is not a failure.
+
+#### Methods
+
+```rust
+pub const fn endpoint(&self) -> Option<&Endpoint>
+```
+
+The endpoint, where there is one.
+
+For a caller that wants `let Some(endpoint) = .. else { return }` rather than a match. The
+skip has already been reported either way, so discarding the `Absent` loses nothing.
+
+#### Implements
+
+`Debug`
+
+### `struct Absent`
+
+```rust
+pub struct Absent
+```
+
+Nothing to connect to, and what to do about it.
+
+The typed fields are the contract and the `Display` form is the message; a caller that wants to
+branch reads `Absent::reason` rather than the prose.
+
+Plain backticks on `Display` rather than a rustdoc link to `std::fmt::Display`, and that is the
+rule `AGENTS.md` states rather than a preference: the api-docs generator copies a link to another
+crate's path through verbatim, and `mkdocs build --strict` then aborts on an unrecognized
+relative link - which every nix check passes over, because none of them builds the site.
+
+**Boxed, and it is a lint that says so rather than taste.** The diagnostic is four fields wide
+and one of them is another error, which puts the whole thing past `result_large_err`: every
+`Ok(Endpoint)` on the way back would carry room for it. This is the cold path and it can afford
+one allocation, so the box is here and not at the call sites - a public
+`Result<Endpoint, Box<Absent>>` would push it onto everybody instead.
+
+#### Methods
+
+```rust
+pub const fn reason(&self) -> &Reason
+```
+
+What stopped it. Branch on this, never on the message.
+
+```rust
+pub fn service(&self) -> &str
+```
+
+The service that was asked for.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `enum Reason`
+
+```rust
+pub enum Reason
+```
+
+Which half failed. A variant rather than a sentence, because "run `just dev-up`" is the wrong
+advice for two of these and a caller matching on prose has no contract.
+
+#### Variants
+
+- `NoWorktree` - The directory given is not inside a checkout of this repository, so there is no worktree whose discovery file could be read.
+- `NoScope` - A worktree root that could not become a `Scope`.
+- `NotDiscovered` - There is a worktree, and its discovery file does not answer.
+
+#### Implements
+
+`Debug`, `Display`
+
+### `fn in_worktree`
+
+```rust
+pub fn in_worktree(root: &std::path::Path, service: &str) -> Result<crate::discovery::Endpoint, Absent>
+```
+
+Where one service in ONE named worktree is listening.
+
+The half with no environment and no printing in it, so a caller that already knows which
+worktree it means - a `just` task, a test over a fixture directory - can drive it directly.
+
+```
+use sutura_dev::provisioned;
+
+// A temporary directory is a real directory and nothing has provisioned it, so this is the
+// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
+let problem = provisioned::in_worktree(&std::env::temp_dir(), "postgres")
+    .expect_err("nothing is provisioned in a temporary directory");
+assert_eq!(problem.service(), "postgres");
+assert!(problem.to_string().contains("just dev-up"), "{problem}");
+```
+
+### `fn here`
+
+```rust
+pub fn here(inside: &std::path::Path, service: &str) -> Provisioned
+```
+
+Where one service in THIS worktree is listening, with the skip-or-fail decision applied.
+
+`inside` is any directory in the worktree; an integration test passes
+`Path::new(env!("CARGO_MANIFEST_DIR"))`, which is the one thing a test reliably knows about
+where it is. The worktree root is found by walking upwards - see `worktree_root`.
+
+# Panics
+
+In the `Requirement::Required` direction, and only there. The caller is a test, a panic is how
+a test fails, and returning `Provisioned::Skipped` there would be the silent green run this
+whole tier exists to prevent. On a developer machine the direction is
+`Requirement::Optional`, the notice goes to stderr, and nothing panics.
+
+### `fn worktree_root`
+
+```rust
+pub fn worktree_root(inside: &std::path::Path) -> Option<std::path::PathBuf>
+```
+
+The worktree root at or above `inside`, or `None` if there is not one.
+
+**Both markers, not either**, and this is borrowed from `xtask`'s own root walk because the same
+two mistakes are available: `flake.nix` alone appears in unrelated directories, and `Cargo.toml`
+alone matches every crate on the way up - which would stop the walk at a workspace MEMBER and
+derive a scope for a directory no provisioning ever used.
+
+A walk rather than `git rev-parse`, deliberately. A harness runs where a `.git` directory may not
+be - a nix sandbox copies the tree without one - and shelling out to git from a test is a
+subprocess in the way of an assertion.
+
+## Module `requirement`
+
+Whether an absent service tier is a skip or a failure - one definition, read by both halves.
+
+The decision has two call sites and they are on opposite sides of the tier:
+
+* **Provisioning** asks it when there is no container runtime to bring services UP with.
+* **A harness** asks it when there is nothing provisioned to CONNECT to.
+
+It lived in `xtask` while there was only the first, and it moved here when the second arrived.
+Two copies of a fail-open/fail-closed decision is the shape that drifts: the copies are edited
+months apart, one of them stops matching the documentation, and the direction a wrong answer
+costs the most is the one that silently flipped.
+
+**Neither direction is the default, and what a wrong answer costs decides it.** A false failure
+blocks a contributor who is not touching services - docker is a host dependency this repository
+deliberately does not pin with nix. A false pass reports green having tested nothing, which is
+the failure the whole tier exists to prevent.
+
+**So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
+distinction was learned rather than designed: this module first read `CI`, on the reasoning that
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
+provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
+job that runs the suite never brings the services up - so `CI=true` made a missing tier fatal in
+the one place its absence is expected, and it failed on the first push of the branch that added
+it, in a step that had tested nothing needing docker.
+
+Only the job that provisions the tier knows that it did. So that job opts in by setting the
+variable below and gets the fail-closed direction; everything else skips loudly and names what did
+not run. **The limit, stated with the claim:** nothing here verifies that a job setting the
+variable really did provision anything - it is a declaration, and a job that lies about it gets
+the failure it asked for.
+
+### `enum Requirement`
+
+```rust
+pub enum Requirement
+```
+
+Whether a missing tier is fatal.
+
+#### Variants
+
+- `Required` - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting `FORCE`: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.
+- `Optional` - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.
+
+#### Methods
+
+```rust
+pub fn from_env() -> Self
+```
+
+The direction this process is running under, read from the environment.
+
+```rust
+pub const fn is_required(self) -> bool
+```
+
+Is a missing tier fatal here?
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `fn decide`
+
+```rust
+pub fn decide(forced: Option<&str>) -> Requirement
+```
+
+The decision, over the value rather than over the environment, so it is testable.
+
+**One parameter, and it used to be two.** The other was `CI`, and it is gone rather than ignored:
+a parameter a function does not read is a parameter a caller believes in. See the module header for
+why that signal was the wrong one.
+
+### `constant FORCE`
+
+The variable that overrides the machine class, in **both** directions.
+
+Named once, here, because a message that tells somebody to set it and a read that spells it
+differently is a fix that does not work and looks like it should.
 
 ## Module `scope`
 

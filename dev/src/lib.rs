@@ -5,6 +5,19 @@
 //! So [`discovery`] is a library door - the only one - and [`scope`] is beside it because the two
 //! answer halves of one question.
 //!
+//! # Two halves, and the second one is what a caller uses
+//!
+//! * [`discovery`] is the file: publishing it, reading it, and the fact that there is no other way
+//!   to learn a port. It is the door that *can* be opened.
+//! * [`provisioned`] is the door a caller *should* open. Same file underneath, plus the two things
+//!   no test should have to write twice: the diagnostic that names the task to run, and the
+//!   skip-or-fail decision from [`requirement`]. A harness that read [`discovery`] directly would
+//!   get a connection refused thirty seconds later, blamed on the code under test.
+//!
+//! Publishing has one door and consumption has one door, and they are not the same door because the
+//! two callers are not the same: provisioning knows it is provisioning, while a test does not know
+//! whether anything is up.
+//!
 //! # The split that matters
 //!
 //! * **Naming is derived** from the worktree path, in [`scope`]. It is stable, readable, and a
@@ -23,4 +36,6 @@
 //! harness links, and a harness has no business being able to start a container.
 
 pub mod discovery;
+pub mod provisioned;
+pub mod requirement;
 pub mod scope;

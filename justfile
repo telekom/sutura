@@ -478,6 +478,12 @@ dev-up-identity:
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
 
+# One service's host:port, on stdout and nothing else, so a shell can substitute it:
+# `PGPORT="${$(just dev-endpoint postgres)##*:}"`. Anyone following `examples/` uses this instead
+# of learning what a scope or an ephemeral port is. `just dev-endpoints` is the readable table.
+@dev-endpoint service:
+    cargo run -q -p xtask -- dev-endpoint {{ service }}
+
 # Remove this worktree's services, its network and its named volumes. Nothing else, ever.
 dev-down:
     cargo run -q -p xtask -- dev-down

@@ -290,6 +290,16 @@ const TASKS: &[Task] = &[
         run: compose::run_endpoints,
     },
     Task {
+        // The SINGULAR one, and it is not a convenience duplicate of the plural: it prints
+        // `host:port` on stdout and nothing else, so it substitutes into a shell. That is what lets
+        // a reader following `examples/` reach a provisioned service without learning what a scope
+        // or an ephemeral port is.
+        name: "dev-endpoint",
+        description: "one service's host:port on stdout, for a shell to substitute; <service>",
+        kind: Kind::Standalone,
+        run: compose::run_endpoint,
+    },
+    Task {
         name: "test-causality",
         description: "a changed test is red on base, green on head; --since <ref>",
         kind: Kind::Standalone,
