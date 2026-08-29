@@ -28,10 +28,14 @@ use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, Promp
 use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
-use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
+use crate::security::{
+    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
+    UnknownTlsTermination,
+};
 use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
 };
+use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
 use crate::telemetry::{
     InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
 };
@@ -48,6 +52,8 @@ pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 pub const VARIABLE_PREFIX: &str = "SUTURA";
 /// The separator between nested key segments in a configuration variable name.
 pub const VARIABLE_SEPARATOR: &str = "__";
+
+pub use posture::NotFitToServe;
 
 /// The built-in defaults, embedded so a missing file cannot become a posture nobody chose.
 const DEFAULTS: &str = include_str!("defaults.yaml");
@@ -274,6 +280,16 @@ pub enum SettingsError {
         #[source]
         cause: InvalidPromptSettings,
     },
+    #[error("`security.identity` does not say which kind of deployment this is")]
+    Identity {
+        #[source]
+        cause: InvalidDeploymentIdentity,
+    },
+    #[error("the `sources` tree is not usable")]
+    Sources {
+        #[source]
+        cause: InvalidSourceRegistry,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -286,137 +302,6 @@ pub enum SettingsError {
         refusals.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n  - ")
     )]
     NotFitToServe { refusals: Vec<NotFitToServe> },
-}
-
-/// A deployment this service refuses to start as.
-///
-/// **These are the security posture, and each one is a refusal rather than a warning on purpose.**
-/// The thing being guarded against is not an operator who ignores a log line - it is an operator
-/// who never sees one, because the line was emitted in a format nothing was collecting, on a
-/// process that went on to serve traffic. A process that does not start is noticed.
-///
-/// Every variant names the key to change, because a refusal that does not say what to do is a
-/// support request.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum NotFitToServe {
-    /// The bind address is reachable from other hosts and nobody said what protects the path to
-    /// it.
-    ///
-    /// **This is not a refusal of the bind, and the previous version of this row was.** A
-    /// plaintext listener on a pod network with an ingress controller or a sidecar terminating TLS
-    /// in front of it is the normal arrangement, and refusing it would refuse the deployment this
-    /// service is built for. What is refused is *silence*: the bearer token crosses whatever sits
-    /// between the terminator and this process in cleartext, and how far that reaches - a loopback
-    /// hop inside a pod, or the pod network - is a fact about the deployment that only the operator
-    /// knows. Naming it makes it a stated fact that the startup log can print, and a declaration
-    /// cannot be satisfied by agreeing that off-host was intended.
-    #[error(
-        "server.host is {bind}, which is reachable from other hosts, and security.tls_termination \
-         is `none`. Say where TLS is terminated - one of: sidecar, ingress, in-process - or bind \
-         127.0.0.1. The declaration does not encrypt anything: it records which cleartext hop \
-         this bearer token crosses, which is a fact only this deployment knows"
-    )]
-    TlsTerminationUndeclared { bind: String },
-    /// Something is reachable off-host, or this is production, and there is no token.
-    ///
-    /// Not authentication - see [`crate::security`] - but the difference between a bearer secret
-    /// and nothing at all is the difference between a configured reader and anyone who can route
-    /// a packet.
-    #[error(
-        "{because}, so security.access_token must be set. It authenticates the DEPLOYMENT and not \
-         the caller: sutura has no per-caller identity, so every query still runs with whatever \
-         access this process already had"
-    )]
-    AccessTokenRequired { because: &'static str },
-    /// Production with the limiter switched off.
-    #[error(
-        "rate_limit.enabled is false in production. A question here is an aggregate over up to ten \
-         years of history, so an unbounded caller is an unbounded load on the data system"
-    )]
-    RateLimitingDisabledInProduction,
-    /// Production asking the kernel to choose the port.
-    #[error(
-        "server.port is 0 in production, which asks the kernel for an ephemeral port. Nothing can \
-         then be configured to reach this service; port 0 is for a test that reads the port back"
-    )]
-    EphemeralPortInProduction,
-    /// A forwarded header would be believed with nobody named as the hop it may come from.
-    ///
-    /// **The one refusal in this list that exists because the permissive branch is worse than the
-    /// restrictive one in both directions.** With no trusted hop, `X-Forwarded-For` is a value any
-    /// caller writes, so every bucket becomes the caller's to choose - a limiter that reports a
-    /// configured limit and bounds nothing at all, which is strictly worse than the one shared
-    /// bucket that peer keying gives behind a proxy.
-    #[error(
-        "rate_limit.client_address is `forwarded` and rate_limit.trusted_proxies is empty. A \
-         forwarded header is a value any caller can write, so with no hop named it would let every \
-         caller pick their own rate-limit bucket. List the proxy addresses or blocks, or set \
-         client_address: peer"
-    )]
-    ForwardedWithoutTrustedProxies,
-    /// Trusted proxies were listed and nothing reads them.
-    ///
-    /// Refused rather than ignored, for the reason every unknown key here is an error: a list that
-    /// does nothing reads as a control that is in place.
-    #[error(
-        "rate_limit.trusted_proxies names {count} hop(s) and rate_limit.client_address is `peer`, \
-         which reads no header - so the list has no effect. Set client_address: forwarded, or \
-         remove the list"
-    )]
-    TrustedProxiesWithoutForwarding { count: usize },
-    /// TLS termination was declared as in-process and no certificate and key were given.
-    #[error(
-        "security.tls_termination is `in-process` and no server.tls_certificate and server.tls_key \
-         are set. This process cannot terminate TLS without them, and it will not fall back to \
-         plaintext on a port that was configured to be encrypted"
-    )]
-    InProcessTlsWithoutMaterial,
-    /// A certificate and key were given and nothing will use them.
-    #[error(
-        "server.tls_certificate and server.tls_key are set and security.tls_termination is \
-         `{declared}`, so this process serves plaintext and the material is never read. Set \
-         tls_termination: in-process, or remove the paths"
-    )]
-    TlsMaterialWithoutInProcessTermination { declared: &'static str },
-    /// TLS termination was declared as in-process and this binary cannot do it.
-    ///
-    /// **The loud failure the requirement asks for.** A binary built without the `tls` feature has
-    /// no TLS implementation linked in at all, so the alternative to refusing is serving plaintext
-    /// on a port an operator configured to be encrypted - which is the one failure mode that must
-    /// never be quiet.
-    #[error(
-        "security.tls_termination is `in-process` and this binary was built without the `tls` \
-         feature, so it has no TLS implementation linked in. Rebuild with `--features tls`, or \
-         terminate TLS in front of this process and declare `sidecar` or `ingress`"
-    )]
-    InProcessTlsNotCompiledIn,
-    /// Two different credentials configured to arrive in one header.
-    ///
-    /// **A collision found by building leg 1 rather than by reading the record**, and it is worth
-    /// stating because `docs/adr/0014` says the deployment token and leg 1 both survive and answer
-    /// different questions. They do - in the `behind-gateway` mode, where the proof arrives in a
-    /// header of the component's own and `Authorization` stays the deployment token's.
-    ///
-    /// In the `direct` mode they cannot. RFC 6750 puts an access token in `Authorization: Bearer` and
-    /// an OAuth 2.1 client has no option to put it elsewhere, so a deployment that is its own resource
-    /// server owns that header. Configuring both is configuring a request that has to carry two
-    /// values in one field, and every alternative to refusing it is worse: sniffing whether the value
-    /// looks like a JWT is a guess, and checking one and then the other makes the *weaker* credential
-    /// sufficient.
-    ///
-    /// So the direct mode replaces the deployment token rather than joining it - which is why
-    /// [`Self::AccessTokenRequired`] does not fire when an inbound identity is configured. That is
-    /// not a weakening: a validated, audience-bound, expiring token per caller is strictly more than
-    /// a shared secret every caller holds.
-    #[error(
-        "security.access_token is set and security.inbound.mode is `direct`, and both are read from \
-         `authorization: Bearer`. A request cannot carry two credentials in one header. In the \
-         direct mode this deployment IS the resource server, so the caller's own token is what \
-         authenticates the request - remove security.access_token. To keep a deployment-wide \
-         perimeter as well, put the caller's identity behind a component and declare \
-         `behind-gateway`, whose proof arrives in a header of its own"
-    )]
-    DeploymentTokenSharesTheHeader,
 }
 
 /// Which configuration files were read, in the order they were applied.
@@ -498,6 +383,7 @@ pub struct Settings {
     catalog: CatalogSettings,
     runtime: RuntimeSettings,
     prompt: PromptSettings,
+    sources: SourceRegistry,
 }
 
 impl Settings {
@@ -524,11 +410,16 @@ impl Settings {
     /// than what [`read`] produced. That is what makes [`Self::load`] the only door in, and
     /// therefore what makes the refusal check unskippable.
     fn parse(raw: &RawSettings, environment: Environment, layers: ConfigLayers) -> Result<Self, SettingsError> {
+        // Security before sources, and the order is a dependency rather than a habit: a shared source
+        // in single-user mode borrows the mode's own declaration as its acknowledgement, so the mode
+        // has to be parsed before the entry that may read it.
+        let security = parse_security(raw)?;
+        let sources = parse_sources(raw, security.identity())?;
         Ok(Self {
             layers,
             environment,
             server: parse_server(raw)?,
-            security: parse_security(raw)?,
+            security,
             rate_limit: parse_rate_limit(raw, environment)?,
             telemetry: parse_telemetry(raw, environment)?,
             api: ApiSettings::new(
@@ -538,6 +429,7 @@ impl Settings {
             catalog: parse_catalog(raw)?,
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
+            sources,
         })
     }
 
@@ -557,6 +449,7 @@ impl Settings {
         }
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
+        refusals.extend(self.identity_refusals());
         refusals.extend(self.credential_refusals(off_host));
         if self.environment.is_production() {
             if !self.rate_limit.enabled() {
@@ -591,6 +484,45 @@ impl Settings {
             refusals.push(NotFitToServe::TlsMaterialWithoutInProcessTermination {
                 declared: declared.as_str(),
             });
+        }
+        refusals
+    }
+
+    /// Everything wrong with who this deployment says its queries run as.
+    ///
+    /// **This is the half of the boot check configuration can see, and only that half.** It reads the
+    /// declared mode and the per-source acknowledgements - a parsed tree, nothing else - and returns
+    /// typed refusals naming the source to change. Whether the *linked adapter* can carry a per-subject
+    /// credential at all is a property of the build, so it is checked in the composition root beside
+    /// `open_engine` and not here; and neither half belongs in `verify_and_validate`, which re-runs
+    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot
+    /// change.
+    fn identity_refusals(&self) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        if self.sources.is_empty() {
+            return refusals;
+        }
+        let Some(mode) = self.security.identity() else {
+            // No mode, so there is no rule to apply per source: the missing declaration is the whole
+            // finding, and listing every shared source underneath it would be noise on top of the one
+            // thing to fix.
+            refusals.push(NotFitToServe::DeploymentIdentityUndeclared {
+                count: self.sources.count(),
+            });
+            return refusals;
+        };
+        if !mode.needs_per_source_acknowledgement() {
+            return refusals;
+        }
+        // In multi-user mode a shared source's witness has to come from its own entry, so a source that
+        // parsed with no identity at all is exactly the unacknowledged case - `SourceRegistry::parse`
+        // had no other witness to reach for.
+        for (alias, source) in self.sources.each() {
+            if source.identity().is_none() {
+                refusals.push(NotFitToServe::SharedSourceNotAcknowledged {
+                    alias: String::from(alias.as_str()),
+                });
+            }
         }
         refusals
     }
@@ -712,6 +644,15 @@ impl Settings {
     pub const fn prompt(&self) -> &PromptSettings {
         &self.prompt
     }
+
+    /// The data systems this deployment declared, keyed by the alias a model's `source:` names.
+    ///
+    /// Read by the composition root, which opens one adapter per entry, hands each the posture its
+    /// entry declared, and refuses a deployment whose catalog names a source with no entry here.
+    #[inline]
+    pub const fn sources(&self) -> &SourceRegistry {
+        &self.sources
+    }
 }
 
 /// The raw tree, and which files contributed to it.
@@ -815,11 +756,44 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None | Some("") => TlsTermination::default(),
         Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
     };
+    // **Absent is absent, and is not a third mode.** An empty string is the shape an unset variable
+    // takes in a shell, so it reads the same way - and both are then a `NotFitToServe` if any source is
+    // configured, which is where the refusal belongs: the check needs to see the `sources` tree, and a
+    // parse error here could not name how many sources were left unaccounted for.
+    let identity = match raw.security.identity.as_deref() {
+        None | Some("") => None,
+        Some(value) => Some(
+            DeploymentIdentity::parse(value, raw.security.single_user_because.as_deref())
+                .map_err(|cause| SettingsError::Identity { cause })?,
+        ),
+    };
     let inbound = match raw.security.inbound {
         None => None,
         Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
     };
-    Ok(SecuritySettings::new(token, termination, inbound))
+    Ok(SecuritySettings::new(token, termination, inbound, identity))
+}
+
+/// The data systems this deployment declares.
+///
+/// The map's keys are the aliases, so this only has to put them beside their entries in a stable order
+/// and let `SourceRegistry::parse` do the parsing. `BTreeMap` iteration is sorted, which is what makes
+/// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
+/// depends on how the file was written.
+fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
+    let entries: Vec<RawSourceEntry<'_>> = raw
+        .sources
+        .iter()
+        .map(|(written, source)| RawSourceEntry {
+            written,
+            kind: &source.kind,
+            data_dir: source.data_dir.as_deref(),
+            posture: &source.posture,
+            acknowledged_because: source.acknowledged_because.as_deref(),
+            verification_identity: source.verification_identity.as_deref(),
+        })
+        .collect();
+    SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })
 }
 
 fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {
@@ -915,6 +889,10 @@ fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
 
 /// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
 mod inbound;
+
+/// The refusal vocabulary. Carved out for the same reason, along the seam this module's own
+/// documentation names: the parse is here, the combination checks are there.
+mod posture;
 
 #[cfg(test)]
 mod tests;

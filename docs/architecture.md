@@ -592,12 +592,19 @@ Still absent: the MCP transport, Arrow results with provenance in the schema met
 per-caller budget beyond the row cap and the ten-year span, a second catalog adapter, and the audit
 sink. The spliced-statement path is designed, documented above, and unimplemented.
 
-And absent in a way worth naming separately, because the two ports are what the layout is *for*: **no
-runtime selection of an adapter.** Which catalogue and which data system are decided at compile time in
-`sutura-cli`, not read from anywhere. The ports are still doing their job - `sutura-app` names no
-adapter, the golden suite runs its whole corpus against a fake, and the test suite is a matrix over a
-registry so a second adapter is a registration rather than a test edit - but "configurable" is not yet
-a word this earns.
+And one thing that was absent here and is now half present, because the two ports are what the layout
+is *for*: **runtime selection of a data system.** `sutura-serve` reads a `sources:` tree, opens one
+adapter per source the catalog names, and hands each the posture its entry declared - so a `SourceName`
+now *selects* a warehouse out of a registry rather than being compared for equality against the one
+adapter that was linked, and a source with no entry is a startup refusal naming it. `sutura-cli` is
+unchanged: it takes one data directory on the command line and reads no registry.
+
+**Half, and the honest half is the one that is missing:** which *kind* of data system a source may be
+is still decided at compile time, because `files` is the only kind an adapter ships for. So a
+deployment chooses how many sources it has, where each one is and which identity reaches it, and cannot
+choose to point one at a database. `feat/bigquery-adapter` is the step that changes that, and it also
+decides the shape a heterogeneous set needs - `Warehouses<W>` is generic in one adapter type today.
+Which *catalogue* is read is still a compile-time decision with no configuration at all.
 
 The mechanisms came first on purpose, and that has not changed: every claim on this page is meant to
 be held up by a type, a lint, a hook or a gate rather than by intent, and a mechanism is cheaper to

@@ -35,6 +35,7 @@ use crate::definitions::{DefinitionDigest, NotDigestible};
 use crate::knowledge::Knowledge;
 use crate::model::{MetricName, SourceName};
 use crate::query::RefusalReason;
+use crate::source::ExecutedAs;
 use crate::text::first_invisible;
 
 /// The longest version label we accept. Long enough for a commit id plus a tag, short enough that
@@ -131,14 +132,30 @@ impl core::fmt::Display for DefinitionVersion {
     }
 }
 
-/// What defined an answer, travelling with it.
+/// What defined an answer, and what each of its legs executed as - travelling with it.
 ///
 /// A result cannot be separated from what defined it, so this is a typed field a caller reads
 /// deliberately rather than a sentence concatenated into a channel that also carries instructions.
+///
+/// # Two halves with two different owners, and the posture is BESIDE the digest rather than under it
+///
+/// The version and the digest identify the *authored content*: two deployments serving the same
+/// catalog certify the same numbers, which is the one property the digest exists to have. The
+/// posture per leg is *deployment configuration* - the same bundle may be served by a deployment that
+/// impersonates and one that does not - so hashing it in would make one catalog produce two digests
+/// in two deployments. That is why [`crate::source::ExecutedAs`] is a field here and not an input to
+/// [`PinnedDefinitions::pin`], and it is the opposite of the knowledge declaration, which *is* under
+/// the digest because it is content a catalog author wrote.
+///
+/// **Recording is not a control.** Provenance is read by whoever holds the answer, after the rows
+/// were served, so it cannot prevent a disclosure and does not attempt to. It makes one attributable
+/// and it makes a misconfiguration visible to whoever reads an answer; the thing that keeps a shared
+/// source from being served unnoticed is a boot refusal.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Provenance {
     version: DefinitionVersion,
     digest: DefinitionDigest,
+    executed_as: ExecutedAs,
 }
 
 impl Provenance {
@@ -150,8 +167,12 @@ impl Provenance {
     /// carries a `Provenance` beside its rows, and an enum variant is always constructible by
     /// whoever can build its fields. Nothing outside this crate built one - checked before narrowing
     /// it - so this costs no caller.
-    const fn new(version: DefinitionVersion, digest: DefinitionDigest) -> Self {
-        Self { version, digest }
+    const fn new(version: DefinitionVersion, digest: DefinitionDigest, executed_as: ExecutedAs) -> Self {
+        Self {
+            version,
+            digest,
+            executed_as,
+        }
     }
 
     #[inline]
@@ -162,6 +183,15 @@ impl Provenance {
     #[inline]
     pub const fn digest(&self) -> &DefinitionDigest {
         &self.digest
+    }
+
+    /// What each leg of this answer ran as.
+    ///
+    /// Read off the posture the **adapter was handed**, never off a settings tree - see
+    /// [`crate::source`]. Non-empty, because [`ExecutedAs`] has no empty form.
+    #[inline]
+    pub const fn executed_as(&self) -> &ExecutedAs {
+        &self.executed_as
     }
 }
 
@@ -304,9 +334,20 @@ impl PinnedDefinitions {
         &self.digest
     }
 
-    /// The provenance to attach to any answer produced from this bundle.
-    pub fn provenance(&self) -> Provenance {
-        Provenance::new(self.version.clone(), self.digest.clone())
+    /// The provenance to attach to one answer produced from this bundle.
+    ///
+    /// **`executed_as` is a required argument and there is no second door that omits it.** An answer
+    /// carries a `Provenance`, `Provenance::new` is private, and this is the only way to one - so an
+    /// answer cannot be produced without saying which posture each of its legs ran under. That is the
+    /// same shape [`Self::pin`] uses for the digest: the value is computed from what the caller
+    /// already has rather than accepted as an optional decoration.
+    ///
+    /// A caller that only wants to *describe* this bundle - a catalog endpoint, the agent-facing
+    /// prompt - reads [`Self::version`] and [`Self::digest`] instead. Nothing executed for it, and a
+    /// `Provenance` with an empty execution record would be the one shape this argument exists to
+    /// make unrepresentable.
+    pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance {
+        Provenance::new(self.version.clone(), self.digest.clone(), executed_as)
     }
 
     /// The metrics that declare an anchor, and therefore have to be checked before serving.
@@ -367,8 +408,15 @@ pub enum NotExecutedReason {
     /// The plan names a data system this process did not open. Not prose in a report field: it is
     /// the same condition the query path refuses, and it is a misconfigured composition root rather
     /// than an outage.
-    #[error("the metric reads from {plan}, and the data system opened here is {warehouse}")]
-    SourceMismatch { plan: SourceName, warehouse: SourceName },
+    ///
+    /// **It used to be `SourceMismatch`, carrying the plan's source and the one warehouse's**, and
+    /// that pair stopped being expressible when the service started holding a registry: a plan now
+    /// SELECTS its warehouse rather than being compared against one, so the only failure left is that
+    /// no data system is registered under the name. Renamed rather than kept with a second field
+    /// nothing could fill, because a variant no code path can produce is one this enum refuses to
+    /// carry.
+    #[error("the metric reads from {plan}, and no data system is configured under that name")]
+    SourceNotConfigured { plan: SourceName },
     /// The declared range covers more than one period at the metric's coarsest grain, so the result
     /// is several numbers and an anchor is one.
     #[error(
@@ -543,6 +591,7 @@ mod tests {
     use crate::knowledge::{Capability, Knowledge, KnowledgeCapabilities, KnowledgeInput};
     use crate::measure::{AggregatedColumn, Measure, Term};
     use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
+    use crate::source::{ExecutedAs, SourcePosture};
 
     fn metric_name(raw: &str) -> MetricName {
         MetricName::parse(raw).expect("a test metric name is a name")
@@ -768,17 +817,21 @@ mod tests {
     }
 
     #[test]
-    fn a_source_mismatch_names_both_data_systems() {
-        // It used to be a sentence in a report field. It is a governance condition - the plan names
-        // a data system this process did not open - and naming both halves is what tells an operator
-        // whether the catalog or the deployment is wrong.
-        let reason = NotExecutedReason::SourceMismatch {
+    fn an_unconfigured_source_names_the_one_the_metric_reads() {
+        // It used to be a sentence in a report field. It is a governance condition - the plan names a
+        // data system this process did not open - and naming it is what tells an operator which entry
+        // is missing.
+        //
+        // **It used to name two data systems**, because the check compared the plan's source against
+        // the one warehouse the service held. The service holds a registry now, so a plan SELECTS its
+        // warehouse rather than being compared against one, and the second half of the pair had
+        // nothing left to fill it: the only failure is that no entry exists under the name.
+        let reason = NotExecutedReason::SourceNotConfigured {
             plan: SourceName::parse("elsewhere").expect("a test source is a source"),
-            warehouse: SourceName::parse("local").expect("a test source is a source"),
         };
         assert_eq!(
             reason.to_string(),
-            "the metric reads from elsewhere, and the data system opened here is local"
+            "the metric reads from elsewhere, and no data system is configured under that name"
         );
     }
 
@@ -802,14 +855,23 @@ mod tests {
         let mut report = AnchorReport::new();
         report.record(metric_name("revenue"), AnchorCheck::Matched);
         let anchored = bundle(Some(Anchor::new(june(), String::from("197122"))));
-        let expected_provenance = anchored.provenance();
+        // The execution record is a required argument, so a `Provenance` cannot be built without
+        // saying which posture ran - see `PinnedDefinitions::provenance`. One leg, because the test
+        // bundle reads one source.
+        let ran_as = || {
+            ExecutedAs::of(
+                SourceName::parse("local").expect("a test source is a source"),
+                SourcePosture::ImpersonationAtSource,
+            )
+        };
+        let expected_provenance = anchored.provenance(ran_as());
         // A verdict, and nothing else. It does NOT hand back a bundle the service would take: that
         // is `sutura_app::verify_and_validate`, and getting one from it means a `Warehouse` was
         // called. The whole reason this returns `()` is that this crate cannot know whether it was.
         report
             .verdict(&anchored)
             .expect("a matched anchor is what the verdict is about");
-        assert_eq!(anchored.provenance(), expected_provenance);
+        assert_eq!(anchored.provenance(ran_as()), expected_provenance);
         assert_eq!(anchored.version().as_str(), "test-1");
     }
 

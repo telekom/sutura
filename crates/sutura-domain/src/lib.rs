@@ -41,6 +41,11 @@
 //! - [`query`] is the tool surface, defined mostly by what it has no field for.
 //! - [`warehouse`] is the execution port. It speaks in plans, so an adapter that executes without
 //!   generating any SQL is a first-class implementation of it rather than a special case.
+//! - [`source`] is what a deployment declares about one source: which identity a query reaches it as,
+//!   which identity re-ran its anchors at boot, and - separately, because a different party declares
+//!   it - whether the linked adapter can carry a per-subject credential at all. It also holds the
+//!   per-leg execution record [`pinned::Provenance`] carries, which is read off what the adapter was
+//!   handed rather than off a settings tree.
 //! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes. The
 //!   principal chain a call is attributed to lives in [`identity`] as well, beside the redaction,
 //!   because both are properties of who is asking rather than of what was asked.
@@ -66,5 +71,6 @@ pub mod model;
 pub mod pinned;
 pub mod plan;
 pub mod query;
+pub mod source;
 mod text;
 pub mod warehouse;

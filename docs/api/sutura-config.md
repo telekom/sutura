@@ -78,10 +78,22 @@ for; a process that does not start is read by everybody.
 - `security.tls_termination: in-process` without a certificate and key, or in a binary built
   without the `tls` feature; or a certificate and key no declaration would ever read.
 - `server.port: 0` in production.
+- A configured source with no `security.identity`. The mode has no default and no derivation - see
+  `security::DeploymentIdentity`, which explains why no combination of source
+  postures may answer it on the operator's behalf.
+- A `shared-service-user` source in `multi-user` mode with no `acknowledged_because` on that
+  source's own entry. Per source, because an acknowledgement inherited from a neighbour is how a
+  source nobody thought about gets served to everybody as somebody else's identity.
 
 The checks read the *loaded* values, not any one file, because the variable layer is applied
 last: a check against `production.yaml` would be checking something the process is not running
 on.
+
+**Two refusals a deployment can still hit are NOT in this crate, and the split follows what each
+half can see.** Whether the *linked adapter* can carry a per-subject credential at all is a property
+of the build, and whether the *bundle* declares an anchor is a property of the catalog; this crate
+sees neither, so both are startup refusals in the composition root. `sources` says so where the
+declarations are.
 
 **A value out of range is a different refusal, through a different type, and one of them reads the
 machine.** `NotFitToServe` is about a *combination* of settings that are each individually legal;
@@ -93,6 +105,24 @@ a cgroup limit, or the machine - and refuses above it, because shipped profiles 
 next to it. **On a platform that will not report that number, notably macOS, no check is made**,
 and `WorkingSetCeiling::checked_against` is what lets the startup log say which of the two
 happened rather than implying the check was run.
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -1886,6 +1916,135 @@ The configured value did not name a place TLS is terminated.
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum DeploymentIdentity`
+
+```rust
+pub enum DeploymentIdentity
+```
+
+Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.
+
+**Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+
+*Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for **everything** -
+the one user reads all, by design, and the configured credential is that user's own.
+`examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+
+*Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+
+# It is declared and never derived, and the derivation that was on offer is unsound
+
+The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.
+
+So there is **no `Default`**, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+[`NotFitToServe::DeploymentIdentityUndeclared`](crate::NotFitToServe::DeploymentIdentityUndeclared).
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.
+
+# What flipping the mode does
+
+It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+
+# The variant names are not the configured words, and that is deliberate
+
+A deployment writes `single-user` or `multi-user` - `Self::as_str` and `Self::NAMES` own those
+spellings, and they are the vocabulary
+[a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
+5a names. The variants are named for the *property each mode decides* instead, because
+`SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
+that survived that say more: what changes between the two is whether credentials are static
+configuration or a subject arrives per request.
+
+#### Variants
+
+- `StaticCredentials` - Static credentials, one user, one host - the `single-user` mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.
+- `SubjectPerRequest` - A subject per request, established by the transport - the `multi-user` mode.
+
+#### Methods
+
+```rust
+pub const fn as_str(&self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub const fn needs_per_source_acknowledgement(&self) -> bool
+```
+
+Does a shared source need an acknowledgement on its own entry under this mode?
+
+```rust
+pub fn parse(word: &str, reason: Option<&str>) -> Result<Self, InvalidDeploymentIdentity>
+```
+
+Reads the declared mode and, for single-user, the operator's reason.
+
+The reason is **required** for single-user and **refused** for multi-user, which is the same
+rule `server.tls_certificate` gets: a value nothing reads is a control that appears to be in
+place. Both halves are returned as one typed error rather than checked later, because the mode
+and its witness are one declaration.
+
+```rust
+pub const fn shared_witness(&self) -> Option<&AcknowledgementReason>
+```
+
+The reason a shared source may borrow as its acknowledgement, if this mode supplies one.
+
+`Some` for single-user only, and an exhaustive match rather than an `is_single_user()` boolean:
+what the mode contributes is the *witness*, so returning the value is what a caller needs and a
+boolean would leave every caller to work out where the witness comes from.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct UnknownDeploymentIdentity`
+
+```rust
+pub struct UnknownDeploymentIdentity
+```
+
+The configured value did not name a deployment mode.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum InvalidDeploymentIdentity`
+
+```rust
+pub enum InvalidDeploymentIdentity
+```
+
+Why a deployment mode declaration is not usable.
+
+#### Variants
+
+- `Unknown`
+- `SingleUserWithoutAReason` - Single-user mode with no reason written.
+- `ReasonWithoutSingleUser` - A single-user reason on a multi-user deployment, where nothing would read it.
+- `Reason`
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ### `struct SecuritySettings`
 
 ```rust
@@ -1904,11 +2063,22 @@ with nothing in front has answered only the first.
 about what protects the token in flight, so a wildcard bind with no terminator anywhere read
 exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 agreeing that off-host is intended.
-**Three fields now, and the third is the one that changes what the other two mean.**
-`Self::inbound` is how the identity of a *caller* reaches this deployment, and the whole reason
-it lives here rather than in a group of its own is `Self::describes_identity`: that function used
-to be a constant answering `false`, and a deployment that establishes a caller identity has to be
-able to make it answer otherwise from a value rather than from a rewrite.
+
+**Four fields now, and the last two are the two halves of one story told from opposite ends.**
+`Self::inbound` is how the identity of a *caller* reaches this deployment; `Self::identity` is
+who a query then runs *as*. **Neither implies the other, and that is the fact worth writing down
+rather than the count:** a deployment can verify exactly who is asking and still read every row
+under one configured identity, because leg 2 - a credential per execution leg - is not built. The
+reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
+knows what a query runs as and nothing about who asked.
+
+The inbound declaration lives in this group rather than one of its own because of
+`Self::describes_identity`: that function used to be a constant answering `false`, and a
+deployment that establishes a caller identity has to be able to make it answer otherwise from a
+value rather than from a rewrite. The deployment declaration is an `Option` for a different
+reason - it has no default and its absence is a refusal rather than a value; see
+`DeploymentIdentity`, which explains why no combination of source postures may answer it on the
+operator's behalf.
 
 #### Methods
 
@@ -1933,9 +2103,21 @@ which authenticates the deployment and not the caller, whatever else is set.
 It is still a function rather than a comment so the startup log and this documentation read
 the same value.
 
+**`Self::identity` does not change this answer either, and that is deliberate.** A declared
+`multi-user` mode says what the deployment *intends* and decides where a shared source's
+acknowledgement has to be written; it does not make a caller identity arrive. Reading the
+declaration back as "this deployment knows who is asking" is the exact confusion this function
+exists to prevent, and the two keys are independent for that reason.
+
 **The limit, next to the claim:** `true` here says a caller's identity is *established*. It
 does not say a data source executes as that caller - see
 `InboundIdentity::what_it_does_not_do`, which the startup log prints beside this.
+
+```rust
+pub const fn identity(&self) -> Option<&DeploymentIdentity>
+```
+
+Which kind of deployment this is, if the operator declared one.
 
 ```rust
 pub const fn inbound(&self) -> Option<&InboundIdentity>
@@ -1956,7 +2138,7 @@ Which mode establishes the caller's identity, as a word for the startup log.
 sometimes absent reads as a field that is sometimes broken.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>) -> Self
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>, identity: Option<DeploymentIdentity>) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -2268,6 +2450,241 @@ The certificate and key this process would terminate TLS with, if any were confi
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+## Module `sources`
+
+The sources this deployment declares: one entry per data system, keyed by the alias a model names.
+
+**Beside `catalog.data_dir` rather than instead of it, and the two answer different questions.**
+`catalog.dir` and `catalog.data_dir` are the *catalog*: authored definitions, and the directory the
+`sutura` command reads. A `sources:` entry is a *data system*: what kind it is, where it is, which
+identity a query reaches it as, and which identity re-ran its anchors at boot. A model's `source:`
+is the key that selects one.
+
+**The service reads this tree and not `catalog.data_dir`**, which is the one operator-facing break
+worth stating at the top: a deployment that pointed the service at its files with
+`catalog.data_dir` has to declare a source instead, and one that declares none does not serve -
+the catalog names a source with no entry, and the composition root refuses before a listener is
+bound.
+
+# What is refused here, and what is refused later
+
+This module is the **parse**: an alias that is not a name, two entries whose aliases are one name,
+a kind this build has no adapter for, an entry with no file location, a relative path, a word that
+is not a posture, and a pairing of declarations that contradict each other. Every one of those is a
+value or a combination this type cannot hold, so it is a
+[`SettingsError`](crate::SettingsError) naming the key.
+
+Two checks are deliberately **not** here, and they are not here for two different reasons.
+
+- **The shared-identity acknowledgement** is a [`NotFitToServe`](crate::NotFitToServe) out of
+  `Settings::refusals`, because whether it is required depends on the *declared deployment mode* -
+  a fact about the tree as a whole rather than about this entry. A single-user deployment holds
+  every source under one static credential legitimately: that credential *is* the one user's.
+- **Whether the linked adapter can carry a per-subject credential at all** is a startup refusal in
+  the composition root, because it is a property of the BUILD. This crate cannot see which adapters
+  were linked and must not pretend to.
+
+And one is not a parse check on purpose: **whether the directory exists.** `CatalogSettings::parse`
+declines the same check for the reason that applies here unchanged - a directory that disappears
+between reading the configuration and opening the engine would make an existence check a claim that
+is already stale, and it would make configuration validation depend on the filesystem. A missing
+*file* is refused where it is discovered, at boot, by the composition root that tries to attach it.
+
+### `enum SourceKind`
+
+```rust
+pub enum SourceKind
+```
+
+What kind of data system a source is.
+
+**A closed set of typed declarations rather than something discovered**, which is the whole of
+*pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
+compile error in every place that has to decide about it. One variant today, because one adapter
+ships.
+
+**It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
+rather than the enum. The composition root used to refuse any source not called `local`, on the
+argument that the engine has its own identity and does not borrow the catalog's. That argument was
+right while the catalog was the only signal - a catalog naming `production_warehouse` said nothing
+about what the deployment held - and it stops being right once the DEPLOYMENT declares each source:
+an operator who writes `sources.production_warehouse.kind: files` with a directory beside it has
+stated that this source is a directory of files, which is the statement the name comparison was
+standing in for. Under the old rule that deployment could not be served at all, and it is a
+legitimate one.
+
+#### Variants
+
+- `Files` - A directory of CSV or Parquet files, read by the in-process engine.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind>
+```
+
+Reads the configured word.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct UnknownSourceKind`
+
+```rust
+pub struct UnknownSourceKind
+```
+
+The configured word did not name a kind of data system.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct ConfiguredSource`
+
+```rust
+pub struct ConfiguredSource
+```
+
+One declared data system.
+
+The identity is an `Option`, and its `None` is **fail-closed rather than permissive**: it means
+this entry declared the shared posture and nobody acknowledged it, which
+`Settings::refusals` refuses. A `Settings` obtained through `Settings::load` therefore has `Some`
+for every source. It stays an `Option` rather than being unwrapped here because a composition root
+that treated the absence as permission is a bug the type should not be able to hide, and because
+`Settings::parse` is reachable from this crate's own tests without the refusal having run.
+
+#### Methods
+
+```rust
+pub fn data_dir(&self) -> &Path
+```
+
+Where the files behind this source's models live.
+
+```rust
+pub const fn identity(&self) -> Option<&SourceIdentity>
+```
+
+How this source establishes identity, once the deployment-level refusal has passed.
+
+`None` only for a shared source nobody acknowledged - see the type's own note.
+
+```rust
+pub const fn kind(&self) -> SourceKind
+```
+
+What kind of data system this is, which is what decides which adapter opens it.
+
+```rust
+pub fn posture(&self) -> Option<&SourcePosture>
+```
+
+The posture this source was declared with, if it is one a deployment may be served with.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct UnknownPosture`
+
+```rust
+pub struct UnknownPosture
+```
+
+The configured word did not name a posture.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum InvalidSourceRegistry`
+
+```rust
+pub enum InvalidSourceRegistry
+```
+
+Why a `sources:` tree is not usable.
+
+Every variant names the alias, because a refusal that does not say which entry to change is a
+support request - and a deployment with several sources is exactly the deployment where "one of
+your sources is wrong" is useless.
+
+No `Clone`, and the reason is worth a line rather than a shrug: one variant's cause is
+`sutura_domain::model::InvalidIdentifier`, which is not `Clone` either. Deriving it here would mean
+either a second copy of that error's shape or a `Clone` added to a domain type for a config crate's
+convenience, and nothing needs to clone a startup refusal.
+
+#### Variants
+
+- `Alias` - The key is not a name a model could write in its `source:` field.
+- `DuplicateAlias` - Two entries name one source.
+- `NoDataDirectory` - The entry names no file location.
+- `RelativeDataDirectory` - The path is relative, so it resolves against the process working directory.
+- `Posture` - The `posture:` word is not one of the two.
+- `Kind` - The `kind:` word does not name a data system this build has an adapter for.
+- `Text` - A piece of operator-written text on this entry is not usable.
+- `Conflict` - The entry's two identity declarations contradict each other.
+
+#### Implements
+
+`Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct SourceRegistry`
+
+```rust
+pub struct SourceRegistry
+```
+
+Every source this deployment declares, keyed by the alias a model's `source:` names.
+
+A newtype over the map rather than the map, so `Self::parse` is the only way one comes into
+existence and the duplicate-alias refusal cannot be skipped by building the map directly.
+
+**May be empty, and that is not a refusal here.** A deployment configuring no source is one that
+has not said where its data is; what refuses it is the composition root, which finds the catalog
+naming a source with no declaration and stops before a listener is bound. Refusing an empty tree in
+this crate would mean `Settings::load` on the embedded defaults could not produce a `Settings` at
+all, and the defaults are what the `prompt` command and every settings test read.
+
+#### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many sources are declared.
+
+```rust
+pub fn each(&self) -> impl Iterator<Item>
+```
+
+Every declared source, in alias order.
+
+```rust
+pub fn get(&self, alias: &SourceName) -> Option<&ConfiguredSource>
+```
+
+The source declared under `alias`, if there is one.
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Did this deployment declare any source at all?
+
+#### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
 
 ## Module `telemetry`
 

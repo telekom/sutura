@@ -85,6 +85,7 @@ use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
 
+use crate::warehouses::Warehouses;
 use crate::{ServiceError, Validated, verify_and_validate};
 
 /// The service, as a transport sees it.
@@ -198,7 +199,8 @@ pub enum ServiceNotStarted {
     },
 }
 
-/// The one implementation: a validated bundle, one data system and one audit sink, behind the ports.
+/// The one implementation: a validated bundle, the data systems this process opened, and one audit
+/// sink, behind the ports.
 ///
 /// Holds the bundle as [`Validated`], which has no constructor other than one that executes every
 /// anchor against a warehouse - so a [`LocalService`] that exists is one whose anchors held. That
@@ -209,9 +211,15 @@ pub enum ServiceNotStarted {
 /// difference between a record that is always written and a record that is usually written. What the
 /// sink then *does* with a record is the deployment's, and `sutura_domain::audit` states that limit
 /// where the port is declared.
+/// **It holds a [`Warehouses`] and not one warehouse, which is what makes more than one source
+/// configurable.** A plan names one data system, so the registry is a lookup rather than a fan-out:
+/// [`crate::answer`] selects the adapter the plan named and refuses `SourceUnavailable` when nothing
+/// is registered under that name. The limit is stated where the type is - every entry is the same
+/// adapter type `W`, so a deployment holds two file sources or two databases behind one adapter, and a
+/// heterogeneous set is an architecture decision rather than a change here.
 pub struct LocalService<W, S> {
     definitions: Validated<PinnedDefinitions>,
-    warehouse: W,
+    warehouses: Warehouses<W>,
     sink: S,
 }
 
@@ -229,7 +237,7 @@ where
     ///
     /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
     /// startup failure is reported from wherever the composition root happens to be.
-    pub fn start<C>(catalog: &C, warehouse: W, sink: S) -> Result<Self, ServiceNotStarted>
+    pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S) -> Result<Self, ServiceNotStarted>
     where
         C: SemanticCatalog,
         C::Error: Send + Sync,
@@ -237,10 +245,10 @@ where
         let pinned = catalog
             .load()
             .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
-        let definitions = verify_and_validate(pinned, &warehouse).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
+        let definitions = verify_and_validate(pinned, &warehouses).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
         Ok(Self {
             definitions,
-            warehouse,
+            warehouses,
             sink,
         })
     }
@@ -257,7 +265,7 @@ where
     }
 
     fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
-        let outcome = crate::answer(&self.definitions, query, &self.warehouse).map_err(|error| match error {
+        let outcome = crate::answer(&self.definitions, query, &self.warehouses).map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
             // `#[source]` chain under it.
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },

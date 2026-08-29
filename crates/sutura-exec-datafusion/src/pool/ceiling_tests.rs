@@ -124,7 +124,7 @@ fn question() -> QueryPlan {
 }
 
 fn engine(bytes: usize) -> DataFusionWarehouse {
-    let adapter = DataFusionWarehouse::new(source(), ceiling(bytes)).expect("a bounded engine builds");
+    let adapter = DataFusionWarehouse::new(source(), crate::test_posture(), ceiling(bytes)).expect("a bounded engine builds");
     drop(
         adapter
             .context
@@ -181,7 +181,7 @@ fn a_failure_that_is_not_the_ceiling_is_not_reported_as_one() {
     // told not to retry; a data system that is briefly unwell is exactly the case where retrying is
     // right. So a plan naming a table nothing attached must answer `None` here, even though it is a
     // failure from the same adapter carrying the same engine error type.
-    let bare = DataFusionWarehouse::new(source(), ceiling(ROOMY)).expect("a bounded engine builds");
+    let bare = DataFusionWarehouse::new(source(), crate::test_posture(), ceiling(ROOMY)).expect("a bounded engine builds");
     let failure = bare
         .execute(Executable::Query(&question()))
         .expect_err("a plan naming an unattached table does not run");
@@ -195,7 +195,7 @@ fn the_ceiling_is_read_from_the_configured_value_and_not_from_the_pool() {
     // `Unknown`, so a pool implementation that does not override it reports no ceiling and the
     // reserved-against-ceiling ratio an operator wants cannot be computed. The configured number is
     // always knowable, so it is what the adapter keeps.
-    let bounded = DataFusionWarehouse::new(source(), ceiling(4096)).expect("a bounded engine builds");
+    let bounded = DataFusionWarehouse::new(source(), crate::test_posture(), ceiling(4096)).expect("a bounded engine builds");
     assert_eq!(bounded.working_set().bytes(), 4096);
 }
 
@@ -205,7 +205,10 @@ fn the_debug_of_a_bounded_warehouse_still_shows_only_the_source() {
     // and a live reservation figure is an observation about whatever question is in flight - so the
     // hand-written `Debug` stayed as it was, and `working_set()` is the accessor for the half that is
     // a configuration fact.
-    let rendered = format!("{:?}", DataFusionWarehouse::new(source(), ceiling(4096)).expect("builds"));
+    let rendered = format!(
+        "{:?}",
+        DataFusionWarehouse::new(source(), crate::test_posture(), ceiling(4096)).expect("builds")
+    );
     assert!(rendered.contains("local"), "{rendered}");
     assert!(
         !rendered.contains("4096"),

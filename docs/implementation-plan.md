@@ -4,13 +4,16 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twenty-two steps, one done, eight of which can start at once.** Both numbers are counted off the table below
-rather than remembered, which is the third attempt at getting them right: a number typed by hand beside
-the table that owns it goes stale on the next row, and it has now gone stale twice - "eleven steps" in a
-pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
-eight startable. **If the table and this sentence ever disagree again, the table is right.** Every step
-is one branch, one pull request, and green before the next depends on it. `stax` manages the stack; the
-`git-ops/stacked-branches` skill has the mechanics. Nothing in this plan is started.
+**Twenty-four steps, eight done, six of which can start at once.** Every number is counted off the table
+below rather than remembered, which is the fourth attempt at getting them right: a number typed by hand
+beside the table that owns it goes stale on the next row, and it has now gone stale three times -
+"eleven steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which"
+against eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows
+and seven done. **If the table and this sentence ever disagree again, the table is right**, and the
+three commands that settle it are `grep -c '^| [0-9]'` for the rows, the same with `| ~~` for the
+struck ones and `| \*\*yes\*\* |$` for the startable ones. Every step is one branch, one pull request,
+and green before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill
+has the mechanics.
 
 ## The stack
 
@@ -28,19 +31,19 @@ internal that a stable surface can grow behind.
 | 5 | ~~`feat/principal-chain`~~ | - | **DONE** - #37. Both tail positions still absent |
 | 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
-| 8 | `feat/source-registry` | 6 - **done** | **yes** |
-| 9 | `feat/leg-plan-types` | 4 - **done** | **IN REVIEW** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
-| 10 | `feat/two-source-execution` | 8, 9 | after 9 |
+| 8 | ~~`feat/source-registry`~~ | - | **DONE**. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
+| 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
+| 10 | `feat/two-source-execution` | 8, 9 - both **done** | **yes** |
 | 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
-| 12 | `feat/credential-port` | 2, 5, 8 | after 8 |
+| 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
 | 14 | `feat/compose-tier` | nothing in this repo - docker on the host | **IN REVIEW** - #34 |
-| 15 | `feat/bigquery-adapter` | 8, and the fixture decision | after 8 |
+| 15 | `feat/bigquery-adapter` | 8 - **done**, and the fixture decision | **yes** |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
-| 17 | `feat/postgres-adapter` | 8, 14, and the artifact question | after 14 |
+| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
 | 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
-| 19 | `feat/source-mtls` | 8, 17 | after 17 |
-| 20 | `feat/raw-sql-tool` | 3, 8, 12 | after 12 |
+| 19 | `feat/source-mtls` | 8 - **done**, 17 | after 17 |
+| 20 | `feat/raw-sql-tool` | 3, 8 - **done**, 12 | after 12 |
 | 21 | `feat/demo-tasks` | 14, and one example to demo | after 14 |
 | 22 | `build/supply-chain` | nothing - orthogonal | **yes** |
 | 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
@@ -649,6 +652,57 @@ pinned the wrong thing: an adapter cannot declare a mode it does not own.
 
 **Done when** two sources can be configured, each says what it is, and an answer says which mode
 produced it.
+
+### What the branch found, and where this section was underspecified
+
+**DONE.** Four corrections, and each one is here because the section as written could not be
+implemented as written rather than because it was inconvenient.
+
+**One: the source declaration needed a KIND, and this section never mentions one.** Without it there
+is no way for a deployment to say *what* a source is, so the composition root's only signal is the
+source NAME - and `sutura-serve` did exactly that, refusing any source not called `local`. That
+comparison makes the *Done when* above unreachable: a second source can never be `local`, so two
+sources can be configured and only one can ever be opened. It also refuses a legitimate deployment -
+an operator holding a warehouse extract as a directory of files and calling that source `warehouse`
+was told this build had no adapter for it, on the strength of an alias. So `sources.<alias>.kind` is
+required, with `files` the one variant that ships, an unknown word is a parse refusal listing what is
+available, and which adapter opens a declared kind is an exhaustive match in the root - a second kind
+is a compile error there rather than an arm that falls through. **This deleted a test that landed one
+step earlier:** `a_catalog_naming_another_data_system_starts_nothing` asserted the name comparison, and
+`a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured` replaces it.
+
+**Two: `a_missing_file_is_refused_at_parse` cannot mean what it says.** `CatalogSettings::parse`
+already declines an existence check and documents why - a directory that disappears between reading
+the configuration and opening the engine makes the check a claim that is already stale, and it makes
+configuration validation depend on a filesystem. That argument holds unchanged for a source's
+directory, so the refusal implemented is `NoDataDirectory`: an entry that named no location at all.
+The test is `a_missing_file_location_is_refused_at_parse`. A missing *file* is still refused, at boot,
+by the composition root that tries to attach it.
+
+**Three: the DEPLOYMENT MODE is load-bearing here and is not in the *Adds* list.** The
+acknowledgement test names a multi-user deployment, so the mode has to be expressible - and
+[a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md) 5a requires it
+declared, with no default and no derivation. It also answers a question the *Adds* list leaves open:
+in single-user mode a shared source needs no per-source acknowledgement, so where does the witness on
+`SourcePosture::SharedServiceUser` come from? From the mode's own required reason. Without that, a
+single-user deployment could not construct the posture at all. `security.identity` is therefore
+required **once any source is configured**, which keeps `Settings::load` on the embedded defaults
+working - and no deployment escapes it, because one with no source is refused by the root for naming a
+source it has no entry for.
+
+**Four: a CATALOG spanning two sources stops being a boot refusal**, which is the point of the branch
+and worth stating because it deletes a second test from the step before it. Two declared sources are
+now two engines, and only a QUESTION whose plan would span both is refused - `PlanSpansTwoSources`, at
+plan time, where it always belonged. What survives is the half that is still a misconfiguration: a
+source the catalog reads and the deployment never declared.
+
+**Two things this step does NOT deliver, so the next reader does not assume them.** `Warehouses<W>` is
+generic in one adapter type, so two sources are two engines over two directories and a file engine
+beside a network adapter is not expressible - that is `feat/bigquery-adapter`'s, and it wants a closed
+enum over the registered adapters rather than `dyn`, because `Warehouse` carries a required associated
+constant and is not object-safe. And the verification identity is a DECLARATION with a boot refusal
+behind it; nothing passes it to the port, so what re-runs an anchor is still `execute` under whatever
+identity the adapter holds. `feat/credential-port` is the step that closes that.
 
 ## The leg plan types, and their rendering
 

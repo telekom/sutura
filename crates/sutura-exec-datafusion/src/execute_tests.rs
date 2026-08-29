@@ -96,8 +96,12 @@ fn plan(measure: PlanMeasure, label: &str, keys: Vec<PlanKey>) -> QueryPlan {
 /// `register_batch` is synchronous and takes a `RecordBatch`, so a test needs no fixture file and
 /// no temporary directory - which is what lets the end-to-end cases below run in the unit suite.
 fn warehouse(batch: RecordBatch) -> DataFusionWarehouse {
-    let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"), roomy())
-        .expect("a current-thread runtime builds");
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
     drop(
         adapter
             .context
@@ -417,8 +421,12 @@ fn a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_
     // An unattached table must be an error and not an empty result, because an empty result
     // reads as "there was no revenue in June". The engine resolves every name during analysis,
     // so that holds on the only pass this adapter makes.
-    let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"), roomy())
-        .expect("a current-thread runtime builds");
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
 
     // And it holds WITHOUT a pre-flight, which is the other half of the claim. This adapter

@@ -49,8 +49,12 @@ fn app(settings: Settings) -> Router {
 /// The refusal statuses need three fixtures the default pair cannot produce - a result past the row
 /// cap, a bundle whose models sit on two data systems, and an adapter claiming to be somewhere else -
 /// and each is still driven through the REAL router, which is the point of this file.
-fn over(pinned: sutura_domain::pinned::PinnedDefinitions, warehouse: FakeWarehouse, settings: Settings) -> Router {
-    let service = LocalService::start(&catalog_of(pinned), warehouse, sink()).expect("the test bundle validates");
+fn over(
+    pinned: sutura_domain::pinned::PinnedDefinitions,
+    warehouses: sutura_app::Warehouses<FakeWarehouse>,
+    settings: Settings,
+) -> Router {
+    let service = LocalService::start(&catalog_of(pinned), warehouses, sink()).expect("the test bundle validates");
     crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
 }
 

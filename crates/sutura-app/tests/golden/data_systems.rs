@@ -25,7 +25,7 @@ where
     W: DataSystemUnderTest,
 {
     let pinned = load::<ReferenceCatalog>();
-    let warehouse: W = open(&pinned);
+    let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let report = verify_anchors(&pinned, &warehouse);
     settings(W::NAME).bind(|| insta::assert_yaml_snapshot!("anchor_report", &report));
     for (metric, check) in report.checks() {
@@ -58,7 +58,7 @@ where
     W: DataSystemUnderTest,
 {
     let pinned = load::<ReferenceCatalog>();
-    let warehouse: W = open(&pinned);
+    let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
     for path in questions() {
         let asked = read_question(&path);
@@ -100,6 +100,9 @@ where
     W: DataSystemUnderTest,
 {
     let pinned = load::<ReferenceCatalog>();
+    // The ADAPTER and not a registry, deliberately: `dry_run` is a port method and this test is about
+    // the port. A registry is a lookup, so routing through it here would be asserting the lookup twice
+    // and the pre-flight once.
     let warehouse: W = open(&pinned);
     for path in questions() {
         let asked = read_question(&path);
@@ -160,7 +163,7 @@ where
     W: DataSystemUnderTest,
 {
     let pinned = load::<ReferenceCatalog>();
-    let warehouse: W = open(&pinned);
+    let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
     let total_of = |file: &str| -> f64 {
         let outcome =
@@ -214,7 +217,7 @@ where
     W: DataSystemUnderTest,
 {
     let pinned = load::<ReferenceCatalog>();
-    let warehouse: W = open(&pinned);
+    let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
 
     // January has seventy subscription-months and none of them terminated, so there is a group to

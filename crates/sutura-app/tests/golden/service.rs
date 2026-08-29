@@ -46,15 +46,22 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
     // named something else. A fake claiming to be somewhere else is the whole instrument: no
     // registered adapter can be asked to lie about its own name, and none should be able to.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
-    let elsewhere = crate::support::RecordingWarehouse::pretending_to_be("somewhere_else");
+    let elsewhere = sutura_app::Warehouses::of(crate::support::RecordingWarehouse::pretending_to_be("somewhere_else"));
     let outcome =
         sutura_app::answer(&validated, &question("recurring-revenue-june.yaml"), &elsewhere).expect("a refusal is not an error");
     assert!(
         matches!(outcome.refusal(), Some(&RefusalReason::SourceUnavailable { .. })),
         "expected a source refusal, got {outcome:?}"
     );
+    // Reached back out of the registry by the name it was registered under, which is the honest way
+    // to ask a fake what it saw now that the service holds a lookup rather than one adapter.
+    let claimed = sutura_domain::model::SourceName::parse("somewhere_else").expect("a test source is a source");
     assert!(
-        elsewhere.asked_about().is_empty(),
+        elsewhere
+            .get(&claimed)
+            .expect("the fake is registered under the name it claims")
+            .asked_about()
+            .is_empty(),
         "a refused question must not have reached the data system"
     );
 }
@@ -68,16 +75,19 @@ fn a_refused_question_never_reaches_the_data_system() {
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     // A SECOND warehouse, and a fresh one: the bundle's anchors were run against the certified
     // fake, and what this asserts is that nothing reaches THIS one.
-    let fake = crate::support::RecordingWarehouse::new();
+    let fake = sutura_app::Warehouses::of(crate::support::RecordingWarehouse::new());
     for &(fixture, _) in PROVOKED {
         let outcome =
             sutura_app::answer(&validated, &question(&format!("{fixture}.yaml")), &fake).expect("a refusal is not an error");
         assert!(outcome.is_refusal(), "{fixture} was answered");
     }
+    let recorded = fake
+        .get(&crate::adapters::source())
+        .expect("the fake is registered under the corpus source");
     assert!(
-        fake.asked_about().is_empty(),
+        recorded.asked_about().is_empty(),
         "refused questions reached the data system: {:?}",
-        fake.asked_about()
+        recorded.asked_about()
     );
 }
 
@@ -92,7 +102,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
     // and not whether an engine can be made to run out of memory. The real one is shown biting in
     // `sutura_exec_datafusion::pool::ceiling_tests`.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
-    let exhausted = crate::support::ExhaustedEngine::at(1024 * 1024 * 1024);
+    let exhausted = sutura_app::Warehouses::of(crate::support::ExhaustedEngine::at(1024 * 1024 * 1024));
     let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &exhausted)
         .expect("exhaustion is a refusal, not an error");
     assert_eq!(
@@ -107,7 +117,7 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
     // must still be an error. A caller told "do not retry" about a data system that is briefly unwell
     // has been told the wrong thing, and the port's default answer of `None` is what keeps that true
     // for every adapter with no pool to bound.
-    let broken = crate::support::BrokenEngine::new();
+    let broken = sutura_app::Warehouses::of(crate::support::BrokenEngine::new());
     let failure = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &broken)
         .expect_err("a failure that is not the ceiling is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
@@ -132,7 +142,7 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     let cap = usize::try_from(MAX_ROWS).expect("the row cap fits a usize on every target this builds for");
 
     // One row past the cap. That row exists only because the plan asked for it: see below.
-    let too_wide = crate::support::WideResult::of(cap.saturating_add(1));
+    let too_wide = sutura_app::Warehouses::of(crate::support::WideResult::of(cap.saturating_add(1)));
     let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &too_wide)
         .expect("a refusal is not an error");
     assert_eq!(
@@ -146,14 +156,17 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     // indistinguishable from one the cap cut short, and the check above would have to refuse both -
     // which would make a legitimate ten-thousand-row answer unobtainable.
     assert_eq!(
-        too_wide.asked_for(),
+        too_wide
+            .get(&crate::adapters::source())
+            .expect("the fake is registered under the corpus source")
+            .asked_for(),
         vec![MAX_ROWS.saturating_add(1)],
         "the plan must ask for one row past the cap, or reaching the cap cannot be told from being cut off by it"
     );
 
     // And exactly the cap still answers, so this is not a test that would pass with every wide
     // question refused.
-    let at_the_cap = crate::support::WideResult::of(cap);
+    let at_the_cap = sutura_app::Warehouses::of(crate::support::WideResult::of(cap));
     let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &at_the_cap)
         .expect("a refusal is not an error");
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
@@ -186,7 +199,8 @@ fn a_corrupted_anchor_makes_the_bundle_unservable_rather_than_answering() {
         .next()
         .expect("the example catalog declares at least one anchor");
     let drifted = first.clone();
-    let stopped_computing_it = crate::support::CertifiedNumbers::of(&pinned).misreporting(&drifted, "-1");
+    let stopped_computing_it =
+        sutura_app::Warehouses::of(crate::support::CertifiedNumbers::of(&pinned).misreporting(&drifted, "-1"));
     let err = sutura_app::verify_and_validate(pinned, &stopped_computing_it)
         .expect_err("a bundle with a mismatched anchor must not be servable");
     settings("").bind(|| insta::assert_snapshot!("anchor_mismatch", err.to_string()));

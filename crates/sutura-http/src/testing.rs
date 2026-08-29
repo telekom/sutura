@@ -22,6 +22,7 @@ use sutura_domain::model::{
 };
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::Executable;
+use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
@@ -228,19 +229,34 @@ pub(crate) struct StatementRejected {
 /// A data system that fails every statement.
 pub(crate) struct FailingWarehouse {
     source: SourceName,
+    posture: SourcePosture,
 }
 
 impl FailingWarehouse {
-    pub(crate) const fn new(source: SourceName) -> Self {
-        Self { source }
+    /// One, registered - which is what `LocalService::start` takes.
+    ///
+    /// The posture is `shared-service-user` with a reason this file wrote, and that is honest for a
+    /// fake over no data system at all: there is nowhere for a subject to arrive, which is the same
+    /// answer the shipped engine gives.
+    pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+        sutura_app::Warehouses::of(Self {
+            source,
+            posture: shared_posture(),
+        })
     }
 }
 
 impl Warehouse for FailingWarehouse {
     type Error = StatementRejected;
 
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
     fn source(&self) -> &SourceName {
         &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
     }
 
     fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
@@ -262,6 +278,7 @@ impl Warehouse for FailingWarehouse {
 /// the number, and the anchor check only needs the metric's own column to carry it.
 pub(crate) struct FakeWarehouse {
     source: SourceName,
+    posture: SourcePosture,
     result: RowSet,
     held: Arc<AtomicBool>,
 }
@@ -269,8 +286,14 @@ pub(crate) struct FakeWarehouse {
 impl Warehouse for FakeWarehouse {
     type Error = StatementRejected;
 
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
     fn source(&self) -> &SourceName {
         &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
     }
 
     fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
@@ -316,8 +339,36 @@ impl Held {
     }
 }
 
-/// A warehouse whose one answer reproduces the anchor, so the bundle validates.
-pub(crate) fn fake_warehouse() -> FakeWarehouse {
+/// The posture every fake in this file is handed.
+///
+/// One definition, so a test that reads a posture out of an answer's provenance is reading the same
+/// value every fixture declares. A fake executes nothing over no data system, so there is nowhere for
+/// a subject's credential to arrive - which makes the shared posture the true declaration rather than
+/// a convenient one, and the reason says so.
+fn shared_posture() -> SourcePosture {
+    SourcePosture::SharedServiceUser {
+        declared: SharedIdentityDeclared::of(
+            AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+                .expect("a fixture reason is a reason"),
+        ),
+    }
+}
+
+/// The execution record an answer from these fixtures carries.
+///
+/// One leg on [`source`], under the posture [`shared_posture`] declares, which is what
+/// `sutura_app::answer` would have read off the adapter. Built here rather than inline so a wire test
+/// and the fixtures cannot disagree about which posture the fake was handed.
+pub(crate) fn ran_shared() -> sutura_domain::source::ExecutedAs {
+    sutura_domain::source::ExecutedAs::of(source(), shared_posture())
+}
+
+/// A registry holding one warehouse whose answer reproduces the anchor, so the bundle validates.
+///
+/// **These helpers return a `Warehouses` and not a warehouse**, because that is what
+/// `LocalService::start` takes now: a deployment holds as many data systems as its catalog names, and
+/// the transport's fixtures hold one.
+pub(crate) fn fake_warehouse() -> sutura_app::Warehouses<FakeWarehouse> {
     warehouse_that_can_be_held().0
 }
 
@@ -325,7 +376,7 @@ pub(crate) fn fake_warehouse() -> FakeWarehouse {
 ///
 /// For the `408` assertion: the surface bounds the RESPONSE and not the work, so the way to observe
 /// a timeout is a port call that has not returned yet.
-pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
+pub(crate) fn warehouse_that_can_be_held() -> (sutura_app::Warehouses<FakeWarehouse>, Held) {
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     // The SAME `Arc` on both sides, which is the whole point of the pair: the switch a test holds
@@ -333,11 +384,12 @@ pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
     // then nothing is ever held - caught by the `408` test, which answered `200`.
     let held = Arc::new(AtomicBool::new(false));
     (
-        FakeWarehouse {
+        sutura_app::Warehouses::of(FakeWarehouse {
             source: source(),
+            posture: shared_posture(),
             result,
             held: Arc::clone(&held),
-        },
+        }),
         Held(held),
     )
 }
@@ -348,25 +400,26 @@ pub(crate) fn warehouse_that_can_be_held() -> (FakeWarehouse, Held) {
 /// they share this rather than each restating the struct. `held` starts cleared, which is the state
 /// every one of them wants: holding is for the timeout and admission tests, which use
 /// [`warehouse_that_can_be_held`].
-fn answering(source: SourceName, result: RowSet) -> FakeWarehouse {
-    FakeWarehouse {
+fn answering(source: SourceName, result: RowSet) -> sutura_app::Warehouses<FakeWarehouse> {
+    sutura_app::Warehouses::of(FakeWarehouse {
         source,
+        posture: shared_posture(),
         result,
         held: Arc::new(AtomicBool::new(false)),
-    }
+    })
 }
 
-/// A warehouse claiming to be a data system this process did not open.
+/// A registry holding one warehouse registered under a name the bundle does not read.
 ///
-/// For `SourceUnavailable`: `sutura_app::answer` compares the plan's source against the adapter's
-/// own and refuses when they differ, which is what catches a bundle pointed at one data system being
-/// answered from another. A fake claiming to be somewhere else is the whole instrument - no real
-/// adapter can be asked to lie about its own name, and none should be able to.
+/// For `SourceUnavailable`: `sutura_app::answer` looks the plan's source up in the registry and
+/// refuses when nothing is registered under it, which is what catches a bundle pointed at a data
+/// system this deployment did not configure. A fake registered under some other name is the whole
+/// instrument - no real adapter can be asked to lie about its own name, and none should be able to.
 ///
 /// Pair it with [`unanchored_bundle`]: `LocalService::start` re-executes every anchor, and an anchor
-/// against this adapter would be refused, so an anchored bundle would fail readiness rather than
+/// against this registry would be refused, so an anchored bundle would fail readiness rather than
 /// reaching the request path this exists to exercise.
-pub(crate) fn warehouse_pretending_to_be(name: &str) -> FakeWarehouse {
+pub(crate) fn warehouse_pretending_to_be(name: &str) -> sutura_app::Warehouses<FakeWarehouse> {
     let result = RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
         .expect("a one-cell result is a result set");
     answering(SourceName::parse(name).expect("a test source is a source"), result)
@@ -379,7 +432,7 @@ pub(crate) fn warehouse_pretending_to_be(name: &str) -> FakeWarehouse {
 /// decides its own row count. One row past the cap and not a hundred, because that is the boundary:
 /// the plan asks for `max_rows + 1`, so a result of exactly the cap is answerable and one more is
 /// the smallest thing that is not.
-pub(crate) fn warehouse_that_answers_past_the_row_cap() -> FakeWarehouse {
+pub(crate) fn warehouse_that_answers_past_the_row_cap() -> sutura_app::Warehouses<FakeWarehouse> {
     let cap = usize::try_from(sutura_domain::plan::MAX_ROWS).expect("the row cap fits a usize on every target this builds for");
     // The same cell in every row: what is under test is the COUNT, which is the only thing
     // `sutura_app::answer` compares against the cap, and distinct values would suggest otherwise.

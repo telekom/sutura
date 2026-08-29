@@ -30,6 +30,7 @@ use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricNa
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
@@ -119,14 +120,21 @@ impl SemanticCatalog for FixedCatalog {
 /// number, and the anchor check only needs the metric's own column to carry it.
 pub(crate) struct FakeWarehouse {
     source: SourceName,
+    posture: SourcePosture,
     result: RowSet,
 }
 
 impl Warehouse for FakeWarehouse {
     type Error = Unreachable;
 
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
     fn source(&self) -> &SourceName {
         &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
     }
 
     fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
@@ -138,13 +146,35 @@ impl Warehouse for FakeWarehouse {
     }
 }
 
-/// A warehouse whose one answer reproduces the anchor, so the bundle validates.
-pub(crate) fn fake_warehouse() -> FakeWarehouse {
-    FakeWarehouse {
+/// The posture every fake here is handed.
+///
+/// A fake executes nothing over no data system, so there is nowhere for a subject's credential to
+/// arrive - which makes the shared posture the true declaration rather than a convenient one.
+fn shared_posture() -> SourcePosture {
+    SourcePosture::SharedServiceUser {
+        declared: SharedIdentityDeclared::of(
+            AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+                .expect("a fixture reason is a reason"),
+        ),
+    }
+}
+
+/// The execution record an answer from this fixture carries.
+pub(crate) fn ran_shared() -> ExecutedAs {
+    ExecutedAs::of(source(), shared_posture())
+}
+
+/// A registry holding one warehouse whose answer reproduces the anchor, so the bundle validates.
+///
+/// It returns a `Warehouses` because that is what `LocalService::start` takes: a deployment holds as
+/// many data systems as its catalog names, and this transport's fixture holds one.
+pub(crate) fn fake_warehouse() -> sutura_app::Warehouses<FakeWarehouse> {
+    sutura_app::Warehouses::of(FakeWarehouse {
         source: source(),
+        posture: shared_posture(),
         result: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(ANCHORED_VALUE)]])
             .expect("a one-cell result is a result set"),
-    }
+    })
 }
 
 /// The data system's own complaint, under the surface failure that carries it.

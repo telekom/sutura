@@ -47,6 +47,33 @@ security:
   # One of: none, sidecar, ingress, in-process. See the note above - this is a declaration of where
   # TLS is terminated, not a control that terminates it.
   tls_termination: "none"
+  # `identity` and `single_user_because` are DELIBERATELY ABSENT, and this is the only pair in this
+  # file whose absence is a refusal rather than a value.
+  #
+  # `identity` is one of: single-user, multi-user. It says who a query runs AS.
+  #
+  #   * `single-user` means credentials are static configuration: one user, one host, not
+  #     multi-tenant. A source served under one identity is correct for EVERYTHING there, because the
+  #     configured credential is that one user's own. It requires `single_user_because` - the
+  #     operator's own sentence for why - which is also the acknowledgement every shared source in
+  #     that deployment borrows.
+  #   * `multi-user` means the caller's identity arrives per request. Shared sources are still
+  #     permitted, and that is the whole difficulty: each one has to be acknowledged on its own
+  #     `sources.<alias>.acknowledged_because`, because inheriting an acknowledgement is how a
+  #     source nobody thought about gets served to everybody as somebody else's identity.
+  #
+  # There is no default and no derivation. "Every source shared means single-user" is the derivation
+  # that gets proposed, and it is unsound in exactly the configuration that most needs the check: a
+  # genuinely multi-tenant deployment whose sources are all shared would derive to single-user and be
+  # exempted from the acknowledgement. A deployment that configures a source and declares no mode
+  # does not start.
+  #
+  # Neither key makes a caller identity ARRIVE. `inbound`, below, is what does, and the two are
+  # independent on purpose: a deployment can verify exactly who is asking and still read every row
+  # as one identity, because leg 2 - a credential per execution leg - is not built. So what this
+  # declaration decides today is where a shared source's acknowledgement has to be written, which is
+  # what a deployment needs in place before a subject reaches a source rather than after.
+  #
   # `inbound` is deliberately ABSENT, and it is the one group in this file with no default at any
   # depth. It is how the identity of a CALLER reaches this deployment - leg 1, `docs/adr/0014` - and
   # the two absences it has are different facts:
@@ -124,6 +151,45 @@ telemetry:
   # Overridden by `RUST_LOG` when that is set, which is the convention every Rust operator already
   # knows. This is the fallback, not the ceiling.
   filter: "info"
+
+# The data systems this deployment declares, keyed by the alias a model's `source:` names.
+#
+# DELIBERATELY ABSENT, and an empty registry is not refused here: `Settings::load` on these defaults
+# has to keep producing a `Settings`, because that is what the `prompt` command and every settings
+# test read. What refuses a deployment that declared nothing is the composition root, which finds the
+# catalog naming a source it has no entry for and stops before a listener is bound.
+#
+# One entry per data system:
+#
+#   sources:
+#     local:
+#       # Which kind of data system this is: `files` is the only one this build has an adapter for.
+#       # Required, with no default. An unknown word is a parse refusal listing what is available.
+#       kind: "files"
+#       # Absolute. A relative path resolves against whatever working directory the supervisor chose,
+#       # which is a different directory on every host. Refused at parse.
+#       data_dir: "/srv/sutura/data"
+#       # shared-service-user, or impersonation-at-source. REQUIRED, with no default: there is no
+#       # bind address that makes "one identity for every caller" safe to assume.
+#       posture: "shared-service-user"
+#       # Required for a shared source in multi-user mode, and per source - no acknowledgement is
+#       # global and none is inherited from a neighbour. In single-user mode the mode's own
+#       # `security.single_user_because` is the acknowledgement.
+#       acknowledged_because: "a directory of CSVs this deployment owns; one process, one identity"
+#     warehouse:
+#       kind: "files"
+#       data_dir: "/srv/sutura/warehouse"
+#       posture: "impersonation-at-source"
+#       # The identity that re-runs this source's anchors at boot. Only on an impersonating source:
+#       # on a shared one the verification identity IS the shared identity, so a name here would be
+#       # read by nothing and is refused. A bundle with an anchor on an impersonating source that
+#       # declares none does not boot - a deployment that wants that gets it by authoring no anchors
+#       # on that source's metrics, which is a catalog fact a reviewer can see.
+#       verification_identity: "sutura_anchor_reader"
+#
+# `working_set_max_bytes` is not a key here and never will be: there is one working set, so a
+# per-source ceiling would be a number with nothing to bound. Writing it under a source is an
+# unknown-key error rather than a setting that quietly does nothing.
 
 catalog:
   dir: "catalog"

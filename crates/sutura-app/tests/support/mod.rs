@@ -39,6 +39,7 @@ use std::collections::BTreeMap;
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Executable, QueryPlan};
+use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
 use crate::adapters::source;
@@ -48,6 +49,26 @@ use crate::adapters::source;
 #[derive(Debug, thiserror::Error)]
 #[error("the hand-written catalog cannot fail")]
 pub(crate) struct Never;
+
+/// The posture every fake in this file declares.
+///
+/// **One value behind a `OnceLock` rather than a field on five structs**, and that is honest rather
+/// than lazy: every fake here executes nothing, over no data system, in this process - so there is
+/// nowhere for a subject's credential to arrive, and they cannot differ. A per-fake field would let a
+/// test set a posture the fake's own capability contradicts, which is the confusion the two
+/// declarations exist to prevent.
+///
+/// It is a `OnceLock` so [`Warehouse::posture`] can hand back a `&'static` and none of the five fakes
+/// needs a constructor argument it would have nothing to vary.
+fn fake_posture() -> &'static SourcePosture {
+    static POSTURE: std::sync::OnceLock<SourcePosture> = std::sync::OnceLock::new();
+    POSTURE.get_or_init(|| SourcePosture::SharedServiceUser {
+        declared: SharedIdentityDeclared::of(
+            AcknowledgementReason::parse("a fake over no data system, executing in this process")
+                .expect("a fixture reason is a reason"),
+        ),
+    })
+}
 
 /// The whole plan a fake was handed.
 ///
@@ -111,6 +132,14 @@ impl RecordingWarehouse {
 
 impl Warehouse for RecordingWarehouse {
     type Error = Never;
+
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
 
     fn source(&self) -> &SourceName {
         &self.source
@@ -180,6 +209,14 @@ impl CertifiedNumbers {
 impl Warehouse for CertifiedNumbers {
     type Error = Never;
 
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -243,6 +280,14 @@ impl WideResult {
 impl Warehouse for WideResult {
     type Error = Never;
 
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -300,6 +345,14 @@ impl ExhaustedEngine {
 impl Warehouse for ExhaustedEngine {
     type Error = Exhausted;
 
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -336,6 +389,14 @@ impl BrokenEngine {
 impl Warehouse for BrokenEngine {
     type Error = Exhausted;
 
+    // Every fake here executes nothing over no data system, in this process, so there is nowhere
+    // for a subject credential to arrive - the same answer the shipped engine gives.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
     fn source(&self) -> &SourceName {
         &self.source
     }
@@ -355,6 +416,6 @@ impl Warehouse for BrokenEngine {
 /// mismatch. `sutura_app::verify_and_validate` is the whole of the path, so this cannot drift into
 /// asserting a bundle is fit to serve without the anchors having been executed.
 pub(crate) fn validated_bundle(pinned: PinnedDefinitions) -> sutura_app::Validated<PinnedDefinitions> {
-    let certified = CertifiedNumbers::of(&pinned);
+    let certified = sutura_app::Warehouses::of(CertifiedNumbers::of(&pinned));
     sutura_app::verify_and_validate(pinned, &certified).expect("a catalog's own declared numbers reproduce themselves")
 }

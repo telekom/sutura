@@ -51,6 +51,7 @@ use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::model::{JoinType, SourceName, TableName};
 use sutura_domain::plan::{Executable, QueryPlan};
+use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
@@ -205,6 +206,13 @@ use crate::translate::{bucket_expression, column, measure_expression, predicate,
 /// An in-process engine, behind the [`Warehouse`] port.
 pub struct DataFusionWarehouse {
     source: SourceName,
+    /// Which identity a query reaches this source as, as the deployment declared it.
+    ///
+    /// **Handed over at construction and never derived here.** The adapter declares a *capability* -
+    /// see [`Warehouse::IMPERSONATION`] below - and the deployment declares the *posture*; an adapter
+    /// that chose its own posture would be an adapter deciding what a caller gets. It is kept so
+    /// provenance can be read off the thing that executed rather than off a settings tree.
+    posture: SourcePosture,
     context: SessionContext,
     /// **One runtime, built once and kept.** The engine is async from the first table lookup to the
     /// last batch collected, and a runtime built per query is a reactor created and torn down for
@@ -268,13 +276,16 @@ impl DataFusionWarehouse {
     /// rather than a refusal - so a constructor that let a caller skip the bound would be the one
     /// place the whole control could be forgotten. `sutura_config::WorkingSetCeiling::DEFAULT_BYTES`
     /// is what a caller with no settings to read uses.
-    pub fn new(source: SourceName, working_set: WorkingSet) -> Result<Self, DataFusionError> {
+    /// **It also takes the posture, and that is not optional either**, for the reason the ceiling is
+    /// not: a defaulted posture would be a claim about who a query runs as that nobody made.
+    pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
         let (environment, pool) = pool::environment(working_set)?;
         Ok(Self {
             source,
+            posture,
             // `new_with_config_rt` rather than `new`, which is the whole of the bound: `new` installs
             // an `UnboundedMemoryPool`. The config half is the engine's own default here, because a
             // current-thread runtime has no width to pin - see `with_worker_threads` for the site
@@ -317,6 +328,7 @@ impl DataFusionWarehouse {
     /// exits, and it is also the caller with no settings to read a width from.
     pub fn with_worker_threads(
         source: SourceName,
+        posture: SourcePosture,
         workers: core::num::NonZeroUsize,
         working_set: WorkingSet,
     ) -> Result<Self, DataFusionError> {
@@ -328,6 +340,7 @@ impl DataFusionWarehouse {
         let (environment, pool) = pool::environment(working_set)?;
         Ok(Self {
             source,
+            posture,
             // `new_with_config_rt` and NOT `new_with_config`: the second takes the default
             // environment, which carries the engine's unbounded pool. **`with_target_partitions` is
             // untouched** - `width_tests.rs` asserts both halves of this line, and a partition count
@@ -525,8 +538,23 @@ impl DataFusionWarehouse {
 impl Warehouse for DataFusionWarehouse {
     type Error = DataFusionError;
 
+    /// **This engine cannot impersonate anybody, and saying so is the point of the declaration.** It
+    /// is one process reading local files under one operating-system identity, and there is no place
+    /// in that path for a subject to arrive - not a connection to authenticate, not a session to
+    /// switch, not a token to present. A file engine is the easiest source in the world to assume
+    /// nothing about, and "nobody declared anything for the engine" is how a deployment ends up
+    /// believing its whole surface impersonates because its *network* source does.
+    ///
+    /// The boot check reads this against the configured posture, so a source declared
+    /// `impersonation-at-source` on this adapter does not start.
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
     fn source(&self) -> &SourceName {
         &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
     }
 
     // No `dry_run`, and the omission is the point. This adapter is the engine, in this process:
@@ -573,6 +601,21 @@ mod value_mapping_tests;
 /// How wide the engine runs, in its own file for the same reason.
 #[cfg(test)]
 mod width_tests;
+
+/// The posture this crate's own tests open the engine with.
+///
+/// One definition shared by four test files, so a fixture cannot drift from the capability the adapter
+/// declares. Shared is the honest value rather than a convenient one: one process, one
+/// operating-system identity, and `IMPERSONATION` says there is nowhere for a subject to arrive.
+#[cfg(test)]
+pub(crate) fn test_posture() -> SourcePosture {
+    SourcePosture::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(
+            sutura_domain::source::AcknowledgementReason::parse("one process reading local files as one identity")
+                .expect("a fixture reason is a reason"),
+        ),
+    }
+}
 
 /// The adapter's own suite - attaching a file, executing a plan, and the translation helpers - in
 /// its own file for the same reason.

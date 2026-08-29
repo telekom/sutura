@@ -64,20 +64,25 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 ## `fn answer`
 
 ```rust
-pub fn answer<W>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouse: &W) -> Answered<W>
+pub fn answer<W>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouses: &Warehouses<W>) -> Answered<W>
 ```
 
 Answers one question, or says why it will not.
 
-The source check is not a formality. A plan names exactly one data system, and running it against
-a different one would answer a question about other data under the same provenance. It is a
-refusal rather than an error because it is a governance outcome: this caller cannot have this
-question answered here.
+The source lookup is not a formality. A plan names exactly one data system, and running it against
+a different one would answer a question about other data under the same provenance. So the plan
+SELECTS its warehouse out of the registry, and a plan naming a source this process did not open is
+a refusal rather than an error: it is a governance outcome, and `SourceUnavailable` now says what
+its name says - nothing is configured under that name.
+
+**The registry is what made that refusal honest.** Under one warehouse the check compared the
+plan's source against the single adapter's own, so "nobody configured this data system" and "this
+is the other one of the two we opened" were the same refusal.
 
 ## `fn verify_anchors`
 
 ```rust
-pub fn verify_anchors<W>(pinned: &sutura_domain::pinned::PinnedDefinitions, warehouse: &W) -> sutura_domain::pinned::AnchorReport
+pub fn verify_anchors<W>(pinned: &sutura_domain::pinned::PinnedDefinitions, warehouses: &Warehouses<W>) -> sutura_domain::pinned::AnchorReport
 ```
 
 Re-executes every declared anchor and reports what each produced.
@@ -97,6 +102,23 @@ The data systems a bundle reads from.
 Exposed because a composition root has to decide which adapters to open before it can answer
 anything, and reading it off the bundle beats being told twice.
 
+## `fn source_of`
+
+```rust
+pub fn source_of<'bundle>(pinned: &'bundle sutura_domain::pinned::PinnedDefinitions, metric: &sutura_domain::model::MetricName) -> Option<&'bundle sutura_domain::model::SourceName>
+```
+
+The data system one metric's own model sits on.
+
+Exposed for the composition root's anchor check: an anchor is asked with no dimensions, so it
+resolves to the metric's own model and therefore to that model's source - which is the source whose
+declared verification identity would have to run it.
+
+**Narrower than "every source this metric's plan could read", deliberately.** A question WITH
+dimensions can reach a joined model, and the plan stage refuses one that spans two sources - so for
+a plan that compiles at all this is the only source there is. What it is not is a general answer for
+a federated plan, and it stops being the right function the moment one exists.
+
 ## `fn grains_coarsest_first`
 
 ```rust
@@ -107,6 +129,10 @@ The grains a metric declares, coarsest first.
 
 A small helper the composition root uses to describe a metric, kept here so the ordering is the
 same one `verify_anchors` picks a grain by.
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -272,7 +298,8 @@ Why a service could not be started.
 pub struct LocalService<W, S>
 ```
 
-The one implementation: a validated bundle, one data system and one audit sink, behind the ports.
+The one implementation: a validated bundle, the data systems this process opened, and one audit
+sink, behind the ports.
 
 Holds the bundle as `Validated`, which has no constructor other than one that executes every
 anchor against a warehouse - so a `LocalService` that exists is one whose anchors held. That
@@ -283,11 +310,17 @@ one, so "this deployment forgot to attach a sink" is not a state that exists - w
 difference between a record that is always written and a record that is usually written. What the
 sink then *does* with a record is the deployment's, and `sutura_domain::audit` states that limit
 where the port is declared.
+**It holds a `Warehouses` and not one warehouse, which is what makes more than one source
+configurable.** A plan names one data system, so the registry is a lookup rather than a fan-out:
+`crate::answer` selects the adapter the plan named and refuses `SourceUnavailable` when nothing
+is registered under that name. The limit is stated where the type is - every entry is the same
+adapter type `W`, so a deployment holds two file sources or two databases behind one adapter, and a
+heterogeneous set is an architecture decision rather than a change here.
 
 #### Methods
 
 ```rust
-pub fn start<C>(catalog: &C, warehouse: W, sink: S) -> Result<Self, ServiceNotStarted>
+pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
@@ -565,6 +598,149 @@ The whole prompt, as markdown.
 Deterministic in its inputs: every collection walked here is a `BTreeMap` or a `BTreeSet`, and
 the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.
+
+## Module `warehouses`
+
+The data systems this process opened, keyed by the name a plan selects them with.
+
+# Why a registry rather than one warehouse
+
+A plan resolves to exactly one source - that is refused as `PlanSpansTwoSources` otherwise - but a
+*deployment* holds as many as its catalog names, and until now the service held exactly one. That
+made two facts indistinguishable: "this question is for a data system nobody configured" and "this
+question is for the other one of the two we opened". The first is a refusal an operator has to fix
+and the second is an ordinary question.
+
+So the lookup moves out of the adapter and into a registry keyed by `SourceName`, and two things
+follow from that rather than being added:
+
+- `answer` selects the warehouse the *plan* named instead of comparing the plan against the one
+  adapter it was handed, so `RefusalReason::SourceUnavailable` now means what its name says: no
+  data system is configured under that name.
+- the anchor pass runs each metric's anchor against the warehouse for *that metric's* source, so a
+  bundle spanning two configured sources verifies rather than reporting every anchor on the second
+  one as a source mismatch.
+
+# The limit, and it is the reason step ten exists
+
+**Every entry is the same adapter type.** `Warehouses<W>` is generic in one `W`, so a deployment
+can hold two file sources over two directories, or two databases behind one adapter - and cannot
+hold a file engine and a `BigQuery` adapter at once. Federating across *different* data systems
+needs a closed enum over the registered adapter types or dynamic dispatch, and which of those is a
+decision with a record rather than a change to this file: `Warehouse` carries a required associated
+constant, so it is not object-safe, and that was decided where the constant is declared.
+
+What this shape does buy today is the whole of what the boot checks need: more than one source
+configured, each declaring its own posture, and an answer that says which posture produced it.
+
+### `struct Warehouses`
+
+```rust
+pub struct Warehouses<W>
+```
+
+The data systems this process opened.
+
+Keyed by each adapter's own `Warehouse::source` rather than by a name the caller passes
+alongside it, so the key and the adapter cannot disagree about which source this is - the same
+reason `PinnedDefinitions::pin` computes its digest from the definitions it stores.
+
+#### Methods
+
+```rust
+pub fn and(self, another: W) -> Result<Self, SourceAlreadyOpen>
+```
+
+A second data system, or a refusal naming the source that was already open.
+
+Consumes and returns, so a registry is built in one expression and there is no half-built state
+for something else to read.
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many data systems are open. At least one, because `Self::of` is the only way in.
+
+```rust
+pub fn each(&self) -> impl Iterator<Item>
+```
+
+Every open data system, in source order.
+
+```rust
+pub fn executed_on(&self, source: &SourceName) -> Option<ExecutedAs>
+```
+
+The execution record for an answer that ran on `source` and nowhere else.
+
+The one place a mono-source answer's provenance comes from, so the posture in an answer is the
+posture the adapter that executed it was holding. `None` when nothing is open for that source,
+which is the case the caller has already turned into a refusal by the time it asks.
+
+```rust
+pub fn get(&self, source: &SourceName) -> Option<&W>
+```
+
+The data system a plan naming `source` runs on, if this process opened one.
+
+`Option` rather than a refusal, because who turns an absence into a refusal depends on what is
+asking: the query path answers `RefusalReason::SourceUnavailable`, and the anchor pass records
+`NotExecutedReason::SourceNotConfigured` against the metric. Deciding here would make one of
+those two the other's wording.
+
+```rust
+pub fn of(one: W) -> Self
+```
+
+One data system. The canonical constructor, and the only way a registry comes into existence.
+
+Infallible, because one adapter cannot collide with itself. Every deployment that answers
+anything has at least one, so there is deliberately no empty form: a registry with nothing in
+it would refuse every question with `SourceUnavailable`, which is a running service that
+cannot work - and the composition root refuses that before a listener is bound instead.
+
+```rust
+pub fn postures(&self) -> impl Iterator<Item>
+```
+
+The posture each open data system was handed, as a startup log reads it.
+
+Read off the adapters rather than off a settings tree, for the reason
+`sutura_domain::warehouse::Warehouse::posture` gives: a summary derived from configuration
+reports what was configured rather than what was built.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct SourceAlreadyOpen`
+
+```rust
+pub struct SourceAlreadyOpen
+```
+
+Two adapters were registered for one source.
+
+Its own type rather than a silent overwrite, because whichever adapter lost would then be the one
+nobody opened and nothing would say so. It is not the same failure as a duplicate *alias* in the
+settings tree - that one is refused before any adapter is built - it is a composition root that
+built two adapters naming one source.
+
+#### Methods
+
+```rust
+pub const fn at(&self) -> &SourceName
+```
+
+Which source was registered twice.
+
+Named `at` rather than `source` for the reason `PostureNotDeliverable::at` gives: `thiserror`'s
+derive gives this type an `Error::source`, and `clippy::same_name_method` is denied.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `capability`
 

@@ -230,6 +230,12 @@ pub enum OutcomeContent {
     /// The question was answered.
     Answer {
         provenance: ProvenanceContent,
+        /// Which identity each leg of this answer executed as, one entry per source.
+        ///
+        /// A sibling of `provenance` rather than a field inside it, matching the HTTP surface's shape
+        /// for the reason stated there. The two wire types are kept equal by review; an adapter may
+        /// not reach into another adapter.
+        executed_as: Vec<LegContent>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the one
@@ -251,6 +257,20 @@ pub enum OutcomeContent {
 pub struct ProvenanceContent {
     definition_version: String,
     definition_digest: String,
+}
+
+/// One leg of an answer: which source it ran on, and which identity it ran as.
+///
+/// **The posture is a word, and the operator's acknowledgement reason is not here.** The reason is
+/// prose an operator wrote for a reviewer and the startup log prints it; sending it to an agent on
+/// every answer would be a channel from a configuration file into a model's context that nobody asked
+/// for. What an agent needs is which of the two postures produced the rows.
+///
+/// Reading it is not a control: it reaches the agent after the rows did.
+#[derive(Debug, serde::Serialize)]
+pub struct LegContent {
+    source: String,
+    posture: &'static str,
 }
 
 /// Why a question was refused: a stable code a caller branches on, and a sentence a person reads.
@@ -287,6 +307,7 @@ impl From<&ToolOutcome> for OutcomeContent {
                 ref rows,
             } => Self::Answer {
                 provenance: provenance_content(provenance),
+                executed_as: legs(provenance),
                 columns: rows.columns().to_vec(),
                 rows: render(rows),
             },
@@ -316,6 +337,7 @@ impl OutcomeContent {
         match *self {
             Self::Answer {
                 ref provenance,
+                ref executed_as,
                 ref columns,
                 ref rows,
             } => {
@@ -330,6 +352,15 @@ impl OutcomeContent {
                 out.push_str(" (digest ");
                 out.push_str(&provenance.definition_digest);
                 out.push(')');
+                // The posture in the TEXT half as well as the structured one, because an agent that
+                // reads only the text is the case this half exists for - and "every caller sees these
+                // rows" is a fact about the answer rather than a detail of the transport.
+                for leg in executed_as {
+                    out.push_str("\nread from ");
+                    out.push_str(&leg.source);
+                    out.push_str(" as: ");
+                    out.push_str(leg.posture);
+                }
                 out
             }
             // The code as well as the sentence, because the code is the part that is stable and the
@@ -344,6 +375,34 @@ fn provenance_content(provenance: &Provenance) -> ProvenanceContent {
         definition_version: String::from(provenance.version().as_str()),
         definition_digest: String::from(provenance.digest().as_str()),
     }
+}
+
+/// The same two fields, read straight off a bundle nothing executed against.
+///
+/// The tool listing describes a bundle rather than answering a question, so there is no `Provenance`
+/// to build for it: `PinnedDefinitions::provenance` requires the execution record, and inventing an
+/// empty one here would be a claim that a leg ran and produced nothing. The twin of
+/// `sutura_http::wire`'s own `bundle_body`, and a twin rather than a shared helper because an adapter
+/// may not reach into another adapter.
+fn bundle_content(pinned: &PinnedDefinitions) -> ProvenanceContent {
+    ProvenanceContent {
+        definition_version: String::from(pinned.version().as_str()),
+        definition_digest: String::from(pinned.digest().as_str()),
+    }
+}
+
+/// Which identity each leg of one answer ran as, in source order.
+///
+/// Read off the `Provenance` the domain built from the adapter that executed - not from configuration.
+fn legs(provenance: &Provenance) -> Vec<LegContent> {
+    provenance
+        .executed_as()
+        .legs()
+        .map(|(source, posture)| LegContent {
+            source: String::from(source.as_str()),
+            posture: posture.as_str(),
+        })
+        .collect()
 }
 
 /// Cells as text, through the domain's own renderer.
@@ -460,7 +519,7 @@ impl From<&PinnedDefinitions> for CatalogContent {
             })
             .collect();
         Self {
-            provenance: provenance_content(&pinned.provenance()),
+            provenance: bundle_content(pinned),
             metrics,
         }
     }
@@ -602,15 +661,26 @@ mod tests {
         )
         .expect("a one-cell result is a result set");
         let content = OutcomeContent::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(),
+            provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
             rows,
         });
         let rendered = serde_json::to_string(&content).expect("the outcome serializes");
         assert!(rendered.contains(r#""outcome":"answer""#), "{rendered}");
         assert!(rendered.contains(r#""definition_version":"test-1""#), "{rendered}");
         assert!(rendered.contains("197122"), "{rendered}");
+        // Which identity produced it, per leg, in BOTH halves - an agent that reads only the text is
+        // the case the second half exists for.
+        assert!(
+            rendered.contains(r#""executed_as":[{"source":"local","posture":"shared-service-user"}]"#),
+            "{rendered}"
+        );
         let text = content.as_text();
         assert!(text.starts_with("revenue\n197122"), "{text}");
         assert!(text.contains("definitions: test-1"), "{text}");
+        assert!(text.contains("read from local as: shared-service-user"), "{text}");
+        // And the operator's own reason stays out of both: it is prose written for a reviewer, and an
+        // answer is not a channel for configuration text to reach a model.
+        assert!(!rendered.contains("transport-layer fake"), "{rendered}");
+        assert!(!text.contains("transport-layer fake"), "{text}");
     }
 }

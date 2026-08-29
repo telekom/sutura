@@ -69,10 +69,22 @@
 //! - `security.tls_termination: in-process` without a certificate and key, or in a binary built
 //!   without the `tls` feature; or a certificate and key no declaration would ever read.
 //! - `server.port: 0` in production.
+//! - A configured source with no `security.identity`. The mode has no default and no derivation - see
+//!   `security::DeploymentIdentity`, which explains why no combination of source
+//!   postures may answer it on the operator's behalf.
+//! - A `shared-service-user` source in `multi-user` mode with no `acknowledged_because` on that
+//!   source's own entry. Per source, because an acknowledgement inherited from a neighbour is how a
+//!   source nobody thought about gets served to everybody as somebody else's identity.
 //!
 //! The checks read the *loaded* values, not any one file, because the variable layer is applied
 //! last: a check against `production.yaml` would be checking something the process is not running
 //! on.
+//!
+//! **Two refusals a deployment can still hit are NOT in this crate, and the split follows what each
+//! half can see.** Whether the *linked adapter* can carry a per-subject credential at all is a property
+//! of the build, and whether the *bundle* declares an anchor is a property of the catalog; this crate
+//! sees neither, so both are startup refusals in the composition root. [`sources`] says so where the
+//! declarations are.
 //!
 //! **A value out of range is a different refusal, through a different type, and one of them reads the
 //! machine.** [`NotFitToServe`] is about a *combination* of settings that are each individually legal;
@@ -95,6 +107,7 @@ pub mod proxy;
 pub mod runtime;
 pub mod security;
 pub mod server;
+pub mod sources;
 pub mod telemetry;
 
 mod raw;
@@ -114,13 +127,19 @@ pub use crate::proxy::{Cidr, ClientAddressSource, InvalidTrustedProxy, TrustedPr
 pub use crate::runtime::{
     AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling, available_memory_bytes,
 };
-pub use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
+pub use crate::security::{
+    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
+    UnknownDeploymentIdentity, UnknownTlsTermination,
+};
 pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,
 };
 pub use crate::settings::{
     ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR,
     environment_from_process,
+};
+pub use crate::sources::{
+    ConfiguredSource, InvalidSourceRegistry, SourceKind, SourceRegistry, UnknownPosture, UnknownSourceKind,
 };
 pub use crate::telemetry::{
     InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
