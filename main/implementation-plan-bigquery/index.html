@@ -873,6 +873,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#before-either-step-authenticating-a-developer-against-a-test-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before either step: authenticating a developer against a test instance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before either step: authenticating a developer against a test instance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-identity-this-login-serves-and-which-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which identity this login serves, and which it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bigquery-on-a-service-account" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1963,6 +1991,34 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#before-either-step-authenticating-a-developer-against-a-test-instance" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Before either step: authenticating a developer against a test instance
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Before either step: authenticating a developer against a test instance">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-identity-this-login-serves-and-which-it-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which identity this login serves, and which it does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#bigquery-on-a-service-account" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2022,6 +2078,63 @@ reasons that stand on their own:</p>
   a real reason and an unglamorous one, and it is the kind that actually predicts whether a split
   survives.</li>
 </ul>
+<h2 id="before-either-step-authenticating-a-developer-against-a-test-instance">Before either step: authenticating a developer against a test instance<a class="headerlink" href="#before-either-step-authenticating-a-developer-against-a-test-instance" title="Permanent link">&para;</a></h2>
+<p><strong><code>just gcloud-login</code> is the whole entry point</strong>, and it lands ahead of the adapter because the
+decision the first step is blocked on - <em>what does a test run against</em> - cannot be made without
+something live to try it against. It performs both logins that matter, in one task: <code>gcloud auth
+login</code> authorizes the CLI, and <code>gcloud auth application-default login</code> writes the credential a
+client library reads. Doing the first and forgetting the second is the failure that reads as a
+broken adapter.</p>
+<p><strong>The CLI is a pinned container rather than a package</strong>, and <code>pixi.toml</code> carries the argument:
+conda-forge publishes no <code>win-64</code> build of it, this workspace declares that platform, and the
+manifest's own rule is that tooling which cannot resolve on a platform we ship to is tooling nobody
+can run there. The alternative - a package on three platforms and a container on the fourth - is two
+invocations to keep in step, and the one that drifts is the one nobody runs. The image is reached
+through the same registry variable every service in the development tier uses, so a network behind a
+registry mirror needs no change here; <code>xtask</code>'s own suite compares the two defaults, because the two
+spellings cannot be compared by reading.</p>
+<p><strong>Nothing lands in this repository.</strong> Both logins write into the developer's own gcloud
+configuration directory, which is bind-mounted into the container, so a native <code>gcloud</code>, <code>bq</code> or any
+client library on the host is authenticated afterwards - and there is no repo-local credential to
+leak or to clean up. <code>CLOUDSDK_CONFIG</code> is honoured where that directory has been moved, which is
+also how a developer on Windows points at it.</p>
+<p><strong>Which project, dataset or location a developer works against is not written down here and will not
+be.</strong> A developer names it in their own environment: <code>.envrc</code> already sources a file under the user's
+own configuration directory for exactly this class of value, and <a href="../enterprise-mirrors/">building without direct
+egress</a> is the generic form of the same split. This repository is public, so
+the value belongs on the machine and only the hook belongs here.</p>
+<p><strong>This is tooling availability and not the adapter.</strong> No Rust dependency, nothing in
+<code>sutura-config</code>, no <code>Dialect::BigQuery</code>. Everything below is still to do.</p>
+<h3 id="which-identity-this-login-serves-and-which-it-does-not">Which identity this login serves, and which it does not<a class="headerlink" href="#which-identity-this-login-serves-and-which-it-does-not" title="Permanent link">&para;</a></h3>
+<p>Stated because the answer is easy to get wrong in the direction that matters, and because a reader
+who gets it wrong concludes that BigQuery authentication is solved when the part that matters is not
+built. <a href="../implementation-plan/">Row 8</a> gave a source exactly two spellings, and this login serves one
+of them:</p>
+<ul>
+<li><strong><code>SharedServiceUser</code> - what this login is for, and it is genuinely for it.</strong> One identity reaches
+  the source on behalf of everybody who asks. On a developer's machine that identity is the developer,
+  established by <code>gcloud auth application-default login</code>; in a deployment it is a service account, and
+  the credential arrives as static configuration. <strong>Not throwaway scaffolding:</strong> single-user mode is a
+  first-class posture that <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">0008</a> part 5a
+  calls a shape rather than a degradation, and it needs exactly this. So the row below can be built and
+  demonstrated with nothing more than what <code>just gcloud-login</code> provides.</li>
+<li><strong><code>ImpersonationAtSource</code> - what this login is NOT, and cannot become.</strong> A credential is minted per
+  leg for the subject who asked, so two subjects reading the same metric get different rows. Nothing on
+  this branch moves towards it. It needs the credential port, a workforce identity pool, and an
+  RFC 8693 exchange whose subject token this deployment does not hold when it starts - none of which an
+  application-default credential participates in.</li>
+</ul>
+<p><strong>They are not two points on a spectrum, and that is the whole reason this section exists.</strong> An
+application-default credential is <em>one identity for every caller</em>. The federated exchange is <em>one
+identity per asker</em>. Widening the first never reaches the second; the second replaces it. A deployment
+that authenticated with <code>gcloud</code> and then read every row as the developer has not partially
+impersonated anybody - it has answered every question as one identity, which is the posture
+<code>SharedServiceUser</code> exists to make a deployment declare out loud.</p>
+<p><strong>Where a service account sits in the federated chain is a deployment decision and not settled here.</strong>
+The federated principal can hold the dataset grants directly, or it can impersonate a service account
+that holds them - Google recommends the first and documents services where only the second works. Both
+are different from the credential this login writes, and the choice belongs with the pool's owner. The
+per-subject step below is where it gets recorded.</p>
 <h2 id="bigquery-on-a-service-account">BigQuery, on a service account<a class="headerlink" href="#bigquery-on-a-service-account" title="Permanent link">&para;</a></h2>
 <p><strong>Goal.</strong> The first cloud data source, and the one the deployment actually cares about. Queried
 directly, no federation, no impersonation - a warehouse declaring <code>SharedServiceUser</code>, exactly the
