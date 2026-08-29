@@ -5,16 +5,21 @@
 //! `sutura-http` already holds one - `QuestionBody`, with the same five fields and the same
 //! `TryFrom<..> for Query`. Sharing it would mean this adapter depending on that one, and *an
 //! adapter never calls another adapter* is the rule the whole layout rests on: a shape owned by one
-//! transport is a shape every other transport has to reach through it.
+//! transport is a shape every other transport has to reach through it. [`CatalogContent`] is the
+//! same story against `sutura_http::wire::CatalogBody`.
 //!
 //! **So the duplication is deliberate, and it is a cost rather than an oversight.** Nothing in the
-//! compiler makes two wire types stay equal. What guards them in this slice is
+//! compiler makes two wire types stay equal. What guards them is
 //! [`AskArgs`]'s own `deny_unknown_fields`, asserted through the transport in `crate::server`, plus
 //! the committed schema dump in [`crate::tool`] - a widened input changes a snapshot and the
 //! byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
-//! diff. What guards them *against each other* is review, until the mechanical test lands with the
-//! second tool: one description generated for both transports is a property that needs more than
-//! one tool to be meaningful, and it belongs to the next slice.
+//! diff.
+//!
+//! **What is now mechanical across the two transports is the TOOL SET, and not these shapes.**
+//! `sutura_app::Capability` is the one source both of them render, and
+//! `both_transports_describe_the_same_tools` in `crate::tool` is the assertion. The field lists of
+//! two wire types with the same job are still kept equal by review, and that limit is worth keeping
+//! in front of a reader rather than letting the tool-set test read as covering it.
 //!
 //! # Why the derive is here and not on `Query`
 //!
@@ -44,7 +49,7 @@
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::DimensionValue;
 use sutura_domain::model::{DimensionName, Grain, MetricName};
-use sutura_domain::pinned::Provenance;
+use sutura_domain::pinned::{PinnedDefinitions, Provenance};
 use sutura_domain::query::{Filter, Query, ToolOutcome};
 use sutura_domain::warehouse::RowSet;
 
@@ -352,6 +357,161 @@ fn render(rows: &RowSet) -> Vec<Vec<String>> {
         .iter()
         .map(|row| row.iter().map(sutura_domain::warehouse::Value::render).collect())
         .collect()
+}
+
+// --------------------------------------------------------------- catalog ----
+
+// **A type with no fields rather than no type at all**, and the reason is `deny_unknown_fields`.
+// `schemars` reads the same attribute serde does, so the advertised schema says
+// `additionalProperties: false` and an arguments object carrying `metric`, `sql` or anything else is
+// a named parse error rather than a key dropped on the floor. A tool that accepted any object would
+// be a tool whose surface a caller could guess at, and a caller that sent `metric` would believe it
+// had narrowed a listing it did not.
+//
+// It is also what keeps this half of the surface under the same drift guard as the other: the
+// generated schema is snapshotted in `crate::tool`, so a field added here lands in a reviewer's diff.
+//
+// **A plain comment and not a doc comment, deliberately.** `schemars` puts a root doc comment into
+// the schema's `description`, which is text a MODEL reads before it calls the tool - so the doc
+// comment on a wire type is caller-facing prose and the reasoning about the type goes here. The one
+// below is written for that reader.
+/// This tool takes no arguments. It returns the whole of what this deployment measures, and there is
+/// nothing to filter or select: send an empty object.
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+#[expect(
+    clippy::empty_structs_with_brackets,
+    reason = "the braces are the behaviour, not the formatting: a UNIT struct's Deserialize accepts \
+              `null` and REFUSES `{}` - measured, `invalid type: map, expected unit struct` - and `{}` \
+              is what a client with no arguments sends. The lint's suggestion breaks the tool"
+)]
+pub struct DescribeCatalogArgs {}
+
+/// What this deployment measures, as the catalog tool's structured content.
+///
+/// **A second wire type beside `sutura_http::wire::CatalogBody`, with the same fields, and that is
+/// the same deliberate cost [`AskArgs`] already pays.** An adapter never calls another adapter, so
+/// this crate cannot import that shape; what keeps the two equal is review plus the fact that both
+/// are built from the one `sutura_domain::pinned::PinnedDefinitions` accessor set, which is where a
+/// missing field would show up as a missing call rather than as a silent divergence.
+///
+/// Descriptive content only. `sutura_domain::pinned::SemanticCatalog::load` takes no request context
+/// and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
+/// returns: it is the *pinned* bundle, the same one every answer is computed from.
+#[derive(Debug, serde::Serialize)]
+pub struct CatalogContent {
+    /// Which snapshot this listing describes. The same version and digest an answer carries, so a
+    /// model can tell that the metric it read about is the metric it measured.
+    provenance: ProvenanceContent,
+    metrics: Vec<MetricContent>,
+}
+
+/// One metric, as much of it as a caller needs to ask a valid question.
+#[derive(Debug, serde::Serialize)]
+pub struct MetricContent {
+    name: String,
+    description: String,
+    /// Coarsest first, which is the order an anchor is checked at.
+    grains: Vec<String>,
+    dimensions: Vec<DimensionContent>,
+}
+
+/// One dimension of one metric.
+#[derive(Debug, serde::Serialize)]
+pub struct DimensionContent {
+    name: String,
+    description: String,
+    /// Whether this dimension can be filtered on as well as grouped by.
+    filterable: bool,
+    /// The values a filter may use, where the catalog declares a set. Absent means groupable and not
+    /// filterable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    allowed_values: Option<Vec<String>>,
+}
+
+impl From<&PinnedDefinitions> for CatalogContent {
+    fn from(pinned: &PinnedDefinitions) -> Self {
+        let metrics = pinned
+            .definitions()
+            .metrics()
+            .values()
+            .map(|metric| MetricContent {
+                name: String::from(metric.name().as_str()),
+                description: String::from(metric.description()),
+                grains: {
+                    let mut grains: Vec<Grain> = metric.grains().iter().copied().collect();
+                    // Reversed, because `Grain`'s own ordering runs fine to coarse and a reader wants
+                    // the coarsest first - the same order the HTTP surface renders.
+                    grains.sort_unstable_by(|left, right| right.cmp(left));
+                    grains.into_iter().map(|grain| String::from(grain.as_str())).collect()
+                },
+                dimensions: metric
+                    .dimensions()
+                    .values()
+                    .map(|dimension| DimensionContent {
+                        name: String::from(dimension.name().as_str()),
+                        description: String::from(dimension.description()),
+                        filterable: dimension.is_filterable(),
+                        allowed_values: dimension
+                            .allowed_values()
+                            .map(|values| values.iter().map(|value| String::from(value.as_str())).collect()),
+                    })
+                    .collect(),
+            })
+            .collect();
+        Self {
+            provenance: provenance_content(&pinned.provenance()),
+            metrics,
+        }
+    }
+}
+
+impl CatalogContent {
+    /// The same listing as text, for the content block beside the structured one.
+    ///
+    /// Both are sent for the reason [`OutcomeContent::as_text`] gives: a client that renders only
+    /// content blocks - which is most of what a person actually looks at - would otherwise be shown
+    /// nothing.
+    ///
+    /// One metric per line, then its grains and its dimensions, because a model reads that back
+    /// without being told how. Nothing here is truncated: the bundle is bounded at load by
+    /// `sutura_domain::knowledge::MAX_KNOWLEDGE_BYTES` and by the catalog's own parses, and a listing
+    /// that grew past what a context tolerates is a bundle nobody could ask about either way.
+    pub(crate) fn as_text(&self) -> String {
+        let mut out = String::new();
+        for metric in &self.metrics {
+            out.push_str(&metric.name);
+            out.push_str(" - ");
+            out.push_str(&metric.description);
+            out.push_str("\n  grains: ");
+            out.push_str(&metric.grains.join(", "));
+            for dimension in &metric.dimensions {
+                out.push_str("\n  dimension ");
+                out.push_str(&dimension.name);
+                out.push_str(if dimension.filterable {
+                    " (groupable, filterable"
+                } else {
+                    " (groupable"
+                });
+                match dimension.allowed_values {
+                    Some(ref values) => {
+                        out.push_str(", values: ");
+                        out.push_str(&values.join(", "));
+                    }
+                    None => out.push_str(", any value"),
+                }
+                out.push_str(") - ");
+                out.push_str(&dimension.description);
+            }
+            out.push('\n');
+        }
+        out.push_str("\ndefinitions: ");
+        out.push_str(&self.provenance.definition_version);
+        out.push_str(" (digest ");
+        out.push_str(&self.provenance.definition_digest);
+        out.push(')');
+        out
+    }
 }
 
 #[cfg(test)]

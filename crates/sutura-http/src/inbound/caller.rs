@@ -21,17 +21,25 @@
 //! verification. `crate::principal::of_verified` is the one function that turns it into a request
 //! context, and it is why that module still has no way to build a chain out of a header.
 //!
-//! # Scopes are carried and consumed by nothing, and that is the honest state
+//! # What the scopes are read for, and what they are still not read for
 //!
 //! `docs/adr/0014` Decision 4 says a per-caller ceiling is **derived from the claims** and never read
 //! from anything the caller sends with its question - the same argument that keeps a subject off the
 //! `Query`. [`Scopes`] is that claim shape, parsed and bounded.
 //!
-//! **Nothing filters on it.** Advertisement filtered by scope is `feat/agent-surface-scope`, the raw
-//! tool's gate is `docs/adr/0013`, and a budget keyed on a principal has nowhere to live yet - there is
-//! no budget port in this workspace. What is here is the value those three need to exist and cannot
-//! currently get, plus a count on a log line. A reader must not take the presence of this type as a
-//! control.
+//! **One consumer exists now**, and it did not when this type landed: `crate::capability` hands
+//! [`Scopes::iter`] to `sutura_app::Permitted::granted_by`, which decides which of this surface's
+//! capabilities this caller may invoke. A route it may not invoke answers `403` with
+//! `insufficient_scope`.
+//!
+//! **Two consumers still do not exist, and the presence of this type must not be read as either.**
+//! `docs/adr/0013`'s raw tool is not built, and a budget keyed on a principal has nowhere to live -
+//! there is no budget port in this workspace.
+//!
+//! **And the limit on the one that does exist is the important sentence here:** a scope decides which
+//! *operations* a caller may invoke. It decides nothing about which rows an answer contains. No source
+//! executes as the asking subject - that is leg 2 and it does not exist - so a narrowed caller gets
+//! the same numbers from a question as anybody else would.
 
 use std::collections::BTreeSet;
 
@@ -128,13 +136,33 @@ impl Scopes {
 
     /// Whether one scope was granted.
     ///
-    /// **Here, and called by nothing that ships.** It is the accessor `feat/agent-surface-scope` and
-    /// `docs/adr/0013`'s raw tool will each need, and it is on the type rather than left to a caller
-    /// to write, so there is one comparison rather than one per consumer. It is exercised by this
-    /// crate's own tests and by no request path.
+    /// **On the type rather than left to a caller to write**, so there is one comparison rather than
+    /// one per consumer. It is what `docs/adr/0013`'s raw tool would ask, and it is not what the
+    /// capability gate asks: that reads [`Scopes::iter`] and hands the whole set to
+    /// `sutura_app::Permitted::granted_by`, so the comparison against a capability's own scope literal
+    /// happens once, in the crate that owns the capability, rather than once per transport.
     #[must_use]
     pub fn grants(&self, scope: &str) -> bool {
         self.granted.contains(scope)
+    }
+
+    /// Every scope granted, in sorted order.
+    ///
+    /// **The one thing that leaves this type as a set of values**, and it exists for
+    /// `sutura_app::Permitted::granted_by`: the surface's capabilities and the scopes that license
+    /// them are declared in `sutura_app`, so the derivation from a token's claims to what a caller may
+    /// do belongs there and not here. Handing over the values rather than answering
+    /// [`Scopes::grants`] per capability is what keeps this transport from holding a copy of that
+    /// comparison - and `sutura_app` needs no parse, because it compares against fixed literals.
+    ///
+    /// **The type does not move, deliberately.** `docs/adr/0014`'s closing section reserves the
+    /// decision of which crate a validator lives in for whoever makes the agent surface reachable over
+    /// a network, and moving the parse now would be taking it early.
+    ///
+    /// Not `Display` and not a log field: the scope *names* are a caller's authorization detail and
+    /// [`Scopes::count`] is what a line carries.
+    pub fn iter(&self) -> impl Iterator<Item = &str> + '_ {
+        self.granted.iter().map(String::as_str)
     }
 }
 
