@@ -1,0 +1,3207 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="A research spike, measured against the SemanticCatalog port rather than reasoned about - DataHub 1.7.0 does now have first-class metric and semanticModel entities, and what it holds a measure as is a raw expression string tagged with a dialect, so it carries the physical model, the descriptions, the join columns and a conditional glossary, and carries no measure this repository will execute, no reliable cardinality, no definitional filter, no grain, no value allowlist and no anchor; the two golden adapters stay the reference and keep the strict oracle test, and DataHub is a DECLARING adapter whose declaration must name every one of those absences rather than leave it to silence.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0016-what-datahub-can-carry/">
+      
+      
+        <link rel="prev" href="../0015-an-authenticated-metrics-endpoint/">
+      
+      
+        <link rel="next" href="../../api/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>What DataHub can carry, and the measure it cannot - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#what-datahub-can-carry-and-the-measure-it-cannot" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              What DataHub can carry, and the measure it cannot
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-measured-against" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured against
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-datahub-170-actually-has" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DataHub 1.7.0 actually has
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What DataHub 1.7.0 actually has">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shapes-verbatim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shapes, verbatim
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field-by-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field by field
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-four-sticking-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four sticking points
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The four sticking points">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-measure-which-is-the-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The measure, which is the answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cardinality-declared-optional-and-one-value-we-cannot-represent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cardinality: declared, optional, and one value we cannot represent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-filters-absent-and-absent-in-the-way-that-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required filters: absent, and absent in the way that matters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-datahub-has-that-we-have-no-shape-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DataHub has that we have no shape for
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-could-not-be-determined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What could not be determined
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-question" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The question
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-was-measured-against" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What was measured against
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-datahub-170-actually-has" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DataHub 1.7.0 actually has
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What DataHub 1.7.0 actually has">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-shapes-verbatim" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The shapes, verbatim
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#field-by-field" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Field by field
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-four-sticking-points" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four sticking points
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The four sticking points">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-measure-which-is-the-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The measure, which is the answer
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#cardinality-declared-optional-and-one-value-we-cannot-represent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Cardinality: declared, optional, and one value we cannot represent
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#required-filters-absent-and-absent-in-the-way-that-matters" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Required filters: absent, and absent in the way that matters
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-datahub-has-that-we-have-no-shape-for" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What DataHub has that we have no shape for
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-answer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The answer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-could-not-be-determined" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What could not be determined
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#alternatives-considered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Alternatives considered
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="what-datahub-can-carry-and-the-measure-it-cannot">What DataHub can carry, and the measure it cannot<a class="headerlink" href="#what-datahub-can-carry-and-the-measure-it-cannot" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted as a finding. No adapter is written, no crate exists, and no dependency was added.</strong>
+The finding is the deliverable; the decision it forces is about what an adapter declares.</p>
+<p><strong>Reframed after review, and the reframe is recorded rather than smoothed over.</strong> The measurements
+below are unchanged and were independently verified. What changed is the conclusion drawn from one of
+them: the first version read the catalog conformance matrix as every adapter's contract and concluded
+that DataHub needs a <em>composition</em> step before it can be useful. It does not. The oracle test is the
+<strong>golden adapters'</strong> contract, and everything else conforms or declares - which is what
+<a href="../0011-pluggable-by-declaration/">pluggable by declaration</a> already decided and what
+<code>sutura-catalog-local</code>'s own documentation already says about itself. The withdrawn reading is written
+out in <em>Alternatives considered</em> rather than deleted, because the reasoning that produced it is the
+reasoning somebody will produce again.</p>
+<p><code>AGENTS.md</code>'s crate table lists a <code>-datahub</code> crate as planned. Four accepted records name DataHub as a
+metadata connector -
+<a href="../0011-pluggable-by-declaration/">pluggable by declaration</a>,
+<a href="../0012-conformance-packs-for-inputs-and-adapters/">conformance packs</a>,
+<a href="../0007-federating-across-different-data-systems/">federating across different data systems</a> and
+<a href="../0009-the-plan-from-one-source-to-many/">the plan</a> - and until this record
+<a href="../../implementation-plan/">the implementation plan</a>'s stack table had <strong>no row for it at all.</strong> This
+record closes that gap, and it puts the question before the row because the answer decides the row's
+dependencies.</p>
+<h2 id="the-question">The question<a class="headerlink" href="#the-question" title="Permanent link">&para;</a></h2>
+<p><strong>Can DataHub express a complete semantic model as this repository defines one, or only part of one?</strong></p>
+<p>Three answers were possible and each implies different work:</p>
+<table>
+<thead>
+<tr>
+<th>If DataHub supplies</th>
+<th>It is</th>
+<th>What it costs</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>complete <code>Definitions</code></td>
+<td>a second adapter held to the golden adapters' own contract</td>
+<td>low - a registration, as the invariant promises</td>
+</tr>
+<tr>
+<td>descriptions and a glossary only</td>
+<td>a <code>Knowledge</code> source, which this repository confines to descriptive content with the prompt as its only consumer</td>
+<td>a different feature, arguably a different port</td>
+</tr>
+<tr>
+<td><strong>part</strong> - the physical model and the prose, the measure still authored</td>
+<td>a <strong>declaring</strong> adapter: it says which kinds it provides and which it does not, and is tested against that</td>
+<td>a required capability declaration on <code>SemanticCatalog</code>, which does not exist yet</td>
+</tr>
+</tbody>
+</table>
+<p><strong>It is the third.</strong> The reason is not the one that was expected, and the difference matters enough to
+be the substance of this record: the expectation was that DataHub has no metric at all. As of
+<strong>1.7.0</strong> it has one, it is <code>category: core</code>, and what it holds a measure as is <strong>a raw expression
+string tagged with a dialect.</strong></p>
+<p><strong>The third row's cost is written as it is now understood, and it is smaller than the first version of
+this record said.</strong> That version priced it as a merge story - an assembler over several sources plus a
+contribution manifest that moves every committed digest. The declaring reading prices it as a required
+associated item on one port. Both are real work; only one of them is in the way.</p>
+<h2 id="what-was-measured-against">What was measured against<a class="headerlink" href="#what-was-measured-against" title="Permanent link">&para;</a></h2>
+<p>Read out of the code rather than out of the prose, because the prose is a summary and a port is a
+signature. <code>SemanticCatalog::load</code> returns a <code>PinnedDefinitions</code>; its two halves are a <code>Definitions</code>
+and a <code>Knowledge</code>; and <code>Definitions::assemble</code> is the only constructor of the first. So <em>can a source
+express our model</em> is really <em>can it fill these fields, and survive these checks.</em></p>
+<table>
+<thead>
+<tr>
+<th>What has to be filled</th>
+<th>The type in <code>sutura-domain</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>a physical table and the column set it exposes</td>
+<td><code>Model</code> - <code>ModelName</code>, <code>SourceName</code>, <code>TableName</code>, <code>BTreeSet&lt;ColumnName&gt;</code>, <code>Description</code></td>
+</tr>
+<tr>
+<td>a join</td>
+<td><code>Relationship</code> - a name, two <code>(ModelName, ColumnName)</code> endpoints, and a <code>JoinType</code> of <code>OneToOne</code>, <code>ManyToOne</code> or <code>OneToMany</code></td>
+</tr>
+<tr>
+<td>what a metric measures</td>
+<td><code>Measure</code> - <code>Simple(Term)</code> or <code>Ratio { numerator, denominator, zero_denominator }</code>, over a <code>Term</code> of <code>Aggregate(AggregatedColumn)</code> or <code>CountIf { column }</code>, where <code>Aggregate</code> is the closed set <code>sum</code>, <code>count</code>, <code>count_distinct</code>, <code>avg</code>, <code>min</code>, <code>max</code></td>
+</tr>
+<tr>
+<td>a predicate that is part of what the metric MEANS</td>
+<td><code>Vec&lt;RequiredFilter&gt;</code> - <code>Equals</code>, <code>NotEquals</code>, <code>IsTrue</code>, <code>IsNotNull</code>, values typed as <code>DimensionValue</code></td>
+</tr>
+<tr>
+<td>when, and at what resolution</td>
+<td><code>ColumnName</code> plus a <code>BTreeSet&lt;Grain&gt;</code></td>
+</tr>
+<tr>
+<td>what it may be broken down by</td>
+<td><code>Dimension</code> - a column, optionally <code>via</code> one relationship, optionally an allowlist of at most <code>MAX_VALUES_PER_DIMENSION</code> values</td>
+</tr>
+<tr>
+<td>the number it produced when it was certified</td>
+<td><code>Option&lt;Anchor&gt;</code> - a <code>TimeRange</code> and a value as text</td>
+</tr>
+<tr>
+<td>what a reader has to know</td>
+<td><code>Knowledge</code> - phrases, caveats, reviewed absences and worked examples, each carrying a <code>Referent</code> that names a metric, a dimension of one, or a declared value of one</td>
+</tr>
+</tbody>
+</table>
+<p>Two of those are worth restating because they are the checks rather than the fields.
+<code>Definitions::assemble</code> <strong>refuses</strong> a dimension reached through a relationship whose declared
+cardinality may duplicate rows, as <code>JoinWouldDuplicateRows</code>. And every field above is a type with no
+free-text SQL anywhere in it: <code>Measure</code> has no <code>expression:</code> key and no <code>Option&lt;String&gt;</code> at any depth,
+which is the load-bearing half of
+<a href="../0001-first-party-semantic-models/">first-party semantic models</a>.</p>
+<h2 id="what-datahub-170-actually-has">What DataHub 1.7.0 actually has<a class="headerlink" href="#what-datahub-170-actually-has" title="Permanent link">&para;</a></h2>
+<p>Everything below was fetched on <strong>2026-08-29</strong> from DataHub's public documentation and from the
+public <code>datahub-project/datahub</code> repository. Where a schema is quoted it is the <code>.pdl</code> file rather
+than the rendered page, because the page paraphrases and the schema does not. <strong>Nothing here comes
+from any deployment.</strong></p>
+<p><strong>Metrics and semantic models are new, in Beta, and off by default.</strong> The feature guide says so in its
+own words: <em>"Metrics &amp; Semantic Models is currently in </em><em>Beta</em><em>. The underlying entity model is stable,
+but the UI experience, lineage visualization, and ingestion coverage are actively evolving."</em> Core
+deployments enable it by setting <code>METRICS_ENABLED=true</code> on the GMS service; a managed deployment needs
+version 2.1.0 or later and a per-tenant flag. Both halves of that are published
+(<a href="https://raw.githubusercontent.com/datahub-project/datahub/master/docs/features/feature-guides/metrics-and-semantic-models.md">feature guide</a>,
+read 2026-08-29). <strong>The release is <code>v1.7.0</code>, published 2026-08-04</strong>, and the entity index at
+<a href="https://docs.datahub.com/docs/generated/metamodel/entities/">docs.datahub.com</a> reports 1.7.0 as the
+current version. <code>metric</code> and <code>semanticmodel</code> both appear in that index, both are <code>category: core</code> in
+<code>metadata-models/src/main/resources/entity-registry.yml</code> at the <code>v1.7.0</code> tag, and <strong>the whole
+<code>com/linkedin/metric</code> package is absent at the <code>v1.6.0.1</code> tag</strong> - checked by asking the contents API
+for that directory at both refs and getting a listing at one and a 404 at the other. So this is one
+release old, which is the single most important fact about it.</p>
+<p><strong>And DataHub says plainly what it is.</strong> From the same guide: <em>"DataHub Metrics is a </em><em>catalog for
+metric definitions</em><em>"</em>, and its FAQ answers <em>"Can DataHub query my metric values?"</em> with <em>"No. DataHub
+is a catalog for metric definitions - the calculation, dimensional context, lineage, and governance.
+Value computation and visualization stay in your BI tool or semantic layer."</em> That is not a limitation
+being conceded; it is the product boundary, and it is the same boundary this repository sits on the
+other side of.</p>
+<h3 id="the-shapes-verbatim">The shapes, verbatim<a class="headerlink" href="#the-shapes-verbatim" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Schema</th>
+<th>Fields, as read</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>metric/MetricInfo.pdl</code></td>
+<td><code>name: string</code>, <code>description: optional string</code>, <code>created</code>, <code>lastModified</code>, <code>semanticModel: optional Urn</code>, <code>expression: optional MetricExpression</code>. <strong>That is the entire calculation surface.</strong></td>
+</tr>
+<tr>
+<td><code>metric/MetricExpression.pdl</code></td>
+<td>one field: <code>dialects: array[DialectExpression]</code></td>
+</tr>
+<tr>
+<td><code>metric/DialectExpression.pdl</code></td>
+<td><code>dialect: Dialect</code>, <code>expression: string</code> - doc comment <em>"The raw expression string."</em></td>
+</tr>
+<tr>
+<td><code>metric/Dialect.pdl</code></td>
+<td><code>ANSI_SQL</code>, <code>SNOWFLAKE</code>, <code>MDX</code>, <code>TABLEAU</code>, <code>DATABRICKS</code>, <code>MAQL</code>, <code>OTHER</code></td>
+</tr>
+<tr>
+<td><code>semanticmodel/SemanticFieldAnnotation.pdl</code></td>
+<td><code>type: SemanticFieldType</code>, <code>expression: MetricExpression</code>, <code>aggregationFunction: optional string</code>, <code>dimension: optional Dimension</code></td>
+</tr>
+<tr>
+<td><code>semanticmodel/SemanticFieldType.pdl</code></td>
+<td><code>DIMENSION</code>, <code>MEASURE</code>, <code>FILTER</code>, <code>OTHER</code></td>
+</tr>
+<tr>
+<td><code>semanticmodel/Dimension.pdl</code></td>
+<td>one field: <code>isTime: boolean = false</code>, and the record documents itself as intentionally minimal</td>
+</tr>
+<tr>
+<td><code>semanticmodel/SemanticModelRelationship.pdl</code></td>
+<td><code>name</code>, <code>from</code>, <code>fromColumns</code>, <code>to</code>, <code>toColumns</code>, <code>aiContext</code>, <code>cardinality: optional ERModelRelationshipCardinality</code></td>
+</tr>
+<tr>
+<td><code>ermodelrelation/ERModelRelationshipCardinality.pdl</code></td>
+<td><code>ONE_ONE</code>, <code>ONE_N</code>, <code>N_ONE</code>, <code>N_N</code></td>
+</tr>
+<tr>
+<td><code>schema/SchemaMetadata.pdl</code></td>
+<td><code>fields: array[SchemaField]</code>, <code>primaryKeys: optional array[SchemaFieldPath]</code>, <code>foreignKeys: optional array[ForeignKeyConstraint]</code>, plus a deprecated <code>foreignKeysSpecs</code></td>
+</tr>
+<tr>
+<td><code>schema/ForeignKeyConstraint.pdl</code></td>
+<td><code>name</code>, <code>sourceFields: array[Urn]</code>, <code>foreignFields: array[Urn]</code>, <code>foreignDataset: Urn</code>. <strong>No cardinality field.</strong></td>
+</tr>
+<tr>
+<td><code>glossary/GlossaryTermInfo.pdl</code></td>
+<td><code>id</code>, <code>name</code>, <code>definition: string</code>, <code>parentNode</code>, <code>termSource</code>, <code>sourceRef</code>, <code>sourceUrl</code>, a deprecated <code>rawSchema</code>, plus custom properties. <strong>No synonyms field.</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Each of those was read at
+<code>https://raw.githubusercontent.com/datahub-project/datahub/master/metadata-models/src/main/pegasus/com/linkedin/&lt;path&gt;</code>
+on 2026-08-29, and the rendered entity pages for <code>metric</code>, <code>semanticmodel</code>, <code>dataset</code>, <code>glossaryterm</code>,
+<code>businessattribute</code> and <code>structuredproperty</code> were read the same day under version 1.7.0.</p>
+<p><strong>The ref each fact came from, because it is not one ref and pretending otherwise is how this record
+would go stale invisibly.</strong> The field lists above are the <strong>development branch</strong>. What was checked at
+the <code>v1.7.0</code> <strong>tag</strong> is narrower and deliberate: that the <code>com/linkedin/metric</code> package exists there,
+that it does not exist at <code>v1.6.0.1</code>, and that both entities are registered <code>category: core</code> there. The
+field lists were not re-read per tag, so read them as <em>the model as it is being developed</em> rather than
+as <em>the model 1.7.0 shipped</em> - and the <em>Beta</em> caveat below is the reason that distinction is not
+pedantic: one aspect's schema version already differs between the tag and the branch.</p>
+<h2 id="field-by-field">Field by field<a class="headerlink" href="#field-by-field" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>What we need</th>
+<th>What DataHub has</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>Model.table</code>, <code>.columns</code></td>
+<td>a <code>dataset</code> entity with <code>schemaMetadata.fields</code></td>
+<td><strong>faithful</strong></td>
+</tr>
+<tr>
+<td><code>Model.source</code></td>
+<td>the <code>dataPlatform</code> URN, and <code>dataPlatformInstance</code></td>
+<td><strong>faithful</strong>, with a name mapping a deployment decides</td>
+</tr>
+<tr>
+<td><code>Model.description</code></td>
+<td><code>datasetProperties</code>, <code>editableDatasetProperties</code>, <code>documentation</code>, <code>institutionalMemory</code></td>
+<td><strong>faithful, and richer than ours</strong> - separate ingested and human-edited prose, and multiple documentation sources</td>
+</tr>
+<tr>
+<td><code>Relationship</code> endpoints</td>
+<td><code>SemanticModelRelationship.from</code>/<code>fromColumns</code>/<code>to</code>/<code>toColumns</code>, or <code>schemaMetadata.foreignKeys</code></td>
+<td><strong>faithful, and WIDER</strong>: both are arrays, so a multi-column join is expressible where ours is one column each</td>
+</tr>
+<tr>
+<td><code>Relationship.join_type</code></td>
+<td><code>SemanticModelRelationship.cardinality</code>, and <code>ERModelRelationshipProperties.cardinality</code></td>
+<td><strong>present, and declared unsupported anyway</strong> - see below</td>
+</tr>
+<tr>
+<td><code>Measure</code></td>
+<td><code>MetricInfo.expression</code>, or a <code>MEASURE</code>-annotated field's <code>aggregationFunction</code></td>
+<td><strong>NOT faithful</strong> - see below</td>
+</tr>
+<tr>
+<td><code>Metric.required_filters</code></td>
+<td>nothing first-class</td>
+<td><strong>absent</strong> - see below</td>
+</tr>
+<tr>
+<td><code>Metric.time_column</code></td>
+<td><code>Dimension.isTime</code> marks a dimension as temporal</td>
+<td><strong>partly</strong>: which dimension is time, not which column a metric measures time on</td>
+</tr>
+<tr>
+<td><code>Metric.grains</code></td>
+<td>nothing</td>
+<td><strong>absent.</strong> No grain, no resolution, no time-bucket vocabulary anywhere in the two packages</td>
+</tr>
+<tr>
+<td><code>Dimension.allowed_values</code></td>
+<td>nothing on a field. <code>glossaryRelatedTerms.values</code> is a term-to-term <code>HasValue</code> edge; <code>structuredProperty</code> has an <code>allowedValues</code> array bounding its OWN value</td>
+<td><strong>absent</strong> for a column allowlist. Both near-misses are enumerations over something else</td>
+</tr>
+<tr>
+<td><code>Anchor</code></td>
+<td>nothing, and by design - see the FAQ quoted above</td>
+<td><strong>absent</strong></td>
+</tr>
+<tr>
+<td><code>Knowledge</code> glossary</td>
+<td><code>glossaryTerm</code> with a required <code>definition</code>, <code>glossaryNode</code> for hierarchy, <code>glossaryRelatedTerms</code> for <code>IsA</code>/<code>HasA</code>/<code>HasValue</code>/<code>IsRelatedTo</code></td>
+<td><strong>partly</strong> - rich, and no synonym field; a second spelling has to be a second term related to the first</td>
+</tr>
+<tr>
+<td>lineage</td>
+<td><code>upstreamLineage</code>, <code>fineGrainedLineages</code>, <code>metricUpstreams</code> with dataset and field edges</td>
+<td><strong>we have no shape at all</strong> - see below</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-four-sticking-points">The four sticking points<a class="headerlink" href="#the-four-sticking-points" title="Permanent link">&para;</a></h2>
+<h3 id="the-measure-which-is-the-answer">The measure, which is the answer<a class="headerlink" href="#the-measure-which-is-the-answer" title="Permanent link">&para;</a></h3>
+<p><strong>DataHub's measure is a string, and the closed vocabulary has no counterpart in it.</strong></p>
+<p><code>MetricInfo.expression</code> resolves, in two hops, to <code>{ dialect, expression: string }</code> per dialect. There
+is no numerator, no denominator, no aggregate, no column, and no operator. The official example in
+DataHub's own SDK library - <code>metadata-ingestion/examples/library/semantic_model_create.py</code>, read
+2026-08-29 - writes a whole metric as <code>expression="SUM(ORDERS.amount)"</code> with
+<code>dialect=DialectClass.SNOWFLAKE</code> and nothing else about the calculation. That is precisely the
+shape <a href="../0002-a-closed-vocabulary-for-measures/">a closed vocabulary for measures</a> exists not to have,
+and <a href="../0001-first-party-semantic-models/">first-party semantic models</a> states why in one line: <em>"A
+string field is an escape hatch, and an escape hatch on the query path is the thing being defended
+against."</em></p>
+<p><strong>There is one structured signal, and taking it would be worse than refusing it.</strong>
+<code>SemanticFieldAnnotation</code> carries <code>aggregationFunction: optional string</code> beside <code>expression</code>, so a
+<code>MEASURE</code>-annotated field can say <code>SUM</code> next to the column it annotates - which looks like exactly
+<code>AggregatedColumn::new(Aggregate::Sum, column)</code>. Three reasons not to harvest it, and the third is the
+one that decides:</p>
+<ol>
+<li><strong>It is an open string, not an enum.</strong> Parsing it against our <code>Aggregate</code> set is cheap and is the
+   pattern this repository already uses, so this alone is not an obstacle - it is a <code>parse</code> that
+   refuses what it does not recognise.</li>
+<li><strong><code>optional</code>, and a search of the public ingestion sources suggests it is mostly absent.</strong> Of the
+   connectors that emit these entities at all, the one present in the 1.7.0 release populates no
+   aggregation function; the one that does populate it is on the development branch and not in the
+   release. <strong>That is a code search rather than a measurement of any deployment</strong>, so read it as
+   <em>nothing found</em> rather than <em>nothing exists</em> - a deployment authoring annotations through the SDK
+   would populate the field by hand, exactly as the published example does.</li>
+<li><strong>The two fields are independently authored and nothing reconciles them.</strong> The published example
+   writes <code>aggregation_function="SUM"</code> and <code>expression="SUM(amount)"</code> on adjacent lines of one field
+   definition, as two values a human typed twice. Harvesting the first and discarding the second means <strong>certifying a number from
+   half of a definition whose other half we did not read</strong> - and where the halves disagree, the answer
+   is wrong under a certified name, arrived at by omission. That is the exact failure mode this
+   repository is arranged against, and <code>recurring_revenue</code> in the example catalog is the worked
+   instance of it: the whole definition is <code>sum(mrr_cents)</code> <strong>and</strong> a filter on <code>status</code>, and either
+   one alone is a different number.</li>
+</ol>
+<p><strong>And the dialect sets do not intersect, which closes the other route.</strong> The obvious alternative is to
+take <code>expression</code> as authored SQL through the hatch
+<a href="../0004-a-named-escape-hatch-for-authored-sql/">a named escape hatch for authored SQL</a> decides. It does
+not reach: <code>sutura_sql::dialect::ALL</code> is <code>DuckDb</code>, <code>Postgres</code> and <code>ClickHouse</code>, and DataHub's <code>Dialect</code>
+is <code>ANSI_SQL</code>, <code>SNOWFLAKE</code>, <code>MDX</code>, <code>TABLEAU</code>, <code>DATABRICKS</code>, <code>MAQL</code>, <code>OTHER</code>. <strong>Not one value is in
+both sets</strong>, and three of DataHub's are not SQL at all - MDX, Tableau's calculation language and MAQL
+would not parse in a SQL parser and are not meant to. Getting from <code>ANSI_SQL</code> to our three would be a
+translation, and <em>we never translate SQL we did not generate</em> is an invariant with a mechanism behind
+it. Even setting that aside, the hatch is in <code>AGENTS.md</code>'s <em>Built And Not Wired</em> section: no shipped
+binary can execute an authored expression, because the engine generates no SQL and the adapter that
+renders is a dev-dependency. So reading <code>metricInfo.expression</code> as a computation would move a refusal
+from load time to query time rather than answer anything.</p>
+<h3 id="cardinality-declared-optional-and-one-value-we-cannot-represent">Cardinality: declared, optional, and one value we cannot represent<a class="headerlink" href="#cardinality-declared-optional-and-one-value-we-cannot-represent" title="Permanent link">&para;</a></h3>
+<p><strong>DataHub does declare cardinality, which was the open question, and the news is better than
+expected and smaller than it looks.</strong> <code>SemanticModelRelationship.cardinality</code> is an
+<code>ERModelRelationshipCardinality</code> of <code>ONE_ONE</code>, <code>ONE_N</code>, <code>N_ONE</code>, <code>N_N</code>. Three of those map onto
+<code>JoinType</code> directly. <code>N_N</code> has <strong>no <code>JoinType</code> variant</strong>, so a relationship declaring it has to be
+refused by the adapter - and there is no <code>InconsistentDefinitions</code> variant for <em>a cardinality we
+cannot represent</em>, because until now no source could state one. That refusal would be the adapter's
+own typed error, which is where a source's vocabulary is supposed to be mapped.</p>
+<p>Four limits, each stated next to the claim, and the second one is the reason this section reads as a
+warning rather than as good news:</p>
+<ul>
+<li><strong>It is <code>optional</code>.</strong> A relationship with no cardinality declared cannot be used to reach a
+  dimension at all, because <code>Definitions::assemble</code> needs a <code>JoinType</code> and the safe default does not
+  exist: assuming <code>ManyToOne</code> is assuming the fan-out away, and assuming <code>OneToMany</code> refuses every
+  dimension. So absent means refused, and absent is the ordinary state of ingested metadata.</li>
+<li><strong>On the PHYSICAL relationship it is not optional - it defaults to <code>N_N</code>.</strong> The other consumer of
+  that enum is <code>ERModelRelationshipProperties</code>, and the field there reads
+  <code>cardinality: ERModelRelationshipCardinality = "N_N"</code> - verified at the <code>v1.7.0</code> tag. <strong>A default of
+  many-to-many is a default of the most permissive value</strong>, which means a relationship nobody thought
+  about carries the same declaration as one somebody decided was many-to-many, and the two are
+  indistinguishable. For us that is the harmless direction only by accident: <code>N_N</code> maps to no
+  <code>JoinType</code>, so both get refused. <strong>The direction to be careful about is a future temptation to
+  "read the cardinality and use it"</strong> - that would be reading a default as a decision, which is the
+  precise failure mode 0011's evidence argument is written to avoid. <code>AGENTS.md</code>'s trusted-precondition
+  caveat gets <em>weaker</em> on this input, not stronger, and this record refuses to describe it as an
+  improvement.</li>
+<li><strong>It is a declaration, exactly as trusted as ours.</strong> <code>AGENTS.md</code> records that <em>catalog cardinality
+  is a trusted precondition: nothing checks the declaration against the data.</em> Reading it from DataHub
+  does not close that - it moves the person who is trusted from whoever wrote a markdown file to
+  whoever authored the semantic view, and DataHub validates nothing about the rows. That is a
+  governance improvement in some deployments and a governance question in others; it is not a check.</li>
+<li><strong>The join columns are unpaired arrays.</strong> <code>fromColumns</code> and <code>toColumns</code> are two <code>array[string]</code>
+  fields with nothing binding index <em>i</em> of one to index <em>i</em> of the other. Ours is a single column each
+  precisely so that no such pairing can be got wrong; a source that carries the wider shape carries the
+  ambiguity with it, and an adapter reading a two-column join is guessing an order.</li>
+<li><strong>The evidence path 0011 describes does not come through this aspect.</strong>
+  <a href="../0011-pluggable-by-declaration/">Pluggable by declaration</a> argues that a primary-key or unique
+  constraint is evidence, in one direction, for the side being joined to being unique.
+  <code>schemaMetadata.primaryKeys</code> exists and gives that. <strong><code>ForeignKeyConstraint</code> carries no cardinality
+  field at all</strong> - verified by reading it - so on an ordinary warehouse dataset the join and the
+  uniqueness evidence come from two different places and the cardinality declaration comes from
+  neither. The one-direction argument in 0011 survives intact; what it does not get is a free ride on
+  the new relationship shape.</li>
+</ul>
+<h3 id="required-filters-absent-and-absent-in-the-way-that-matters">Required filters: absent, and absent in the way that matters<a class="headerlink" href="#required-filters-absent-and-absent-in-the-way-that-matters" title="Permanent link">&para;</a></h3>
+<p><code>required_filters</code> is the field that makes a metric mean what its name says, and <strong>DataHub has no
+counterpart.</strong></p>
+<p>The <code>metric</code> entity's registered aspect list, read out of <code>entity-registry.yml</code> at the <code>v1.7.0</code> tag, is
+<code>metricInfo</code>, <code>metricRelationships</code>, <code>metricUpstreams</code>, <code>ownership</code>, <code>domains</code>, <code>globalTags</code>,
+<code>glossaryTerms</code>, <code>institutionalMemory</code>, <code>structuredProperties</code>, <code>status</code>, <code>deprecation</code>,
+<code>dataPlatformInstance</code>, <code>subTypes</code>, <code>documentation</code>, <code>browsePathsV2</code>, <code>applications</code>, <code>aiContext</code>.
+<strong>No aspect on that list carries a predicate, and none carries a grain either</strong> - which is the same
+listing that settles two of the absent rows above.</p>
+<ul>
+<li><code>SemanticFieldType</code> has a <code>FILTER</code> symbol, documented as <em>"A named boolean predicate used to filter
+  results, distinct from a dimension"</em>. Its body would be a <code>MetricExpression</code>, so it is a SQL string
+  again, and the research found no code path in the public repository that emits it.</li>
+<li>There is a record called <code>DatasetFilter</code>, and it is the nearest thing in the model. It carries <strong>no
+  <code>@Aspect</code> annotation</strong>, so nothing can hold it as metadata about a dataset; its <code>type</code> is an enum
+  with exactly one symbol, <code>SQL</code>, documented as <em>"The partition is represented as a an opaque, raw SQL
+  clause"</em>; and its own comment says <em>"In the future, we'll likely add support for more structured
+  predicates."</em> Its one consumer is a volume assertion's monitoring scope. So the nearest thing to a
+  predicate in DataHub is a monitoring detail, is opaque by its own description, and is not attachable
+  to a dataset at all.</li>
+<li>The metric entity's own documentation puts <code>filters</code> - along with <code>additivity</code> and <code>metricKind</code> -
+  into <code>structuredProperties</code>, explicitly as platform-specific metadata that does not yet warrant a
+  first-class field. A structured property is genuinely typed - five value types, an optional
+  <code>allowedValues</code> list, <code>SINGLE</code> or <code>MULTIPLE</code> cardinality, an immutability flag, and a server-side
+  validator that enforces all of it on write. <strong>And it is scalar-only.</strong>
+  <code>PrimitivePropertyValue</code> is <code>typeref PrimitivePropertyValue = union [ string, double ]</code>, verified at
+  the <code>v1.7.0</code> tag, so a structured property value is a string or a number and there is no nested or
+  record-typed form. A four-operator predicate over a named column put there is a JSON string DataHub
+  will validate for length and never interpret. What a structured property cannot carry is therefore
+  not only the <em>obligation</em> - it cannot carry the <em>shape</em> either. Which is the point:</li>
+</ul>
+<p><strong>Nothing in DataHub says a filter is REQUIRED.</strong> <code>RequiredFilter</code> is not a predicate a caller may
+apply - it is one applied to every question about the metric, which a caller cannot see, choose or
+remove. That is a statement about how a definition must be <em>used</em>, and a catalog that records a
+predicate as a property records a fact, not a duty. So even a deployment that populated a structured
+property called <code>filters</code> would be handing us a value we would have to decide to enforce, and
+deciding that on a source's behalf is exactly the substitution of our reading for the author's that
+0001 refuses.</p>
+<h3 id="what-datahub-has-that-we-have-no-shape-for">What DataHub has that we have no shape for<a class="headerlink" href="#what-datahub-has-that-we-have-no-shape-for" title="Permanent link">&para;</a></h3>
+<p><strong>Lineage, and it is out of scope rather than useful.</strong> <code>upstreamLineage</code>, <code>fineGrainedLineages</code> and
+<code>metricUpstreams</code> model dataset-level and column-level derivation. There is <strong>no lineage type anywhere
+in <code>crates/</code></strong> - <code>grep -rni lineage crates/</code> returns nothing - and none is wanted on the query path: a
+plan resolves to exactly one source, a measure reads columns a model declares, and knowing where a
+column came from upstream changes none of it. It is genuinely valuable metadata and it is somebody
+else's product. Where it could matter later is provenance for a human reviewing a promotion candidate,
+which is a different feature from anything in this repository today.</p>
+<p><strong><code>AiContext</code> is the one that is not out of scope</strong>, and it is the closest thing in DataHub to work
+this branch has already done. <code>aiContext</code> is a registered aspect on <code>metric</code> and on <code>semanticModel</code>
+themselves - read out of <code>entity-registry.yml</code> at the <code>v1.7.0</code> tag - as well as attaching to a schema
+field and to a semantic-model relationship, and it carries <code>synonyms</code>, <code>instructions</code>, <code>examples</code> and
+<code>customInstructions</code> - which is very nearly the shape of <code>Knowledge</code>: a glossary phrase, a caveat, a
+worked example, attached to the metric it is about. Two things follow. It is the field
+a DataHub <code>Knowledge</code> contribution would come from, rather than the glossary alone, because
+<code>GlossaryTermInfo</code> has no synonyms field and <code>Phrase</code> is what our glossary is made of. And it arrives
+as unbounded free text over a network - four fields, no length cap, no normalisation, no uniqueness
+rule - which makes <code>Phrase::parse</code>, <code>NoteBody::parse</code> and <code>MAX_KNOWLEDGE_BYTES</code> load-time gates on a
+real input rather than bounds on a file somebody in this repository wrote. That is the first time those
+bounds would be doing the job they were designed for. <strong>It is also on <code>metric</code> and <code>semanticModel</code> and
+not on <code>glossaryTerm</code></strong>, which is worth knowing before assuming the glossary is where a DataHub
+<code>Knowledge</code> contribution comes from.</p>
+<p><strong>And here is the one place the two designs point in opposite directions, named rather than elided.</strong>
+DataHub's published roadmap for this feature commits to natural-language questions being resolved
+against catalogued metric definitions <strong>using those synonyms</strong> - which is server-side phrase
+resolution. This repository refuses that by construction: <code>RefusalReason</code> has no <code>PhraseNotDefined</code>,
+the glossary renders into the agent-facing prompt, and <strong>the agent states which metric it chose in its
+own transcript</strong>, which is what makes the choice auditable. Both designs put a synonym list next to a
+metric; one resolves it inside the service and one hands it to the caller to resolve out loud. <strong>That
+is a real fork and not a gap on either side.</strong> For an adapter it means one specific thing: harvesting
+<code>synonyms</code> into <code>Phrase</code> is legitimate, and letting anything server-side <em>match</em> on them is the
+architecture decision <code>AGENTS.md</code> says a second consumer of knowledge would be.</p>
+<p><strong>Also worth recording, because it is the interchange story nobody asked for:</strong> DataHub's <code>Dialect</code>
+enum documents itself as aligned one-to-one with the Open Semantic Interchange specification. If a
+neutral wire format for a metric definition ever matters here, that is where two vendors have
+converged, and it is a better place to look than at any one tool's model.</p>
+<h2 id="the-answer">The answer<a class="headerlink" href="#the-answer" title="Permanent link">&para;</a></h2>
+<p><strong>Case three. DataHub supplies part of a semantic model as this repository defines one.</strong></p>
+<p>Precisely: it supplies <strong>the physical model, the descriptions, the joins with a declared cardinality,
+and a glossary that needs a metric to point at.</strong> It does not supply <strong>a measure this repository will
+execute, a definitional filter in any form, a grain, a value allowlist, or an anchor.</strong></p>
+<p>There is a sharp consequence in the test suite, and it is worth stating before the decision because
+the first version of this record drew the wrong conclusion from it.</p>
+<p><code>crates/sutura-app/tests/golden/catalogs.rs</code> expands seven behaviours over every registered catalog,
+and its central one is <code>agrees_with_the_oracle</code>: every registered <code>SemanticCatalog</code> must produce
+<strong>the same <code>Definitions</code></strong> as the hand-written oracle over <code>examples/single-player</code>. That corpus
+contains <code>measure: { simple: { aggregate: sum, column: mrr_cents } }</code> and
+<code>required_filters: [{ equals: { column: status, value: active } }]</code> and <code>grains: [month]</code> and value
+allowlists and an anchor. <strong>A source that cannot express five of those cannot pass that test</strong>, and no
+amount of adapter code changes it - the missing thing is in the source. That finding stands, and it has
+been verified independently rather than taken on this record's word.</p>
+<p><strong>What it MEANS is the part this record had to correct.</strong> The first version concluded that DataHub
+therefore needs a <em>composition</em> step in front of it - something to supply the measures so that a
+combined bundle could satisfy the oracle. That is one reading. It is not the one this repository had
+already decided, and the difference is not cosmetic: composition-first makes a narrow source unusable
+until unbuilt work lands, and the reading below makes it usable now.</p>
+<p><strong>The reading that matches <a href="../0011-pluggable-by-declaration/">pluggable by declaration</a> is that the
+oracle test is the GOLDEN adapters' contract and not every adapter's.</strong> There are two golden adapters.
+<code>sutura-catalog-local</code> is the metadata reference - wren-style, where the model and the structures are
+defined here, so it can be held to producing all of them - and <code>sutura-exec-duckdb</code> is the data-system
+reference. Everything else <strong>conforms, or declares what it does not provide.</strong> A declaring adapter is
+then tested against its own declaration rather than against the reference bundle: what it says it
+provides must be exactly what it provides, and what it says it does not provide must be <strong>visibly
+absent rather than silently missing.</strong></p>
+<p>That is not this record's idea to invent. It is in the tree already, in <code>sutura-catalog-local</code>'s own
+words, and it predicted this case before anybody measured it:</p>
+<blockquote>
+<p><strong>This adapter declares every knowledge capability there is, and that is a statement about the
+ADAPTER rather than about the directory it read.</strong> [...] A metadata-service adapter is the other
+case: it has glossary terms with synonyms and no way at all to record an absence, so it will declare
+the two it can represent and never the other two. [...] <code>KnowledgeCapabilities::all</code> rather than a
+list of the four, deliberately [...] which is what makes this <strong>the reference adapter</strong> [...] An
+adapter mapping a fixed external schema gets the opposite treatment - <code>of([..])</code>, so a new kind
+leaves its declaration alone.</p>
+</blockquote>
+<p><strong>That prediction is now measured, and it is nearly right and wrong in one checkable place.</strong> DataHub
+does have glossary terms and does have no way to record an absence, exactly as written. What it does
+not have is synonyms <em>on the glossary term</em>: <code>GlossaryTermInfo</code> has no such field, and the synonym list
+lives on <code>AiContext</code> instead. The shape of the conclusion survives; the field it names moved.</p>
+<p>So the invariant <em>"Adding a metadata provider or a data system is a registration, not a test edit"</em> is
+<strong>true as written, and what this record adds is WHICH test.</strong> For a golden adapter it is the oracle. For
+a declaring adapter it is fidelity to its declaration - still a registration plus a declaration rather
+than a test edit, because the declaration is what selects the assertions.</p>
+<p><strong>And a narrow source is usable on its own, which is the claim the composition-first reading quietly
+denied.</strong> Checked rather than assumed: <code>Definitions::assemble</code> has <strong>no minimum-metric refusal</strong> -
+there is no <code>NoMetrics</code> variant and no such check anywhere - so a bundle of models, relationships and
+zero metrics assembles, pins and validates, because zero metrics is zero anchors. 0011 already says the
+prompt can state <em>this deployment carries no certified metric layer</em> as a fact derived from what it was
+handed rather than from something a source claimed. A DataHub-only deployment therefore gets a bundle,
+a prompt that tells the truth about it, and a path to add metrics. It does not get a refusal at load
+for being narrow.</p>
+<p><strong>The honest limit on that, stated next to the claim, and it is not about DataHub.</strong> What a zero-metric
+bundle cannot do on its own is open a data system, and the two composition roots differ - which is
+worth getting right because the mechanism moved recently. <code>sutura-cli</code> takes one data directory on the
+command line, reads no source registry, and refuses a catalog declaring <strong>no models</strong> - <em>"this catalog
+declares no models, so there is nothing to open"</em> - which a DataHub bundle passes, and refuses one
+naming a source it has no adapter for. <code>sutura-serve</code> does <strong>not</strong> compare names: every source a
+catalog names needs a <code>sources.&lt;alias&gt;</code> entry declaring a <code>SourceKind</code>, and a missing one is
+<em>"this catalog reads from <code>&lt;source&gt;</code>, and no <code>sources.&lt;source&gt;</code> entry declares where that ..."</em>. So a
+DataHub bundle whose models carry platform URNs is servable exactly when a deployment has declared a
+source per platform it wants to read. <strong>That is configuration, not a refusal of DataHub</strong>, and it is
+the concrete thing the guidance below has to mention. It is written here so nobody reads <em>usable alone</em>
+as <em>answers questions alone</em>.</p>
+<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
+<p><strong>1. There are two golden adapters, and they are the reference everything else is measured against.</strong></p>
+<p><code>sutura-catalog-local</code> on the metadata side and <code>sutura-exec-duckdb</code> on the data side. The reason a
+golden adapter can be held to the whole model is that the model is defined here: a wren-style directory
+of markdown with YAML frontmatter has a document shape for every field <code>Definitions::assemble</code> needs,
+so <em>"produce the same <code>Definitions</code> as the hand-written oracle"</em> is a contract it can meet. <strong>That
+contract stays exactly as it is and is not weakened by anything in this record.</strong></p>
+<p><strong>2. Every other adapter conforms, or DECLARES what it does not provide - and the negatives are the
+point.</strong></p>
+<p>An absence must be <strong>declared</strong>, never inferred from silence. 0011 decided this and already carries the
+three-state distinction that makes it work: <em>declared</em>, <em>not declared</em>, and <em>declared-and-empty</em>, with
+the note that <em>not declared</em> means the prompt must not imply the absence list is complete. A map with
+no entries cannot tell those apart, which is why the declaration exists at all.</p>
+<p><strong>The mechanical shape to reuse is already in the tree, and it should be copied rather than reinvented.</strong>
+<code>Warehouse::IMPERSONATION</code> is an associated constant <strong>with no default</strong>, so an adapter that omits it
+does not compile - pinned by a <code>compile_fail</code> doctest whose struct is literally named <code>Undeclared</code>,
+beside a compiling twin named <code>Declared</code> differing in exactly the one line. Its own documentation gives
+the argument in full: <em>"A defaulted capability would mean an adapter that said nothing got the benefit
+of the doubt in whichever direction the default pointed - and both directions are wrong."</em> And the
+negative has a <strong>name</strong> rather than being an absence: <code>ImpersonationCapability::NoPlaceForASubject</code>,
+whose doc says saying so explicitly is the point.</p>
+<p>The contrast next door is the other half of the vocabulary. <code>dry_run</code> <strong>is</strong> defaulted, and its doc
+explains why: <em>"an adapter for which it is not cheaper has no way to say so if the port demands an
+implementation, and the honest thing for it to do is nothing."</em> So the rule this record adopts is that
+one: <strong>a capability whose absence changes what a caller may believe is required with no default; a
+capability whose absence is merely a missed optimisation may be defaulted, and the default says why.</strong></p>
+<p>The metadata-side analogue does not exist yet. <code>SemanticCatalog</code> today is an associated <code>Error</code> and
+<code>load</code>, and nothing on it declares anything. <strong>That is the gap this record schedules</strong>, and it is the
+one thing here that is a change to a port rather than a new adapter.</p>
+<p><strong>3. What DataHub declares, concretely - and this is where the research lands.</strong></p>
+<p>Not a list of blockers. The content of a declaration, with the negatives named because naming them is
+what makes the source safe to use:</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>DataHub declares</th>
+<th>On the evidence of</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Structure - tables, columns, types</td>
+<td><strong>provides</strong></td>
+<td><code>dataset</code> + <code>schemaMetadata.fields</code></td>
+</tr>
+<tr>
+<td>Descriptions</td>
+<td><strong>provides</strong>, and richer than ours</td>
+<td>four aspects, ingested and human-edited kept apart</td>
+</tr>
+<tr>
+<td>Relationships - the join columns</td>
+<td><strong>provides</strong>, with a caveat below</td>
+<td><code>SemanticModelRelationship</code>, or <code>schemaMetadata.foreignKeys</code></td>
+</tr>
+<tr>
+<td>Relationship CARDINALITY</td>
+<td><strong>does NOT provide</strong></td>
+<td>optional on the semantic join; on the physical relationship it <em>defaults to <code>N_N</code></em>, so a default is indistinguishable from a decision</td>
+</tr>
+<tr>
+<td>Metrics and measures</td>
+<td><strong>does NOT provide</strong></td>
+<td><code>MetricInfo.expression</code> is a raw string in a dialect set that does not intersect ours; <code>aggregationFunction</code> contradicts it with nothing reconciling the two</td>
+</tr>
+<tr>
+<td>Definitional filters</td>
+<td><strong>does NOT provide</strong></td>
+<td>no aspect carries a predicate; the nearest record has no <code>@Aspect</code>; structured properties are scalars</td>
+</tr>
+<tr>
+<td>Grains</td>
+<td><strong>does NOT provide</strong></td>
+<td>nothing in either package; <code>Dimension</code> is one boolean</td>
+</tr>
+<tr>
+<td>Value allowlists</td>
+<td><strong>does NOT provide</strong></td>
+<td>no field-level enumeration; the two near-misses enumerate something else</td>
+</tr>
+<tr>
+<td>Anchors</td>
+<td><strong>does NOT provide</strong></td>
+<td>DataHub's own FAQ: value computation stays in the BI tool</td>
+</tr>
+<tr>
+<td>Glossary phrases</td>
+<td><strong>provides, conditionally</strong></td>
+<td><code>AiContext.synonyms</code> plus <code>glossaryTermInfo.definition</code> - and only where the bundle already declares a metric for a <code>Referent</code> to name</td>
+</tr>
+<tr>
+<td>Caveats</td>
+<td><strong>provides, conditionally</strong></td>
+<td><code>institutionalMemory</code>, <code>documentation</code>, <code>deprecation.note</code> - same <code>Referent</code> condition</td>
+</tr>
+<tr>
+<td>Reviewed absences</td>
+<td><strong>does NOT provide</strong></td>
+<td>there is no <em>deliberately undefined</em> concept; <code>deprecation</code> and <code>status.removed</code> are different claims</td>
+</tr>
+<tr>
+<td>Worked examples</td>
+<td><strong>does NOT provide</strong></td>
+<td><code>AiContext.examples</code> is free text, and an <code>Example</code> must carry a <code>Query</code> that validates against the metric's grains, dimensions and allowlists</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Two of those are "does not provide" where the field EXISTS, and that is the interesting kind.</strong>
+Cardinality and the measure are both present in DataHub and both declared unsupported here - not
+because reading them is hard, but because reading them would be reading something the source does not
+guarantee. The <code>N_N</code> default means an unconsidered relationship and a considered many-to-many are the
+same value. The <code>aggregationFunction</code>/<code>expression</code> pair means taking either one alone certifies half a
+definition. <strong>Declaring those two unsupported is a better outcome than harvesting them</strong>, and it is a
+better outcome than the composition step the first version of this record proposed: it is one line of
+declaration each, it is visible in a diff, and it fails nothing.</p>
+<p><strong>4. <code>metricInfo.expression</code> is READ and REPORTED, never executed and never converted.</strong></p>
+<p>A DataHub metric is a <strong>promotion candidate</strong>: a name, a description, an owner, a semantic model, a set
+of dimensional fields, and a string somebody wrote in a dialect this repository does not render. What
+an adapter may do with the string is show it to a person deciding whether to author a <code>Measure</code>. What
+it may not do is compile it, translate it, or infer a <code>Measure</code> from the <code>aggregationFunction</code> beside
+it. <strong>Unbuilt</strong> - a decision about what the adapter will be permitted to do, not a description of
+anything that exists.</p>
+<p><strong>5. A relationship reaches a dimension only where cardinality is declared and representable.</strong>
+Absent or <code>N_N</code> is refused by the adapter, naming the relationship, rather than defaulted in either
+direction: <code>ManyToOne</code> as a default assumes the fan-out away, and <code>OneToMany</code> refuses every dimension,
+so one is unsafe and the other is a silent feature removal. <strong>Under decision 3 this is not a
+degradation</strong> - the adapter declares that it does not provide cardinality, so a deployment reads that
+in the declaration rather than discovering it when a dimension is missing. The relationship still
+arrives; what it cannot do on its own is license a join.</p>
+<p><strong>6. <code>agrees_with_the_oracle</code> is NOT weakened, and a declaring adapter needs a different assertion.</strong></p>
+<p>Specified here and deliberately not written in this branch. The golden adapters keep the oracle test.
+A declaring adapter gets <strong>declaration fidelity</strong>, which is two assertions rather than one:</p>
+<ul>
+<li><em>everything it declared, it produced</em> - for each declared kind, the bundle carries content of that
+  kind, so a declaration is not aspirational;</li>
+<li><em>everything it did not declare is absent</em> - nothing of an undeclared kind appears in the bundle,
+  which is the direction <code>Knowledge::assemble</code>'s <code>UndeclaredContent</code> guard already covers for knowledge
+  and which nothing covers for definitions.</li>
+</ul>
+<p>Plus the negative-capability shape 0012 already decided: <strong>where a declared absence has something to
+try, the pack tries it and the absence must hold</strong>, and where there is nothing to perform, no test is
+written - because <em>"a green test named <code>..._is_declared_unsupported_...</code> over nothing is
+coverage-shaped and measures nothing"</em>. A metadata adapter that declares it provides no grains has
+nothing to perform, so what holds there is the fidelity assertion above and not an invented action.</p>
+<p><strong>7. Guidance, not requirement - and it is the easiest thing here to overshoot.</strong></p>
+<p>A deployment that already runs DataHub gets value from the model it already has: that is decision 3,
+and nothing in the docs may turn it into a precondition. So the guidance that lands with the connector
+<strong>states what a user MAY populate and what each thing buys</strong>, once, with the benefit next to it - and
+never that DataHub must be configured a particular way for this to work. Concretely, the shape it may
+take: a semantic model with <code>cardinality</code> set on its relationships lets those relationships license a
+join; <code>AiContext.synonyms</code> on a metric a deployment has also certified lets a glossary phrase render;
+and a <code>sources.&lt;alias&gt;</code> entry per platform a DataHub model names is what lets that model's data system
+be opened at all. <strong>Each of those is an option with a payoff, and the absence of all three is a
+supported configuration</strong> - the bundle still loads, and the prompt still tells the truth about it. The two sentences that may not be written are <em>"configure DataHub like this"</em> and
+<em>"DataHub is not usable without X"</em>, because the second one is false and the first one is not ours to
+say.</p>
+<p><strong>8. Lineage is out of scope, and <code>docs/architecture.md</code> overstated it.</strong> That page said metrics,
+dimensions, the glossary <em>and lineage</em> arrive through <code>SemanticCatalog</code>. There is no lineage type in the
+workspace and none is planned, so the sentence claimed an input that does not exist. Corrected on this
+branch, in the same diff as this record, because an overstated claim is itself the defect.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li><strong>The stack table gains a capability-declaration row and a connector row.</strong> The declaration row can
+  start now, because it is a port change plus a conformance shape and needs no live service. The
+  connector depends on it. <strong>Neither depends on composition</strong>, which is the substantive change from the
+  first version of this record.</li>
+<li><strong><code>SemanticCatalog</code> gains a required declaration, and that is the only port change here.</strong> Today the
+  trait is an associated <code>Error</code> and <code>load</code>. What it needs is the <code>Warehouse::IMPERSONATION</code> shape: an
+  associated item with <strong>no default</strong>, so an adapter cannot be silent about what it cannot supply, with
+  a <code>compile_fail</code> doctest and its compiling twin to pin that the omission does not build. <code>dry_run</code> is
+  the counter-example to imitate deliberately, not accidentally - it is defaulted, and its doc says why.</li>
+<li><strong><code>docs/implementation-plan-identity-and-services.md</code> said the remaining metadata connectors are
+  all "<code>feat/source-registry</code>-shaped once the packs exist: a registration, a declaration, and
+  fixtures."</strong> That is closer to right than the first version of this record allowed, and it is still
+  not right: a registration and a declaration is exactly the cost, <strong>once the declaration exists to
+  make</strong> - and it does not exist yet. So the correction is narrower than the one this branch first
+  wrote. It is corrected on this branch to say that.</li>
+<li><strong>0011's metadata half stops being wholly dormant, but only the part this needs.</strong> That record's
+  metadata work is three things: the capability declaration, the assembler over N sources, and the
+  contribution manifest. <strong>The declaration is scheduled here. The assembler and the manifest are not</strong>,
+  and this record no longer claims they block anything - they become valuable when a deployment wants
+  DataHub's structure <em>and</em> certified metrics in one bundle, which is a real want and a separate step.
+  0011's own sentence still applies to those two: <em>"a decision whose record is accepted and whose branch
+  does not exist is a decision, not progress."</em></li>
+<li><strong>No committed digest moves.</strong> The first version of this record priced a manifest that would have
+  moved every one of them. Under this framing nothing is hashed differently, because the adapter's
+  capability declaration is a property of the code rather than of the bundle - the same distinction
+  0011 draws between <code>IMPERSONATION</code> and <code>posture</code>. <strong>The knowledge capabilities already under the
+  digest are unaffected</strong>; they travel with the bundle as they do now.</li>
+<li><strong>A narrow source is servable, and the prompt has to say so honestly.</strong> A bundle with zero metrics
+  loads. What the prompt says about it is derived from the bundle rather than authored, which 0011
+  already decided, so a deployment reading only DataHub is told there is no certified metric layer
+  rather than being told nothing. Nothing in this record adds prose to the prompt.</li>
+<li><strong>The Beta flag is a real risk to price, and the declaration is what contains it.</strong> <code>MetricInfo</code> is at
+  schema version 4 in the release and 5 on the development branch; <code>SemanticModelInfo.datasets</code> is
+  deprecated on the branch and not in the release; membership moved from the model side to the member
+  side within one cycle. An adapter built against the metric entity this quarter would be revised.
+  <strong>Under decision 3 the adapter does not read the metric entity at all</strong>, so the moving part of
+  DataHub's model is outside what this connector depends on - <code>schemaMetadata</code>, the dataset property
+  aspects and the glossary are the long-established part, and <code>schemaMetadata</code> even carries a deprecated
+  foreign-key field superseded by a newer one, which is what an aspect that has been through a migration
+  looks like. That is a durability argument for the narrow declaration, and it is the second one after
+  correctness.</li>
+</ul>
+<h2 id="what-could-not-be-determined">What could not be determined<a class="headerlink" href="#what-could-not-be-determined" title="Permanent link">&para;</a></h2>
+<p>Stated rather than reasoned around, because an overstated claim here would send the implementation the
+wrong way.</p>
+<ul>
+<li><strong>Whether a managed DataHub offering carries a structured metric shape the open-source model does
+  not.</strong> Nothing public says so, and no cloud-only schema documentation was found. The published
+  difference is enablement - a version floor and a per-tenant flag - not a different schema.</li>
+<li><strong>Which lineage shape 1.7.0 intends for a metric that has a semantic model.</strong> The aspect schema and
+  the SDK tutorial say different things about whether the semantic model is a lineage hop. It does not
+  bear on anything decided here, and it is a live contradiction in the upstream documentation.</li>
+<li><strong>Whether any <code>FILTER</code>-annotated field is emitted by anything.</strong> The symbol is in the enum; a search
+  of the public repository found no emitter. <em>No emitter found</em> is weaker than <em>no emitter exists</em>, and
+  a deployment authoring annotations through the SDK could populate it by hand.</li>
+<li><strong>How much of a real DataHub instance's metric content is populated in practice.</strong> That is a question
+  about deployments and cannot be answered from a schema. It matters, because a <code>semanticModel</code> with no
+  relationships and no <code>MEASURE</code> annotations contributes descriptions and nothing else - which would
+  make DataHub the canonical narrow source 0011 describes rather than the rich one its entity list
+  suggests.</li>
+<li><strong>The read path's cost, though its shape is now known and is the better news in this record.</strong>
+  DataHub publishes Python and Java SDKs and <strong>no Rust client</strong> - its integration tree holds one
+  language and it is not this one - so the adapter is an HTTP client written here. Which surface is
+  settled by DataHub's own guidance rather than by preference: its API overview says the GraphQL API
+  assumes frontend callers, comes with caching and <em>"operations are intentionally limited in scope"</em>,
+  and that <em>"care should be taken when used programmatically"</em>. <strong>The OpenAPI v3 entity surface is the
+  one to build against</strong> - versioned paths under <code>/openapi/v3/entity/{entityName}[/{urn}[/{aspect}]]</code>
+  with batch and scroll forms, an <code>If-Version-Match</code> header for reading a specific aspect version, and
+  a spec the deployment serves for itself at <code>/openapi/v3/api-docs</code>, generated from the handlers rather
+  than hand-written. Authentication is a personal access token as a bearer. What was <strong>not</strong> evaluated
+  is the cost: how many requests a bundle takes, whether the scroll surface is usable for a whole
+  catalog, and what keeps a generated client from drifting. That is the adapter's first engineering
+  question and not this record's.</li>
+<li><strong>One thing worth knowing rather than deciding:</strong> DataHub ships its own agent-facing package
+  exposing catalog search and lineage traversal over the Model Context Protocol, and it can be
+  configured to expose metadata <strong>mutations</strong>. It is not a competitor to the certified surface here -
+  it answers <em>what metadata exists</em>, not <em>what is this number</em> - but a deployment that runs both is
+  giving an agent two tools with very different guarantees, and which one an agent reaches for is a
+  deployment question this repository cannot answer for it.</li>
+</ul>
+<h2 id="alternatives-considered">Alternatives considered<a class="headerlink" href="#alternatives-considered" title="Permanent link">&para;</a></h2>
+<p><strong>Composition first: block the connector on an assembler and a contribution manifest.</strong> This is what
+the first version of this record decided, and it is written out rather than deleted because the
+reasoning that produced it is the reasoning somebody will produce again. It follows from reading
+<code>agrees_with_the_oracle</code> as every adapter's contract: if a registered catalog must match the oracle,
+and DataHub cannot, then something must supply the difference. <strong>Rejected because the premise is
+wrong</strong> - the oracle is the golden adapter's contract, 0011 already decided that adapters declare, and
+<code>sutura-catalog-local</code>'s own documentation already calls itself the reference and already prescribes
+<code>of([..])</code> for an adapter mapping a fixed external schema. The cost of the mistake was not small: it
+would have made a deployment that already runs DataHub wait for an assembler and a digest migration
+before getting anything, and it would have put a <em>"one source may provide a given kind"</em> precedence
+argument in front of a source that provides kinds nothing else does. Composition remains decided and
+unbuilt in 0011, and it remains genuinely wanted - for the deployment that has DataHub's structure and
+certified metrics elsewhere - but it is not this connector's precondition.</p>
+<p><strong>Treat DataHub as a <code>Knowledge</code> source only.</strong> The second of the three cases. Rejected because it
+throws away the half of DataHub that is genuinely load-bearing: <code>schemaMetadata</code> is the authoritative
+column list for a great many warehouses. Declaring descriptions only would be flattening a source to
+its least interesting capability, which
+<a href="../0011-pluggable-by-declaration/">pluggable by declaration</a> argues against by name. It is also
+self-defeating under decision 3: a glossary phrase needs a <code>Referent</code> naming a metric, so a
+knowledge-only DataHub with no metrics anywhere contributes <em>nothing at all</em>, whereas a
+structure-and-descriptions DataHub contributes a working bundle.</p>
+<p><strong>Read <code>metricInfo.expression</code> through the authored-SQL hatch.</strong> Rejected on two independent grounds,
+either of which is sufficient: the dialect sets do not intersect and closing the gap is translation;
+and no shipped binary can execute an authored expression, so the load would succeed and the question
+would still be refused, one stage later and less clearly.</p>
+<p><strong>Derive a <code>Measure</code> from <code>aggregationFunction</code> plus the annotated field.</strong> Rejected because the
+expression beside it is authored independently and nothing reconciles the two, so the derivation
+certifies half a definition. This is the alternative that looks cheapest and is the one whose failure
+mode is a wrong number under a certified name. <strong>Declaring the capability unsupported is the cheaper
+outcome and the honest one</strong> - it costs one line and it tells a deployment the truth.</p>
+<p><strong>Read the cardinality and use it.</strong> Rejected, and it is the closest call in this record, because
+cardinality is the one thing 0011 hoped a rich source would improve. On the semantic-model join it is
+<code>optional</code>; on the physical relationship it defaults to <code>N_N</code>. Using it would mean treating a default
+as a decision on the input where the default is <em>many-to-many</em> - so a deployment that never thought
+about a relationship would get the same treatment as one that decided. Both happen to be refused here,
+because <code>N_N</code> maps to no <code>JoinType</code>, which is why this is a decision about what the adapter may
+<em>declare</em> rather than a live hazard. Declaring cardinality unsupported means a deployment reads that
+fact in the declaration instead of discovering it when a dimension goes missing.</p>
+<p><strong>Add an <code>N_N</code> variant to <code>JoinType</code>.</strong> Not now, and not as part of a connector. A many-to-many
+relationship cannot reach a dimension without changing a measure, so the variant's only behaviour
+would be to be refused - and <code>AGENTS.md</code> records that a variant no test can provoke is one an enum
+refuses to carry. If a source needs to <em>record</em> many-to-many for a human to read, that is a different
+field from the one the join planner reads.</p>
+<p><strong>Weaken <code>agrees_with_the_oracle</code> so a narrow source can pass it.</strong> Rejected outright, and named so
+that nobody proposes it as the cheap version of decision 6. That test is the reason two independently
+written statements of one catalog can be compared at all, and a version of it that tolerated missing
+measures would pass a golden adapter that had silently stopped reading them. The golden adapters keep
+the strict test; a declaring adapter gets a different one.</p>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

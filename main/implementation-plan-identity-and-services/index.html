@@ -1125,6 +1125,8 @@
       
         
       
+        
+      
     
     
     
@@ -1574,6 +1576,34 @@
     
   
     An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
   
 
     
@@ -3277,9 +3307,26 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   behind the transpile feature this workspace does not compile.</li>
 <li><strong>Untrusted-content marking in the result envelope.</strong> Cheap before the first Arrow envelope, expensive
   after, so it lands with the envelope rather than after it.</li>
-<li><strong>The remaining metadata connectors.</strong> OKF, Datahub, OpenMetadata, the RDBMS catalog, BPMN and RDF are
-  all <code>feat/source-registry</code>-shaped once the packs exist: a registration, a declaration, and fixtures.
-  Branch name rather than a step number, because the numbers in the stack table have moved twice.</li>
+<li><strong>The remaining metadata connectors</strong> - OKF, OpenMetadata, the RDBMS catalog, BPMN and RDF.
+  <strong>Datahub has left this bullet</strong>: it has two rows of its own in the stack table, because
+  <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a> measured it and found it carries part of
+  a model rather than all of one. This bullet used to say all six were <em>"<code>feat/source-registry</code>-shaped
+  once the packs exist: a registration, a declaration, and fixtures"</em>, and that is <strong>right about the
+  cost and wrong about one precondition</strong>: the declaration it names does not exist yet on the metadata
+  side. <code>SemanticCatalog</code> declares nothing today, so <em>a registration and a declaration</em> is the correct
+  price only after <code>feat/metadata-capabilities</code> makes a declaration a thing an adapter can write - and
+  it has to be REQUIRED there, because a narrow source that is silent about what it cannot supply is
+  exactly the failure the declaration exists to prevent. Four of the five remaining names are narrow by
+  the same reading, so each is a registration plus a declaration <strong>on top of that row</strong>, and none of
+  them needs metadata composition first.</li>
+<li><strong>Metadata COMPOSITION - the assembler over N sources, and the contribution manifest.</strong> Decided in
+  full by <a href="../adr/0011-pluggable-by-declaration/">pluggable by declaration</a> and in no branch here.
+  <strong>It is not a precondition for any connector</strong>, which is a correction this branch had to make to
+  itself: <a href="../adr/0016-what-datahub-can-carry/">0016</a> first concluded that a narrow source needed it and
+  then found that a bundle of models with zero metrics loads, pins and validates. What composition
+  buys is the deployment that wants a foreign source's structure <strong>and</strong> certified metrics in one
+  bundle - a real want, and a separate step. The manifest is what moves every committed digest when it
+  lands, and 0011 prices that.</li>
 <li><strong>Selective service CI.</strong> Deferred rather than scheduled, with the reason and what survives of the
   design in its own section above: the fail-open property that justified it cannot be exercised by a
   new adapter, because <code>crates/**</code> already matches an area, and the cost it would save has never been
