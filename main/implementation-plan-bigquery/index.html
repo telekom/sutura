@@ -6,17 +6,17 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="The system prompt sutura generates for an agent, what each section is derived from, and what an operator can layer on top.">
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
       
       
       
-        <link rel="canonical" href="https://telekom.github.io/sutura/main/agent-prompt/">
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/implementation-plan-bigquery/">
       
       
-        <link rel="prev" href="../qa/">
+        <link rel="prev" href="../implementation-plan/">
       
       
-        <link rel="next" href="../contributing/">
+        <link rel="next" href="../implementation-plan-identity-and-services/">
       
       
         
@@ -27,7 +27,7 @@
     
     
       
-        <title>The agent prompt - sutura</title>
+        <title>The plan, BigQuery - sutura</title>
       
     
     
@@ -74,7 +74,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#the-agent-prompt" class="md-skip">
+        <a href="#the-plan-bigquery" class="md-skip">
           Skip to content
         </a>
       
@@ -113,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              The agent prompt
+              The plan, BigQuery
             
           </span>
         </div>
@@ -294,10 +294,8 @@
       
   
   
-    
   
   
-  
     
     
       
@@ -318,11 +316,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" checked>
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
         
           
           <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
@@ -343,7 +341,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="true">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
           <label class="md-nav__title" for="__nav_2">
             <span class="md-nav__icon md-icon"></span>
             
@@ -442,37 +440,10 @@
                 
   
   
-    
   
   
-  
-    <li class="md-nav__item md-nav__item--active">
-      
-      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
-      
-      
-        
-      
-      
-        <label class="md-nav__link md-nav__link--active" for="__toc">
-          
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    The agent prompt
-  
-
-    
-  </span>
-  
-  
-
-          <span class="md-nav__icon md-icon"></span>
-        </label>
-      
-      <a href="./" class="md-nav__link md-nav__link--active">
+    <li class="md-nav__item">
+      <a href="../agent-prompt/" class="md-nav__link">
         
   
   
@@ -488,81 +459,6 @@
   
 
       </a>
-      
-        
-
-<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
-  
-  
-  
-    
-  
-  
-    <label class="md-nav__title" for="__toc">
-      <span class="md-nav__icon md-icon"></span>
-      Table of contents
-    </label>
-    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
-      
-        <li class="md-nav__item">
-  <a href="#where-each-section-comes-from" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Where each section comes from
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#what-it-deliberately-does-not-say" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        What it deliberately does not say
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#catalog-prose-is-untrusted-content" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Catalog prose is untrusted content
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-consumer-that-exists-and-the-one-that-does-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The consumer that exists, and the one that does not
-      
-    </span>
-  </a>
-  
-</li>
-      
-    </ul>
-  
-</nav>
-      
     </li>
   
 
@@ -760,8 +656,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -788,11 +686,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -813,7 +711,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -912,10 +810,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="../implementation-plan-bigquery/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -931,6 +856,48 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-on-a-service-account" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, on a service account
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bigquery-per-subject" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        BigQuery, per subject
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1936,10 +1903,10 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
-  <a href="#where-each-section-comes-from" class="md-nav__link">
+  <a href="#bigquery-on-a-service-account" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Where each section comes from
+        BigQuery, on a service account
       
     </span>
   </a>
@@ -1947,43 +1914,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-it-deliberately-does-not-say" class="md-nav__link">
+  <a href="#bigquery-per-subject" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What it deliberately does not say
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#configuration" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Configuration
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#catalog-prose-is-untrusted-content" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        Catalog prose is untrusted content
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-consumer-that-exists-and-the-one-that-does-not" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The consumer that exists, and the one that does not
+        BigQuery, per subject
       
     </span>
   </a>
@@ -2010,209 +1944,213 @@
   
 
 
-<h1 id="the-agent-prompt">The agent prompt<a class="headerlink" href="#the-agent-prompt" title="Permanent link">&para;</a></h1>
-<p>An agent that has not been told what this surface is will treat it as a database. It looks for a
-field to put SQL in, finds none, sends a metric name it remembers from somewhere else, gets a
-refusal, reads the refusal as a transport failure, and retries. Every step there is a reasonable
-thing for a general-purpose agent to do, and every one of them is the behaviour the types in
-<a href="../concepts/">Concepts</a> are arranged to prevent. The types stop the <em>damage</em>. They cannot stop the
-loop.</p>
-<p><code>sutura prompt</code> renders the document that can.</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>sutura<span class="w"> </span>prompt<span class="w"> </span>examples/single-player/catalog<span class="w"> </span>&gt;<span class="w"> </span>agent-prompt.md
-</span></code></pre></div>
-<p>The output is markdown, on standard output, meant to be pasted or piped into an agent's system
-prompt. Nothing about it is hand-written: every section is derived from the tool surface, from the
-pinned bundle, or from a file an operator named.</p>
-<h2 id="where-each-section-comes-from">Where each section comes from<a class="headerlink" href="#where-each-section-comes-from" title="Permanent link">&para;</a></h2>
-<table>
-<thead>
-<tr>
-<th>Section</th>
-<th>Derived from</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td>What this is</td>
-<td>Fixed text. Two facts: the set of answerable questions is finite and listed, and a question outside it is declined rather than approximated</td>
-</tr>
-<tr>
-<td>What to do for every question</td>
-<td><strong>The tool list.</strong> The step that reads the catalog is present only when that operation is exposed, and is replaced by a sentence saying the list in the document is the whole of it when it is not</td>
-</tr>
-<tr>
-<td>A refusal is an answer, not an error</td>
-<td>Every <code>RefusalReason</code> variant, with what it means and what to change. The most load-bearing section in the document</td>
-</tr>
-<tr>
-<td>Terms this deployment records as NOT defined</td>
-<td><strong>The pinned bundle's knowledge</strong>, <code>not_defined</code> kind. Present only when the provider declared that capability; a declared-and-empty capability renders the sentence that nothing is recorded, which is a different fact from not knowing</td>
-</tr>
-<tr>
-<td>The bounds a question is held to</td>
-<td><code>MAX_DIMENSIONS</code>, <code>MAX_RANGE_DAYS</code> and <code>MAX_ROWS</code>, read from the code rather than typed</td>
-</tr>
-<tr>
-<td>What this surface has no field for</td>
-<td>Fixed text, and deliberately short - see below</td>
-</tr>
-<tr>
-<td>The operations you have</td>
-<td><strong>The tool list</strong>, rendered from the same slice the workflow was composed from</td>
-</tr>
-<tr>
-<td>What this deployment records about its own definitions</td>
-<td><strong>The declared knowledge capabilities</strong>, and what is <em>not</em> declared is listed too - because a kind that is not recorded is a kind an agent must not draw a conclusion from</td>
-</tr>
-<tr>
-<td>The words a question may arrive in</td>
-<td><strong>The pinned bundle's knowledge</strong>, <code>glossary</code> kind. Rendered so the <em>agent</em> does the resolving; there is no field on a question a phrase fits in</td>
-</tr>
-<tr>
-<td>The metrics this deployment defines</td>
-<td><strong>The pinned bundle.</strong> Name, grains, dimensions, permitted values, the catalog author's own prose, and any <code>caveat</code> printed under the metric it is about</td>
-</tr>
-<tr>
-<td>Worked questions</td>
-<td><strong>The pinned bundle's knowledge</strong>, <code>example</code> kind. Each carries a <code>Query</code> the bundle would not load if this surface would decline it</td>
-</tr>
-<tr>
-<td>Provenance</td>
-<td>Fixed text: quote the version and digest with every number</td>
-</tr>
-<tr>
-<td>Instructions from this deployment's operator</td>
-<td><code>prompt.instructions_file</code>, when one is configured. Omitted entirely when none is</td>
-</tr>
-</tbody>
-</table>
-<p>Two of those are derived from a list rather than written down, and that is the point. A prompt that
-names an operation a deployment does not mount costs the agent the turns it spends discovering the
-absence; a prompt that lists a metric the bundle does not define costs it a refusal. Neither can
-happen here, because there is nowhere for either to come from.</p>
-<p>The refusal section has a mechanism of its own. The mapping from a <code>RefusalReason</code> variant to its
-guidance is a total match in <code>sutura-app</code>'s test module, so <strong>a refusal variant added to the domain
-does not compile until somebody has written what an agent should do about it.</strong> What that does not
-force is the list of instances the assertion walks, so the set equality it checks is a second net
-rather than the first.</p>
-<h2 id="what-it-deliberately-does-not-say">What it deliberately does not say<a class="headerlink" href="#what-it-deliberately-does-not-say" title="Permanent link">&para;</a></h2>
-<p><strong>Nothing about composing SQL.</strong> The reference implementation this design is modelled on spends most
-of its length teaching an agent to write SQL against semantic model names, to avoid raw database
-tables, and to dry-plan a complex statement before running it. None of that transfers. A question
-here names a metric, a grain, a bounded period, up to four dimensions and equality filters over
-declared values, and there is no field for anything else - so the guidance would teach an agent to
-attempt something the surface refuses by construction. What replaces it is one short section saying
-the field does not exist and that there is no way to widen it. A long section about what is absent
-would hand an agent a long list of things to try.</p>
-<p><strong>No column, table, model or measure expression.</strong> Of what a metric <em>is</em>, the prompt renders what
-<code>GET /v1/catalog</code> renders and no further field: a caller needs a metric's name, prose, grains,
-dimensions and permitted values to ask a valid question; it needs no column name to do it, and a
-column name in an agent's context is a name it will eventually try to use. This is asserted rather
-than intended: a test renders a bundle whose model, table and column names appear in no prose and
-checks that none of them reaches the output.</p>
-<p>That is a claim about <em>fields of a metric</em>, and not about the document being a rendering of the
-endpoint - the two are worth keeping apart. The prompt carries four sections the catalog body has no
-field for at all, listed in the table above: the glossary, the terms recorded as not defined, what
-this deployment records about its own definitions, and the worked questions - plus any caveat, under
-the metric it is about. All five are knowledge from the pinned bundle, all are descriptive, and none
-of them names a column, a table or a model either.</p>
-<p><strong>Nothing about identity.</strong> There is none. The bearer token authenticates the <em>deployment</em>, not the
-caller - see <a href="../serving/">Serving over HTTP</a> - and a prompt that described per-caller scoping would
-describe a control that does not exist.</p>
-<h2 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h2>
-<p>Two keys, in the same layered tree as everything else: embedded defaults, then <code>base.yaml</code>, then
-<code>&lt;environment&gt;.yaml</code>, then one environment variable per key.</p>
-<table>
-<thead>
-<tr>
-<th>Key</th>
-<th>Default</th>
-<th>What it does</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td><code>prompt.catalog_prose</code></td>
-<td><code>quoted</code></td>
-<td><code>quoted</code> includes each metric's own prose, with <code>&gt;</code> at the start of every line and the trust boundary named above the block. <code>omitted</code> leaves it out, and the document then says the descriptions exist and were not included</td>
-</tr>
-<tr>
-<td><code>prompt.instructions_file</code></td>
-<td>absent</td>
-<td>A path to markdown that is appended as the document's LAST section. Absent means no operator section at all</td>
-</tr>
-</tbody>
-</table>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nv">SUTURA__PROMPT__CATALOG_PROSE</span><span class="o">=</span>omitted<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="nv">SUTURA__PROMPT__INSTRUCTIONS_FILE</span><span class="o">=</span>prompts/house-rules.md<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span>sutura<span class="w"> </span>prompt<span class="w"> </span>./catalog<span class="w"> </span>./config
-</span></code></pre></div>
-<p><code>sutura prompt</code> takes the deployment's configuration directory as its optional second argument, so
-the text it renders is the text that deployment would hand out. It loads the settings the way the
-service does, refusals included: a production configuration with no access token will not render a
-prompt either, and the refusal names the key to fix. That is deliberate - a second, weaker door into
-the settings is a door that can disagree with the first.</p>
-<p>Three properties of these keys are decisions rather than accidents.</p>
-<p><strong>An operator can add to the prompt and cannot replace it.</strong> <code>prompt.instructions_file</code> is layered on
-top of the derived text and appended last, under a heading that says so. There is no key that
-substitutes for the derived part, because the derived part carries the refusal guidance - and a key
-whose worst setting silently deletes that paragraph would be a key whose failure mode is invisible.
-Last place rather than first is deliberate too: a preamble ahead of the rules reads as the governing
-frame, and the governing frame is not the operator's to set.</p>
-<p><strong>A configured instructions file that cannot be read is an error, not a missing section.</strong> The
-reference implementation reads <code>&lt;project&gt;/instructions.md</code> when it is there and omits the section
-silently when it is not, which is right for a <em>convention</em>: no file means nobody wrote one. Here the
-path was written down, so absence means the operator's rules are missing from a document that claims
-to carry them.</p>
-<p><strong>Neither key defaults by environment.</strong> <code>telemetry.format</code> and <code>api.docs</code> do, and record whether
-somebody wrote the value down so the startup log can tell a decision from a default. Neither
-decision here is a function of the environment: whether a catalog's authors are trusted enough to
-quote their prose into an agent's context is a fact about who writes the catalog, not about whether
-the process is on a laptop. A default that dropped the prose in production would also be worse than
-either fixed answer, because an agent with no descriptions does not stop - it infers a metric's
-meaning from its name and reports the inference. And the interesting value, <code>omitted</code>, is never a
-default, so a deployment running with it is visible from the value itself.</p>
-<h2 id="catalog-prose-is-untrusted-content">Catalog prose is untrusted content<a class="headerlink" href="#catalog-prose-is-untrusted-content" title="Permanent link">&para;</a></h2>
-<p>A metric's description is written by whoever authored the catalog, and this repository's threat model
-treats catalog content as untrusted. A description containing a sentence aimed at the agent rather
-than at a human is prompt injection through the catalog. Three things are done about it, and the
-first is the honest limit.</p>
-<p><strong>A delimiter cannot separate instruction from data, because the content can contain the delimiter.</strong>
-<a href="../concepts/#provenance-and-why-results-are-meant-to-be-arrow">Concepts</a> already says so, so the
-mitigation is not a fence. It is a per-line prefix that sutura applies: every line of prose is
-emitted with <code>&gt;</code> in front of it, so <strong>no line of catalog text can reach the document at column
-zero.</strong> It cannot emit a heading, close a block, or open something that reads as a new section. That
-is checkable, and a test provokes it with a description whose lines are a heading, a fence and a bare
-instruction.</p>
-<p><strong>The trust boundary is named in the text</strong>, immediately above the quoted block, in terms an agent
-can act on: the block is data, a sentence inside it that reads as an instruction is content and not
-an instruction, and encountering one is something to report rather than obey.</p>
-<p><strong>An operator who does not trust their catalog authors can drop the prose entirely.</strong>
-<code>prompt.catalog_prose: omitted</code>.</p>
-<p>What none of that solves is prose that <em>persuades</em> without escaping - a description that reads as
-plausible guidance and is not. No mechanism here can catch it. What bounds it is that a catalog is
-reviewed, authored content whose digest moves when a description changes, and that this document is
-generated by an operator command rather than assembled from a caller's input. It is also worth being
-precise about the exposure: metric and dimension descriptions already reach any token-holder through
-<code>GET /v1/catalog</code>, so the prompt adds framing rather than reach.</p>
-<h2 id="the-consumer-that-exists-and-the-one-that-does-not">The consumer that exists, and the one that does not<a class="headerlink" href="#the-consumer-that-exists-and-the-one-that-does-not" title="Permanent link">&para;</a></h2>
-<p><code>sutura prompt</code> is built. An endpoint on the <code>v1</code> tree, behind the same bearer gate as everything
-else, is not - and the reason is which of the two makes the feature reachable. An operator wiring an
-agent needs the text once, at configuration time, in a shell where they can read it before an agent
-does; that is a command. An endpoint is the right shape for an agent that fetches its own
-instructions at startup, which is a deployment pattern nothing here has yet, and it would put a
-document assembled from untrusted catalog prose on the network rather than in front of a person. It
-is a small addition when a caller needs it: the renderer takes a bundle and a resolved set of inputs,
-and a handler would pass the same two.</p>
+<h1 id="the-plan-bigquery">The plan, BigQuery<a class="headerlink" href="#the-plan-bigquery" title="Permanent link">&para;</a></h1>
+<p>The BigQuery steps of <a href="../implementation-plan/">the implementation plan</a>, on their own page.</p>
+<p><strong>The stack table on <a href="../implementation-plan/">the main page</a> stays the only owner of a step number.</strong>
+These are rows 15 and 16.</p>
+<p><strong>Two reasons for the page, and NEITHER is the line limit</strong> - which is worth saying because the first
+split of this plan was made for that reason, the limit no longer applies to prose, and a page that
+justified itself by a rule that has since been removed would be a page with no justification. The
+reasons that stand on their own:</p>
+<ul>
+<li><strong>BigQuery's identity route is a long argument with three options</strong>, each spending a different
+  control, and interleaving it with the Postgres steps made both harder to follow. A seam at a source
+  rather than at a phase is a departure from the first split - that one cut at <em>needs a live service
+  or an identity decision</em> - and it earns it here.</li>
+<li><strong>Two branches were editing the identity page at once.</strong> Moving these sections out returned that
+  file to byte-for-byte what the other branch expected, so the two merge without a conflict. That is
+  a real reason and an unglamorous one, and it is the kind that actually predicts whether a split
+  survives.</li>
+</ul>
+<h2 id="bigquery-on-a-service-account">BigQuery, on a service account<a class="headerlink" href="#bigquery-on-a-service-account" title="Permanent link">&para;</a></h2>
+<p><strong>Goal.</strong> The first cloud data source, and the one the deployment actually cares about. Queried
+directly, no federation, no impersonation - a warehouse declaring <code>SharedServiceUser</code>, exactly the
+posture <code>examples/single-player</code> ships, authenticated by a service-account key or by the ambient
+credential the host provides.</p>
+<p><strong>Why this is ahead of Postgres now, where it used to be absent.</strong> The stack table's ordering
+argument has always been cost - Postgres is nearly free, because the dialect is compiled and the
+statement and parameter goldens exist. That is still true and it is still not the deciding argument,
+because <strong>BigQuery is where per-subject execution has to work and Postgres is where it would be nice
+if it did.</strong> An ordering that puts the cheap step first delivers the cheap step first; this stack is
+paid for by the expensive one.</p>
+<p><strong>This step is NOT nearly free, and the difference from Postgres is one line of manifest with a
+measurable blast radius.</strong> There is no <code>Dialect::BigQuery</code>: the enum is <code>DuckDb</code>, <code>Postgres</code>,
+<code>ClickHouse</code>, and <code>dialect::ALL</code> is a <code>const</code> with an exhaustiveness test, so a fourth variant is a
+generator arm and a full dialect of goldens rather than a registration. <code>polyglot-sql</code> does carry a
+<code>dialect-bigquery</code> feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
+nothing has to be written from scratch, and the cost is the corpus:</p>
+<ul>
+<li><strong>63 snapshots become 84</strong>, being 21 questions times four dialects. Verified by counting: 63 files
+  under <code>crates/sutura-app/tests/snapshots/</code> contain <code>10001</code> today.</li>
+<li><strong><code>cargo xtask check-guidance</code> fails until AGENTS.md says 84.</strong> Not incidentally - the check reads
+  the number written before the marker <code>SQL goldens read</code> and compares it to what it counts, which is
+  the mechanism that caught <code>39</code> after the corpus had grown. So the invariant row is part of the
+  change, and the gate puts it in the diff rather than trusting anyone to remember.</li>
+<li><strong>The placeholder style is a third variant or it is a bug.</strong> <code>PlaceholderStyle</code> is <code>Question</code> and
+  <code>Numbered</code>, and BigQuery's job API takes either positional parameters or <code>@name</code> named ones. Decide
+  it against the client's actual request shape, not against the dialect layer's rendering, because the
+  two are separately capable of being right.</li>
+</ul>
+<p><strong>Blocked on one decision, to make FIRST: what a test runs against.</strong> There is no BigQuery in a
+container. Three options and they are not equivalent - an emulator that speaks the API but not the
+SQL semantics would give us a green corpus that proves nothing, which is the failure mode
+<code>differential.rs</code> exists to prevent. The honest choices are a real project in CI with a
+service-account secret, a real project reachable only from a developer's machine with the corpus
+marked as not-in-CI, or the Storage Read API against a fixture table. Pick before writing the
+adapter, because the choice decides whether this step can claim acceptance at all or only rendering -
+and <code>parse-checked</code> is already
+<a href="../adr/0007-federating-across-different-data-systems/">explicitly narrower</a> than accepted.</p>
+<p><strong>Touches.</strong> A new adapter crate; <code>crates/sutura-sql</code> for the fourth dialect; <code>Cargo.toml</code> for the
+feature; <code>crates/sutura-config</code> for the source declaration; the <code>tests/adapters</code> registry; AGENTS.md
+for the golden count.</p>
+<p><strong>Adds.</strong> A <code>Warehouse</code> over BigQuery: render through <code>sutura-sql</code> in the new dialect, bind parameters
+as parameters, forced quoting intact, <code>LIMIT 10001</code> unchanged. Nothing about the plan or the generator
+moves. <strong>A billing project is declared, not inferred</strong> - a federated identity has no project of its
+own to bill, so the declaration has to exist before the impersonation step needs it, and putting it
+here means the impersonation step does not also introduce it.</p>
+<p><strong>Tests.</strong> The whole existing golden and refusal corpus, registered for this adapter. Whether the
+acceptance leg runs in CI is the decision above.</p>
+<p><strong>Done when</strong> the corpus renders and is green, the fourth dialect's 21 statement goldens have been
+reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
+whatever the first test happened to do.</p>
+<h2 id="bigquery-per-subject">BigQuery, per subject<a class="headerlink" href="#bigquery-per-subject" title="Permanent link">&para;</a></h2>
+<p><strong>Goal.</strong> The first real impersonation, and the one that matters most. A query executes as the
+subject who asked it, and two subjects get different rows.</p>
+<p><strong>Builds on the adapter above rather than introducing one.</strong> Driver, dialect, source declaration and
+corpus registration are merged and green on a service account, so this step changes one thing: how the
+connection is authenticated. Same shape as the Postgres pair below, and for the same reason - if the
+identity route fails, it blocks one step rather than the whole cloud story.</p>
+<p><strong>Blocked on one verification, to do FIRST, and it is the riskiest item in this plan:</strong> <em>can the
+enterprise identity provider mint an </em><em>ID token</em><em> whose audience is a third party's provider?</em> The
+chain needs it, and nothing else in the chain is in doubt:</p>
+<ol>
+<li>The agent presents a token whose audience is <strong>sutura</strong>. Correct per RFC 8707 - a token presented
+   to us must be for us.</li>
+<li>sutura validates it; the subject is established. This is <a href="../adr/0014-how-a-caller-proves-who-it-is/">0014</a>.</li>
+<li><strong>Exchange one, at the enterprise provider</strong> (RFC 8693): swap it for a token whose audience names
+   the workforce pool provider.</li>
+<li><strong>Exchange two, at the cloud provider's security token service</strong>: that becomes an access token for
+   the federated principal, and IAM on the dataset decides what it may read.</li>
+</ol>
+<p>Steps 1, 2 and 4 are documented mechanisms with documented request shapes. <strong>Step 3 is the one that
+can simply not be available.</strong> The pool provider takes a subject token typed as an ID token; RFC 8693
+lets a client <em>ask</em> for <code>requested_token_type: id_token</code>, and an enterprise provider commonly answers
+a token-exchange for a registered downstream resource with an <strong>access</strong> token instead - which is
+precisely what the pool provider will not accept. So the verification is not "does token exchange
+work", it is "does token exchange return an ID token for an audience we do not control".</p>
+<p><strong>And a cheaper path to price at the same time, because it may remove step 3 entirely - through a
+much narrower door than the obvious one.</strong> An earlier version of this paragraph said the pool
+provider's <em>allowed-audiences list</em> is configurable, and <strong>that was wrong</strong>: <code>allowedAudiences</code> is a
+field on a <strong>workload</strong> identity pool provider. A <strong>workforce</strong> provider's OIDC object has five
+fields - issuer, client id, client secret, JWKS and single-sign-on configuration - and no audience
+list at all. Its client id <strong>is</strong> the only audience it accepts.</p>
+<p>So the shortcut survives, and it is: <strong>set the workforce provider's client id to the audience
+sutura's own token already carries.</strong> One exchange, no provider round trip, no ID-token question at
+step 3. Three consequences the wrong version did not state, and the third can foreclose it outright:</p>
+<ol>
+<li><strong>It is one value, not a list.</strong> The provider then accepts sutura's audience and nothing else -
+   which is tighter than an allowlist in one direction and completely inflexible in the other.</li>
+<li><strong>The single-sign-on configuration is required on a workforce OIDC provider, so that same client id
+   is also the client the console and the CLI use for browser sign-in.</strong> Sutura's front-door client
+   registration and the workforce sign-in client become <strong>one registration at the identity provider.</strong>
+   That is the real coupling being bought, and it is worse than the earlier framing in a specific way:
+   an allowlist entry can be revoked, and there is no allowlist entry here to revoke.</li>
+<li><strong>The front-door token has to be an ID token, JWT-formatted.</strong> The exchange takes
+   <code>subject_token_type: id_token</code> for a workforce provider. If sutura's front door accepts an opaque
+   access token - which is the ordinary shape for a token presented to a protected resource - the
+   shortcut is foreclosed before the audience question arises. <strong>This is a token-type boundary, not
+   only an audience one</strong>, and describing it as "less isolation" understated it.</li>
+</ol>
+<p><strong>The cost that was stated correctly stays correct:</strong> a leaked sutura token is replayable at the
+exchange endpoint as that subject. So the honest framing is <em>more plumbing versus less isolation plus
+a merged client registration</em> - and it is a decision for whoever owns the pool and the identity
+provider registration, not one this step may quietly take because it is easier.</p>
+<p><strong>One thing this does NOT rest on, so nobody re-derives it as an escape:</strong> "one token cannot satisfy
+two audiences" is not a syntax limitation. An ID token's <code>aud</code> may be an array and may carry several
+audience identifiers. That does not rescue a shared credential - it is still the wrong credential
+<em>type</em> for one of the two uses, and sharing a bearer across intended recipients is the exposure
+audience restriction exists to prevent.
+ . "
+" . <strong>A third route exists, it is newly the most practical one, and it changes what the blocking
+verification is for.</strong> The two options above are both <strong>workforce</strong> pools. A <strong>workload</strong> identity
+pool is the one that has a configurable <code>allowedAudiences</code> list - up to ten values of 256 characters -
+and researching whether a human subject may use one produced a clearer answer than expected:</p>
+<ul>
+<li><strong>Nothing prohibits it.</strong> There is no documented statement that a workload pool subject must be a
+  machine, and the documentation's own language assumes a person: <code>google.subject</code> is described as
+  <em>"a unique identifier for the user"</em>, attribute conditions are described as restricting <em>"which
+  users"</em> may federate, and the spoofing guidance reasons about a user changing <em>their own email
+  address</em>. That is not permission granted, but it is not silence either.</li>
+<li><strong>A JWT-format ACCESS token is explicitly acceptable</strong>, which is what dissolves the token-type
+  boundary. Workload pools take <code>subject_token_type: jwt</code> as well as <code>id_token</code>, and the guidance says
+  in as many words that ID tokens are <em>typically best</em> but that an access token works provided it is
+  JWT-formatted and its issuer serves a discovery document. Opaque tokens are not supported, and that
+  is the real precondition: <strong>our front door must issue JWT access tokens, not opaque ones.</strong> Many
+  providers do; ours is a question to answer rather than assume.</li>
+<li><strong>BigQuery is GA for this and carries no workload-pool limitation.</strong> Its row reads <em>"no known
+  limitations"</em> in the Google-Cloud-API column, and every BigQuery exception listed is scoped to
+  <strong>workforce</strong> by name. That is a meaningful signal rather than an absence, because the same page does
+  record a workload-specific gap where one exists - Cloud Run's - so the column is not merely unfilled.</li>
+</ul>
+<p><strong>So the chain collapses to one exchange, with the front-door token used directly.</strong> Which is what
+makes this the most practical route: it removes the ID-token question at step 3 entirely, and it
+avoids the merged client registration that the workforce shortcut buys.</p>
+<p><strong>What it costs, stated as plainly as the benefit.</strong> The provider-URL audience default is not an
+arbitrary convention - it is documented as a <strong>confused-deputy defence</strong>, in those terms: requiring the
+provider's own URL as the audience <em>"helps reduce the risk of a confused deputy attack, in which a bad
+actor presents a token that wasn't intended to be used for Workload Identity Federation, but for some
+other API."</em> Widening the list to our own audience is the one configuration that deliberately removes
+that control, and the framing to keep is that <strong>this is turning off a named security default, not
+exercising a neutral option.</strong> The compensating control the guidance itself points to is an
+<code>attributeCondition</code> pinning the token to a trusted issuer and tenant, and a route taken this way
+without that condition has spent the control and bought nothing back.</p>
+<p><strong>Two mechanical caveats, both real and both cheap:</strong></p>
+<ul>
+<li><strong>The billing and quota project has no workload-pool fallback.</strong> The documented precedence names a
+  service account's project and a <em>workforce</em> pool's user project, and then says a request with none
+  <strong>fails</strong>; workload federation is absent from that list. So the project is set explicitly - a
+  request header, a client option or an environment variable - and the caller needs the
+  service-usage-consumer role on it. This is why the adapter step above declares a billing project
+  rather than inferring one.</li>
+<li><strong>The subject attribute maps an immutable claim.</strong> <code>sub</code>, not <code>email</code>: the spoofing guidance is
+  explicit that a provider may let a user change their own email address or aliases, and a principal
+  bound to a mutable claim is a principal somebody can become.</li>
+</ul>
+<p><strong>Which route the plan takes is not decided here, and deliberately.</strong> Two of the three spend a
+security control and one is blocked on a capability we have not confirmed, so this is an architecture
+decision with an owner outside this repository. What the plan owes is that the three are priced the
+same way - mechanism, precondition, and the control spent - so the decision is made on the trade
+rather than on which one somebody found first.</p>
+<p><strong>Touches.</strong> The adapter crate; <code>crates/sutura-config</code>; the credential port from step 12.</p>
+<p><strong>Adds.</strong> The warehouse declares <code>ImpersonationAtSource</code>. A credential is minted per leg, for the
+calling subject, per <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">0008</a>. <strong>Not</strong> a
+service account that the request's identity is passed to as an argument: that is the shared-service-user
+posture with extra steps, and the source would authorize the service account.</p>
+<p><strong>Tests.</strong> Compose tier cannot help here - there is no local cloud - so these run wherever the fixture
+decision put the acceptance leg.</p>
+<ul>
+<li><strong>Two identities, a row access policy at the source, different rows</strong>, asserted against what each
+  identity is entitled to rather than merely against each other. "Different" alone passes against a
+  fixture that differs for the wrong reason.</li>
+<li><strong>The session reports the borrowed subject.</strong> The job's own principal is readable, so the test
+  asserts the query ran as the asker.</li>
+<li><strong>A credential is not reused past its expiry.</strong> A minted access token is short-lived by design and
+  the job outlives it, so a question after expiry mints again - the assertion that keeps a per-subject
+  credential cache from becoming the long-lived session 0008 rejects.</li>
+<li><strong>The exchange failing is a refusal, not an error.</strong> A subject the pool declines to federate is a
+  question this deployment cannot answer, which is <code>ToolOutcome::Refusal</code> in the <code>Ok</code>, per
+  <a href="../adr/0005-a-refusal-carries-a-status/">0005</a>. A caller must not be able to mistake it for a hiccup
+  and retry.</li>
+</ul>
+<p><strong>Done when</strong> two subjects get different rows through the same question, the ID-token verification has
+an answer recorded either way, and - if the answer was the allowed-audiences shortcut - the audience
+cost is written into 0008 rather than left in a commit message.</p>
 
 
 
 
 
 
-
-  
-  
 
 
 

@@ -16,7 +16,7 @@
         <link rel="prev" href="../serving/">
       
       
-        <link rel="next" href="../implementation-plan-identity-and-services/">
+        <link rel="next" href="../implementation-plan-bigquery/">
       
       
         
@@ -675,6 +675,8 @@
       
         
       
+        
+      
     
     
     
@@ -1107,6 +1109,34 @@
   
   
     <li class="md-nav__item">
+      <a href="../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
       <a href="../implementation-plan-identity-and-services/" class="md-nav__link">
         
   
@@ -1177,10 +1207,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
         
           
-          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
             
   
   
@@ -1198,8 +1228,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1682,7 +1712,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1704,14 +1734,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2480,60 +2510,73 @@ internal that a stable surface can grow behind.</p>
 </tr>
 <tr>
 <td>15</td>
+<td><code>feat/bigquery-adapter</code></td>
+<td>8, and the fixture decision</td>
+<td>after 8</td>
+</tr>
+<tr>
+<td>16</td>
+<td><code>feat/bigquery-impersonation</code></td>
+<td>12, 15, and the ID-token verification</td>
+<td>after 15</td>
+</tr>
+<tr>
+<td>17</td>
 <td><code>feat/postgres-adapter</code></td>
 <td>8, 14, and the artifact question</td>
 <td>after 14</td>
 </tr>
 <tr>
-<td>16</td>
-<td><code>feat/postgres-oauth</code></td>
-<td>12, 15, and the OAUTHBEARER verification</td>
-<td>after 15</td>
-</tr>
-<tr>
-<td>17</td>
-<td><code>feat/source-mtls</code></td>
-<td>8, 15</td>
-<td>after 15</td>
-</tr>
-<tr>
 <td>18</td>
+<td><code>feat/postgres-oauth</code></td>
+<td>12, 17, and the server-side validator decision</td>
+<td>after 17</td>
+</tr>
+<tr>
+<td>19</td>
+<td><code>feat/source-mtls</code></td>
+<td>8, 17</td>
+<td>after 17</td>
+</tr>
+<tr>
+<td>20</td>
 <td><code>feat/raw-sql-tool</code></td>
 <td>3, 8, 12</td>
 <td>after 12</td>
 </tr>
 <tr>
-<td>19</td>
+<td>21</td>
 <td><code>feat/demo-tasks</code></td>
 <td>14, and one example to demo</td>
 <td>after 14</td>
 </tr>
 <tr>
-<td>20</td>
+<td>22</td>
 <td><code>build/supply-chain</code></td>
 <td>nothing - orthogonal</td>
 <td><strong>yes</strong></td>
 </tr>
 <tr>
-<td>21</td>
+<td>23</td>
 <td><code>ci/prose-change-cost</code></td>
 <td>nothing - measure first. The path-filter half is DONE on this branch</td>
 <td><strong>yes</strong></td>
 </tr>
 <tr>
-<td>22</td>
+<td>24</td>
 <td><code>feat/metrics-endpoint</code></td>
 <td>6 for the memory series, nothing for the rest</td>
 <td>partly</td>
 </tr>
 </tbody>
 </table>
-<p><strong>Rows 1 to 11 have their branch sections on this page. Rows 12 to 21 are in
-<a href="../implementation-plan-identity-and-services/">identity, services and the operational work</a></strong>, which is
-the same document under a second file name: this table stays the only owner of a step number, and the
+<p><strong>Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
+<a href="../implementation-plan-bigquery/">BigQuery</a>, and rows 12 to 14 and 17 to 24 are in
+<a href="../implementation-plan-identity-and-services/">identity, services and the operational work</a></strong> - three
+file names, one document: this table stays the only owner of a step number, and the
 split is at the stack's own phase boundary - nothing up to and including the conformance packs needs a
 live service or an identity decision, and everything after it needs one or both.</p>
-<p><strong>Five orderings in that table are decisions rather than convenience, and each replaced an earlier
+<p><strong>Six orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:</strong></p>
 <ul>
 <li><strong>The compose tier moves ahead of the first network adapter, not behind it.</strong> An earlier version had
@@ -2548,6 +2591,15 @@ arrangement that would have gone wrong:</strong></p>
   change; it puts the rendered SQL in front of a real Postgres for the first time, which the goldens
   cannot do; and it means the SASL OAUTHBEARER verification, if it fails, blocks one step instead of
   the whole network story.</li>
+<li><strong>BigQuery moves ahead of Postgres, and the argument is value rather than cost.</strong> The bullet above
+  is a cost argument and it still holds - Postgres is nearly free. It is also not the deciding one:
+  <strong>BigQuery is where per-subject execution has to work, and Postgres is where it would be nice if it
+  did.</strong> An earlier version of this table had no BigQuery row at all, which meant the plan ordered
+  purely on cost while the deployment's priority ordered on value, and the two disagreed silently.
+  BigQuery is genuinely the more expensive step - there is no <code>Dialect::BigQuery</code>, so it costs a
+  fourth dialect of goldens and an AGENTS.md invariant the guidance gate will fail until it is
+  updated - and it goes first anyway. <strong>Cheap-first is a tiebreak, not a rule</strong>; when the expensive
+  step is the one that pays for the stack, it leads.</li>
 <li><strong>The agent surface is split, and slice one is deliberately thin.</strong> See below.</li>
 <li><strong>One step in this stack is a RECORD rather than code, and it is deliberately early.</strong>
   <code>docs/inbound-identity</code> answers the question
@@ -3264,8 +3316,9 @@ route not taken.</p>
 the compile half runs on every push, and an orphaned snapshot fails a gate rather than accumulating.</p>
 <h2 id="the-rest-of-the-stack">The rest of the stack<a class="headerlink" href="#the-rest-of-the-stack" title="Permanent link">&para;</a></h2>
 <p>The branch sections above cover the first eleven rows of the table - the surface, the domain and
-federation. <strong>Rows 12 to 21 continue in
-<a href="../implementation-plan-identity-and-services/">identity, services and the operational work</a></strong>: the
+federation. <strong>Rows 12 to 24 continue on two further pages.</strong>
+<a href="../implementation-plan-bigquery/">BigQuery</a> carries rows 15 and 16.
+<a href="../implementation-plan-identity-and-services/">Identity, services and the operational work</a> carries the
 credential port, the compose tier, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
 tasks, the supply chain and the CI cost of a prose change - plus the selective-service-CI work that
 is deferred rather than scheduled, and what is deliberately not in this plan at all.</p>

@@ -13,7 +13,7 @@
         <link rel="canonical" href="https://telekom.github.io/sutura/main/implementation-plan-identity-and-services/">
       
       
-        <link rel="prev" href="../implementation-plan/">
+        <link rel="prev" href="../implementation-plan-bigquery/">
       
       
         <link rel="next" href="../adr/0001-first-party-semantic-models/">
@@ -675,6 +675,8 @@
       
         
       
+        
+      
     
     
     
@@ -791,6 +793,34 @@
     
   
     The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
   
 
     
@@ -1088,10 +1118,10 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_5" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
         
           
-          <label class="md-nav__link" for="__nav_4_5" id="__nav_4_5_label" tabindex="0">
+          <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
             
   
   
@@ -1109,8 +1139,8 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_5_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_5">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_6">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -1593,7 +1623,7 @@
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
         
           
           <div class="md-nav__link md-nav__container">
@@ -1615,14 +1645,14 @@
             </a>
             
               
-              <label class="md-nav__link " for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
+              <label class="md-nav__link " for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
                 <span class="md-nav__icon md-icon"></span>
               </label>
             
           </div>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_4_6">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
             <span class="md-nav__icon md-icon"></span>
             
   
@@ -2193,7 +2223,8 @@
 <h1 id="identity-services-and-the-operational-work">Identity, services and the operational work<a class="headerlink" href="#identity-services-and-the-operational-work" title="Permanent link">&para;</a></h1>
 <p>The second half of <a href="../implementation-plan/">the implementation plan</a>, and one document with it: the
 stack table lives there and stays the only owner of a step number, the ordering decisions are stated
-there, and this page carries the branch sections for rows 12 to 21 - plus the work that is deferred
+there, and this page carries the branch sections for rows 12 to 14 and 17 to 24 - BigQuery's two
+steps are on <a href="../implementation-plan-bigquery/">their own page</a> - plus the work that is deferred
 rather than scheduled, and what is out of scope entirely.</p>
 <p>Split from that page because the two together crossed the 1000-line limit <code>cargo xtask max-lines</code>
 enforces. The seam is the stack's own phase boundary: everything on the other page needs no live
