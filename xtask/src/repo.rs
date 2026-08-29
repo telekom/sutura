@@ -9,6 +9,12 @@ use std::path::{Path, PathBuf};
 /// Directories no gate ever descends into: build output, VCS internals, tool caches.
 const SKIP_DIRS: &[&str] = &[
     ".git",
+    // A nested checkout of THIS repo. `git worktree` and agent tooling both put sibling working
+    // trees under `.claude/worktrees/`, and a gate that walks into one judges another checkout's
+    // files as if they were this one's: `max-lines` failed on vendored C inside a worktree, where
+    // `devco/max-lines-ignore`'s `vendor/**` cannot reach because the path is prefixed. Matched by
+    // NAME like every entry here, so a bare `worktrees/` is covered too.
+    "worktrees",
     // Written by crane inside the Nix build sandbox, not by us. The walk fallback would
     // otherwise judge a generated cargo config as if it were a repo file - which failed CI
     // once, since git never listed it and only the fallback can see it.
@@ -453,5 +459,30 @@ mod tests {
     fn trailing_star_covers_a_directory() {
         assert!(matches("docs/generated/*", "docs/generated/openapi.json"));
         assert!(!matches("docs/generated/*", "docs/adr/0001.md"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_nested_worktree_is_not_walked_into() {
+        // THE case this closes: `git worktree` and agent tooling put sibling checkouts of this
+        // repo under `.claude/worktrees/`, and the walk judged their files as this checkout's.
+        // `max-lines` failed on vendored mimalloc C inside one, which `devco/max-lines-ignore`
+        // exempts as `vendor/**` - a pattern that cannot match `.claude/worktrees/x/vendor/...`.
+        let root = std::env::temp_dir().join(format!("sutura-walk-{}", std::process::id()));
+        let _cleanup = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(root.join("crates/thing/src")).expect("a scratch tree");
+        std::fs::create_dir_all(root.join(".claude/worktrees/agent-x/crates/thing/src")).expect("a nested checkout");
+        std::fs::write(root.join("crates/thing/src/lib.rs"), "// ours\n").expect("our file");
+        std::fs::write(
+            root.join(".claude/worktrees/agent-x/crates/thing/src/lib.rs"),
+            "// another checkout's\n",
+        )
+        .expect("their file");
+
+        let mut found = Vec::new();
+        super::collect_files(&root, &root, &["rs"], &mut found);
+
+        let _swept = std::fs::remove_dir_all(&root);
+        assert_eq!(found, vec![String::from("crates/thing/src/lib.rs")], "{found:?}");
     }
 }

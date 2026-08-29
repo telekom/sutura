@@ -483,10 +483,25 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player/data")
     }
 
-    /// The narrowest width the engine will take, so a refusal that fires before the runtime is built
-    /// costs nothing and the one that fires after builds a single-threaded one.
-    fn one_worker() -> EngineWorkers {
-        EngineWorkers::parse(Some(1)).expect("one worker is a worker count")
+    /// The narrowest runtime the engine will take, so a refusal that fires before it is built costs
+    /// nothing and the one that fires after builds a single-threaded engine.
+    ///
+    /// It became the whole settings group rather than a worker count when the working-set ceiling
+    /// arrived: `open_engine` needs the ceiling to build the memory pool, and passing the group is
+    /// what stops a test choosing a different ceiling from the one a deployment would run with.
+    /// Every other value is the embedded default.
+    fn one_worker() -> sutura_config::RuntimeSettings {
+        use sutura_config::{AdmissionTimeout, QueryConcurrency, ShutdownGrace, WorkingSetCeiling};
+
+        sutura_config::RuntimeSettings::new(
+            QueryConcurrency::parse(1).expect("one query at a time is a concurrency"),
+            AdmissionTimeout::parse(1).expect("a second is an admission timeout"),
+            EngineWorkers::parse(Some(1)).expect("one worker is a worker count"),
+            // The ceiling a deployment would run with, and `None` for the machine's memory because a
+            // test must not refuse on the host it happens to run on.
+            WorkingSetCeiling::parse(WorkingSetCeiling::DEFAULT_BYTES, None).expect("the default ceiling parses"),
+            ShutdownGrace::parse(1).expect("a second is a grace period"),
+        )
     }
 
     /// The refusal a startup produced, or a failed test.

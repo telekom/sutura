@@ -174,7 +174,7 @@ where
     S: Surface,
 {
     let service = Arc::clone(service);
-    match sutura_runtime::spawn_carrying_span(move || service.answer(&query)).await {
+    match sutura_runtime::spawn_carrying_span(move || service.answer(&crate::principal::established(), &query)).await {
         // A refusal and an answer take the same branch, which is the point: both are `Ok`, both are
         // a tool result, and only `outcome` inside the payload tells them apart.
         Ok(Ok(ref outcome)) => produced(outcome),
@@ -253,9 +253,28 @@ mod tests {
         client.expect("the client initializes")
     }
 
+    /// What `certified_service` hands back: the real application over a fake data system, with the
+    /// audit sink every `LocalService` now requires.
+    type CertifiedService = LocalService<testing::FakeWarehouse, std::sync::Arc<testing::CountingSink>>;
+
     /// A service over the real application, so an answer here is an answer the anchor certified.
-    fn certified_service() -> LocalService<testing::FakeWarehouse> {
-        LocalService::start(&testing::FixedCatalog, testing::fake_warehouse()).expect("the fixture bundle validates")
+    fn certified_service() -> CertifiedService {
+        with_sink().0
+    }
+
+    /// The same service, plus the sink it writes to, for the one test that counts records.
+    ///
+    /// `LocalService::start` REQUIRES a sink - a deployment that forgot to attach one is not a
+    /// state that exists - so every service here has one whether a test reads it or not.
+    fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
+        let sink = std::sync::Arc::new(testing::CountingSink::default());
+        let service = LocalService::start(
+            &testing::FixedCatalog,
+            testing::fake_warehouse(),
+            std::sync::Arc::clone(&sink),
+        )
+        .expect("the fixture bundle validates");
+        (service, sink)
     }
 
     fn call(name: &'static str, arguments: &serde_json::Value) -> CallToolRequestParams {
@@ -284,6 +303,38 @@ mod tests {
         assert_eq!(tool.name, crate::tool::ASK_METRIC);
         // The schema on the wire is the generated one, byte for byte - not a description of it.
         assert_eq!(*tool.input_schema.as_ref(), crate::tool::input_schema());
+        drop(client.cancel().await);
+    }
+
+    /// #37 made "every outcome recorded before it returns" an invariant, and this transport is a
+    /// second caller of `Surface::answer` - so it needs its own assertion rather than inheriting
+    /// the HTTP surface's. A refusal counts too: it is an outcome, not a failure.
+    #[tokio::test]
+    async fn every_answered_call_over_this_transport_writes_one_record() {
+        let (service, sink) = with_sink();
+        let client = connected(service).await;
+        assert_eq!(sink.calls(), 0, "nothing asked, nothing recorded");
+
+        drop(
+            client
+                .call_tool(ask(&a_certified_question()))
+                .await
+                .expect("a certified question is not a protocol error"),
+        );
+        assert_eq!(sink.calls(), 1, "an answer is an outcome and is recorded");
+
+        drop(
+            client
+                .call_tool(ask(&serde_json::json!({
+                    "metric": "headcount",
+                    "grain": "month",
+                    "range": { "start": "2026-06-01", "end": "2026-07-01" },
+                })))
+                .await
+                .expect("a refusal is a result, not a protocol error"),
+        );
+        assert_eq!(sink.calls(), 2, "a refusal is an outcome too, so it is recorded as well");
+
         drop(client.cancel().await);
     }
 
