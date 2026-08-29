@@ -10,18 +10,24 @@
 //! months apart, one of them stops matching the documentation, and the direction a wrong answer
 //! costs the most is the one that silently flipped.
 //!
-//! **Neither direction is the default, and what a wrong answer costs decides it.** On a developer
-//! machine a false failure blocks a contributor who is not touching services - docker is a host
-//! dependency this repository deliberately does not pin with nix. In CI this tier is the only thing
-//! standing behind a network adapter, so a run that skipped it would report green having tested
-//! nothing.
+//! **Neither direction is the default, and what a wrong answer costs decides it.** A false failure
+//! blocks a contributor who is not touching services - docker is a host dependency this repository
+//! deliberately does not pin with nix. A false pass reports green having tested nothing, which is
+//! the failure the whole tier exists to prevent.
 //!
-//! **The limit, stated with the claim:** "CI" here is an environment variable, so a check that runs
-//! inside a nix sandbox is NOT in CI by this definition - the sandbox scrubs the environment, and it
-//! has neither a network nor a docker socket to provision with in any case. What that means in
-//! practice is that `checks.nextest` skips the docker-gated tests loudly rather than failing, and
-//! the required direction is reached by a runner that invokes a task directly, or by anybody who
-//! sets the variable below.
+//! **So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
+//! distinction was learned rather than designed: this module first read `CI`, on the reasoning that
+//! CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
+//! provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
+//! job that runs the suite never brings the services up - so `CI=true` made a missing tier fatal in
+//! the one place its absence is expected, and it failed on the first push of the branch that added
+//! it, in a step that had tested nothing needing docker.
+//!
+//! Only the job that provisions the tier knows that it did. So that job opts in by setting the
+//! variable below and gets the fail-closed direction; everything else skips loudly and names what did
+//! not run. **The limit, stated with the claim:** nothing here verifies that a job setting the
+//! variable really did provision anything - it is a declaration, and a job that lies about it gets
+//! the failure it asked for.
 
 /// The variable that overrides the machine class, in **both** directions.
 ///
@@ -32,8 +38,12 @@ pub const FORCE: &str = "SUTURA_DEV_REQUIRE_DOCKER";
 /// Whether a missing tier is fatal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Requirement {
-    /// A missing tier FAILS. The CI direction: a green run that quietly tested nothing is the
-    /// failure the whole tier exists to prevent.
+    /// A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting
+    /// [`FORCE`]: there, a green run that quietly tested nothing is the failure the whole tier
+    /// exists to prevent.
+    ///
+    /// **Not implied by `CI`.** No CI job provisions the tier today, so keying on that variable made
+    /// a missing tier fatal in the one place it is expected - see [`decide`].
     Required,
     /// A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.
     Optional,
@@ -43,7 +53,7 @@ impl Requirement {
     /// The direction this process is running under, read from the environment.
     #[must_use]
     pub fn from_env() -> Self {
-        decide(std::env::var("CI").ok().as_deref(), std::env::var(FORCE).ok().as_deref())
+        decide(std::env::var(FORCE).ok().as_deref())
     }
 
     /// Is a missing tier fatal here?
@@ -53,21 +63,19 @@ impl Requirement {
     }
 }
 
-/// The decision, over the two values rather than over the environment, so it is testable.
+/// The decision, over the value rather than over the environment, so it is testable.
 ///
-/// The forced value wins over the machine class, in both directions: a developer who exports
-/// `SUTURA_DEV_REQUIRE_DOCKER=1` wants the CI behaviour, and a runner that exports `0` means it.
+/// **One parameter, and it used to be two.** The other was `CI`, and it is gone rather than ignored:
+/// a parameter a function does not read is a parameter a caller believes in. See the module header for
+/// why that signal was the wrong one.
 #[must_use]
-pub fn decide(ci: Option<&str>, forced: Option<&str>) -> Requirement {
+pub fn decide(forced: Option<&str>) -> Requirement {
     if let Some(value) = forced {
         return if truthy(value) {
             Requirement::Required
         } else {
             Requirement::Optional
         };
-    }
-    if ci.is_some_and(truthy) {
-        return Requirement::Required;
     }
     Requirement::Optional
 }
@@ -82,25 +90,37 @@ mod tests {
     use super::{Requirement, decide, truthy};
 
     #[test]
-    fn an_absent_tier_skips_locally_and_fails_in_ci() {
+    fn an_absent_tier_skips_unless_a_job_says_it_provisioned_one() {
         // Both directions, because a fail-open/fail-closed decision with only one side tested is
         // half a decision - and this is the function that decides it for provisioning AND for the
         // harness, so a regression here is silent on both sides at once.
-        assert_eq!(decide(None, None), Requirement::Optional);
-        assert_eq!(decide(Some("true"), None), Requirement::Required);
+        assert_eq!(decide(None), Requirement::Optional);
+        assert_eq!(decide(Some("1")), Requirement::Required);
     }
+
+    // **There is deliberately no test that `CI` cannot make an absent tier fatal**, and the absence
+    // is the point rather than an omission. That regression is real - keying on `CI` failed the
+    // harness test in the `Test causality` step on this branch's first push, because no CI job
+    // provisions the tier - and it is now **unrepresentable instead of checked**: [`decide`] has no
+    // parameter the variable could arrive through, and [`Requirement::from_env`] does not read it.
+    //
+    // A test written for it would have to either loop over CI spellings while calling a function that
+    // cannot see them - which asserts nothing while reading as coverage, the exact shape this
+    // repository treats as worse than no test - or manipulate the process environment, which is racy
+    // across a threaded test runner. The compiler holds this one.
 
     #[test]
     fn the_flag_overrides_the_machine_class_in_both_directions() {
-        assert_eq!(decide(None, Some("1")), Requirement::Required);
-        assert_eq!(decide(Some("true"), Some("0")), Requirement::Optional);
+        assert_eq!(decide(Some("1")), Requirement::Required);
+        assert_eq!(decide(Some("0")), Requirement::Optional);
     }
 
     #[test]
-    fn an_empty_or_negative_ci_variable_is_not_ci() {
+    fn an_empty_or_negative_forced_value_does_not_require_a_tier() {
         for value in ["", " ", "0", "false", "no", "FALSE"] {
             assert!(!truthy(value), "`{value}` read as CI");
-            assert_eq!(decide(Some(value), None), Requirement::Optional, "`{value}`");
+            // `truthy` still decides what a FORCED value means, which is the reading that survives.
+            assert_eq!(decide(Some(value)), Requirement::Optional, "`{value}`");
         }
         for value in ["1", "true", "TRUE", "yes"] {
             assert!(truthy(value), "`{value}` read as not-CI");

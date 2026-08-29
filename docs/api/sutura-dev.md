@@ -429,18 +429,24 @@ Two copies of a fail-open/fail-closed decision is the shape that drifts: the cop
 months apart, one of them stops matching the documentation, and the direction a wrong answer
 costs the most is the one that silently flipped.
 
-**Neither direction is the default, and what a wrong answer costs decides it.** On a developer
-machine a false failure blocks a contributor who is not touching services - docker is a host
-dependency this repository deliberately does not pin with nix. In CI this tier is the only thing
-standing behind a network adapter, so a run that skipped it would report green having tested
-nothing.
+**Neither direction is the default, and what a wrong answer costs decides it.** A false failure
+blocks a contributor who is not touching services - docker is a host dependency this repository
+deliberately does not pin with nix. A false pass reports green having tested nothing, which is
+the failure the whole tier exists to prevent.
 
-**The limit, stated with the claim:** "CI" here is an environment variable, so a check that runs
-inside a nix sandbox is NOT in CI by this definition - the sandbox scrubs the environment, and it
-has neither a network nor a docker socket to provision with in any case. What that means in
-practice is that `checks.nextest` skips the docker-gated tests loudly rather than failing, and
-the required direction is reached by a runner that invokes a task directly, or by anybody who
-sets the variable below.
+**So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
+distinction was learned rather than designed: this module first read `CI`, on the reasoning that
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
+provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
+job that runs the suite never brings the services up - so `CI=true` made a missing tier fatal in
+the one place its absence is expected, and it failed on the first push of the branch that added
+it, in a step that had tested nothing needing docker.
+
+Only the job that provisions the tier knows that it did. So that job opts in by setting the
+variable below and gets the fail-closed direction; everything else skips loudly and names what did
+not run. **The limit, stated with the claim:** nothing here verifies that a job setting the
+variable really did provision anything - it is a declaration, and a job that lies about it gets
+the failure it asked for.
 
 ### `enum Requirement`
 
@@ -452,7 +458,7 @@ Whether a missing tier is fatal.
 
 #### Variants
 
-- `Required` - A missing tier FAILS. The CI direction: a green run that quietly tested nothing is the failure the whole tier exists to prevent.
+- `Required` - A missing tier FAILS. What a job that has PROVISIONED the tier asks for by setting `FORCE`: there, a green run that quietly tested nothing is the failure the whole tier exists to prevent.
 - `Optional` - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.
 
 #### Methods
@@ -476,13 +482,14 @@ Is a missing tier fatal here?
 ### `fn decide`
 
 ```rust
-pub fn decide(ci: Option<&str>, forced: Option<&str>) -> Requirement
+pub fn decide(forced: Option<&str>) -> Requirement
 ```
 
-The decision, over the two values rather than over the environment, so it is testable.
+The decision, over the value rather than over the environment, so it is testable.
 
-The forced value wins over the machine class, in both directions: a developer who exports
-`SUTURA_DEV_REQUIRE_DOCKER=1` wants the CI behaviour, and a runner that exports `0` means it.
+**One parameter, and it used to be two.** The other was `CI`, and it is gone rather than ignored:
+a parameter a function does not read is a parameter a caller believes in. See the module header for
+why that signal was the wrong one.
 
 ### `constant FORCE`
 
