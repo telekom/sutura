@@ -363,7 +363,9 @@ mod tests {
     /// No database and nothing to load: the engine reads the files, for the reason the `query`
     /// command gives - a database file in a repository is a binary nobody reviews, and a fixture
     /// read from the CSV every time cannot drift from it.
-    fn engine(pinned: &PinnedDefinitions) -> sutura_exec_datafusion::DataFusionWarehouse {
+    /// It returns a registry, because that is what `verify_and_validate` and `answer` take: a plan
+    /// selects the data system it names, and this example configures one.
+    fn engine(pinned: &PinnedDefinitions) -> sutura_app::Warehouses<sutura_exec_datafusion::DataFusionWarehouse> {
         let sources = sutura_app::sources(pinned);
         let [source] = sources.as_slice() else {
             panic!(
@@ -380,8 +382,20 @@ mod tests {
             sutura_config::available_memory_bytes(),
         )
         .expect("the embedded default is a ceiling on this machine");
+        // The posture the `sutura` command itself declares: this tool reads the files of whoever ran
+        // it, as that person's own identity. Stated here rather than left to a default for the reason
+        // `commands::single_user_posture` gives.
+        let posture = sutura_domain::source::SourcePosture::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse(
+                    "the example is read by one person, as that person's own operating-system identity",
+                )
+                .expect("the fixture reason is a reason"),
+            ),
+        };
         let warehouse = sutura_exec_datafusion::DataFusionWarehouse::new(
             (*source).clone(),
+            posture,
             sutura_exec_datafusion::WorkingSet::of_bytes(ceiling.bytes()),
         )
         .expect("the engine starts");
@@ -392,7 +406,7 @@ mod tests {
                 .attach_csv(model.table(), &csv)
                 .unwrap_or_else(|e| panic!("could not attach {}: {e}", csv.display()));
         }
-        warehouse
+        sutura_app::Warehouses::of(warehouse)
     }
 
     #[test]

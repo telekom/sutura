@@ -44,11 +44,24 @@ use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
 use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
-/// The only data system this build can open.
+/// The alias the example deployment and this crate's tests use for their one source.
 ///
-/// The engine is this process, over the files in the configured data directory. A catalog naming
-/// anything else gets no engine rather than one wearing that data system's name over local files -
-/// the same refusal the command-line tool makes, for the same reason.
+/// **No longer a check, and that is the change worth reading.** It used to be the only source name
+/// this build would open: a catalog naming anything else got no engine rather than one wearing that
+/// data system's name over local files. That argument held while the catalog was the only signal, and
+/// it stops holding once the DEPLOYMENT declares each source - an operator who writes
+/// `sources.warehouse.kind: files` with a directory beside it has said what the name comparison was
+/// standing in for, and under the old rule that legitimate deployment could not be served at all.
+///
+/// What carries the fact instead is `sutura_config::SourceKind`: the vocabulary of kinds is the
+/// vocabulary of adapters, an unknown word is a parse refusal, and which adapter opens a declared kind
+/// is an exhaustive match in [`build_engine`] - so a second kind is a compile error there rather than
+/// an arm that falls through.
+///
+/// `#[cfg(test)]`, which is the honest consequence: nothing in the serving path reads it any more, and
+/// `dead_code` is `deny` here - so leaving it compiled would have been a constant that looks like a
+/// rule and is a string.
+#[cfg(test)]
 const ENGINE_SOURCE: &str = "local";
 
 /// The variable that points at a configuration directory.
@@ -111,7 +124,11 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
     let pinned = catalog.load().map_err(flatten)?;
-    let opened = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime())?;
+    // The `sources:` tree rather than `catalog.data_dir`: a deployment declares each data system, its
+    // location and which identity a query reaches it as, and the engine is opened per declaration.
+    // `catalog.data_dir` stays what it always was - the catalog's own directory - and is no longer
+    // where a source's files are found.
+    let opened = open_engine(&pinned, settings.sources(), settings.runtime())?;
     // `LocalService::start` loads through the catalog port a SECOND time rather than being handed
     // the bundle above, and that is deliberate: the bundle it validates has to be the bundle it
     // serves, and the only way to guarantee that is for the same call to do both. The load above
@@ -123,7 +140,7 @@ fn run() -> Result<(), String> {
     // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
     // this crate can promise exists. What that log pipeline retains is the deployment's - sutura
     // writes a record per outcome and keeps nothing.
-    let service = LocalService::start(&catalog, opened.engine, TracingAuditSink::new()).map_err(flatten)?;
+    let service = LocalService::start(&catalog, opened.engines, TracingAuditSink::new()).map_err(flatten)?;
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
     // calls is therefore served with no table registered behind it, and `answer` cannot see that -
@@ -310,13 +327,13 @@ fn config_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
-/// An open engine, and the tables it actually holds.
+/// The open data systems, and the tables they actually hold.
 ///
 /// A named pair rather than a tuple: the second field is evidence for a startup refusal and `.1`
 /// would say nothing about which of the two it is. `clippy::type_complexity` asks for the same thing
 /// from the other direction.
 struct Opened {
-    engine: DataFusionWarehouse,
+    engines: sutura_app::Warehouses<DataFusionWarehouse>,
     attached: BTreeSet<TableName>,
 }
 
@@ -380,29 +397,104 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// parameter here.
 fn open_engine(
     pinned: &PinnedDefinitions,
-    data: &std::path::Path,
+    registry: &sutura_config::SourceRegistry,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<Opened, String> {
-    let declared = match sutura_app::sources(pinned).as_slice() {
-        [only] => (*only).clone(),
-        [] => return Err(String::from("this catalog declares no models, so there is nothing to open")),
-        many => {
-            return Err(format!(
-                "this catalog spans {} data systems, and a plan runs against one",
-                many.len()
-            ));
+    let declared = sutura_app::sources(pinned);
+    if declared.is_empty() {
+        return Err(String::from("this catalog declares no models, so there is nothing to open"));
+    }
+    // Before the engines are built, and the order is the classic one: the cheap check that reads the
+    // parsed tree runs before the expensive one that starts a runtime and a memory pool. It also puts
+    // the more actionable message first - an anchor with no identity to run it as names the metric.
+    refuse_unverifiable_anchors(pinned, registry)?;
+    let mut engines: Option<sutura_app::Warehouses<DataFusionWarehouse>> = None;
+    let mut attached: BTreeSet<TableName> = BTreeSet::new();
+    for source in declared {
+        let configured = configured_source(source, registry)?;
+        let engine = build_engine(source, configured, runtime)?;
+        for model in pinned
+            .definitions()
+            .models()
+            .values()
+            .filter(|model| model.source() == source)
+        {
+            attach(&engine, model.table(), configured.data_dir())?;
+            // Collected AFTER the attach, so this set is what the engines hold rather than what was
+            // asked for. `attach` fails the startup on a missing file, so the two cannot diverge
+            // here - and recording it from the successful call rather than from the model list is
+            // what keeps that true if it ever gains a path that can skip one.
+            attached.insert(model.table().clone());
         }
-    };
-    let engine_source =
-        SourceName::parse(ENGINE_SOURCE).map_err(|cause| format!("the built-in engine source name is not a name: {cause}"))?;
-    if declared != engine_source {
+        engines = Some(match engines {
+            None => sutura_app::Warehouses::of(engine),
+            Some(open) => open.and(engine).map_err(flatten)?,
+        });
+    }
+    // Unreachable: `declared` is non-empty and every iteration assigns, so this is the loop's own
+    // invariant written as a fallback rather than an unwrap the workspace denies.
+    let engines = engines.ok_or_else(|| String::from("this catalog declares no models, so there is nothing to open"))?;
+    Ok(Opened { engines, attached })
+}
+
+/// The declaration for one source the catalog names, or a refusal saying what is missing.
+///
+/// Two refusals, and they are two facts rather than one: a source with no entry is a deployment that
+/// never said where that data system is, and a source declared shared with nobody's acknowledgement is
+/// a deployment `Settings::refusals` already refused. The second is unreachable through
+/// `Settings::load` and is written out anyway - `sutura_config::ConfiguredSource::identity` returns an
+/// `Option` precisely so a root cannot read the absence as permission, and treating it as such here
+/// would be the hole that accessor exists to keep open to review.
+fn configured_source<'registry>(
+    source: &SourceName,
+    registry: &'registry sutura_config::SourceRegistry,
+) -> Result<&'registry sutura_config::ConfiguredSource, String> {
+    let configured = registry.get(source).ok_or_else(|| {
+        format!(
+            "this catalog reads from {source}, and no `sources.{source}` entry declares where that \
+             data system is or which identity a query reaches it as. Declare it, or remove the models \
+             that name it"
+        )
+    })?;
+    if configured.identity().is_none() {
         return Err(format!(
-            "this catalog reads from {declared}, and this build has no adapter for it: the only \
-             data system it can open is {engine_source}, the in-process engine over the CSV and \
-             Parquet files in {}",
-            data.display()
+            "`sources.{source}` is `shared-service-user` in a multi-user deployment and carries no \
+             acknowledgement, so there is no declared identity to serve it under"
         ));
     }
+    Ok(configured)
+}
+
+/// Builds the engine for one declared source, after checking this build can deliver its posture.
+///
+/// **The cross-check is here and not in `sutura-config`, and the split follows what each half can
+/// see.** Configuration says which posture the deployment is asking for; whether the LINKED adapter can
+/// carry a per-subject credential at all is a property of the build, and the settings tree cannot see
+/// which adapters were compiled in. So the comparison lives where both are in scope, which is here, and
+/// `SourcePosture::deliverable_by` is the one function that makes it.
+fn build_engine(
+    source: &SourceName,
+    configured: &sutura_config::ConfiguredSource,
+    runtime: sutura_config::RuntimeSettings,
+) -> Result<DataFusionWarehouse, String> {
+    // **An exhaustive match with no wildcard arm, and it is the mechanism rather than a formality.**
+    // One kind ships, so this reads as a formality today - and a second kind is then a compile error
+    // at this line rather than a source silently opened by whichever adapter happened to be linked.
+    // A refusal arm here would be a variant no test could provoke, which is what this repository's own
+    // rule says an enum refuses to carry.
+    match configured.kind() {
+        sutura_config::SourceKind::Files => {}
+    }
+    let identity = configured
+        .identity()
+        .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
+    identity
+        .posture()
+        .deliverable_by(
+            <DataFusionWarehouse as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
+            source,
+        )
+        .map_err(flatten)?;
     // `NonZeroUsize::MIN` is unreachable: `EngineWorkers::parse` refuses a zero and resolves an
     // absent key from the machine, which reports at least one. Written as a fallback rather than an
     // unwrap because the workspace denies both, and because one worker is the safe direction to fail
@@ -412,17 +504,47 @@ fn open_engine(
     // value above the memory this process can reach - so there is nothing left to check here. The
     // wrapper exists so a thread count and a quantity of memory cannot be swapped at this call.
     let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
-    let engine = DataFusionWarehouse::with_worker_threads(engine_source, width, working_set).map_err(flatten)?;
-    let mut attached: BTreeSet<TableName> = BTreeSet::new();
-    for model in pinned.definitions().models().values() {
-        attach(&engine, model.table(), data)?;
-        // Collected AFTER the attach, so this set is what the engine holds rather than what was
-        // asked for. `attach` fails the startup on a missing file, so the two cannot diverge here -
-        // and recording it from the successful call rather than from the model list is what keeps
-        // that true if it ever gains a path that can skip one.
-        attached.insert(model.table().clone());
+    DataFusionWarehouse::with_worker_threads(source.clone(), identity.posture().clone(), width, working_set).map_err(flatten)
+}
+
+/// Refuses a bundle that declares an anchor on a source with no identity to re-run it under.
+///
+/// **Not skipped, not warned about, and not treated as a passing anchor** - the three ways this would
+/// otherwise become a mode nobody chose. A deployment that genuinely wants an impersonating source with
+/// no verification identity gets it by authoring no anchors on that source's metrics, which is a catalog
+/// fact a reviewer can see rather than a runtime behaviour they have to infer.
+///
+/// It names the metric AND the source, because the fix is in one of two different files: either the
+/// catalog stops certifying that number, or the source's entry declares the identity that would.
+///
+/// The identity the check reads is the one the port does not take yet. When `Warehouse` gains a method
+/// that runs an anchor under a `VerificationIdentity`, this check stays where it is and stops being the
+/// only thing between a declared identity and the one that ran.
+fn refuse_unverifiable_anchors(pinned: &PinnedDefinitions, registry: &sutura_config::SourceRegistry) -> Result<(), String> {
+    for (metric, _anchor) in pinned.anchored_metrics() {
+        let Some(source) = sutura_app::source_of(pinned, metric) else {
+            continue;
+        };
+        let Some(identity) = registry.get(source).and_then(sutura_config::ConfiguredSource::identity) else {
+            // Already refused by `configured_source` for every source the catalog names, so there is
+            // nothing left to say here and nothing to skip: a source with no declaration never gets
+            // this far.
+            continue;
+        };
+        match identity.anchors_run_as() {
+            sutura_domain::source::AnchorIdentity::TheSharedIdentity { .. }
+            | sutura_domain::source::AnchorIdentity::Declared { .. } => {}
+            sutura_domain::source::AnchorIdentity::NoneDeclared => {
+                return Err(format!(
+                    "metric {metric} declares an anchor and reads from {source}, which is \
+                     `impersonation-at-source` with no `sources.{source}.verification_identity`. There \
+                     is no identity to re-run that certified number as. Declare one, or remove the \
+                     anchor from {metric}"
+                ));
+            }
+        }
     }
-    Ok(Opened { engine, attached })
+    Ok(())
 }
 
 /// Registers one model's file, preferring Parquet.
@@ -458,229 +580,12 @@ fn flatten(error: impl core::error::Error) -> String {
     out
 }
 
+/// The startup refusals, in their own file.
+///
+/// **Moved here by the file-length gate**, not by a change of mind about where a composition root's
+/// tests live: this file crossed 1000 lines when the source registry landed, and `cargo xtask
+/// max-lines` fails rather than warning. `devco/max-lines-ignore` cannot exempt anything under
+/// `crates/`, which is the rule working as intended - the answer to a long file is to split it, not to
+/// shorten the fix that made it long.
 #[cfg(test)]
-mod tests {
-    use std::collections::BTreeSet;
-    use std::path::{Path, PathBuf};
-
-    use sutura_config::EngineWorkers;
-    use sutura_domain::catalog::{Definitions, Description, Model};
-    use sutura_domain::knowledge::Knowledge;
-    use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
-
-    use super::{ENGINE_SOURCE, Opened, open_engine, refuse_unattached};
-
-    fn tables(names: &[&str]) -> BTreeSet<TableName> {
-        names
-            .iter()
-            .map(|raw| TableName::parse(raw).expect("a test table is a table"))
-            .collect()
-    }
-
-    /// The example deployment's data directory, which is the one the quickstart points at.
-    fn data() -> PathBuf {
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player/data")
-    }
-
-    /// The narrowest runtime the engine will take, so a refusal that fires before it is built costs
-    /// nothing and the one that fires after builds a single-threaded engine.
-    ///
-    /// It became the whole settings group rather than a worker count when the working-set ceiling
-    /// arrived: `open_engine` needs the ceiling to build the memory pool, and passing the group is
-    /// what stops a test choosing a different ceiling from the one a deployment would run with.
-    /// Every other value is the embedded default.
-    fn one_worker() -> sutura_config::RuntimeSettings {
-        use sutura_config::{AdmissionTimeout, QueryConcurrency, ShutdownGrace, WorkingSetCeiling};
-
-        sutura_config::RuntimeSettings::new(
-            QueryConcurrency::parse(1).expect("one query at a time is a concurrency"),
-            AdmissionTimeout::parse(1).expect("a second is an admission timeout"),
-            EngineWorkers::parse(Some(1)).expect("one worker is a worker count"),
-            // The ceiling a deployment would run with, and `None` for the machine's memory because a
-            // test must not refuse on the host it happens to run on.
-            WorkingSetCeiling::parse(WorkingSetCeiling::DEFAULT_BYTES, None).expect("the default ceiling parses"),
-            ShutdownGrace::parse(1).expect("a second is a grace period"),
-        )
-    }
-
-    /// The refusal a startup produced, or a failed test.
-    ///
-    /// `expect_err` wants a `Debug` on the success type, and `Opened` holds a live engine and a table
-    /// set. Dropping the success value here rather than deriving `Debug` on it keeps a test's
-    /// convenience out of the composition root's types, and the message the caller passes is what
-    /// says which arm was expected to fire.
-    fn refusal(opened: Result<Opened, String>, expected: &str) -> String {
-        opened.map(drop).expect_err(expected)
-    }
-
-    /// One model as a catalog document names it: the model, its data system, its table.
-    type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
-
-    /// A pinned bundle over exactly the models given, and no metrics.
-    ///
-    /// Models are all `open_engine` reads: [`sutura_app::sources`] maps over them and `attach` is
-    /// called once per model, so a metric would add nothing any arm of that function looks at.
-    /// Leaving them out is what lets one helper stand behind every arm below.
-    fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
-        let declared: Vec<Model> = models
-            .iter()
-            .map(|&(model, source, table)| {
-                Model::new(
-                    ModelName::parse(model).expect("a test model is a model"),
-                    SourceName::parse(source).expect("a test source is a source"),
-                    TableName::parse(table).expect("a test table is a table"),
-                    BTreeSet::from([ColumnName::parse("customer_key").expect("a test column is a column")]),
-                    Description::default(),
-                )
-            })
-            .collect();
-        let definitions = Definitions::assemble(declared, vec![], vec![]).expect("the test bundle is consistent");
-        PinnedDefinitions::pin(
-            DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            definitions,
-            Knowledge::none(),
-        )
-        .expect("the test definitions hash")
-    }
-
-    #[test]
-    fn a_catalog_spanning_two_data_systems_starts_nothing() {
-        // The arm nothing proved, in the binary where it matters most: this refusal is what stops a
-        // SERVICE, so with it gone the deployment comes up and answers questions rather than failing
-        // one command. A plan runs against one data system - `PlanSpansTwoSources` is the query-path
-        // refusal - and this is that rule at startup.
-        //
-        // `local` is deliberately ONE OF THE PAIR, and its table has a real file in the example's
-        // data directory. That is what makes this discriminate: an arm that took the first source
-        // instead of refusing would find `local`, find `dim_customer.csv`, and start serving half a
-        // catalog under the whole bundle's digest.
-        let error = refusal(
-            open_engine(
-                &bundle_over(&[
-                    ("customers", ENGINE_SOURCE, "dim_customer"),
-                    ("products", "production_warehouse", "dim_product"),
-                ]),
-                &data(),
-                one_worker(),
-            ),
-            "a catalog spanning two data systems must not get an engine",
-        );
-        assert!(
-            error.contains("spans 2 data systems"),
-            "the refusal must say how many it found: {error}"
-        );
-        // NOT the neighbouring arm, and this is the half that stops the test passing on the wrong
-        // branch: `production_warehouse` is also a source this build has no adapter for, so a test
-        // that only checked for *a* refusal would be green with the multi-source arm gone.
-        assert!(
-            !error.contains("no adapter"),
-            "this is the multi-source arm, not the wrong-name one: {error}"
-        );
-    }
-
-    #[test]
-    fn a_catalog_naming_another_data_system_starts_nothing() {
-        // The command-line tool has this test and the service did not, though the service is the one
-        // that would then answer every caller. The engine has its own identity and does not borrow
-        // the catalog's: naming it after the declared source would satisfy `sutura-app`'s
-        // `plan.source() != warehouse.source()` guard by construction, and a certified metric would
-        // be answered out of whatever files the configured data directory holds.
-        //
-        // `dim_customer.csv` is present, so nothing else fails either - which is what the assertion
-        // on the arm's own wording is for.
-        let error = refusal(
-            open_engine(
-                &bundle_over(&[("customers", "production_warehouse", "dim_customer")]),
-                &data(),
-                one_worker(),
-            ),
-            "a catalog naming another data system must not get this engine",
-        );
-        assert!(
-            error.contains("production_warehouse") && error.contains("no adapter"),
-            "the refusal must name the data system it has no adapter for: {error}"
-        );
-    }
-
-    #[test]
-    fn a_catalog_declaring_no_models_starts_nothing() {
-        // The empty bundle, and the claim the tests below this one make in a comment - that an empty
-        // catalog is "already refused earlier, by `open_engine`" - which nothing asserted in either
-        // binary. Without the arm this opens cleanly: the attach loop has nothing to iterate, so the
-        // service starts and refuses every question as an unknown metric, which reads as a question
-        // problem rather than as a catalog directory holding no models.
-        let error = refusal(
-            open_engine(&bundle_over(&[]), &data(), one_worker()),
-            "a catalog with no models opens nothing",
-        );
-        assert!(error.contains("declares no models"), "{error}");
-        assert!(
-            !error.contains("no adapter"),
-            "this is the empty arm, not the wrong-name one: {error}"
-        );
-    }
-
-    #[test]
-    fn a_model_with_no_file_behind_it_starts_nothing() {
-        // `attach` runs per model AFTER the source name is accepted, so this arm is reachable only by
-        // a catalog this build can otherwise open - which is why it names the engine source. It is
-        // also what makes `Opened::attached` evidence rather than bookkeeping: the set is collected
-        // from the successful call, so a startup that got here does not proceed with a table missing.
-        let error = refusal(
-            open_engine(&bundle_over(&[("orders", ENGINE_SOURCE, "fct_order")]), &data(), one_worker()),
-            "a model with no file behind it must not open",
-        );
-        assert!(error.contains("fct_order.csv"), "the CSV path is missing: {error}");
-        assert!(error.contains("fct_order.parquet"), "the Parquet path is missing: {error}");
-        assert!(error.contains("table fct_order"), "the table is not named: {error}");
-    }
-
-    #[test]
-    fn a_model_the_engine_has_no_table_for_stops_the_process() {
-        // The startup sequence loads the catalog TWICE - the engine is opened for the first bundle
-        // and the service validates and serves the second - so a model added to the catalog
-        // directory between the two calls was served with nothing attached behind it. `answer`
-        // cannot catch that: its only check on the engine is that the source NAME matches, so the
-        // first question about the new metric came back as an error from the engine rather than as a
-        // refusal at startup.
-        let err = refuse_unattached(
-            &tables(&["fact_subscription", "dim_customer"]),
-            &tables(&["fact_subscription"]),
-        )
-        .expect_err("a served model with no attached table does not serve");
-        assert!(err.contains("Served with no table attached: [dim_customer]"), "{err}");
-        assert!(err.contains("Attached and no longer served: []"), "{err}");
-        assert!(err.contains("the catalog changed while this process was starting"), "{err}");
-    }
-
-    #[test]
-    fn a_table_attached_for_a_model_no_longer_served_stops_it_too() {
-        // The other direction, and not pedantry: it means the catalog directory changed between two
-        // loads seconds apart. This one would answer every question correctly, which is exactly why
-        // it has to be loud - whatever else moved in that edit is the part nobody has looked at.
-        let err = refuse_unattached(
-            &tables(&["fact_subscription"]),
-            &tables(&["fact_subscription", "dim_customer"]),
-        )
-        .expect_err("an attached table for nothing served does not serve");
-        assert!(err.contains("Served with no table attached: []"), "{err}");
-        assert!(err.contains("Attached and no longer served: [dim_customer]"), "{err}");
-    }
-
-    #[test]
-    fn the_two_bundles_agreeing_is_the_ordinary_case_and_starts() {
-        // The check has to be silent when nothing changed, which is every start. An empty catalog is
-        // already refused earlier, by `open_engine`, so the empty pair is not a case this decides.
-        refuse_unattached(&tables(&["fact_subscription"]), &tables(&["fact_subscription"]))
-            .expect("two bundles that agree start");
-        assert!(
-            refuse_unattached(
-                &tables(&["dim_customer", "fact_subscription"]),
-                &tables(&["fact_subscription", "dim_customer"])
-            )
-            .is_ok(),
-            "the comparison is over sets, so declaration order is not a difference"
-        );
-    }
-}
+mod tests;

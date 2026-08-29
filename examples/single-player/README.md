@@ -233,20 +233,37 @@ chose.
 
 ### Starting it
 
-It needs a catalog, the data those documents describe, and a name for the snapshot. The token
-is *not* required on loopback and is set here anyway - a deployment anything else can reach
-does require one, and the gate below is worth seeing.
+It needs a catalog, a name for the snapshot, and a **declaration of the data system those
+documents read**. The token is *not* required on loopback and is set here anyway - a deployment
+anything else can reach does require one, and the gate below is worth seeing.
 
 ```bash
 E=examples/single-player
 export SUTURA_TOKEN="$(head -c 24 /dev/urandom | base64)"
 
 SUTURA__CATALOG__DIR=$E/catalog \
-SUTURA__CATALOG__DATA_DIR=$E/data \
 SUTURA__CATALOG__VERSION=local-1 \
 SUTURA__SECURITY__ACCESS_TOKEN="$SUTURA_TOKEN" \
+SUTURA__SECURITY__IDENTITY=single-user \
+SUTURA__SECURITY__SINGLE_USER_BECAUSE="one operator reading their own files" \
+SUTURA__SOURCES__LOCAL__KIND=files \
+SUTURA__SOURCES__LOCAL__DATA_DIR="$PWD/$E/data" \
+SUTURA__SOURCES__LOCAL__POSTURE=shared-service-user \
   cargo run -p sutura-serve
 ```
+
+**`SUTURA__CATALOG__DATA_DIR` is no longer what the service reads**, and the four keys that
+replaced it are not ceremony. `local` is the alias every model in this catalog writes in its
+`source:` field, so the entry is what says what kind of data system it is, where its files are
+and which identity a query reaches it as. `files` is the only kind this build has an adapter
+for, and an unknown word there is a refusal listing what is available rather than a source
+opened by whatever adapter happened to be linked. `single-user` is the truthful mode here - one operator, their own files -
+and it is what supplies the acknowledgement a shared source needs, so this deployment does not
+have to restate the obvious per source. Leave the mode out and the process refuses to start
+naming it; leave the source out and it refuses naming the source the catalog reads.
+
+The path is absolute because a relative one is refused: a service's working directory is
+whatever its supervisor chose, and `data` would resolve somewhere different on every host.
 
 `AccessToken::parse` reads an RFC 6750 `b64token` of at least 32 characters - letters, digits,
 `-`, `.`, `_`, `~`, `+`, `/`, and `=` only as trailing padding - which is what that generator
@@ -549,7 +566,6 @@ token and nothing said about where TLS is terminated:
 ```bash
 SUTURA__SERVER__HOST=0.0.0.0 \
 SUTURA__CATALOG__DIR=$E/catalog \
-SUTURA__CATALOG__DATA_DIR=$E/data \
   cargo run -p sutura-serve
 ```
 
@@ -566,6 +582,21 @@ token is the same shape with one entry:
 ```
 sutura-serve: this configuration is not fit to serve:
   - this is a production deployment, so security.access_token must be set. It authenticates the DEPLOYMENT and not the caller: sutura has no per-caller identity, so every query still runs with whatever access this process already had
+```
+
+A deployment that says nothing about who its queries run as is another, and it is the one this
+directory is most likely to hit: configure a source and leave `security.identity` out.
+
+```
+sutura-serve: this configuration is not fit to serve:
+  - 1 source(s) are configured and security.identity is not set. Say which kind of deployment this is - one of: single-user, multi-user. It decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it on your behalf: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs
+```
+
+And a catalog whose models read a source nobody declared does not start either. That one is the
+composition root's rather than the settings tree's, so it is reported on its own:
+
+```
+sutura-serve: this catalog reads from local, and no `sources.local` entry declares where that data system is or which identity a query reaches it as. Declare it, or remove the models that name it
 ```
 
 A misspelled key is a refusal too, because a key that is silently ignored is a default the

@@ -204,6 +204,14 @@ pub enum OutcomeBody {
     /// The question was answered.
     Answer {
         provenance: ProvenanceBody,
+        /// Which identity each leg of this answer executed as, one entry per source.
+        ///
+        /// **A sibling of `provenance` rather than a field inside it, and the split is the transport's
+        /// own.** In the domain the posture lives on `Provenance`, beside the digest; here
+        /// `ProvenanceBody` is also what the catalog endpoint returns, and nothing executed for that -
+        /// so an `executed_as` inside it would be an empty list on every catalog response, which reads
+        /// as "no leg ran" rather than as "this is not an answer".
+        executed_as: Vec<LegBody>,
         /// Column labels, in projection order.
         columns: Vec<String>,
         /// Rows, each as many cells as there are columns. Every cell is rendered as text by the
@@ -225,6 +233,26 @@ pub struct ProvenanceBody {
     #[schema(example = "2026.06.1")]
     definition_version: String,
     definition_digest: String,
+}
+
+/// One leg of an answer: which source it ran on, and which identity it ran as.
+///
+/// **The posture is a word and the operator's acknowledgement reason is NOT here**, deliberately. The
+/// reason is text an operator wrote for a reviewer, printed by the startup log; putting it on the wire
+/// would send operator prose into an agent's context on every answer, which is a channel nobody asked
+/// for. What a caller needs is which of the two postures produced the rows, and that is the word.
+///
+/// **Reading this is not a control.** It reaches a caller after the rows did, so it cannot prevent a
+/// disclosure. It makes one attributable, and it makes a misconfiguration visible to whoever reads an
+/// answer; what stops a shared source being served unnoticed is a startup refusal.
+#[derive(Debug, serde::Serialize, utoipa::ToSchema)]
+pub struct LegBody {
+    /// The data system this leg ran on.
+    #[schema(example = "local")]
+    source: String,
+    /// `shared-service-user`, or `impersonation-at-source`.
+    #[schema(example = "shared-service-user")]
+    posture: &'static str,
 }
 
 /// Why a question was refused.
@@ -311,6 +339,7 @@ impl From<&ToolOutcome> for Outcome {
                 status: axum::http::StatusCode::OK,
                 body: OutcomeBody::Answer {
                     provenance: provenance_body(provenance),
+                    executed_as: legs(provenance),
                     columns: rows.columns().to_vec(),
                     rows: render(rows),
                 },
@@ -342,6 +371,34 @@ fn provenance_body(provenance: &Provenance) -> ProvenanceBody {
         definition_version: String::from(provenance.version().as_str()),
         definition_digest: String::from(provenance.digest().as_str()),
     }
+}
+
+/// The same two fields, read straight off a bundle nothing executed against.
+///
+/// The catalog endpoint describes a bundle rather than answering a question, so there is no
+/// `Provenance` to build for it: `PinnedDefinitions::provenance` requires the execution record, and
+/// inventing an empty one there would be a claim that a leg ran and produced nothing.
+fn bundle_body(pinned: &PinnedDefinitions) -> ProvenanceBody {
+    ProvenanceBody {
+        definition_version: String::from(pinned.version().as_str()),
+        definition_digest: String::from(pinned.digest().as_str()),
+    }
+}
+
+/// Which identity each leg of one answer ran as.
+///
+/// One entry per source the answer actually read, in source order, which for a mono-source answer is
+/// one. Read off the `Provenance` the domain built from the adapter that executed - not from
+/// configuration.
+fn legs(provenance: &Provenance) -> Vec<LegBody> {
+    provenance
+        .executed_as()
+        .legs()
+        .map(|(source, posture)| LegBody {
+            source: String::from(source.as_str()),
+            posture: posture.as_str(),
+        })
+        .collect()
 }
 
 /// Cells as text, through the domain's own renderer.
@@ -422,7 +479,7 @@ impl From<&PinnedDefinitions> for CatalogBody {
             })
             .collect();
         Self {
-            provenance: provenance_body(&pinned.provenance()),
+            provenance: bundle_body(pinned),
             metrics,
         }
     }
@@ -569,13 +626,24 @@ mod tests {
         )
         .expect("a one-cell result is a result set");
         let outcome = Outcome::from(&ToolOutcome::Answer {
-            provenance: crate::testing::bundle().provenance(),
+            provenance: crate::testing::bundle().provenance(crate::testing::ran_shared()),
             rows,
         });
         assert_eq!(outcome.status(), axum::http::StatusCode::OK);
         let rendered = serde_json::to_string(outcome.body()).expect("the outcome serializes");
         assert!(rendered.contains(r#""outcome":"answer""#), "{rendered}");
         assert!(rendered.contains(r#""definition_version":"test-1""#), "{rendered}");
+        // And it says which identity produced it, per leg. A caller holding an answer can tell a
+        // number every caller sees from a number this caller's own permissions filtered - which is
+        // not a control, and is the difference between a misconfiguration that is visible and one
+        // that is not.
+        assert!(
+            rendered.contains(r#""executed_as":[{"source":"local","posture":"shared-service-user"}]"#),
+            "{rendered}"
+        );
+        // The reason an operator wrote stays out of the body: it is prose for a reviewer, printed by
+        // the startup log, and an answer is not the place to send operator text to an agent.
+        assert!(!rendered.contains("transport-layer fake"), "{rendered}");
     }
 
     #[test]

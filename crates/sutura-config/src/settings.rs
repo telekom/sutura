@@ -27,10 +27,14 @@ use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, Promp
 use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
 use crate::raw::RawSettings;
 use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
-use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
+use crate::security::{
+    AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
+    UnknownTlsTermination,
+};
 use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
 };
+use crate::sources::{InvalidSourceRegistry, RawSourceEntry, SourceRegistry};
 use crate::telemetry::{
     InvalidLogFilter, InvalidServiceName, LogFilter, LogFormat, ServiceName, TelemetrySettings, UnknownLogFormat,
 };
@@ -243,6 +247,16 @@ pub enum SettingsError {
         #[source]
         cause: InvalidPromptSettings,
     },
+    #[error("`security.identity` does not say which kind of deployment this is")]
+    Identity {
+        #[source]
+        cause: InvalidDeploymentIdentity,
+    },
+    #[error("the `sources` tree is not usable")]
+    Sources {
+        #[source]
+        cause: InvalidSourceRegistry,
+    },
     /// The values are all well formed and the deployment they describe is one this service will
     /// not serve.
     ///
@@ -359,6 +373,41 @@ pub enum NotFitToServe {
          terminate TLS in front of this process and declare `sidecar` or `ingress`"
     )]
     InProcessTlsNotCompiledIn,
+    /// Sources are configured and nobody said which kind of deployment this is.
+    ///
+    /// **The mode has no default, and this is the refusal that makes that true.** It is keyed on a
+    /// source being configured rather than raised unconditionally, because a deployment with no source
+    /// cannot answer anything and the composition root refuses it on the catalog naming a source with
+    /// no declaration - so every deployment that can serve a question reaches this check.
+    #[error(
+        "{count} source(s) are configured and {} is not set. Say which kind of deployment this is - \
+         one of: {}. It decides where a shared source's acknowledgement has to be written, and no \
+         combination of source postures may answer it on your behalf: a multi-tenant deployment whose \
+         sources are all shared is exactly the case a derived mode would exempt from the check it most \
+         needs",
+        DeploymentIdentity::KEY,
+        DeploymentIdentity::NAMES.join(", ")
+    )]
+    DeploymentIdentityUndeclared { count: usize },
+    /// A source is served to every caller as one identity in a multi-user deployment, and no operator
+    /// wrote that down on that source's own entry.
+    ///
+    /// **This is the check the shared posture exists to be caught by.** The wrong outcome here is not a
+    /// failure - it is an answer, computed from rows a caller's own permissions never filtered. Sutura
+    /// declares no data sensitivity, so it cannot see whether that was fine; what it can do is make the
+    /// posture impossible to arrive at by accident and impossible to arrive at in silence.
+    ///
+    /// Per source and never global: a deployment cannot acknowledge one source and inherit it for the
+    /// next. In single-user mode the mode's own declaration supplies the witness, because there the one
+    /// identity is the one user's own.
+    #[error(
+        "source `{alias}` is `shared-service-user`, {} is `multi-user`, and \
+         `sources.{alias}.acknowledged_because` is not set. Every caller would read that source as one \
+         identity that is not theirs. Write why that is intended on this entry - there is no global \
+         acknowledgement, and no acknowledgement is inherited from another source",
+        DeploymentIdentity::KEY
+    )]
+    SharedSourceNotAcknowledged { alias: String },
 }
 
 /// Which configuration files were read, in the order they were applied.
@@ -440,6 +489,7 @@ pub struct Settings {
     catalog: CatalogSettings,
     runtime: RuntimeSettings,
     prompt: PromptSettings,
+    sources: SourceRegistry,
 }
 
 impl Settings {
@@ -466,11 +516,16 @@ impl Settings {
     /// than what [`read`] produced. That is what makes [`Self::load`] the only door in, and
     /// therefore what makes the refusal check unskippable.
     fn parse(raw: &RawSettings, environment: Environment, layers: ConfigLayers) -> Result<Self, SettingsError> {
+        // Security before sources, and the order is a dependency rather than a habit: a shared source
+        // in single-user mode borrows the mode's own declaration as its acknowledgement, so the mode
+        // has to be parsed before the entry that may read it.
+        let security = parse_security(raw)?;
+        let sources = parse_sources(raw, security.identity())?;
         Ok(Self {
             layers,
             environment,
             server: parse_server(raw)?,
-            security: parse_security(raw)?,
+            security,
             rate_limit: parse_rate_limit(raw, environment)?,
             telemetry: parse_telemetry(raw, environment)?,
             api: ApiSettings::new(
@@ -480,6 +535,7 @@ impl Settings {
             catalog: parse_catalog(raw)?,
             runtime: parse_runtime(raw)?,
             prompt: parse_prompt(raw)?,
+            sources,
         })
     }
 
@@ -499,6 +555,7 @@ impl Settings {
         }
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
+        refusals.extend(self.identity_refusals());
         if self.security.access_token().is_none() {
             // Two different reasons, and the message says which: an operator whose production
             // deployment refuses should not have to work out whether it was the bind or the
@@ -546,6 +603,45 @@ impl Settings {
             refusals.push(NotFitToServe::TlsMaterialWithoutInProcessTermination {
                 declared: declared.as_str(),
             });
+        }
+        refusals
+    }
+
+    /// Everything wrong with who this deployment says its queries run as.
+    ///
+    /// **This is the half of the boot check configuration can see, and only that half.** It reads the
+    /// declared mode and the per-source acknowledgements - a parsed tree, nothing else - and returns
+    /// typed refusals naming the source to change. Whether the *linked adapter* can carry a per-subject
+    /// credential at all is a property of the build, so it is checked in the composition root beside
+    /// `open_engine` and not here; and neither half belongs in `verify_and_validate`, which re-runs
+    /// anchors and would be re-running a configuration check whose inputs a catalog reload cannot
+    /// change.
+    fn identity_refusals(&self) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        if self.sources.is_empty() {
+            return refusals;
+        }
+        let Some(mode) = self.security.identity() else {
+            // No mode, so there is no rule to apply per source: the missing declaration is the whole
+            // finding, and listing every shared source underneath it would be noise on top of the one
+            // thing to fix.
+            refusals.push(NotFitToServe::DeploymentIdentityUndeclared {
+                count: self.sources.count(),
+            });
+            return refusals;
+        };
+        if !mode.needs_per_source_acknowledgement() {
+            return refusals;
+        }
+        // In multi-user mode a shared source's witness has to come from its own entry, so a source that
+        // parsed with no identity at all is exactly the unacknowledged case - `SourceRegistry::parse`
+        // had no other witness to reach for.
+        for (alias, source) in self.sources.each() {
+            if source.identity().is_none() {
+                refusals.push(NotFitToServe::SharedSourceNotAcknowledged {
+                    alias: String::from(alias.as_str()),
+                });
+            }
         }
         refusals
     }
@@ -628,6 +724,15 @@ impl Settings {
     #[inline]
     pub const fn prompt(&self) -> &PromptSettings {
         &self.prompt
+    }
+
+    /// The data systems this deployment declared, keyed by the alias a model's `source:` names.
+    ///
+    /// Read by the composition root, which opens one adapter per entry, hands each the posture its
+    /// entry declared, and refuses a deployment whose catalog names a source with no entry here.
+    #[inline]
+    pub const fn sources(&self) -> &SourceRegistry {
+        &self.sources
     }
 }
 
@@ -732,7 +837,40 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
         None | Some("") => TlsTermination::default(),
         Some(value) => TlsTermination::parse(value).map_err(|cause| SettingsError::TlsTermination { cause })?,
     };
-    Ok(SecuritySettings::new(token, termination))
+    // **Absent is absent, and is not a third mode.** An empty string is the shape an unset variable
+    // takes in a shell, so it reads the same way - and both are then a `NotFitToServe` if any source is
+    // configured, which is where the refusal belongs: the check needs to see the `sources` tree, and a
+    // parse error here could not name how many sources were left unaccounted for.
+    let identity = match raw.security.identity.as_deref() {
+        None | Some("") => None,
+        Some(value) => Some(
+            DeploymentIdentity::parse(value, raw.security.single_user_because.as_deref())
+                .map_err(|cause| SettingsError::Identity { cause })?,
+        ),
+    };
+    Ok(SecuritySettings::new(token, termination, identity))
+}
+
+/// The data systems this deployment declares.
+///
+/// The map's keys are the aliases, so this only has to put them beside their entries in a stable order
+/// and let `SourceRegistry::parse` do the parsing. `BTreeMap` iteration is sorted, which is what makes
+/// "an earlier entry" in the duplicate-alias refusal a deterministic phrase rather than one that
+/// depends on how the file was written.
+fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result<SourceRegistry, SettingsError> {
+    let entries: Vec<RawSourceEntry<'_>> = raw
+        .sources
+        .iter()
+        .map(|(written, source)| RawSourceEntry {
+            written,
+            kind: &source.kind,
+            data_dir: source.data_dir.as_deref(),
+            posture: &source.posture,
+            acknowledged_because: source.acknowledged_because.as_deref(),
+            verification_identity: source.verification_identity.as_deref(),
+        })
+        .collect();
+    SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })
 }
 
 fn parse_rate_limit(raw: &RawSettings, environment: Environment) -> Result<RateLimitSettings, SettingsError> {

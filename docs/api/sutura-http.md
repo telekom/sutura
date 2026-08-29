@@ -1492,6 +1492,27 @@ different bundle is visibly a different answer.
 
 `ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
 
+### `struct LegBody`
+
+```rust
+pub struct LegBody
+```
+
+One leg of an answer: which source it ran on, and which identity it ran as.
+
+**The posture is a word and the operator's acknowledgement reason is NOT here**, deliberately. The
+reason is text an operator wrote for a reviewer, printed by the startup log; putting it on the wire
+would send operator prose into an agent's context on every answer, which is a channel nobody asked
+for. What a caller needs is which of the two postures produced the rows, and that is the word.
+
+**Reading this is not a control.** It reaches a caller after the rows did, so it cannot prevent a
+disclosure. It makes one attributable, and it makes a misconfiguration visible to whoever reads an
+answer; what stops a shared source being served unnoticed is a startup refusal.
+
+#### Implements
+
+`ComposeSchema`, `Debug`, `Serialize`, `ToSchema`
+
 ### `struct RefusalBody`
 
 ```rust

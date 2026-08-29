@@ -411,6 +411,25 @@ different bundle is visibly a different answer.
 
 `Debug`, `Serialize`
 
+### `struct LegContent`
+
+```rust
+pub struct LegContent
+```
+
+One leg of an answer: which source it ran on, and which identity it ran as.
+
+**The posture is a word, and the operator's acknowledgement reason is not here.** The reason is
+prose an operator wrote for a reviewer and the startup log prints it; sending it to an agent on
+every answer would be a channel from a configuration file into a model's context that nobody asked
+for. What an agent needs is which of the two postures produced the rows.
+
+Reading it is not a control: it reaches the agent after the rows did.
+
+#### Implements
+
+`Debug`, `Serialize`
+
 ### `struct RefusalContent`
 
 ```rust

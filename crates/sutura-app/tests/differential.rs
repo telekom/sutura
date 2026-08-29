@@ -117,8 +117,12 @@ mod tests {
         W: DataSystemUnderTest,
     {
         let pinned = load::<ReferenceCatalog>();
-        let engine: Engine = open(&pinned);
-        let other: W = open(&pinned);
+        // Two registries, each holding one adapter under the SAME source name - which is the whole
+        // instrument: one plan, run through two data systems that both answer to `local`, rows
+        // compared. `Warehouses` is keyed by the adapter's own source, so the two cannot be in one
+        // registry, and that is correct rather than awkward: a deployment holds one adapter per source.
+        let engine = sutura_app::Warehouses::of(open::<Engine>(&pinned));
+        let other = sutura_app::Warehouses::of(open::<W>(&pinned));
         let against = if is_the_reference::<W>() {
             "a second, independently opened engine"
         } else {
@@ -234,8 +238,8 @@ mod tests {
         W: DataSystemUnderTest,
     {
         let pinned = load::<ReferenceCatalog>();
-        let engine: Engine = open(&pinned);
-        let other: W = open(&pinned);
+        let engine = sutura_app::Warehouses::of(open::<Engine>(&pinned));
+        let other = sutura_app::Warehouses::of(open::<W>(&pinned));
         let from_engine = verify_anchors(&pinned, &engine);
         let from_other = verify_anchors(&pinned, &other);
         assert_eq!(

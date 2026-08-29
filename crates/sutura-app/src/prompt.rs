@@ -652,7 +652,10 @@ fn operations(tools: &[Tool]) -> String {
 /// The metric vocabulary, read off the pinned bundle.
 fn metrics(pinned: &PinnedDefinitions, prose: CatalogProse) -> String {
     let definitions = pinned.definitions();
-    let provenance = pinned.provenance();
+    // The version and the digest read straight off the bundle rather than through a `Provenance`.
+    // Provenance is what travels with an ANSWER and now carries the posture each leg executed as;
+    // nothing executed to render a prompt, so there is no execution record to describe and asking for
+    // one would mean inventing a leg.
     let count = definitions.metrics().len();
     let how_many = match count {
         0 => String::from(
@@ -667,8 +670,8 @@ fn metrics(pinned: &PinnedDefinitions, prose: CatalogProse) -> String {
     // leaves a line that starts with the hash - which is both ugly and hard to quote back.
     let mut lines = vec![
         String::from("## The metrics this deployment defines\n"),
-        format!("- Definitions version: `{}`", provenance.version()),
-        format!("- Definitions digest: `{}`", provenance.digest().as_str()),
+        format!("- Definitions version: `{}`", pinned.version()),
+        format!("- Definitions digest: `{}`", pinned.digest().as_str()),
         String::new(),
         wrap("", &how_many, ""),
     ];

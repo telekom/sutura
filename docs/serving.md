@@ -41,9 +41,19 @@ them one at a time.
 | `server.port: 0` in production | that asks the kernel for an ephemeral port, so nothing can be configured to reach the service |
 | an unknown `SUTURA_ENVIRONMENT` | a typo would otherwise select the permissive branch of every decision above |
 | any malformed or misspelled configuration key | a key that is silently ignored is a default the operator believes they overrode |
+| a configured source and no `security.identity` | the mode decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs |
+| a `shared-service-user` source in `multi-user` mode with no `acknowledged_because` | every caller would read that source as one identity that is not theirs. Sutura declares no data sensitivity, so it cannot tell whether that was fine - what it can do is make the posture impossible to arrive at by accident and impossible to arrive at in silence |
+| a source the catalog reads and no `sources.<alias>` entry declares | there is no location for its files and no posture for its queries, and defaulting either would serve data under a configuration nobody wrote |
+| `posture: impersonation-at-source` on a source this build's adapter cannot impersonate | the alternative is a deployment that believes it impersonates and reads everything as this process. There is no fallback |
+| an anchor on a metric reading an `impersonation-at-source` source with no `verification_identity` | there is no identity to re-run that certified number as. Not skipped, not warned about and not treated as a passing anchor - a deployment that wants an impersonating source with no boot identity gets it by authoring no anchors on its metrics |
 
 The checks read the **loaded** values, not any one file. The environment-variable layer is applied
 last, so a check against a file would be checking something the process is not running on.
+
+The last two are the **composition root's** rather than the settings tree's, and the split is not
+filing: whether the *linked adapter* can carry a per-subject credential at all is a property of the
+build, and whether the *bundle* declares an anchor is a property of the catalog. Neither is visible to
+a file, so neither is checked where files are parsed.
 
 ## The endpoints
 
@@ -281,6 +291,8 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.max_body_bytes` | `65536` | At most one mebibyte. A question is a few hundred bytes |
 | `security.access_token` | absent | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind |
 | `security.tls_termination` | `none` | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach |
+| `security.identity` | **absent, and absence is a refusal** | `single-user` or `multi-user`. Required once any source is configured. See [Sources](#sources) |
+| `security.single_user_because` | absent | The operator's reason. Required with `single-user`, refused with `multi-user` |
 | `server.tls_certificate` | absent | A PEM chain. Only with `tls_termination: in-process` |
 | `server.tls_key` | absent | The matching PEM private key. Both halves or neither |
 | `rate_limit.enabled` | follows the environment | Off in development and test, on in production. `false` in production is refused |
@@ -295,8 +307,13 @@ selects which file is layered, so a file that could change it would be self-refe
 | `telemetry.format` | follows the environment | `bunyan` in production, `pretty` elsewhere |
 | `api.docs` | follows the environment | Off in production, on elsewhere |
 | `catalog.dir` | `catalog` | |
-| `catalog.data_dir` | `data` | Where the engine's CSV and Parquet files are |
+| `catalog.data_dir` | `data` | Read by the `sutura` command. **Not read by the service** - a served source's files come from its own `sources.<alias>.data_dir` |
 | `catalog.version` | `unversioned` | A commit id or a build number. What identifies the snapshot |
+| `sources.<alias>.kind` | absent | `files` is the only kind this build has an adapter for. Required, with no default |
+| `sources.<alias>.data_dir` | absent | Where that source's files are. Required, and absolute |
+| `sources.<alias>.posture` | absent | `shared-service-user` or `impersonation-at-source`. Required, with no default |
+| `sources.<alias>.acknowledged_because` | absent | The operator's reason. Required for a shared source in `multi-user` mode |
+| `sources.<alias>.verification_identity` | absent | The identity that re-runs that source's anchors. Only on an impersonating source |
 | `runtime.max_concurrent_queries` | `8` | How many questions execute at once. See [Capacity](#capacity) |
 | `runtime.admission_timeout_seconds` | `5` | How long one waits for a slot before it is shed `503` |
 | `runtime.engine_worker_threads` | the machine's | How wide the in-process engine runs. Set it under a CPU quota |
@@ -304,6 +321,72 @@ selects which file is layered, so a file that could change it would be self-refe
 
 A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
 value nobody chose is worse than a value somebody has to argue with.
+
+### Sources
+
+**The service reads its data systems from `sources:`, one entry per data system, keyed by the alias a
+model's `source:` names.** `catalog.data_dir` is no longer where a served source's files are found: it
+is the `sutura` command's data directory and stays that. A deployment that declares no source does not
+serve, because the catalog names a source with no entry and the process refuses before a listener is
+bound.
+
+```yaml
+security:
+  # single-user or multi-user. No default: see the refusal table above.
+  identity: "single-user"
+  single_user_because: "one operator, their own files, their own credentials"
+
+sources:
+  local:
+    # `files` is the only kind this build has an adapter for. Required, with no default.
+    kind: "files"
+    # Absolute. A relative path resolves against whatever working directory the supervisor chose.
+    data_dir: "/srv/sutura/data"
+    # shared-service-user, or impersonation-at-source. Required, with no default.
+    posture: "shared-service-user"
+```
+
+Two facts, declared by two different parties, and conflating them gives the mode two owners:
+
+- **the deployment declares the POSTURE**, per source - which identity a query is to reach that source
+  as;
+- **the adapter declares its CAPABILITY**, in code - whether it can carry a per-subject credential at
+  all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
+  subject to appear. Saying so explicitly is the point of the declaration.
+
+The boot check compares them. A source configured to impersonate on an adapter that cannot does not
+start, and there is no fallback.
+
+| Posture | What it means | What decides what a subject sees |
+| --- | --- | --- |
+| `shared-service-user` | Every query reaches the source under one identity the deployment holds | that identity's grants. Every caller sees the same rows |
+| `impersonation-at-source` | Each query reaches the source as the asking subject | the SOURCE: its own authorization, its row and column policies, its own catalog |
+
+**`shared-service-user` is honest, not broken.** It is right for a single-user deployment and right for
+a source nobody needs to see per subject. The failure is never the posture; it is a source in that
+posture being *believed* to impersonate - which is what the acknowledgement makes impossible to hold
+accidentally.
+
+**The mode does not make a caller identity arrive.** Nothing in this service establishes one: the
+bearer token authenticates the deployment, and the startup log says so on every boot. What
+`security.identity` decides today is where a shared source's acknowledgement has to be written, which
+is what a deployment needs in place *before* a subject exists rather than after.
+
+**Every answer carries the posture per leg**, in `provenance` on the HTTP surface and in `executed_as`
+beside it. It is read off the adapter that executed rather than off this file, so a record cannot
+report a leg as impersonated on the strength of a configuration key. Say plainly what that is worth:
+it reaches a caller *after* the rows did, so it cannot prevent a disclosure. It makes one attributable
+and it makes a misconfiguration visible to whoever reads an answer; the startup refusals above are the
+gate.
+
+**A catalog whose models sit on two declared sources is now servable**, and an engine is opened per
+source the catalog names. A *question* whose plan would span two is still refused, as
+`plan_spans_two_sources`, at plan time. There is no federation: nothing combines results from two
+sources, and the refusal is what says so rather than a partial answer.
+
+*The limit, because it decides what is worth configuring today:* the only adapter this build links is
+the in-process engine, so two configured sources are two engines over two directories. A data system
+across a network arrives with its own adapter.
 
 ### Address families
 

@@ -34,6 +34,8 @@ use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
+pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
+
 // The application-facing interface a transport consumes, with the ports' generics erased: a
 // DRIVING port and its one implementor. The argument for it being here rather than in `sutura-http`
 // is the module's own documentation - a plain comment here rather than a doc comment, because
@@ -49,6 +51,11 @@ pub mod surface;
 // cites as holding up the rule that a driving port is not owned by one of its callers.
 pub mod prompt;
 
+// The data systems this process opened, keyed by the name a plan selects them with. Here rather than
+// in a composition root because the LOOKUP is application logic - which warehouse answers a plan, and
+// what an absence means - while which adapters exist is the root's.
+pub mod warehouses;
+
 pub use crate::proof::{Validated, verify_and_validate};
 
 /// The proof, and the only operation that can mint it.
@@ -62,6 +69,8 @@ pub use crate::proof::{Validated, verify_and_validate};
 mod proof {
     use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
     use sutura_domain::warehouse::Warehouse;
+
+    use crate::warehouses::Warehouses;
 
     /// A `T` that has been shown to hold up.
     ///
@@ -130,7 +139,7 @@ mod proof {
     /// The twin of that block, which pins the names so a rename cannot make it pass vacuously:
     ///
     /// ```
-    /// use sutura_app::{Validated, verify_and_validate};
+    /// use sutura_app::{Validated, Warehouses, verify_and_validate};
     /// use sutura_domain::pinned::{NotValidated, PinnedDefinitions};
     /// use sutura_domain::warehouse::Warehouse;
     ///
@@ -138,16 +147,34 @@ mod proof {
     ///
     /// fn _mint<W: Warehouse>(
     ///     pinned: PinnedDefinitions,
-    ///     warehouse: &W,
+    ///     warehouses: &Warehouses<W>,
     /// ) -> Result<Validated<PinnedDefinitions>, NotValidated> {
-    ///     verify_and_validate(pinned, warehouse)
+    ///     verify_and_validate(pinned, warehouses)
     /// }
     /// ```
-    pub fn verify_and_validate<W>(pinned: PinnedDefinitions, warehouse: &W) -> Result<Validated<PinnedDefinitions>, NotValidated>
+    ///
+    /// # It takes the registry, not one warehouse
+    ///
+    /// Each metric's anchor runs against the data system that metric's own plan names, so a bundle
+    /// spanning two configured sources verifies both halves. Under one warehouse every anchor on the
+    /// second source came back as a source mismatch, which is a bundle that cannot be validated for a
+    /// reason that has nothing to do with its numbers.
+    ///
+    /// **What it still does not take is an identity**, and that is the honest limit on what an executed
+    /// anchor proves. The registry says which posture each adapter was handed; it does not hand the
+    /// adapter a credential to re-run the anchor under, because the port has no parameter for one yet.
+    /// So the bundle is proven to compute its certified numbers for whatever identity each adapter is
+    /// configured with - the process, for the file engine that ships - and the composition root refuses
+    /// a bundle with an anchor on a source that declared no verification identity, which is the half
+    /// available before the port changes.
+    pub fn verify_and_validate<W>(
+        pinned: PinnedDefinitions,
+        warehouses: &Warehouses<W>,
+    ) -> Result<Validated<PinnedDefinitions>, NotValidated>
     where
         W: Warehouse,
     {
-        let report = super::verify_anchors(&pinned, warehouse);
+        let report = super::verify_anchors(&pinned, warehouses);
         report.verdict(&pinned)?;
         Ok(Validated(pinned))
     }
@@ -184,11 +211,16 @@ pub type Answered<W> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Error>
 
 /// Answers one question, or says why it will not.
 ///
-/// The source check is not a formality. A plan names exactly one data system, and running it against
-/// a different one would answer a question about other data under the same provenance. It is a
-/// refusal rather than an error because it is a governance outcome: this caller cannot have this
-/// question answered here.
-pub fn answer<W>(definitions: &Validated<PinnedDefinitions>, query: &Query, warehouse: &W) -> Answered<W>
+/// The source lookup is not a formality. A plan names exactly one data system, and running it against
+/// a different one would answer a question about other data under the same provenance. So the plan
+/// SELECTS its warehouse out of the registry, and a plan naming a source this process did not open is
+/// a refusal rather than an error: it is a governance outcome, and `SourceUnavailable` now says what
+/// its name says - nothing is configured under that name.
+///
+/// **The registry is what made that refusal honest.** Under one warehouse the check compared the
+/// plan's source against the single adapter's own, so "nobody configured this data system" and "this
+/// is the other one of the two we opened" were the same refusal.
+pub fn answer<W>(definitions: &Validated<PinnedDefinitions>, query: &Query, warehouses: &Warehouses<W>) -> Answered<W>
 where
     W: Warehouse,
 {
@@ -201,13 +233,13 @@ where
         Compiled::Refused { reason } => return Ok(ToolOutcome::Refusal { reason }),
         Compiled::Planned { plan } => plan,
     };
-    if plan.source() != warehouse.source() {
+    let (Some(warehouse), Some(executed_as)) = (warehouses.get(plan.source()), warehouses.executed_on(plan.source())) else {
         return Ok(ToolOutcome::Refusal {
             reason: RefusalReason::SourceUnavailable {
                 source: plan.source().clone(),
             },
         });
-    }
+    };
     // Prepared before it is run, WHERE THAT IS CHEAPER THAN RUNNING IT. For an adapter across a
     // network it is: a statement that would be rejected is rejected before any data is read, which
     // is the difference between a failed query and a partial one. For the in-process engine it is
@@ -250,8 +282,12 @@ where
             reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
         });
     }
+    // The posture travels with the answer, read off the adapter that just executed rather than off a
+    // settings tree - `executed_as` was taken from the registry above, beside the warehouse this
+    // question actually ran on. A field derived from configuration would report what was configured
+    // rather than what ran, and the two disagreeing is the case the field exists for.
     Ok(ToolOutcome::Answer {
-        provenance: pinned.provenance(),
+        provenance: pinned.provenance(executed_as),
         rows,
     })
 }
@@ -286,13 +322,13 @@ fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
 /// Returns a report rather than a `Result`, because "this one metric no longer computes its number"
 /// and "the data system is down" are both outcomes worth recording per metric. Collapsing either into
 /// a single error would lose which metric, and the whole point is to name it.
-pub fn verify_anchors<W>(pinned: &PinnedDefinitions, warehouse: &W) -> AnchorReport
+pub fn verify_anchors<W>(pinned: &PinnedDefinitions, warehouses: &Warehouses<W>) -> AnchorReport
 where
     W: Warehouse,
 {
     let mut report = AnchorReport::new();
     for (name, anchor) in pinned.anchored_metrics() {
-        report.record(name.clone(), check_one(pinned, warehouse, name, anchor));
+        report.record(name.clone(), check_one(pinned, warehouses, name, anchor));
     }
     report
 }
@@ -321,7 +357,7 @@ fn flatten(error: &dyn core::error::Error) -> (String, Vec<String>) {
 }
 
 /// Checks one anchor.
-fn check_one<W>(pinned: &PinnedDefinitions, warehouse: &W, metric: &MetricName, anchor: &Anchor) -> AnchorCheck
+fn check_one<W>(pinned: &PinnedDefinitions, warehouses: &Warehouses<W>, metric: &MetricName, anchor: &Anchor) -> AnchorCheck
 where
     W: Warehouse,
 {
@@ -352,13 +388,14 @@ where
         Compiled::Planned { plan } => plan,
     };
     // A governance condition, not prose in a report field: the plan names a data system this process
-    // did not open, which is the same thing `answer` refuses a question for.
-    if plan.source() != warehouse.source() {
-        return not_executed(NotExecutedReason::SourceMismatch {
+    // did not open, which is the same thing `answer` refuses a question for. The plan SELECTS its
+    // warehouse - it is not compared against one - so this arm is "nobody configured that source"
+    // rather than "the one adapter we hold is called something else".
+    let Some(warehouse) = warehouses.get(plan.source()) else {
+        return not_executed(NotExecutedReason::SourceNotConfigured {
             plan: plan.source().clone(),
-            warehouse: warehouse.source().clone(),
         });
-    }
+    };
     let rows = match warehouse.execute(&plan) {
         Ok(rows) => rows,
         Err(cause) => {
@@ -415,6 +452,22 @@ pub fn sources(pinned: &PinnedDefinitions) -> Vec<&SourceName> {
     out
 }
 
+/// The data system one metric's own model sits on.
+///
+/// Exposed for the composition root's anchor check: an anchor is asked with no dimensions, so it
+/// resolves to the metric's own model and therefore to that model's source - which is the source whose
+/// declared verification identity would have to run it.
+///
+/// **Narrower than "every source this metric's plan could read", deliberately.** A question WITH
+/// dimensions can reach a joined model, and the plan stage refuses one that spans two sources - so for
+/// a plan that compiles at all this is the only source there is. What it is not is a general answer for
+/// a federated plan, and it stops being the right function the moment one exists.
+pub fn source_of<'bundle>(pinned: &'bundle PinnedDefinitions, metric: &MetricName) -> Option<&'bundle SourceName> {
+    let definitions = pinned.definitions();
+    let model = definitions.metric(metric)?.model();
+    Some(definitions.model(model)?.source())
+}
+
 /// The grains a metric declares, coarsest first.
 ///
 /// A small helper the composition root uses to describe a metric, kept here so the ordering is the
@@ -431,6 +484,91 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
         .unwrap_or_default()
 }
 
+/// The fakes this crate's own unit tests share.
+///
+/// A module rather than a copy per test module, because [`warehouses`] and [`tests`] both need a
+/// `Warehouse` that declares a posture and executes nothing interesting, and two copies of one fake
+/// is two things to keep in step with the port.
+#[cfg(test)]
+mod tests_support {
+    use sutura_domain::model::SourceName;
+    use sutura_domain::plan::QueryPlan;
+    use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+    use sutura_domain::warehouse::{RowSet, Warehouse};
+
+    /// The driver's own complaint, one level below the adapter's.
+    #[derive(Debug, thiserror::Error)]
+    #[error("no such file: orders.csv")]
+    pub(crate) struct DriverFailure;
+
+    /// What an adapter returns: its own message, with the driver's underneath it.
+    #[derive(Debug, thiserror::Error)]
+    #[error("the data system rejected the statement")]
+    pub(crate) struct AdapterFailure {
+        #[source]
+        pub(crate) cause: DriverFailure,
+    }
+
+    /// A data system with a declared source and posture, which either answers one fixed result or
+    /// fails every statement.
+    ///
+    /// The posture is a constructor argument and not a default, which is the port's own rule: an
+    /// adapter is *handed* the posture the deployment declared, and a fake that invented one would be
+    /// asserting this file's opinion back to the test.
+    pub(crate) struct FixedWarehouse {
+        source: SourceName,
+        posture: SourcePosture,
+        result: Option<RowSet>,
+    }
+
+    impl FixedWarehouse {
+        /// One that fails every statement, with a cause worth reading.
+        pub(crate) const fn new(source: SourceName, posture: SourcePosture) -> Self {
+            Self {
+                source,
+                posture,
+                result: None,
+            }
+        }
+
+        /// One that answers every statement with `result`.
+        pub(crate) const fn answering(source: SourceName, posture: SourcePosture, result: RowSet) -> Self {
+            Self {
+                source,
+                posture,
+                result: Some(result),
+            }
+        }
+    }
+
+    impl Warehouse for FixedWarehouse {
+        type Error = AdapterFailure;
+
+        // A fake over no data system at all, so there is nowhere for a subject credential to arrive -
+        // the same answer the in-process engine gives, for the same reason.
+        const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+        fn source(&self) -> &SourceName {
+            &self.source
+        }
+
+        fn posture(&self) -> &SourcePosture {
+            &self.posture
+        }
+
+        fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+            match self.result {
+                Some(_) => Ok(()),
+                None => Err(AdapterFailure { cause: DriverFailure }),
+            }
+        }
+
+        fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+            self.result.clone().ok_or(AdapterFailure { cause: DriverFailure })
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::collections::{BTreeMap, BTreeSet};
@@ -441,11 +579,15 @@ mod tests {
     use sutura_domain::measure::{AggregatedColumn, Measure, Term};
     use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
     use sutura_domain::pinned::{DefinitionVersion, NotValidated};
-    use sutura_domain::plan::{MAX_ROWS, QueryPlan};
+    use sutura_domain::plan::MAX_ROWS;
+    use sutura_domain::query::{Query, ToolOutcome};
+    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
+    use sutura_domain::warehouse::Value;
 
+    use super::tests_support::FixedWarehouse;
     use super::{
-        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouse, exceeds_row_cap, verify_anchors,
-        verify_and_validate,
+        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouses, answer, exceeds_row_cap,
+        verify_anchors, verify_and_validate,
     };
 
     fn metric() -> MetricName {
@@ -454,6 +596,28 @@ mod tests {
 
     fn source() -> SourceName {
         SourceName::parse("local").expect("a test source is a source")
+    }
+
+    fn shared(text: &str) -> SourcePosture {
+        SourcePosture::SharedServiceUser {
+            declared: SharedIdentityDeclared::of(AcknowledgementReason::parse(text).expect("a test reason is a reason")),
+        }
+    }
+
+    /// The June range the test bundle's anchor declares, which is also the only range a question
+    /// against it can ask for and get one row back.
+    fn june() -> TimeRange {
+        TimeRange::new(
+            Date::parse("2026-06-01").expect("a test date is a date"),
+            Date::parse("2026-07-01").expect("a test date is a date"),
+        )
+        .expect("June is a range")
+    }
+
+    /// The certified number, in the shape the anchor check and a question both read it.
+    fn certified() -> RowSet {
+        RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
+            .expect("one column and one cell is rectangular")
     }
 
     /// A one-metric bundle whose metric declares an anchor, so there is exactly one check to make.
@@ -466,11 +630,7 @@ mod tests {
             BTreeSet::from([column("amount_cents"), column("order_date")]),
             Description::default(),
         );
-        let range = TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range");
+        let range = june();
         let revenue = Metric::new(
             metric(),
             ModelName::parse("orders").expect("a test model is a model"),
@@ -493,40 +653,6 @@ mod tests {
         .expect("the test definitions hash")
     }
 
-    /// The driver's own complaint, one level below the adapter's.
-    #[derive(Debug, thiserror::Error)]
-    #[error("no such file: orders.csv")]
-    struct DriverFailure;
-
-    /// What an adapter returns: its own message, with the driver's underneath it.
-    #[derive(Debug, thiserror::Error)]
-    #[error("the data system rejected the statement")]
-    struct AdapterFailure {
-        #[source]
-        cause: DriverFailure,
-    }
-
-    /// A data system that fails every statement, with a cause worth reading.
-    struct BrokenWarehouse {
-        source: SourceName,
-    }
-
-    impl Warehouse for BrokenWarehouse {
-        type Error = AdapterFailure;
-
-        fn source(&self) -> &SourceName {
-            &self.source
-        }
-
-        fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
-            Err(AdapterFailure { cause: DriverFailure })
-        }
-
-        fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
-            Err(AdapterFailure { cause: DriverFailure })
-        }
-    }
-
     #[test]
     fn a_failed_anchor_check_keeps_the_adapters_own_cause() {
         // THE BUG THIS EXISTS FOR. The failure used to be recorded as one formatted sentence, and
@@ -538,7 +664,10 @@ mod tests {
         // Asserted over the chain rather than over the message alone: the message was never the part
         // that went missing.
         let pinned = bundle();
-        let report = verify_anchors(&pinned, &BrokenWarehouse { source: source() });
+        let report = verify_anchors(
+            &pinned,
+            &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
+        );
         let check = report.checks().get(&metric()).expect("the anchored metric was checked");
         let AnchorCheck::NotExecuted {
             reason: NotExecutedReason::Failed { ref message, ref chain },
@@ -551,24 +680,106 @@ mod tests {
     }
 
     #[test]
-    fn a_check_against_the_wrong_data_system_is_a_source_mismatch() {
+    fn a_check_for_a_source_nobody_configured_says_so_rather_than_looking_like_an_outage() {
         // It was prose in a report field, and it is a governance condition: the plan names a data
         // system this process did not open. Typed, an operator can tell it apart from an outage
         // without reading a sentence, which is the difference that decides who gets paged.
+        //
+        // The registry is what sharpened it. The check used to COMPARE the plan's source against the
+        // one warehouse it was handed, so this arm also fired for a bundle whose second source was
+        // configured and open - the plan now SELECTS, so the only failure left is an unconfigured
+        // name.
         let pinned = bundle();
-        let elsewhere = BrokenWarehouse {
-            source: SourceName::parse("somewhere_else").expect("a test source is a source"),
-        };
+        let elsewhere = Warehouses::of(FixedWarehouse::new(
+            SourceName::parse("somewhere_else").expect("a test source is a source"),
+            shared("a directory of CSVs"),
+        ));
         let report = verify_anchors(&pinned, &elsewhere);
         let check = report.checks().get(&metric()).expect("the anchored metric was checked");
         let AnchorCheck::NotExecuted {
-            reason: NotExecutedReason::SourceMismatch { ref plan, ref warehouse },
+            reason: NotExecutedReason::SourceNotConfigured { ref plan },
         } = *check
         else {
-            panic!("a plan for another data system is a source mismatch, not {check:?}");
+            panic!("a plan for a source nobody opened is not configured, not {check:?}");
         };
         assert_eq!(plan.as_str(), "local");
-        assert_eq!(warehouse.as_str(), "somewhere_else");
+    }
+
+    #[test]
+    fn an_anchor_runs_against_the_data_system_its_own_metric_names() {
+        // What the registry buys the anchor pass, and it is not cosmetic: under one warehouse every
+        // anchor on a second configured source came back as a source mismatch, so a two-source bundle
+        // could not be validated for a reason that has nothing to do with its numbers.
+        let pinned = bundle();
+        let registry = Warehouses::of(FixedWarehouse::new(
+            SourceName::parse("somewhere_else").expect("a test source is a source"),
+            SourcePosture::ImpersonationAtSource,
+        ))
+        .and(FixedWarehouse::answering(
+            source(),
+            shared("a directory of CSVs"),
+            certified(),
+        ))
+        .expect("two sources");
+        let report = verify_anchors(&pinned, &registry);
+        let check = report.checks().get(&metric()).expect("the anchored metric was checked");
+        assert_eq!(
+            *check,
+            AnchorCheck::Matched,
+            "the metric reads `local`, so the anchor runs on the `local` adapter and not on whichever \
+             one happens to be first"
+        );
+    }
+
+    #[test]
+    fn a_posture_is_recorded_in_provenance_per_leg() {
+        // The Done-when of the source registry: an answer says which mode produced it. Asserted for
+        // BOTH postures against the same bundle, the same question and the same rows, so the only
+        // thing that moves is what the adapter was handed - which is the whole claim. Nothing in this
+        // test holds a settings tree, so the value cannot have come from configuration.
+        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+        for posture in [
+            shared("a directory of CSVs this deployment owns"),
+            SourcePosture::ImpersonationAtSource,
+        ] {
+            let expected = posture.as_str();
+            let registry = Warehouses::of(FixedWarehouse::answering(source(), posture, certified()));
+            let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
+            let outcome = answer(&validated, &question, &registry).expect("the fake answers");
+            let ToolOutcome::Answer { ref provenance, .. } = outcome else {
+                panic!("a certified question is answered, not {outcome:?}");
+            };
+            assert_eq!(
+                provenance.executed_as().posture(&source()).map(SourcePosture::as_str),
+                Some(expected),
+                "the answer records the posture the adapter that executed it was holding"
+            );
+            assert_eq!(provenance.executed_as().legs().count(), 1, "a mono-source answer has one leg");
+            // And the two halves of provenance stay separable: the digest is over authored content, so
+            // it does not move when the posture does.
+            assert_eq!(provenance.digest(), bundle().digest());
+        }
+    }
+
+    #[test]
+    fn a_question_for_a_source_nobody_configured_is_refused_rather_than_run_elsewhere() {
+        // The query-path half of the same lookup. `SourceUnavailable` now means what its name says.
+        let registry = Warehouses::of(FixedWarehouse::answering(source(), shared("csv"), certified()));
+        let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
+        let elsewhere = Warehouses::of(FixedWarehouse::answering(
+            SourceName::parse("somewhere_else").expect("a test source is a source"),
+            shared("csv"),
+            certified(),
+        ));
+        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+        let outcome = answer(&validated, &question, &elsewhere).expect("a refusal is an Ok");
+        let ToolOutcome::Refusal {
+            reason: sutura_domain::query::RefusalReason::SourceUnavailable { ref source },
+        } = outcome
+        else {
+            panic!("a plan for a source nobody opened is refused, not {outcome:?}");
+        };
+        assert_eq!(source.as_str(), "local");
     }
 
     #[test]
@@ -577,8 +788,11 @@ mod tests {
         // `Validated` bundle runs the anchors, so a data system that answers nothing yields no
         // bundle at all. Before this operation existed, the same situation was a report a caller was
         // free to ignore - and `Validated::new` was happy to be handed a different one.
-        let error = verify_and_validate(bundle(), &BrokenWarehouse { source: source() })
-            .expect_err("a data system that fails every statement cannot validate a bundle");
+        let error = verify_and_validate(
+            bundle(),
+            &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
+        )
+        .expect_err("a data system that fails every statement cannot validate a bundle");
         let NotValidated::AnchorNotExecuted { ref metric, .. } = error else {
             panic!("a failed anchor check is a not-executed verdict, not {error:?}");
         };

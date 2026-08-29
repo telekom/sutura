@@ -75,16 +75,18 @@ the only way a SQL string literal can be, by doubling every quote.
 statement's shape rather than a value and `DuckDB` will not bind one there.
 
 ```rust
-pub fn in_memory(source: sutura_domain::model::SourceName) -> Result<Self, DuckDbError>
+pub fn in_memory(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture) -> Result<Self, DuckDbError>
 ```
 
 Opens a database that exists only for this process.
 
 What the golden suite uses: a fixture that is built from a committed CSV every run cannot
 drift from the CSV, and a database file in the repository would be a binary nobody reviews.
+**The posture is a parameter and has no default**, for the reason the port gives: a defaulted
+posture would be a claim about who a query runs as that nobody made.
 
 ```rust
-pub fn open(source: sutura_domain::model::SourceName, path: &Path) -> Result<Self, DuckDbError>
+pub fn open(source: sutura_domain::model::SourceName, posture: sutura_domain::source::SourcePosture, path: &Path) -> Result<Self, DuckDbError>
 ```
 
 Opens a database file.

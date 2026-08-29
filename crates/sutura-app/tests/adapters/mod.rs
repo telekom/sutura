@@ -89,6 +89,28 @@ pub(crate) fn source() -> sutura_domain::model::SourceName {
     sutura_domain::model::SourceName::parse(SOURCE).expect("the example source name is a name")
 }
 
+/// The posture every registered data system in this matrix is opened with.
+///
+/// **Part of the registration, and it belongs here rather than on each adapter** - the mode is
+/// configuration and this file is the matrix's configuration. Both registered adapters happen to
+/// declare the same *capability* (neither can carry a per-subject credential), but that is a fact about
+/// them and not the reason this value is shared: a deployment of either one is legitimately
+/// `shared-service-user`, because one process reads a file or holds a connection under one
+/// operating-system identity.
+///
+/// When an adapter that CAN impersonate is registered, this is the line that grows a second value -
+/// which is what makes adding it a registration rather than a test edit.
+pub(crate) fn posture() -> sutura_domain::source::SourcePosture {
+    sutura_domain::source::SourcePosture::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(
+            sutura_domain::source::AcknowledgementReason::parse(
+                "the example corpus is a directory of CSVs read in this process under one identity",
+            )
+            .expect("the fixture reason is a reason"),
+        ),
+    }
+}
+
 pub(crate) fn version() -> DefinitionVersion {
     DefinitionVersion::parse(VERSION).expect("the pinned version is a version")
 }
@@ -171,8 +193,8 @@ impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
         // no question in it comes near the bound; what this passes on is the shape a deployment gets,
         // and the bound's own assertions live in the adapter's `pool.rs`.
         let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
-        let engine =
-            Self::new(source(), sutura_exec_datafusion::WorkingSet::of_bytes(ceiling)).expect("an in-process engine starts");
+        let engine = Self::new(source(), posture(), sutura_exec_datafusion::WorkingSet::of_bytes(ceiling))
+            .expect("an in-process engine starts");
         for (table, csv) in fixture_tables(pinned) {
             engine
                 .attach_csv(&table, &csv)
@@ -186,7 +208,7 @@ impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
     const NAME: &'static str = "duckdb";
 
     fn open(pinned: &PinnedDefinitions) -> Self {
-        let warehouse = Self::in_memory(source()).expect("an in-memory database opens");
+        let warehouse = Self::in_memory(source(), posture()).expect("an in-memory database opens");
         for (table, csv) in fixture_tables(pinned) {
             warehouse
                 .attach_csv(&table, &csv)

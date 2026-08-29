@@ -132,7 +132,8 @@ fn the_configured_width_is_what_the_engine_gets_and_the_plan_is_partitioned_to_m
     // `DataFusion` defaults `target_partitions` to `available_parallelism`, so a two-worker runtime
     // silently builds sixteen-way plans on a sixteen-way host - which is exactly the case this key
     // exists for, because a CPU quota does not change what `available_parallelism` reports.
-    let wide = DataFusionWarehouse::with_worker_threads(source(), width(3), roomy()).expect("a wide runtime builds");
+    let wide = DataFusionWarehouse::with_worker_threads(source(), crate::test_posture(), width(3), roomy())
+        .expect("a wide runtime builds");
     assert_eq!(wide.runtime.handle().metrics().num_workers(), 3);
     assert_eq!(wide.context.copied_config().target_partitions(), 3);
 }
@@ -142,7 +143,7 @@ fn the_command_line_constructor_is_still_one_thread() {
     // The path that must not change. `sutura-cli` answers one question and exits, links this crate
     // and nothing else, and has no settings to read a width from - so a wide runtime there would be
     // sixteen threads spawned to answer one question, in all four cross-built artifacts.
-    let narrow = DataFusionWarehouse::new(source(), roomy()).expect("a current-thread runtime builds");
+    let narrow = DataFusionWarehouse::new(source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds");
     assert_eq!(narrow.runtime.handle().metrics().num_workers(), 1);
 }
 
@@ -153,8 +154,10 @@ fn a_wide_engine_answers_from_several_threads_at_once_with_no_runtime_entered() 
     // detail - `Runtime::block_on` panics when the calling thread is already inside one, which is
     // why the composition root does its startup with no runtime built and why the query handler
     // moves the call onto the blocking pool.
-    let adapter =
-        attached(DataFusionWarehouse::with_worker_threads(source(), width(CALLERS), roomy()).expect("a wide runtime builds"));
+    let adapter = attached(
+        DataFusionWarehouse::with_worker_threads(source(), crate::test_posture(), width(CALLERS), roomy())
+            .expect("a wide runtime builds"),
+    );
     let asked = question();
     std::thread::scope(|scope| {
         let callers: Vec<_> = core::iter::repeat_with(|| {
@@ -179,9 +182,12 @@ fn one_thread_answers_the_same_question_the_same_way_a_wide_one_does() {
     // The width is a scheduling decision and must not be a semantic one. Same plan, same data, two
     // runtimes: if the answers differed, the number an anchor certified would depend on how the
     // process was configured.
-    let narrow = attached(DataFusionWarehouse::new(source(), roomy()).expect("a current-thread runtime builds"));
-    let wide =
-        attached(DataFusionWarehouse::with_worker_threads(source(), width(CALLERS), roomy()).expect("a wide runtime builds"));
+    let narrow =
+        attached(DataFusionWarehouse::new(source(), crate::test_posture(), roomy()).expect("a current-thread runtime builds"));
+    let wide = attached(
+        DataFusionWarehouse::with_worker_threads(source(), crate::test_posture(), width(CALLERS), roomy())
+            .expect("a wide runtime builds"),
+    );
     let asked = question();
     let from_one = narrow.execute(&asked).expect("one thread answers");
     let from_many = wide.execute(&asked).expect("four threads answer");

@@ -18,6 +18,7 @@
 
 use crate::calendar::Date;
 use crate::model::SourceName;
+use crate::source::{ImpersonationCapability, SourcePosture};
 
 /// A value bound to a placeholder.
 ///
@@ -287,13 +288,131 @@ impl RowSet {
 /// It is defaulted rather than required for exactly that reason: an adapter for which it is not
 /// cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
 /// do is nothing.
+///
+/// # The two identity declarations, and why they are two
+///
+/// [`Self::IMPERSONATION`] is a property of the **code**: whether this adapter has anywhere for a
+/// subject's own credential to arrive. It is an associated constant with no default, so an adapter
+/// cannot omit it, and it cannot vary per instance - which is what lets a boot check mean anything.
+///
+/// [`Self::posture`] is a property of the **deployment**: which identity a query is to reach this
+/// source as. It is a method, because the composition root hands it to the adapter at construction,
+/// and it is required rather than defaulted because a default posture is a posture nobody chose.
+///
+/// The two are compared at boot by `SourcePosture::deliverable_by`. Conflating them was the tempting
+/// mistake and it gives the mode two owners: an adapter cannot declare a mode it does not own,
+/// because the same adapter is correct in either posture and only the deployment knows which one it
+/// is being asked for.
+///
+/// **An adapter that declares no impersonation capability does not compile:**
+///
+/// ```compile_fail
+/// use sutura_domain::model::SourceName;
+/// use sutura_domain::plan::QueryPlan;
+/// use sutura_domain::source::SourcePosture;
+/// use sutura_domain::warehouse::{RowSet, Warehouse};
+///
+/// struct Undeclared {
+///     source: SourceName,
+///     posture: SourcePosture,
+/// }
+///
+/// // No `const IMPERSONATION`, so this impl is incomplete: the trait declares it with no default.
+/// impl Warehouse for Undeclared {
+///     type Error = core::fmt::Error;
+///
+///     fn source(&self) -> &SourceName {
+///         &self.source
+///     }
+///
+///     fn posture(&self) -> &SourcePosture {
+///         &self.posture
+///     }
+///
+///     fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+///         Err(core::fmt::Error)
+///     }
+/// }
+/// ```
+///
+/// The compiling twin, so the block above cannot be passing on a typo - the only difference between
+/// the two is the one line that declares the capability:
+///
+/// ```
+/// use sutura_domain::model::SourceName;
+/// use sutura_domain::plan::QueryPlan;
+/// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+/// use sutura_domain::warehouse::{RowSet, Warehouse};
+///
+/// struct Declared {
+///     source: SourceName,
+///     posture: SourcePosture,
+/// }
+///
+/// impl Warehouse for Declared {
+///     type Error = core::fmt::Error;
+///
+///     const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+///
+///     fn source(&self) -> &SourceName {
+///         &self.source
+///     }
+///
+///     fn posture(&self) -> &SourcePosture {
+///         &self.posture
+///     }
+///
+///     fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+///         Err(core::fmt::Error)
+///     }
+/// }
+///
+/// assert_eq!(
+///     <Declared as Warehouse>::IMPERSONATION,
+///     ImpersonationCapability::NoPlaceForASubject
+/// );
+/// ```
 pub trait Warehouse {
     /// Why this data system could not answer. Typed per adapter: a connection failure, a rejected
     /// statement and a permission denial are not the same thing to whoever responds to them.
     type Error: core::error::Error + 'static;
 
+    /// Whether this adapter can carry a per-subject credential **at all**.
+    ///
+    /// **Required, with no default, and that is the whole mechanism.** A defaulted capability would
+    /// mean an adapter that said nothing got the benefit of the doubt in whichever direction the
+    /// default pointed - and both directions are wrong. Defaulted to *can*, a file engine would
+    /// silently satisfy an impersonation cross-check it cannot honour. Defaulted to *cannot*, a real
+    /// network adapter that forgot the line would be refused for a capability it has, and somebody
+    /// would fix that by deleting the check.
+    ///
+    /// A constant rather than a method because it is fixed for the life of the process: it is a fact
+    /// about what was linked, nothing at run time can widen it, and a source that gains a capability
+    /// is a deployment change.
+    ///
+    /// **The cost, stated where the decision is:** an associated constant makes this trait not
+    /// object-safe. Nothing in the workspace holds a `dyn Warehouse` today, and a heterogeneous set
+    /// of adapters behind one port wants a closed enum over the registered adapters rather than
+    /// dynamic dispatch - which is the same *pluggable by declaration* argument this constant comes
+    /// from. If that ever changes, it is an architecture decision and not a signature tweak.
+    const IMPERSONATION: ImpersonationCapability;
+
     /// The name a plan uses to select this adapter.
     fn source(&self) -> &SourceName;
+
+    /// Which identity a query is to reach this source as, as the deployment declared it.
+    ///
+    /// **Required, and what an answer's provenance is read off.** The composition root hands the
+    /// posture to the adapter at construction and provenance asks the adapter, so the record says
+    /// what the thing that executed was actually holding. A provenance field read from the settings
+    /// tree instead would report a leg as impersonated on the strength of a file, which is the one
+    /// thing that field exists to stop.
+    ///
+    /// The limit is worth naming with the claim: today this is still the value the root handed over,
+    /// so what it proves is that configuration reached the adapter - not that the data system
+    /// evaluated anybody's authorization. That becomes a stronger claim when the execution port takes
+    /// a credential per leg and the adapter matches exhaustively on what it received.
+    fn posture(&self) -> &SourcePosture;
 
     /// Checks the plan is executable here, without producing rows.
     ///

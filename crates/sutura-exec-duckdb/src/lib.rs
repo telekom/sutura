@@ -122,6 +122,11 @@ pub enum DuckDbError {
 /// A `DuckDB` database, behind the [`Warehouse`] port.
 pub struct DuckDbWarehouse {
     source: sutura_domain::model::SourceName,
+    /// Which identity a query reaches this source as, handed over at construction.
+    ///
+    /// The deployment declares the posture and the adapter declares its *capability* - see
+    /// `Warehouse::IMPERSONATION` below. Kept so provenance is read off the thing that executed.
+    posture: sutura_domain::source::SourcePosture,
     connection: Connection,
 }
 
@@ -137,24 +142,41 @@ impl core::fmt::Debug for DuckDbWarehouse {
 
 impl DuckDbWarehouse {
     /// Opens a database file.
-    pub fn open(source: sutura_domain::model::SourceName, path: &Path) -> Result<Self, DuckDbError> {
+    pub fn open(
+        source: sutura_domain::model::SourceName,
+        posture: sutura_domain::source::SourcePosture,
+        path: &Path,
+    ) -> Result<Self, DuckDbError> {
         let connection = Connection::open(path).map_err(|cause| DuckDbError::Open {
             path: path.display().to_string(),
             cause,
         })?;
-        Ok(Self { source, connection })
+        Ok(Self {
+            source,
+            posture,
+            connection,
+        })
     }
 
     /// Opens a database that exists only for this process.
     ///
     /// What the golden suite uses: a fixture that is built from a committed CSV every run cannot
     /// drift from the CSV, and a database file in the repository would be a binary nobody reviews.
-    pub fn in_memory(source: sutura_domain::model::SourceName) -> Result<Self, DuckDbError> {
+    /// **The posture is a parameter and has no default**, for the reason the port gives: a defaulted
+    /// posture would be a claim about who a query runs as that nobody made.
+    pub fn in_memory(
+        source: sutura_domain::model::SourceName,
+        posture: sutura_domain::source::SourcePosture,
+    ) -> Result<Self, DuckDbError> {
         let connection = Connection::open_in_memory().map_err(|cause| DuckDbError::Open {
             path: String::from(":memory:"),
             cause,
         })?;
-        Ok(Self { source, connection })
+        Ok(Self {
+            source,
+            posture,
+            connection,
+        })
     }
 
     /// Exposes a CSV file as a table.
@@ -336,8 +358,19 @@ impl DuckDbWarehouse {
 impl Warehouse for DuckDbWarehouse {
     type Error = DuckDbError;
 
+    /// **One process holding one connection under one operating-system identity**, so there is nowhere
+    /// for a subject's own credential to arrive. The same answer the in-process engine gives, for the
+    /// same reason, and it is declared rather than assumed: a source configured
+    /// `impersonation-at-source` on this adapter does not start.
+    const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
+        sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
+
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
+    }
+
+    fn posture(&self) -> &sutura_domain::source::SourcePosture {
+        &self.posture
     }
 
     /// Prepares the statement without running it.
@@ -402,6 +435,20 @@ mod tests {
 
     fn source() -> SourceName {
         SourceName::parse("local").expect("a test source is a source")
+    }
+
+    /// The posture a test opens this adapter with.
+    ///
+    /// Shared, and it is the honest declaration rather than a convenience: one process holds one
+    /// connection under one operating-system identity, which is what the capability constant above
+    /// says out loud.
+    fn shared_posture() -> sutura_domain::source::SourcePosture {
+        sutura_domain::source::SourcePosture::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse("one process, one connection, one operating-system identity")
+                    .expect("a fixture reason is a reason"),
+            ),
+        }
     }
 
     #[test]
@@ -544,7 +591,7 @@ mod tests {
         // the executed statement at all: a projection is what an answer is read by. `run` is
         // exercised directly with a literal statement, because the labels have to be right before
         // any plan is involved.
-        let warehouse = DuckDbWarehouse::in_memory(source()).expect("an in-memory database opens");
+        let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture()).expect("an in-memory database opens");
         let query = GeneratedQuery::new(source(), String::from("SELECT 1 AS period, 'north' AS region"), Vec::new());
         let rows = warehouse.run(&query).expect("a literal select answers");
         assert_eq!(rows.columns(), ["period", "region"]);

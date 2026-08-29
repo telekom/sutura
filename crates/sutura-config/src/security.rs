@@ -20,6 +20,7 @@
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
 use sutura_domain::identity::Secret;
+use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
 
 /// A pre-shared secret a caller presents to reach the service.
 ///
@@ -254,6 +255,181 @@ impl core::fmt::Display for TlsTermination {
     }
 }
 
+/// Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+/// from.
+///
+/// **Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.**
+///
+/// *Single-user* means credentials are static configuration: one user, one host, not multi-tenant.
+/// There is no per-request identity to establish, so a shared source is correct for **everything** -
+/// the one user reads all, by design, and the configured credential is that user's own.
+/// `examples/single-player` is this, and it is a first-class deployment rather than a degraded one.
+///
+/// *Multi-user* means the caller's identity arrives per request. Shared sources are still permitted,
+/// and that is the whole difficulty: the deployment has to say so **per source**, on purpose.
+///
+/// # It is declared and never derived, and the derivation that was on offer is unsound
+///
+/// The tempting derivation is "every source shared means single-user, any source impersonating means
+/// multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+/// multi-tenant deployment whose sources are *all* shared derives to single-user, and the
+/// acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+/// acknowledgement the one deployment where every caller reads every source as somebody else's
+/// identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+/// a field out.
+///
+/// So there is **no `Default`**, no derivation, and a deployment that configures a source without
+/// declaring the mode does not boot -
+/// [`NotFitToServe::DeploymentIdentityUndeclared`](crate::NotFitToServe::DeploymentIdentityUndeclared).
+/// The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+/// not a softening: a deployment with no source configured cannot answer anything, and the composition
+/// root refuses it on the catalog naming a source with no declaration - so every deployment that can
+/// serve a question has to declare the mode.
+///
+/// # What flipping the mode does
+///
+/// It re-evaluates every source. A single-user deployment legitimately holds every source under one
+/// static credential; the same file in multi-user mode serves every one of those sources to every
+/// caller as one identity. The mode is an input to the whole check rather than to an incremental view
+/// of what changed, so a deployment that flips it and has acknowledged nothing does not boot.
+///
+/// # The variant names are not the configured words, and that is deliberate
+///
+/// A deployment writes `single-user` or `multi-user` - [`Self::as_str`] and [`Self::NAMES`] own those
+/// spellings, and they are the vocabulary
+/// [a credential per leg](https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md)
+/// 5a names. The variants are named for the *property each mode decides* instead, because
+/// `SingleUser`/`MultiUser` share a postfix and `clippy::enum_variant_names` is denied - and the names
+/// that survived that say more: what changes between the two is whether credentials are static
+/// configuration or a subject arrives per request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeploymentIdentity {
+    /// Static credentials, one user, one host - the `single-user` mode. Carries the operator's own
+    /// reason, so the mode is unreachable by leaving a key out.
+    StaticCredentials { declared: AcknowledgementReason },
+    /// A subject per request, established by the transport - the `multi-user` mode.
+    ///
+    /// **Nothing establishes one today** - the bearer gate authenticates the deployment - so this mode
+    /// is currently a statement of intent whose only mechanical effect is that every shared source has
+    /// to be acknowledged on its own entry. That is the honest description and it is worth having: the
+    /// acknowledgements are what a deployment needs in place *before* a subject arrives, not after.
+    SubjectPerRequest,
+}
+
+/// The configured value did not name a deployment mode.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{found}` does not name a deployment mode - one of: {}", DeploymentIdentity::NAMES.join(", "))]
+pub struct UnknownDeploymentIdentity {
+    found: String,
+}
+
+impl DeploymentIdentity {
+    /// The key the mode is written under.
+    pub const KEY: &'static str = "security.identity";
+    /// The key the single-user reason is written under.
+    pub const REASON_KEY: &'static str = "security.single_user_because";
+    /// Every accepted spelling, so a message and the parser cannot disagree.
+    pub const NAMES: &'static [&'static str] = &["single-user", "multi-user"];
+
+    /// Reads the declared mode and, for single-user, the operator's reason.
+    ///
+    /// The reason is **required** for single-user and **refused** for multi-user, which is the same
+    /// rule `server.tls_certificate` gets: a value nothing reads is a control that appears to be in
+    /// place. Both halves are returned as one typed error rather than checked later, because the mode
+    /// and its witness are one declaration.
+    pub fn parse(word: &str, reason: Option<&str>) -> Result<Self, InvalidDeploymentIdentity> {
+        let reason = reason.map(str::trim).filter(|value| !value.is_empty());
+        match word.trim() {
+            "single-user" => {
+                let Some(text) = reason else {
+                    return Err(InvalidDeploymentIdentity::SingleUserWithoutAReason);
+                };
+                let declared = AcknowledgementReason::written_under(Self::REASON_KEY, text)
+                    .map_err(|cause| InvalidDeploymentIdentity::Reason { cause })?;
+                Ok(Self::StaticCredentials { declared })
+            }
+            "multi-user" => {
+                if reason.is_some() {
+                    return Err(InvalidDeploymentIdentity::ReasonWithoutSingleUser);
+                }
+                Ok(Self::SubjectPerRequest)
+            }
+            other => Err(InvalidDeploymentIdentity::Unknown {
+                cause: UnknownDeploymentIdentity {
+                    found: String::from(other),
+                },
+            }),
+        }
+    }
+
+    /// The spelling, for the startup log.
+    #[inline]
+    #[must_use]
+    pub const fn as_str(&self) -> &'static str {
+        match *self {
+            Self::StaticCredentials { .. } => "single-user",
+            Self::SubjectPerRequest => "multi-user",
+        }
+    }
+
+    /// The reason a shared source may borrow as its acknowledgement, if this mode supplies one.
+    ///
+    /// `Some` for single-user only, and an exhaustive match rather than an `is_single_user()` boolean:
+    /// what the mode contributes is the *witness*, so returning the value is what a caller needs and a
+    /// boolean would leave every caller to work out where the witness comes from.
+    #[inline]
+    #[must_use]
+    pub const fn shared_witness(&self) -> Option<&AcknowledgementReason> {
+        match *self {
+            Self::StaticCredentials { ref declared } => Some(declared),
+            Self::SubjectPerRequest => None,
+        }
+    }
+
+    /// Does a shared source need an acknowledgement on its own entry under this mode?
+    #[inline]
+    #[must_use]
+    pub const fn needs_per_source_acknowledgement(&self) -> bool {
+        matches!(*self, Self::SubjectPerRequest)
+    }
+}
+
+/// Why a deployment mode declaration is not usable.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum InvalidDeploymentIdentity {
+    #[error("`{}` does not name a deployment mode", DeploymentIdentity::KEY)]
+    Unknown {
+        #[source]
+        cause: UnknownDeploymentIdentity,
+    },
+    /// Single-user mode with no reason written.
+    ///
+    /// The reason is what makes the mode a declaration rather than a word: a single-user deployment
+    /// serves every source under one identity, and the operator's own sentence for why is what a
+    /// reviewer reads and what a shared source borrows as its acknowledgement.
+    #[error(
+        "`{}` is `single-user` and `{}` is not set. Single-user means every source is read under one \
+         static credential, which is correct when that credential is the one user's own - write why, \
+         because it is the sentence a reviewer needs and the one a shared source borrows",
+        DeploymentIdentity::KEY,
+        DeploymentIdentity::REASON_KEY
+    )]
+    SingleUserWithoutAReason,
+    /// A single-user reason on a multi-user deployment, where nothing would read it.
+    #[error(
+        "`{}` is set and `{}` is `multi-user`, so nothing would read it - a shared source in \
+         multi-user mode is acknowledged on its own entry. Remove it, or declare `single-user`",
+        DeploymentIdentity::REASON_KEY,
+        DeploymentIdentity::KEY
+    )]
+    ReasonWithoutSingleUser,
+    #[error("`{}` is not usable as a reason", DeploymentIdentity::REASON_KEY)]
+    Reason {
+        #[source]
+        cause: InvalidOperatorText,
+    },
+}
+
 /// The access posture, and the declaration that goes with a non-loopback bind.
 ///
 /// Two fields rather than one, because they answer different questions and collapsing them was
@@ -266,19 +442,37 @@ impl core::fmt::Display for TlsTermination {
 /// about what protects the token in flight, so a wildcard bind with no terminator anywhere read
 /// exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 /// agreeing that off-host is intended.
+///
+/// **Three fields now, and the third answers a third question**: who a query runs *as*. It is an
+/// `Option` because it has no default and its absence is a refusal rather than a value - see
+/// [`DeploymentIdentity`], which explains why no combination of source postures may answer it on the
+/// operator's behalf.
 #[derive(Debug, Clone, Default)]
 pub struct SecuritySettings {
     access_token: Option<AccessToken>,
     tls_termination: TlsTermination,
+    identity: Option<DeploymentIdentity>,
 }
 
 impl SecuritySettings {
     #[inline]
-    pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination) -> Self {
+    pub const fn new(
+        access_token: Option<AccessToken>,
+        tls_termination: TlsTermination,
+        identity: Option<DeploymentIdentity>,
+    ) -> Self {
         Self {
             access_token,
             tls_termination,
+            identity,
         }
+    }
+
+    /// Which kind of deployment this is, if the operator declared one.
+    #[inline]
+    #[must_use]
+    pub const fn identity(&self) -> Option<&DeploymentIdentity> {
+        self.identity.as_ref()
     }
 
     /// The configured token, if there is one.
@@ -308,6 +502,12 @@ impl SecuritySettings {
     /// documentation read the same value. When a `CredentialBroker` and a request context exist,
     /// this stops being a constant and the log line changes with it; until then a deployment is
     /// told, on every boot, that the token authenticates the deployment and not the caller.
+    ///
+    /// **[`Self::identity`] does not change this answer, and that is deliberate.** A declared
+    /// `multi-user` mode says what the deployment *intends* and decides where a shared source's
+    /// acknowledgement has to be written; it does not make a caller identity arrive. Reading the
+    /// declaration back as "this deployment knows who is asking" is the exact confusion this function
+    /// exists to prevent.
     #[inline]
     pub const fn describes_identity() -> bool {
         false
@@ -316,7 +516,9 @@ impl SecuritySettings {
 
 #[cfg(test)]
 mod tests {
-    use super::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination};
+    use super::{
+        AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
+    };
 
     /// Thirty-two characters, which is the floor.
     const GOOD: &str = "0123456789abcdef0123456789abcdef";
@@ -375,7 +577,11 @@ mod tests {
     fn a_token_is_not_printed_by_debug_at_any_depth() {
         // The reason the field is a `Secret`. The startup log prints the whole settings tree
         // with `Debug`, so this is the assertion that keeps that safe.
-        let settings = SecuritySettings::new(Some(AccessToken::parse(GOOD).expect("a valid token")), TlsTermination::None);
+        let settings = SecuritySettings::new(
+            Some(AccessToken::parse(GOOD).expect("a valid token")),
+            TlsTermination::None,
+            Some(DeploymentIdentity::SubjectPerRequest),
+        );
         let rendered = format!("{settings:?}");
         assert!(!rendered.contains(GOOD), "{rendered}");
         assert!(rendered.contains("REDACTED"), "{rendered}");
@@ -401,11 +607,76 @@ mod tests {
         let with = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::Ingress,
+            Some(DeploymentIdentity::SubjectPerRequest),
         );
         let without = SecuritySettings::default();
         assert!(!SecuritySettings::describes_identity());
         assert_eq!(with.token_state(), "configured");
         assert_eq!(without.token_state(), "absent");
+        // A DECLARED multi-user mode does not change the answer, and that is the confusion this
+        // assertion exists for: the declaration says what the deployment intends and decides where a
+        // shared source's acknowledgement has to be written. It does not make a caller identity arrive.
+        assert_eq!(with.identity(), Some(&DeploymentIdentity::SubjectPerRequest));
+        assert!(!SecuritySettings::describes_identity());
+        assert_eq!(without.identity(), None, "the mode has no default");
+    }
+
+    #[test]
+    fn the_deployment_mode_is_declared_with_a_reason_or_not_at_all() {
+        // Single-user needs the reason: it is the sentence a reviewer reads and the one a shared source
+        // borrows as its acknowledgement, so a mode without it is a word rather than a declaration.
+        assert_eq!(
+            DeploymentIdentity::parse("single-user", None).expect_err("single-user needs a reason"),
+            InvalidDeploymentIdentity::SingleUserWithoutAReason
+        );
+        assert_eq!(
+            DeploymentIdentity::parse("single-user", Some("   ")).expect_err("whitespace is not a reason"),
+            InvalidDeploymentIdentity::SingleUserWithoutAReason
+        );
+        let single = DeploymentIdentity::parse("single-user", Some("one operator, their own files"))
+            .expect("a declared single-user mode parses");
+        assert_eq!(single.as_str(), "single-user");
+        assert!(
+            single.shared_witness().is_some(),
+            "single-user mode is where a shared source's witness comes from"
+        );
+        assert!(!single.needs_per_source_acknowledgement());
+    }
+
+    #[test]
+    fn the_multi_user_mode_refuses_the_reason_the_other_one_requires() {
+        // Split from the test above by `cognitive_complexity`, and the split is along the seam the two
+        // modes already have: one requires the reason and the other refuses it.
+        //
+        // Multi-user refuses it for the reason a certificate nothing reads is refused: a value nothing
+        // reads is a control that appears to be in place.
+        assert_eq!(
+            DeploymentIdentity::parse("multi-user", Some("because")).expect_err("nothing would read it"),
+            InvalidDeploymentIdentity::ReasonWithoutSingleUser
+        );
+        let multi = DeploymentIdentity::parse("multi-user", None).expect("multi-user needs nothing else");
+        assert_eq!(multi, DeploymentIdentity::SubjectPerRequest);
+        assert_eq!(multi.shared_witness(), None);
+        assert!(multi.needs_per_source_acknowledgement());
+
+        // And a third word is not a third mode.
+        let unknown = DeploymentIdentity::parse("impersonating", None).expect_err("there are two modes");
+        assert!(matches!(unknown, InvalidDeploymentIdentity::Unknown { .. }));
+        let rendered = unknown.to_string();
+        assert!(rendered.contains("security.identity"), "{rendered}");
+
+        // Every listed spelling parses, so `NAMES` cannot offer a mode the parser refuses. The reason is
+        // supplied for exactly the mode that requires one, which is what makes this a round trip rather
+        // than a loop that only exercises one arm.
+        for name in DeploymentIdentity::NAMES {
+            let reason = (*name == "single-user").then_some("a stated reason");
+            assert_eq!(
+                DeploymentIdentity::parse(name, reason)
+                    .expect("a listed name parses")
+                    .as_str(),
+                *name
+            );
+        }
     }
 
     #[test]

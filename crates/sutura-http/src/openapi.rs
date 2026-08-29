@@ -88,6 +88,7 @@ naming a subject is a 400 that says so.";
         crate::wire::MetricBody,
         crate::wire::OutcomeBody,
         crate::wire::ProvenanceBody,
+        crate::wire::LegBody,
         crate::wire::QuestionBody,
         crate::wire::RangeBody,
         crate::wire::RefusalBody,

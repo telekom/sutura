@@ -50,6 +50,11 @@ types it speaks in:
 - `query` is the tool surface, defined mostly by what it has no field for.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
+- `source` is what a deployment declares about one source: which identity a query reaches it as,
+  which identity re-ran its anchors at boot, and - separately, because a different party declares
+  it - whether the linked adapter can carry a per-subject credential at all. It also holds the
+  per-leg execution record `pinned::Provenance` carries, which is read off what the adapter was
+  handed rather than off a settings tree.
 - `definitions` and `identity` hold the digest and the credential-shaped newtypes. The
   principal chain a call is attributed to lives in `identity` as well, beside the redaction,
   because both are properties of who is asking rather than of what was asked.
@@ -2973,16 +2978,40 @@ Why a version label was rejected.
 pub struct Provenance
 ```
 
-What defined an answer, travelling with it.
+What defined an answer, and what each of its legs executed as - travelling with it.
 
 A result cannot be separated from what defined it, so this is a typed field a caller reads
 deliberately rather than a sentence concatenated into a channel that also carries instructions.
+
+# Two halves with two different owners, and the posture is BESIDE the digest rather than under it
+
+The version and the digest identify the *authored content*: two deployments serving the same
+catalog certify the same numbers, which is the one property the digest exists to have. The
+posture per leg is *deployment configuration* - the same bundle may be served by a deployment that
+impersonates and one that does not - so hashing it in would make one catalog produce two digests
+in two deployments. That is why `crate::source::ExecutedAs` is a field here and not an input to
+`PinnedDefinitions::pin`, and it is the opposite of the knowledge declaration, which *is* under
+the digest because it is content a catalog author wrote.
+
+**Recording is not a control.** Provenance is read by whoever holds the answer, after the rows
+were served, so it cannot prevent a disclosure and does not attempt to. It makes one attributable
+and it makes a misconfiguration visible to whoever reads an answer; the thing that keeps a shared
+source from being served unnoticed is a boot refusal.
 
 #### Methods
 
 ```rust
 pub const fn digest(&self) -> &DefinitionDigest
 ```
+
+```rust
+pub const fn executed_as(&self) -> &ExecutedAs
+```
+
+What each leg of this answer ran as.
+
+Read off the posture the **adapter was handed**, never off a settings tree - see
+`crate::source`. Non-empty, because `ExecutedAs` has no empty form.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -3126,10 +3155,21 @@ fn _pin(
 ```
 
 ```rust
-pub fn provenance(&self) -> Provenance
+pub fn provenance(&self, executed_as: ExecutedAs) -> Provenance
 ```
 
-The provenance to attach to any answer produced from this bundle.
+The provenance to attach to one answer produced from this bundle.
+
+**`executed_as` is a required argument and there is no second door that omits it.** An answer
+carries a `Provenance`, `Provenance::new` is private, and this is the only way to one - so an
+answer cannot be produced without saying which posture each of its legs ran under. That is the
+same shape `Self::pin` uses for the digest: the value is computed from what the caller
+already has rather than accepted as an optional decoration.
+
+A caller that only wants to *describe* this bundle - a catalog endpoint, the agent-facing
+prompt - reads `Self::version` and `Self::digest` instead. Nothing executed for it, and a
+`Provenance` with an empty execution record would be the one shape this argument exists to
+make unrepresentable.
 
 ```rust
 pub const fn version(&self) -> &DefinitionVersion
@@ -3168,7 +3208,7 @@ available at that boundary.
 - `NoGrain` - The metric declares no grain, so no single period - and therefore no single number - is available to compare the declared one against.
 - `NotCompiled` - The anchor's own question would not compile against the bundle that carries it.
 - `Refused` - The anchor's own question was refused. A governance outcome, surfaced as one: an anchor a caller could not have asked for is not a failure of the data system.
-- `SourceMismatch` - The plan names a data system this process did not open. Not prose in a report field: it is the same condition the query path refuses, and it is a misconfigured composition root rather than an outage.
+- `SourceNotConfigured` - The plan names a data system this process did not open. Not prose in a report field: it is the same condition the query path refuses, and it is a misconfigured composition root rather than an outage.
 - `NotOneNumber` - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.
 - `NoMeasureColumn` - The result carries no column named after the metric, so there is nothing to compare.
 - `ResultShapeMismatch` - The result set was not the shape it reported.
@@ -3966,6 +4006,481 @@ refusal is not a budget. A day count is also only a proxy for rows: ten years of
 ten years of a large one are the same number here. A real budget is expressed in rows or bytes
 scanned, which needs something from the data system that no port asks for yet.
 
+## Module `source`
+
+How one source establishes the identity a query runs as, what an adapter can carry, and what
+each leg of an answer actually executed as.
+
+**Three facts by three different declarers, and conflating any two of them is how a mode acquires
+two owners.** [Pluggable by declaration](https://github.com/telekom/sutura/blob/main/docs/adr/0011-pluggable-by-declaration.md)
+is explicit about the split and this module is that split expressed as types:
+
+| Fact | Who declares it | The type here |
+| --- | --- | --- |
+| Which identity a query reaches this source as | configuration, per source | `SourcePosture` |
+| Whether the linked adapter can carry a per-subject credential *at all* | code, per adapter | `ImpersonationCapability` |
+| Which identity re-ran this source's anchors at boot | configuration, per source | `SourceIdentity` |
+
+The first two are compared at boot - `SourcePosture::deliverable_by` - because a posture the
+build cannot perform is a configuration that would have to fall back, and there is no fallback.
+The third is the *boot* identity and is deliberately a different type from anything on the
+request path: an anchor runs before a caller exists.
+
+# What each leg ran as, and why it is not read off the settings tree
+
+`ExecutedAs` is what `crate::pinned::Provenance` carries. It is built from the posture the
+**adapter was handed**, never from the configuration that was supposed to reach it. The two are
+meant to agree, and if they ever disagreed the record has to say what *ran* - a field derived
+from a file would report a leg as impersonated on the strength of a file, which is the one thing
+this record exists to stop.
+
+**State the limit next to the claim.** Recording is not a control. An answer says how it was
+executed, and provenance is read by whoever holds the answer *after* the rows were served, so it
+cannot prevent a disclosure and does not attempt to. What keeps a shared source from being served
+unnoticed is the boot refusal in `sutura_config::Settings::refusals` and the cross-check above,
+both of which happen before a listener is bound.
+
+# Nothing here is `Deserialize`, and that is the same property `crate::identity` has
+
+`AcknowledgementReason` and `VerificationIdentity` are text an **operator** wrote, and the
+settings layer turns the key into the type by calling `parse`. A `Deserialize` would let a value
+reach these newtypes without passing that constructor, and for `SharedIdentityDeclared` it
+would mean a witness that no operator wrote - which is exactly the state the witness exists to
+make unreachable.
+
+What that does **not** claim: these constructors are `pub`, so any crate holding this one could
+call them. The property is that a *file* cannot, and that neither type has a `Default` - so the
+shared posture cannot be arrived at by leaving anything unset, and cannot be inherited from a
+neighbouring source.
+
+### `enum InvalidOperatorText`
+
+```rust
+pub enum InvalidOperatorText
+```
+
+Why a piece of operator-written text is not usable here.
+
+One error for both newtypes below, because they are one parse with two bounds. The variants carry
+the offending input as typed fields; the `#[error]` text is a convenience for a human.
+
+#### Variants
+
+- `Empty` - Empty or whitespace-only.
+- `ControlCharacter` - Holds a control character. The startup log prints this on one line, so a newline here appends a line nobody wrote.
+- `InvisibleCharacter` - Holds an invisible or direction-changing code point.
+- `TooLong`
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct AcknowledgementReason`
+
+```rust
+pub struct AcknowledgementReason
+```
+
+The operator's stated reason for serving one source under one identity for every caller.
+
+**A required value rather than a flag, because the reason is the part a reviewer needs and the
+part nobody writes unless the type demands it.** A boolean acknowledgement records that somebody
+clicked past a question; this records what they meant, on the source's own entry, and the startup
+log prints it beside the posture.
+
+Construct it with [`parse`](Self::parse). There is no other way in: the field is private, there is
+no `Deserialize`, and `TryFrom<String>` delegates to the same constructor.
+
+No `Default`, deliberately. A default reason is a reason nobody gave.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidOperatorText>
+```
+
+Parses a reason written under `Self::KEY`.
+
+Delegates to `Self::written_under` rather than repeating the checks.
+
+```rust
+pub fn written_under(key: &'static str, raw: impl AsRef<str>) -> Result<Self, InvalidOperatorText>
+```
+
+The canonical constructor: parses a reason written under `key`.
+
+`key` is carried into the refusal so a message names the entry an operator has to change
+rather than describing a category. There are two keys in the settings tree that produce one of
+these - a source's own acknowledgement and the single-user mode declaration - and one parse, so
+a rule that held for one and not the other cannot exist.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct VerificationIdentity`
+
+```rust
+pub struct VerificationIdentity
+```
+
+The identity the anchor path runs as, for one source.
+
+**A distinct type from anything on the request path, on purpose.** An anchor executes at boot,
+before any caller exists, and the credential that re-runs it must not be reachable from a
+handler. `sutura_app::answer` holds no value of this type and cannot construct one; when the
+execution port learns to take a credential, this is what its second method takes and the request
+path takes the other.
+
+It is a *name*, not material: a role or service-account name is not secret, and the credential
+behind it arrives with the credential port. Least authority on it is a configuration requirement
+an operator arranges - an identity holding a row-level-security bypass certifies the *unfiltered*
+number, so the anchor passes and proves less than it appears to.
+
+Construct it with [`parse`](Self::parse). No `Deserialize` and no `Default`, so it cannot be
+arrived at by leaving anything unset and cannot be inherited from a neighbouring source.
+
+#### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidOperatorText>
+```
+
+Parses the declared identity, rejecting anything that is not a name.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct SharedIdentityDeclared`
+
+```rust
+pub struct SharedIdentityDeclared
+```
+
+The witness that an operator acknowledged serving one source under one identity for everybody.
+
+It carries the reason and nothing else, and it exists so the weaker posture is **unreachable
+without an operator's own words**. A `SharedServiceUser` posture cannot be constructed without
+one, so there is no arrangement of a configuration file that arrives at it by leaving a key out.
+
+**The same witness travels onto the leg.** When the credential port lands, this is the payload of
+the third `Presented` variant - the one that carries no credential material at all - which is what
+ties the boot-time acknowledgement to the thing that actually executed. An acknowledgement no
+operator wrote has no value to travel, so there is no leg for it to reach.
+
+#### Methods
+
+```rust
+pub const fn of(reason: AcknowledgementReason) -> Self
+```
+
+Wraps an operator's reason as the witness.
+
+Takes the parsed reason rather than a string, so the only way to a witness is through
+`AcknowledgementReason::parse` - one canonical constructor, and this is not a second copy of
+its checks.
+
+```rust
+pub const fn reason(&self) -> &AcknowledgementReason
+```
+
+What the operator said, for the startup log.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum SourcePosture`
+
+```rust
+pub enum SourcePosture
+```
+
+How a source establishes the identity a query runs as.
+
+**No `Default`, and that is where it differs from `sutura_config::TlsTermination`, which is
+otherwise the shape this copies.** That type defaults to `None` and is refused only where the bind
+is reachable off-host - a default plus a conditional refusal - and it is right there, because a
+loopback bind genuinely is the case where nothing needs declaring. Identity has no equivalent
+condition: there is no bind address that makes "one identity for every caller" safe to assume. So
+a source that declares no posture is refused unconditionally, and a `Default` here would be a
+value that never passed a constructor.
+
+Two variants, and the closed set is the point: an answer cannot claim a third thing happened.
+
+#### Variants
+
+- `SharedServiceUser` - Every query reaches this source under one identity the deployment holds. Carries the operator's acknowledgement, so it cannot be reached by leaving anything at a default.
+- `ImpersonationAtSource` - Each query reaches this source as the asking subject, so the SOURCE decides what that subject sees: its own authorization, its row and column policies, its own catalog.
+
+#### Methods
+
+```rust
+pub const fn as_str(&self) -> &'static str
+```
+
+The spelling, for the startup log and for a wire shape.
+
+The one definition of the word, so what a log line says and what an answer carries cannot
+drift apart.
+
+```rust
+pub fn deliverable_by(&self, capability: ImpersonationCapability, source: &SourceName) -> Result<(), PostureNotDeliverable>
+```
+
+Refuses a posture the linked adapter has no way to perform.
+
+**The boot cross-check, and it is here rather than in the settings tree because half of it is
+a property of the BUILD.** Configuration says which posture the deployment is asking for;
+`ImpersonationCapability` says whether the code that was linked can carry a per-subject
+credential at all. `sutura-config` cannot see the second, so the comparison lives where both
+are in scope - the composition root - and this is the one function that makes it.
+
+Two exhaustive matches with no wildcard arm, so a third posture or a third capability is a
+compile error here rather than a case that quietly falls through to `Ok`.
+
+```rust
+pub const fn what_decides_what_a_caller_sees(&self) -> &'static str
+```
+
+What decides what a subject sees here, as a sentence for the startup log.
+
+A function rather than a comment for the reason `TlsTermination::cleartext_hop` is one: the
+log, the documentation and this type read the same value, so none of them can drift into
+claiming this deployment impersonates when it does not.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct PostureNotDeliverable`
+
+```rust
+pub struct PostureNotDeliverable
+```
+
+A posture was configured that the adapter behind that source cannot perform.
+
+Its own type rather than a string, because the composition root has to name the source in a
+message an operator acts on, and because a refusal that carried only prose could not be asserted
+on by a test without asserting on the prose.
+
+#### Methods
+
+```rust
+pub const fn at(&self) -> &SourceName
+```
+
+Which source was misconfigured.
+
+Named `at` rather than `source`, and not by preference: `thiserror`'s derive gives this type an
+`Error::source`, and `clippy::same_name_method` is denied - an inherent `source` beside a trait
+`source` is a call site whose meaning depends on which traits are in scope.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum ImpersonationCapability`
+
+```rust
+pub enum ImpersonationCapability
+```
+
+Whether an adapter can carry a per-subject credential **at all**.
+
+A property of code, declared by the adapter as a required associated item on
+`crate::warehouse::Warehouse` that it cannot omit. It is deliberately **not** the mode: an
+adapter cannot declare a mode it does not own, because the same adapter is correct in either
+posture and only the deployment knows which one it is being asked for.
+
+`Copy`, because it is a declaration rather than a value with an identity, and because the boot
+check reads it beside a posture it borrows.
+
+**The variants are named for the MECHANISM rather than for yes and no**, which is not only style:
+`Can...`/`Cannot...` share a postfix and `clippy::enum_variant_names` is denied, and the names that
+survived that are the better ones anyway - a reader of `NoPlaceForASubject` at an adapter's
+declaration is told why, not just that.
+
+#### Variants
+
+- `PerSubjectCredential` - There is a place in this adapter's path for a subject's own credential to arrive.
+- `NoPlaceForASubject` - There is not. An in-process engine over local files is this: one process, one operating-system identity, and nowhere for a subject to appear. Saying so explicitly is the point of the declaration - a file engine is the easiest source in the world to assume nothing about, and "nobody declared anything for the engine" is how a deployment ends up believing its whole surface impersonates because its *network* source does.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The spelling, for the startup log.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct SourceIdentity`
+
+```rust
+pub struct SourceIdentity
+```
+
+One source's whole identity declaration: the posture, and the identity its anchors re-run under.
+
+**Parsed rather than validated**, and the pairing is what it parses: the two fields are not
+independent, and three of the four combinations mean something different from the other. A
+`Self::declared` that returned the struct unchecked would leave every reader to work that out
+again.
+
+#### Methods
+
+```rust
+pub const fn anchors_run_as(&self) -> AnchorIdentity<'_>
+```
+
+Which identity re-runs an anchor on this source.
+
+**An exhaustive match rather than an `Option`, because the asymmetry is the useful part.** On a
+shared source the verification identity *is* the shared identity, so nothing is configured and
+an anchor is a complete claim: every caller reads that source as that one identity, so the
+number the anchor certifies is the number every caller gets. On an impersonating source the
+operator declares one, and if none is declared there is nothing to run the anchor as - which
+`AnchorIdentity::NoneDeclared` says out loud rather than answering `None` and leaving a
+reader to decide whether that is a permitted mode.
+
+```rust
+pub fn declared(source: &SourceName, posture: SourcePosture, verification: Option<VerificationIdentity>) -> Result<Self, ConflictingSourceIdentity>
+```
+
+The canonical constructor: a posture, and the verification identity if one was declared.
+
+`source` is taken for the refusal's sake alone - a message an operator acts on has to name the
+entry - and is not stored, because the registry that holds these is already keyed by it.
+
+```rust
+pub const fn posture(&self) -> &SourcePosture
+```
+
+Which identity a query reaches this source as.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum ConflictingSourceIdentity`
+
+```rust
+pub enum ConflictingSourceIdentity
+```
+
+Why a source's two identity declarations do not go together.
+
+#### Variants
+
+- `VerificationIdentityOnASharedSource` - A verification identity was declared on a shared source, where nothing would read it.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum AnchorIdentity`
+
+```rust
+pub enum AnchorIdentity<'declaration>
+```
+
+What an anchor on one source would re-execute as.
+
+Three variants, and the third is not the absence of the other two: it is the state a deployment
+must not boot in if the bundle declares an anchor reading that source. Not skipped, not warned
+about and not treated as a passing anchor, which are the three ways this would otherwise become a
+mode nobody chose.
+
+#### Variants
+
+- `TheSharedIdentity` - The source is shared, so the anchor runs as the one identity every caller reads it as.
+- `Declared` - The source impersonates, and the operator declared a static identity for the boot path.
+- `NoneDeclared` - The source impersonates and nothing was declared. There is no identity to run an anchor as.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct ExecutedAs`
+
+```rust
+pub struct ExecutedAs
+```
+
+What each leg of one answer executed as.
+
+**Non-empty by construction: an answer has at least one leg.** There is no empty form and no
+`remove`, so an answer cannot carry an execution record that claims nothing ran - which is the
+shape `crate::pinned::PinnedDefinitions::pin` uses for the digest, applied to the other half of
+what travels with a result.
+
+One entry per source rather than per leg, because a plan reads a source once: two legs against one
+source would be one leg. `Self::and` refuses a second entry for a source already recorded rather
+than overwriting it, so a wiring defect that ran the same source twice under two postures is an
+error instead of whichever value was written last.
+
+#### Methods
+
+```rust
+pub fn and(self, source: SourceName, posture: SourcePosture) -> Result<Self, LegAlreadyRecorded>
+```
+
+A second leg, for a federated answer.
+
+Consumes and returns, so a record is built in one expression and there is no half-built state
+for something else to read. Nothing constructs a second leg today - there is no combiner - and
+the method is here because the shape of the record is what decides whether it can be added
+without moving the digest, and that is cheaper to settle now than after an answer format
+ships.
+
+```rust
+pub fn legs(&self) -> impl Iterator<Item>
+```
+
+Every leg, by source, in source order.
+
+```rust
+pub fn of(source: SourceName, posture: SourcePosture) -> Self
+```
+
+One leg. The canonical constructor, and the only way a record comes into existence.
+
+```rust
+pub fn posture(&self, source: &SourceName) -> Option<&SourcePosture>
+```
+
+What one source's leg ran as, if this answer has one.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct LegAlreadyRecorded`
+
+```rust
+pub struct LegAlreadyRecorded
+```
+
+A second leg was recorded for a source that already had one.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ## Module `warehouse`
 
 The execution port: the plan that goes out, and the rows that come back.
@@ -4243,3 +4758,87 @@ to ask before committing to the cost of an answer - **where asking is cheaper th
 It is defaulted rather than required for exactly that reason: an adapter for which it is not
 cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
 do is nothing.
+
+# The two identity declarations, and why they are two
+
+`Self::IMPERSONATION` is a property of the **code**: whether this adapter has anywhere for a
+subject's own credential to arrive. It is an associated constant with no default, so an adapter
+cannot omit it, and it cannot vary per instance - which is what lets a boot check mean anything.
+
+`Self::posture` is a property of the **deployment**: which identity a query is to reach this
+source as. It is a method, because the composition root hands it to the adapter at construction,
+and it is required rather than defaulted because a default posture is a posture nobody chose.
+
+The two are compared at boot by `SourcePosture::deliverable_by`. Conflating them was the tempting
+mistake and it gives the mode two owners: an adapter cannot declare a mode it does not own,
+because the same adapter is correct in either posture and only the deployment knows which one it
+is being asked for.
+
+**An adapter that declares no impersonation capability does not compile:**
+
+```compile_fail
+use sutura_domain::model::SourceName;
+use sutura_domain::plan::QueryPlan;
+use sutura_domain::source::SourcePosture;
+use sutura_domain::warehouse::{RowSet, Warehouse};
+
+struct Undeclared {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+// No `const IMPERSONATION`, so this impl is incomplete: the trait declares it with no default.
+impl Warehouse for Undeclared {
+    type Error = core::fmt::Error;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        Err(core::fmt::Error)
+    }
+}
+```
+
+The compiling twin, so the block above cannot be passing on a typo - the only difference between
+the two is the one line that declares the capability:
+
+```
+use sutura_domain::model::SourceName;
+use sutura_domain::plan::QueryPlan;
+use sutura_domain::source::{ImpersonationCapability, SourcePosture};
+use sutura_domain::warehouse::{RowSet, Warehouse};
+
+struct Declared {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl Warehouse for Declared {
+    type Error = core::fmt::Error;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        Err(core::fmt::Error)
+    }
+}
+
+assert_eq!(
+    <Declared as Warehouse>::IMPERSONATION,
+    ImpersonationCapability::NoPlaceForASubject
+);
+```

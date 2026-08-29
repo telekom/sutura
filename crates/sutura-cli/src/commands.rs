@@ -326,7 +326,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
 /// It refuses a catalog that names anything other than [`ENGINE_SOURCE`]. The engine has its own
 /// identity and does not borrow the catalog's: a catalog naming a data system nothing here can open
 /// gets no engine, rather than one wearing that data system's name over the caller's files.
-fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<DataFusionWarehouse, String> {
+///
+/// **The posture is written here, in code, and that is not a default nobody chose.** This command has
+/// no settings tree on its query path - `sutura prompt` is the only subcommand that loads one - so
+/// there is no `sources:` entry for an operator to write. What replaces it is a declaration this file
+/// makes and a reviewer can see: `sutura` is a single-user tool by construction. It reads the files
+/// the person running it already has access to, as that person's own operating-system identity, and
+/// there is no second caller for that identity to be wrong for. `ImpersonationCapability` on the
+/// adapter says the same thing from the other side, so the two agree by construction rather than by a
+/// check this command could skip.
+fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Warehouses<DataFusionWarehouse>, String> {
     let sources = sutura_app::sources(pinned);
     let declared = match sources.as_slice() {
         [only] => (*only).clone(),
@@ -347,11 +356,28 @@ fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<DataFusionWare
              files in the directory given to this command"
         ));
     }
-    let engine = DataFusionWarehouse::new(engine_source, working_set()?).map_err(|e| render(&e))?;
+    let engine = DataFusionWarehouse::new(engine_source, single_user_posture()?, working_set()?).map_err(|e| render(&e))?;
     for model in pinned.definitions().models().values() {
         attach(&engine, model.name(), model.table(), data)?;
     }
-    Ok(engine)
+    // One data system, registered under its own name - which is what `answer` looks a plan up in.
+    Ok(sutura_app::Warehouses::of(engine))
+}
+
+/// The posture this command runs its one data system under.
+///
+/// The reason is the operator's, and here the operator is whoever typed the command: the sentence says
+/// what is true of this tool rather than describing a deployment it is not. It goes through
+/// `AcknowledgementReason::parse` like any other, so it is bounded and checked by the same code a
+/// configuration file's is.
+fn single_user_posture() -> Result<sutura_domain::source::SourcePosture, String> {
+    let reason = sutura_domain::source::AcknowledgementReason::parse(
+        "the sutura command reads the files of whoever ran it, as that person's own operating-system identity",
+    )
+    .map_err(|e| render(&e))?;
+    Ok(sutura_domain::source::SourcePosture::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(reason),
+    })
 }
 
 /// The working-set ceiling this command bounds the engine with.
@@ -542,9 +568,13 @@ mod tests {
         let pinned = load(&example().join("catalog")).expect("the example catalog loads");
         let engine = open_engine(&pinned, &example().join("data")).expect("the example catalog opens");
         assert_eq!(
-            sutura_domain::warehouse::Warehouse::source(&engine).as_str(),
-            ENGINE_SOURCE,
-            "the engine answers to its own name, not to the catalog's"
+            engine
+                .postures()
+                .map(|(name, posture)| (name.as_str(), posture.as_str()))
+                .collect::<Vec<(&str, &str)>>(),
+            vec![(ENGINE_SOURCE, "shared-service-user")],
+            "the engine answers to its own name, not to the catalog's - and this command declares what \
+             identity it reads under rather than leaving it at a default"
         );
     }
 

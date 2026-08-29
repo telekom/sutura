@@ -132,7 +132,7 @@ memory, and it must not be alerted on as though it were: `collect()` materialisi
 and the row set built during conversion are both outside it, on the same request path.
 
 ```rust
-pub fn new(source: SourceName, working_set: WorkingSet) -> Result<Self, DataFusionError>
+pub fn new(source: SourceName, posture: SourcePosture, working_set: WorkingSet) -> Result<Self, DataFusionError>
 ```
 
 Builds an adapter with nothing registered.
@@ -145,9 +145,11 @@ engine's unbounded pool, which under `panic = "abort"` makes a large enough join
 rather than a refusal - so a constructor that let a caller skip the bound would be the one
 place the whole control could be forgotten. `sutura_config::WorkingSetCeiling::DEFAULT_BYTES`
 is what a caller with no settings to read uses.
+**It also takes the posture, and that is not optional either**, for the reason the ceiling is
+not: a defaulted posture would be a claim about who a query runs as that nobody made.
 
 ```rust
-pub fn with_worker_threads(source: SourceName, workers: core::num::NonZeroUsize, working_set: WorkingSet) -> Result<Self, DataFusionError>
+pub fn with_worker_threads(source: SourceName, posture: SourcePosture, workers: core::num::NonZeroUsize, working_set: WorkingSet) -> Result<Self, DataFusionError>
 ```
 
 The same adapter, `workers` threads wide.
