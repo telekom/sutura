@@ -663,9 +663,17 @@ async fn a_token_that_names_no_key_is_refused_rather_than_tried_against_every_ke
 
 #[tokio::test]
 async fn a_forged_key_id_costs_one_read_of_the_key_set_and_then_none() {
-    // **THE rate limit.** `docs/adr/0014`: without it, a forged key id turns every request into an
-    // outbound call to the authorization server - a denial-of-service primitive pointed at our own
-    // dependency. The fetch count is the assertion, because the count is the primitive.
+    // **THE rate limit, SEQUENTIALLY.** `docs/adr/0014`: without it, a forged key id turns every
+    // request into an outbound call to the authorization server - a denial-of-service primitive
+    // pointed at our own dependency. The fetch count is the assertion, because the count is the
+    // primitive.
+    //
+    // **The name is still true and it is not the whole bound.** This test walks the requests one at a
+    // time, so it cannot see whether two callers that arrive together cost one read or two - and
+    // review found they cost two. `super::review`'s
+    // `two_concurrent_callers_past_the_same_pre_state_perform_exactly_one_read` is that case, and this
+    // one is kept rather than replaced because a sequential caller running down the window is what a
+    // real forged-id loop looks like.
     let pair = key_pair();
     let document = jwks(KID, &pair);
     let now = Instant::now();

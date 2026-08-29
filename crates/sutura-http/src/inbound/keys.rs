@@ -28,12 +28,27 @@
 //! first request past the horizon pays one file read. Neither is a second code path - both call
 //! [`KeySetCache::poll_once`].
 //!
+//! # The bound is one read per window WHATEVER THE CONCURRENCY, and it was not
+//!
+//! Review measured three reads where two were required, from two concurrent misses. The cause was
+//! double-checked locking with the second check missing: [`KeySetCache::key_for`] decided a look was
+//! due from a value read under a *read* lock, and the write lock was taken only to stamp - so two
+//! callers observing the same `last_attempt` both went on to read the source, and an attacker
+//! amplified source I/O by the number of in-flight forged key ids.
+//!
+//! [`KeySetCache::reserve`] is the fix: **the check and the stamp are one lock acquisition**, the
+//! source read stays outside the lock, and it is the only place either window is compared. The two
+//! comparisons in `key_for` remain as a cheap fast path and decide nothing. Because `poll_once` is the
+//! single path, the timer cannot race a caller into two reads either - which is a question worth
+//! asking of a design with two triggers and is answered by there being one gate.
+//!
 //! # Why `now` is a parameter everywhere
 //!
 //! [`KeySetCache::key_for`] and [`KeySetCache::poll_once`] take the current instant rather than
-//! reading the clock. That is what makes the two interesting cases - a forged key id arriving inside
-//! the window, and a key set going stale - assertable without a sleep, which is the same reason
-//! `Renewal::poll_once` is public.
+//! reading the clock. That is what makes the interesting cases - a forged key id arriving inside the
+//! window, a key set going stale, and two callers arriving at the same instant - assertable without a
+//! sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
+//! sleep being long enough is worse than none**, and this file is the second attempt at this bound.
 //!
 //! # What a key set is read from, and the gap that is named rather than hidden
 //!
@@ -443,6 +458,15 @@ pub enum Refreshed {
     Rotated,
     /// A new document was read and is NOT usable. The previous key set keeps verifying.
     Rejected,
+    /// **The source was not looked at**, because the window has not opened or another caller already
+    /// reserved this look.
+    ///
+    /// A fourth variant rather than folding into [`Self::Unchanged`], and the distinction is the whole
+    /// point of the guard it reports: "the document did not change" is a fact about the source, and
+    /// "nobody looked" is a fact about this deployment. Collapsing them would make the bound that
+    /// [`KeySetCache::reserve`] enforces unobservable, and a bound nothing can observe is one nothing
+    /// can test - which is how the concurrent case got past the first round.
+    NotDue,
 }
 
 /// What the cache holds between reads.
@@ -534,9 +558,19 @@ impl KeySetCache {
 
     /// The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
     ///
-    /// The order is: read, then age, then window, then read-and-swap. The recheck under the write lock
-    /// is not belt-and-braces - two requests naming the same unknown id race here, and without it the
-    /// second would read again immediately after the first, which is one read per concurrent request.
+    /// The order is: read, then age or window, then [`Self::poll_once`]. **The two comparisons here are
+    /// a cheap FAST PATH and not the decision**, which is the correction review forced: they run under a
+    /// read lock, so two callers can both observe the same `last_attempt` and both fall through. Whether
+    /// a look at the source actually happens is decided once, atomically, inside `poll_once` - see
+    /// [`Self::reserve`].
+    ///
+    /// **What a caller that loses the reservation gets, stated because it is a real outcome:** it does
+    /// not wait. It answers from whatever is cached, which during a rotation may be an
+    /// [`KeyUnavailable::UnknownKeyId`] for a key the winner is about to install, or - on the age path -
+    /// one more use of a key the winner is about to remove. So revocation is bounded by
+    /// [`MAX_KEY_SET_AGE`] plus the duration of one source read, and a rotation can cost a concurrent
+    /// caller one `401` it can retry. Making it wait instead would put N request tasks behind one file
+    /// read, which is the primitive this whole file is arranged against.
     pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
         // The read guard is taken, read from twice, and dropped inside this statement. Written as one
         // expression rather than as a block with early returns because `clippy` flags a lock guard
@@ -565,29 +599,64 @@ impl KeySetCache {
                 ago_ms: since.as_millis(),
             });
         }
-        match self.poll_once(now).await {
-            Refreshed::Unchanged | Refreshed::Rotated | Refreshed::Rejected => {}
-        }
-        self.state.read().await.keys.get(id).ok_or(KeyUnavailable::UnknownKeyId)
+        let _refreshed = self.poll_once(now).await;
+        let current = { self.state.read().await.keys.get(id) };
+        current.ok_or(KeyUnavailable::UnknownKeyId)
     }
 
-    /// Looks at the source once, and swaps the key set if what came back is usable and different.
+    /// Atomically reserves the next look at the source, or says that somebody else has it.
+    ///
+    /// **THE fix for the finding this file's own bound was reported for.** The shape it replaces was
+    /// classic double-checked locking with the second check missing: [`Self::key_for`] decided a look
+    /// was due from a value it had read under a *read* lock, and the write lock was then taken only to
+    /// stamp. Two callers both observing the old `last_attempt` therefore both went on to read the
+    /// source - measured at three reads where two were required - so the "one read per window" bound
+    /// that this module, a test name and `docs/adr/0014` all state held only when nothing was
+    /// concurrent.
+    ///
+    /// The check and the stamp are now one lock acquisition, so exactly one caller wins whatever the
+    /// interleaving. The source read stays *outside* the lock, which is the other half of what review
+    /// asked for: a reservation is cheap and a read is not.
+    ///
+    /// **The window is the SHORTER of the two**, and that is not arbitrary. This function answers "may
+    /// anybody look right now", while its callers answer "is a look due"; a reservation window longer
+    /// than a trigger's own horizon would neuter that trigger - an age bound of one second under a
+    /// thirty-second reservation would never fire. In a shipped deployment the shorter one is
+    /// [`MIN_REFETCH_INTERVAL`], because [`MAX_KEY_SET_AGE`] is twice it.
+    async fn reserve(&self, now: Instant) -> bool {
+        let window = self.refetch_interval.min(self.max_age);
+        let mut cached = self.state.write().await;
+        if now.saturating_duration_since(cached.last_attempt) < window {
+            return false;
+        }
+        // Stamped here, under the same acquisition as the comparison above, and BEFORE the read: a
+        // source that fails, or one that hangs and then fails, has still consumed the window - which is
+        // the same primitive arriving from the other direction.
+        cached.last_attempt = now;
+        true
+    }
+
+    /// Looks at the source if a look is due, and swaps the key set if what came back is usable and
+    /// different.
     ///
     /// Public and taking `now`, for the reason `crate::tls::Renewal::poll_once` is public: a test
     /// rotating a key set must not have to wait for a timer, and asserting that a timer fires is a
     /// different assertion from asserting that a rotation works.
+    ///
+    /// **It is DUE-CHECKED, which is a deliberate departure from `Renewal::poll_once`.** That one looks
+    /// unconditionally, because a TLS renewal watch is the only thing that calls it. This one is called
+    /// by the timer *and* by two paths in [`Self::key_for`], one of which a caller triggers - so there
+    /// has to be exactly one place the reservation is taken, or the paths are three chances to get the
+    /// bound wrong. **That is also the answer to whether the timer can race a caller into two reads: it
+    /// cannot, because they are the same path.**
     ///
     /// **Loud, and then carry on with what works.** A document that will not parse, or that holds no
     /// key of the pinned family, is [`Refreshed::Rejected`] and the previous set keeps verifying -
     /// adopting a broken set would turn a rotation mistake into a total outage, which is the trade
     /// `crate::tls` already makes for the same reason.
     pub async fn poll_once(&self, now: Instant) -> Refreshed {
-        // Stamped BEFORE the read, and the lock released before it: a source that fails, or one that
-        // hangs and then fails, has still consumed the window - and nothing blocks on I/O while
-        // holding the write lock, which is what review asked for.
-        {
-            let mut cached = self.state.write().await;
-            cached.last_attempt = now;
+        if !self.reserve(now).await {
+            return Refreshed::NotDue;
         }
         let read = match self.source.read() {
             Ok(document) => document,
@@ -670,7 +739,10 @@ fn adopt(cached: &mut Cached, read: String, candidate: Result<KeySet, InvalidKey
 )]
 fn announce(outcome: Refreshed) {
     match outcome {
-        Refreshed::Unchanged => {}
+        // Both silent, and for one reason: a quiet deployment must not emit a line a minute saying
+        // that nothing happened. `NotDue` is reached on every request past the age horizon that loses
+        // the reservation, so it is the noisiest of the four and says the least.
+        Refreshed::Unchanged | Refreshed::NotDue => {}
         Refreshed::Rotated => tracing::info!("the key set was re-read and replaced"),
         Refreshed::Rejected => tracing::error!(
             "the key set at the configured path changed and is NOT usable; still verifying with the \

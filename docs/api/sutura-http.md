@@ -866,12 +866,27 @@ composition root that never armed the timer still cannot serve a stale key set i
 first request past the horizon pays one file read. Neither is a second code path - both call
 `KeySetCache::poll_once`.
 
+# The bound is one read per window WHATEVER THE CONCURRENCY, and it was not
+
+Review measured three reads where two were required, from two concurrent misses. The cause was
+double-checked locking with the second check missing: `KeySetCache::key_for` decided a look was
+due from a value read under a *read* lock, and the write lock was taken only to stamp - so two
+callers observing the same `last_attempt` both went on to read the source, and an attacker
+amplified source I/O by the number of in-flight forged key ids.
+
+`KeySetCache::reserve` is the fix: **the check and the stamp are one lock acquisition**, the
+source read stays outside the lock, and it is the only place either window is compared. The two
+comparisons in `key_for` remain as a cheap fast path and decide nothing. Because `poll_once` is the
+single path, the timer cannot race a caller into two reads either - which is a question worth
+asking of a design with two triggers and is answered by there being one gate.
+
 # Why `now` is a parameter everywhere
 
 `KeySetCache::key_for` and `KeySetCache::poll_once` take the current instant rather than
-reading the clock. That is what makes the two interesting cases - a forged key id arriving inside
-the window, and a key set going stale - assertable without a sleep, which is the same reason
-`Renewal::poll_once` is public.
+reading the clock. That is what makes the interesting cases - a forged key id arriving inside the
+window, a key set going stale, and two callers arriving at the same instant - assertable without a
+sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
+sleep being long enough is worse than none**, and this file is the second attempt at this bound.
 
 # What a key set is read from, and the gap that is named rather than hidden
 
@@ -1132,6 +1147,7 @@ forever.
 - `Unchanged` - The document is byte-for-byte what is already in use, or it could not be read.
 - `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
 - `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
+- `NotDue` - **The source was not looked at**, because the window has not opened or another caller already reserved this look.
 
 ##### Implements
 
@@ -1167,19 +1183,37 @@ pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, Key
 
 The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
 
-The order is: read, then age, then window, then read-and-swap. The recheck under the write lock
-is not belt-and-braces - two requests naming the same unknown id race here, and without it the
-second would read again immediately after the first, which is one read per concurrent request.
+The order is: read, then age or window, then `Self::poll_once`. **The two comparisons here are
+a cheap FAST PATH and not the decision**, which is the correction review forced: they run under a
+read lock, so two callers can both observe the same `last_attempt` and both fall through. Whether
+a look at the source actually happens is decided once, atomically, inside `poll_once` - see
+`Self::reserve`.
+
+**What a caller that loses the reservation gets, stated because it is a real outcome:** it does
+not wait. It answers from whatever is cached, which during a rotation may be an
+`KeyUnavailable::UnknownKeyId` for a key the winner is about to install, or - on the age path -
+one more use of a key the winner is about to remove. So revocation is bounded by
+`MAX_KEY_SET_AGE` plus the duration of one source read, and a rotation can cost a concurrent
+caller one `401` it can retry. Making it wait instead would put N request tasks behind one file
+read, which is the primitive this whole file is arranged against.
 
 ```rust
 pub async fn poll_once(&self, now: Instant) -> Refreshed
 ```
 
-Looks at the source once, and swaps the key set if what came back is usable and different.
+Looks at the source if a look is due, and swaps the key set if what came back is usable and
+different.
 
 Public and taking `now`, for the reason `crate::tls::Renewal::poll_once` is public: a test
 rotating a key set must not have to wait for a timer, and asserting that a timer fires is a
 different assertion from asserting that a rotation works.
+
+**It is DUE-CHECKED, which is a deliberate departure from `Renewal::poll_once`.** That one looks
+unconditionally, because a TLS renewal watch is the only thing that calls it. This one is called
+by the timer *and* by two paths in `Self::key_for`, one of which a caller triggers - so there
+has to be exactly one place the reservation is taken, or the paths are three chances to get the
+bound wrong. **That is also the answer to whether the timer can race a caller into two reads: it
+cannot, because they are the same path.**
 
 **Loud, and then carry on with what works.** A document that will not parse, or that holds no
 key of the pinned family, is `Refreshed::Rejected` and the previous set keeps verifying -

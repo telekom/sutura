@@ -147,7 +147,7 @@ a client that followed it would start putting credentials in a header this deplo
 
 | Question | What triggers a re-read | The bound |
 | --- | --- | --- |
-| has a key been **added** | a token naming a `kid` the cache does not hold | at most one read per thirty seconds. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set |
+| has a key been **added** | a token naming a `kid` the cache does not hold | at most one read per thirty seconds, **however many requests arrive at once**: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set |
 | has a key been **removed** | age: the cached set is re-read once a minute | one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache *has*, so nothing else would ever trigger |
 
 The age re-read happens on a timer *and* on the first request past the horizon, so a deployment gets

@@ -479,3 +479,116 @@ async fn the_fixtures_review_asked_for_the_audience_array_the_future_nbf_and_the
         "forty-five seconds past expiry is outside thirty seconds of leeway"
     );
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn two_concurrent_callers_past_the_same_pre_state_perform_exactly_one_read() {
+    // **The second-round finding, and it broke the specific claim this module makes.** Two callers
+    // both observed the old `last_attempt` in `key_for`, each entered `poll_once`, and `poll_once`
+    // stamped-and-read unconditionally - so both read the source. Measured at three reads where two
+    // were required. The module doc, the sequential test below and `docs/adr/0014` all state a bound
+    // of one read per window, so under concurrency the code did not do what three places said.
+    //
+    // **Why this is deterministic and not a race that happens to lose.** The barrier releases only
+    // when the SECOND task arrives, so both are provably past the point `key_for`'s pre-lock
+    // comparison sits at before either goes on to `poll_once`. From there the outcome does not depend
+    // on the schedule: whichever task takes the write lock first stamps inside the same acquisition it
+    // compared in, so the other cannot observe the pre-state. The count is 2 for every interleaving
+    // with the reservation, and was 3 for every interleaving without it - which is what makes this a
+    // regression rather than a flake in either direction.
+    let pair = key_pair();
+    let now = Instant::now();
+    let (cache, source) = cache_of_family(
+        &[jwks(KID, &pair)],
+        KeyFamily::EllipticCurve,
+        Duration::from_millis(1),
+        Duration::from_millis(1),
+        now,
+    );
+    assert_eq!(source.calls.load(Ordering::SeqCst), 1, "priming reads it once");
+    let cache = Arc::new(cache);
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let later = now + Duration::from_secs(1);
+
+    let mut arrivals = Vec::with_capacity(2);
+    for _ in 0..2_u8 {
+        let cache = Arc::clone(&cache);
+        let barrier = Arc::clone(&barrier);
+        arrivals.push(tokio::spawn(async move {
+            let _arrived = barrier.wait().await;
+            cache.poll_once(later).await
+        }));
+    }
+    let mut outcomes = Vec::with_capacity(2);
+    for arrival in arrivals {
+        outcomes.push(arrival.await.expect("a test task does not panic"));
+    }
+
+    assert_eq!(
+        source.calls.load(Ordering::SeqCst),
+        2,
+        "two concurrent callers must cost ONE read of the key set: {outcomes:?}"
+    );
+    // And exactly one of them was told it did not look, which is the observable half of the same
+    // fact - `Refreshed::NotDue` exists so that this is assertable rather than inferred from a count.
+    assert_eq!(
+        outcomes.iter().filter(|outcome| **outcome == Refreshed::NotDue).count(),
+        1,
+        "exactly one caller loses the reservation: {outcomes:?}"
+    );
+}
+
+#[tokio::test]
+async fn the_timer_and_a_caller_cannot_race_into_two_reads_either() {
+    // The fourth question review asked. `watch_until_shutdown` calls `poll_once` and so does
+    // `key_for`, so the reservation is the same gate for both - there is no second path to fix. What
+    // this asserts is that being the same path has the consequence: a look driven by the timer and a
+    // look driven by a caller, at the same instant, are one read.
+    //
+    // The timer's own body is not called here - `poll_once` is what it calls, and asserting that a
+    // `tokio::time::sleep` elapses would be asserting that a timer fires rather than that the bound
+    // holds. `crate::tls::Renewal` splits the same way and for the same reason.
+    let pair = key_pair();
+    let now = Instant::now();
+    let (cache, source) = cache_of_family(
+        &[jwks(KID, &pair), jwks("the-next-key", &pair)],
+        KeyFamily::EllipticCurve,
+        Duration::from_millis(1),
+        Duration::from_millis(1),
+        now,
+    );
+    let id = KeyId::parse(KID).expect("a test key id is a key id");
+    let later = now + Duration::from_secs(1);
+    // The timer's look happens first and rotates the key away. A caller arriving at the same instant
+    // then finds the key gone AND the window closed by the timer's own reservation - so it is refused
+    // without reading, which is the property: the two triggers share one gate.
+    assert_eq!(cache.poll_once(later).await, Refreshed::Rotated);
+    assert_eq!(source.calls.load(Ordering::SeqCst), 2);
+    assert!(
+        matches!(
+            cache
+                .key_for(&id, later)
+                .await
+                .map(drop)
+                .expect_err("the timer rotated that key away"),
+            KeyUnavailable::RefetchRateLimited { .. }
+        ),
+        "the caller must be refused by the timer's reservation rather than take one of its own"
+    );
+    assert_eq!(
+        source.calls.load(Ordering::SeqCst),
+        2,
+        "the caller must not read again behind the timer"
+    );
+    // Past the window it does read, and then the id is genuinely unknown rather than merely not looked
+    // for - so the refusal above is the reservation and not a permanent answer.
+    let even_later = later + Duration::from_secs(1);
+    assert!(matches!(
+        cache
+            .key_for(&id, even_later)
+            .await
+            .map(drop)
+            .expect_err("that key is gone from the set"),
+        KeyUnavailable::UnknownKeyId
+    ));
+    assert_eq!(source.calls.load(Ordering::SeqCst), 3);
+}
