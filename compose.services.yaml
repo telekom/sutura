@@ -80,9 +80,60 @@ services:
   # `curl-dev`, which is what the client-side device flow needs. **The limit, stated with the claim:**
   # PostgreSQL ships NO built-in token validator - "the server cannot check the token itself;
   # validator modules provide the integration layer" - so server-side validation needs a module in
-  # `oauth_validator_libraries` that neither this image nor core Postgres provides. Supplying it is
-  # `feat/postgres-oauth`'s work. What this tier gives that step is a server that can speak the
-  # mechanism, not a working OAuth deployment.
+  # `oauth_validator_libraries` that neither this image nor core Postgres provides. What this tier
+  # gives `feat/postgres-oauth` is a server that can speak the mechanism, not a working OAuth
+  # deployment - and the rest of this comment is why the fixture validator is NOT here, because that
+  # turned out to be a finding rather than a deferral.
+  #
+  # ## There IS an upstream stub validator, and it reaches no installed artifact
+  #
+  # `src/test/modules/oauth_validator/validator.c`, and read what it does before wanting it: it
+  # authorizes EVERY token it is handed, takes the answer from two of its own settings rather than
+  # from the token, checks no signature, issuer, audience or expiry, and logs the bearer token at
+  # `LOG`. As a fixture that is fine and as anything else it is a hole - which is the reason a
+  # fixture has to be labelled where somebody looks rather than in a commit message.
+  #
+  # It cannot get here without a compiler. `src/Makefile`'s `SUBDIRS` names `test/regress`,
+  # `test/isolation` and `test/perl` and never `test/modules`; `src/test/Makefile` excludes `modules`
+  # from `install`; the module's own Makefile sets `NO_INSTALLCHECK`. The official image builds
+  # `world-bin`, installs `install-world-bin` plus `contrib`, then deletes the unpacked source and
+  # `apk del`s the toolchain - so the source, the object and the compiler are all absent. Reaching it
+  # means a derived image that re-fetches the PostgreSQL source and compiles a C module, and **a
+  # source fetch cannot come through `SUTURA_IMAGE_REGISTRY`**: that variable prefixes IMAGES, and it
+  # exists because such a network has no route to the public internet. A `build:` here would work on
+  # a laptop and fail exactly where the variable was added for, which is why `xtask` now checks that
+  # no service in this file is built here.
+  #
+  # ## The route that does work is a REGISTRATION, and it is what the OAuth step owes
+  #
+  # A prebuilt validator is on the SAME registry, so it needs no compiler and no second variable:
+  # `percona/percona-distribution-postgresql:18` installs `percona-pg_oidc_validator18`, whose source
+  # is `percona/pg_oidc_validator` (Apache-2.0, C++23, module version 1.1.0; read on 2026-08-29). So
+  # the fixture is a second, PROFILED postgres service on that image with
+  # `oauth_validator_libraries=pg_oidc_validator` - one more image reference through the one variable.
+  # **Its maturity, stated where somebody would look:** its own vendor calls it not production-ready,
+  # and reading its `validate_token` confirms one gap that matters more than that label - it verifies
+  # the JWT signature against the issuer's JWKS and the `iss` claim, and it checks NO `aud` claim at
+  # all, so audience-scoping a token to the database buys nothing against it. Fine for a fixture.
+  #
+  # **It belongs under the `identity` profile, and mechanically rather than for tidiness:** that
+  # validator FETCHES the issuer's OIDC discovery document and its JWKS on every authentication, so
+  # it needs a running issuer - which keycloak below is, and only under that profile. Upstream's stub
+  # would not have needed one, because `pg_hba.conf` requires an `issuer=` STRING and nothing
+  # dereferences it on a token-first connection. The two candidates answer the profile question
+  # oppositely, so choosing the validator is what decides it.
+  #
+  # **Why it is not wired on this branch.** This tier's rule is that provisioning gates on health, and
+  # for this fixture the health gate IS the assertion: with an `oauth` line in `pg_hba.conf` and an
+  # empty `oauth_validator_libraries`, upstream's `check_oauth_validator` fails, `load_hba()` returns
+  # false and the postmaster exits `FATAL: could not load pg_hba.conf` - so a server that started is
+  # evidence that the setting names a validator and that the line parsed. A fixture whose whole proof
+  # is "the container came up" has to be proved by bringing it up, which needs a docker this branch
+  # was not written against. **And the limit, beside the claim:** a started server is NOT evidence
+  # that the module loads or validates anything - the library is opened at connection time, and no
+  # Rust client can open that connection today, because `tokio-postgres` and `sqlx` implement
+  # SCRAM only. Both halves land with `feat/postgres-oauth`, the branch that needs them and the only
+  # one that can run them.
   postgres:
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/library/postgres:18-alpine
     environment:

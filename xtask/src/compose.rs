@@ -645,6 +645,33 @@ mod tests {
     }
 
     #[test]
+    fn no_service_in_the_tier_is_built_here() {
+        // The other half of the registry rule, and the half a reading passes. `image:` going through
+        // the variable is checked above; a service with `build:` has no `image:` line to check, so it
+        // slips past that test entirely - and a build fetches from wherever its Dockerfile points,
+        // which the variable cannot prefix because it prefixes IMAGES.
+        //
+        // This is not hypothetical: the one thing somebody would reach for a `build:` to do here is
+        // put an OAuth token validator into Postgres, since core ships none and upstream's stub
+        // reaches no installed artifact. That build would `curl` the PostgreSQL source, which works
+        // on a laptop and fails exactly on the network the variable was added for. A derived image
+        // published to that registry and referenced by `image:` is the route that works, and this
+        // check permits it - it bans building here, not deriving.
+        let Some(text) = compose_text() else { return };
+
+        for (index, line) in text.lines().enumerate() {
+            let trimmed = line.trim();
+            assert!(
+                !(trimmed == "build:" || trimmed.starts_with("build: ")),
+                "{}:{}: a service built here bypasses the registry variable - publish a derived \
+                 image to that registry and reference it with `image:` instead",
+                super::docker::COMPOSE_FILE,
+                index + 1
+            );
+        }
+    }
+
+    #[test]
     fn the_fixture_credential_is_defined_once() {
         // Two definitions is how they drift and one service silently gets a different password. The
         // anchor is the definition; every use is an alias. A literal repeated in a service block
