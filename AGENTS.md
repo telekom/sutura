@@ -207,8 +207,17 @@ each step is only reached because the one above it failed:
    the old version. *Verified against this workspace.* What works is patching the crate that declares
    the stale requirement, with its own manifest line changed - also one line, also no fork, and it must
    be proved by a build rather than assumed. For the Arrow case that was proved: a single `arrow 59.2.0`,
-   a clean compile, and the patched crate's own suite at 288 passed and 0 failed, identical to the
-   unpatched control.
+   a clean compile, and the patched crate's own suite green, identical to the unpatched control.
+   **A step 1 turned out to be available for this case and was taken, which is why the option order
+   above is not decoration:** `duckdb-rs` had simply not bumped, so the fix went upstream as a
+   one-line manifest change rather than living here as a patch. Measured on 2026-08-29 against
+   `duckdb-rs` at `199547d`, the same stable toolchain on both legs and the `bundled modern-full
+   vscalar vscalar-arrow vtab-full` feature set: 469 lib tests passed and 0 failed on **both** Arrow
+   58.4.0 and 59.2.0, with `libduckdb-sys` at 12 and 0 on both, and **zero source changes** - Arrow
+   59's breaking changes do not reach that crate. An earlier version of this paragraph recorded
+   *"288 passed"* from a narrower feature set; the number is dropped rather than corrected in place,
+   because a bare count with no feature set and no date attached is not reproducible and this file's
+   own *Dependency Currency* rule says a figure carries the day it was checked.
 4. **Vendor**, last, and never silently: `VENDOR.md` takes upstream repo, licence, commit, date and
    local changes, the `cargo-deny` licence gate applies, and *"inspired by" is not a licence position*.
    The real cost is not the patch - it is that **a vendored copy makes us the security response for it**,
