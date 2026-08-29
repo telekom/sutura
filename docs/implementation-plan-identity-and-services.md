@@ -461,6 +461,91 @@ validator at all**, which is why `feat/compose-tier` records the route and delib
 module. A fixture that authenticates real tokens is a later, separate need, and the packaged module is
 adequate *there* precisely because the tokens are ours and the audience risk is a production risk.
 
+### What a Postgres server must be configured with
+
+Written out because this is an operator obligation rather than something the deployment can do for
+itself, and because two of the defaults surprise people. Verified against `REL_18_STABLE` source and
+the PostgreSQL 18 documentation, with the line references kept so a reader can check rather than trust.
+
+**Postgres 18 or later.** The `oauth` method does not exist before it. It is compiled
+**unconditionally** - unlike `cert`, which sits behind `USE_SSL` - so no build flag gates it and the
+only question is the version.
+
+**`postgresql.conf`** names the validator library:
+
+```
+oauth_validator_libraries = 'pg_oauth_validator'
+```
+
+It is `PGC_SIGHUP`, so a **reload suffices - no restart** - and `GUC_SUPERUSER_ONLY`, so an ordinary
+role reading it gets `42501` rather than a value. It defaults to empty, and empty means every `oauth`
+HBA line is refused at parse, which means **the postmaster does not start.** That is the failure
+direction we want and it is stronger than "connections are refused".
+
+**"Only in `postgresql.conf`" is the documentation's phrasing for `PGC_SIGHUP` and it is easy to
+over-read.** That context also admits `ALTER SYSTEM`, which writes `postgresql.auto.conf`, and the
+server command line. What it excludes is a session-level `SET`. The distinction matters for a
+deployment that manages configuration through `ALTER SYSTEM` rather than by templating a file, and
+reading the phrase literally would have it conclude, wrongly, that it cannot.
+
+**`pg_hba.conf`** carries the rest. `issuer` and `scope` are both required:
+
+```
+hostssl  mydb  all  10.0.0.0/8  oauth  issuer="https://idp.example.invalid"  scope="openid"  validator=pg_oauth_validator  map=oauthmap
+```
+
+| Option | Required | What it does |
+| --- | --- | --- |
+| `issuer` | **yes** | Advertised to the client in the discovery response. A value with no `/.well-known/` segment gets `/.well-known/openid-configuration` appended |
+| `scope` | **yes** | Advertised to the client. `scope=""` is accepted, because the required-argument check tests for null rather than for empty |
+| `validator` | only if the GUC lists more than one | Picks the library. With exactly one listed it is implicit; with several and no `validator=`, the line is refused |
+| `map` | no | Runs the validator's identity through `pg_ident.conf`. **Without it, the identity must equal the requested role by exact case-sensitive comparison** |
+| `delegate_ident_mapping` | no | `1` hands the role decision to the validator entirely |
+
+**Three things that are not in the documentation and cost a day each:**
+
+- **`delegate_ident_mapping` is not parsed as a boolean.** The check is literally
+  `strcmp(val, "1") == 0`, so `=true`, `=on` and `=yes` all **silently mean off**, with no error and no
+  warning. Only `1` enables it.
+- **`map=` and `delegate_ident_mapping=1` together are refused at load**, with
+  `map cannot be used in combination with delegate_ident_mapping`.
+- **Under delegation, an identity the validator does not return is an audit trail you do not have.**
+  The identity is recorded before the authorization decision, so a validator returning none leaves
+  `SYSTEM_USER` null and emits no `connection authenticated` line at all. If a source declares
+  impersonation, a pseudonymous identifier is the minimum.
+
+**`hostssl` above is OUR policy, and stating it as PostgreSQL's would be wrong.** There is no
+server-side refusal - the "invalid authentication combinations" block rejects `cert` on anything but
+`hostssl` and says nothing about `oauth` - and there is no client-side refusal either: `libpq` has no
+transport check on this path and will send a bearer token over cleartext. PostgreSQL's own test suite
+authenticates OAuth over a **`local` Unix socket**, which cannot be encrypted at all, so this is a
+positive finding rather than an absence of evidence. The HTTPS enforcement that does exist is on a
+different leg - the client's calls to its identity provider - and conflating the two would be claiming
+a control we do not have. So: a bearer token is a bearer credential, `hostssl` is required by us, and
+the reason is ours to give.
+
+**And the finding that decides the validator choice above: the server never looks inside the token.**
+It checks the RFC 7628 framing, the `Bearer` prefix, and that every character is in the permitted set.
+That is all. It does not decode the token, and it does not check `exp`, `iss`, `aud`, `nbf` or the
+signature - there is no code in the OAuth path that could. The HBA's `issuer` and `scope` are used
+**only** to build the discovery response sent to the client; they are advertisement, never predicates
+on what arrives. Upstream says so plainly: *"the server cannot check the token itself; validator
+modules provide the integration layer."*
+
+So the validator is not one layer of the boundary - **it is the boundary.** An expired token, a token
+from another issuer and a token minted for another service are all indistinguishable to Postgres, and
+each is accepted or refused entirely on the module's own reading. That is why the selection criterion
+above is audience validation and not convenience, and it is why a module that reads no audience is not
+a weaker choice but a different posture: it authenticates that *somebody's* identity provider signed
+something.
+
+**One more consequence, for a deployment with two identity providers.** Different HBA lines may carry
+different `issuer` values against one server, and routing is by HBA match - connection type, database,
+role, address - never by anything in the token. The validator is **not told which line matched**: it
+receives the token, the requested role and its own state, and no issuer. So a two-provider deployment
+needs a validator that determines the issuer from the token itself, and a bundle that assumes
+otherwise is assuming a parameter that is not passed.
+
 **A third prerequisite was listed here and is withdrawn, because it was checked and it is false.** The
 earlier version required that the `libpq` in the toolchain be built with curl. Curl is needed only for
 libpq's own built-in Device Authorization flow, an optional module behind `--with-libcurl`; a client
