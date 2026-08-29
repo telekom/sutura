@@ -2741,18 +2741,17 @@ other by filename, so landing them apart would fail the build. Three seconds is 
 economise.</p>
 <p><strong>In order, and stop as soon as it is fast enough:</strong></p>
 <ol>
-<li>~~<strong>Exclude ADR pages from the workflows.</strong>~~ <strong>HALF DONE, and the other half is PAUSED pending the
-   cheap check that makes it safe.</strong> This item was two changes in one commit, and they are not equally
-   sound, so they are recorded separately rather than left marked done together.</li>
+<li>~~<strong>Exclude ADR pages from the workflows.</strong>~~ <strong>DONE, in three parts, and the parts are recorded
+   separately because they are not equally sound and lumping them together is what made the original
+   commit hard to review.</strong></li>
 </ol>
 <p><strong>The path-filter half stands, and it fixed a real defect.</strong> <code>mkdocs.yml</code> was in <code>docs.yml</code>'s filter
    AND matched <code>ci.yml</code>'s leading <code>**</code>, so an ADR-only pull request that added a nav entry started BOTH
    workflows - the "exactly one workflow starts" claim in <code>docs.yml</code>'s header was false and had never
    been checked. <code>ci.yml</code> now excludes <code>docs/**</code> and <code>mkdocs.yml</code> by name, so a prose-only change no
    longer starts the 120-minute chain. Neither path can affect what cargo produces.</p>
-<p><strong>The gate-skip half is PAUSED, and one path exclusion that rode along with it is reverted
-   outright.</strong> The two have different fates and lumping them together is what made the original commit
-   hard to review. <code>docs.yml</code>'s
+<p><strong>The gate-skip half was PAUSED and is now RESTORED, with the check that answers the objection to
+   it.</strong> One path exclusion that rode along with it stays reverted outright. <code>docs.yml</code>'s
    <code>verify</code> job was made to skip the 15m45s <code>hygiene</code> build when every changed path was markdown under
    <code>docs/</code> or <code>mkdocs.yml</code>, keeping only the 3-second <code>mkdocs --strict</code> build. The reasoning was that
    <code>--strict</code> covers what a page edit actually risks - a dead link, a bad anchor, a page in no nav
@@ -2766,17 +2765,74 @@ economise.</p>
    <code>.github/workflows/docs.yml</code> from <code>ci.yml</code> was part of the same commit and reverted with it, on the
    narrower ground that a workflow definition is a change to what CI does and should not be excluded
    from the workflow that gates CI on the argument that cargo cannot see it.</p>
-<p><strong>The synthesis, which is the decided end state rather than a compromise.</strong> The objection above is
-   narrow enough to answer without paying the whole 15m45s again: keep the skip, and give the pull
-   request a <strong>cheap text-only equivalent of the citation check</strong> - grep the changed markdown for
-   <code>just &lt;task&gt;</code> and check each name against <code>just --summary</code>. That is seconds of shell, needs no Rust
-   closure, and covers the one gate whose absence made post-merge gating unacceptable. So the step is
-   unconditional only until that check exists, and building it is part of this branch rather than a
-   later idea. <strong>The framing to avoid, because this section had it:</strong> the skip was not "rejected in
-   review" - it was asked for deliberately, and the review predates it. What review found was one
-   defect in it, and the fix for a defect that specific is the check above, not the cost.</p>
+<p><strong>The synthesis, and it is BUILT rather than decided.</strong> The objection above is narrow enough to
+   answer without paying the whole 15m45s again, so the citation property is checked as TEXT on the
+   pull request: <code>.github/scripts/check-task-citations.sh</code>, run by <code>just citations</code> locally and by a
+   <code>verify</code> step in CI, reads every <code>just &lt;task&gt;</code> and <code>cargo xtask &lt;task&gt;</code> this repository's markdown
+   cites and checks each against the names <code>just --summary</code> reports and against the <code>TASKS</code> table in
+   <code>xtask/src/main.rs</code>. Seconds, no compiler, and <strong>neither list is kept in the script</strong> - a second
+   copy of the task names is the class of drift this repository already has gates about. <code>nix run
+   .#just</code> is how the list is obtained in CI, from the locked nixpkgs like every other tool here.
+   <strong>The framing to avoid, because this section had it:</strong> the skip was not "rejected in review" - it
+   was asked for deliberately, and the review predates it. What review found was one defect in it, and
+   the fix for a defect that specific is the check above, not the cost.</p>
+<p><strong>Three properties of the check, because each of them is a decision a reader would otherwise have
+   to reverse-engineer.</strong> It reads citations inside a code span or a fenced block and NOT bare prose,
+   because "just" is an English adverb and this repository uses it as one constantly - a citation that
+   wraps across a line break is therefore missed, the same limit <code>check-guidance</code> has. It exempts
+   <code>docs/implementation-plan-*.md</code>, because a plan's job is to name what does not exist yet - this very
+   document has a section headed <code>just demo</code> - and a gate that failed on that is a gate people route
+   around; the cost of the exemption is that a plan citing a RENAMED task is not caught here either. And
+   it <strong>fails closed towards the runner minute</strong>: an empty task list or an unparsable table exits 2,
+   which the workflow answers by running the full gates rather than by passing. The path
+   classification fails open the same way <code>xtask classify</code> does - a diff it cannot compute, and any
+   path that is not markdown under <code>docs/</code> or <code>mkdocs.yml</code>, runs everything. Two consequences of that
+   were checked case by case and must stay true: <strong><code>AGENTS.md</code> still runs the gates</strong>, because
+   <code>check-guidance</code> reads it and reads nothing else, and <strong>a non-markdown asset under <code>docs/</code> still
+   runs them</strong>, because <code>check-docs</code> is what resolves it.</p>
+<p><strong>The residual risk, stated rather than waved at, because the replacement is narrower than what it
+   replaced.</strong> <code>hygiene</code> is thirteen gates. Seven read Rust, manifests, lock files or workflow YAML -
+   <code>check-boundaries</code>, <code>check-pins</code>, <code>check-warm-start</code>, <code>unused-deps</code>, <code>check-arrow</code>,
+   <code>check-workflows</code>, <code>check-crap</code> - and a markdown-only diff cannot change what any of them reads, so
+   skipping those loses nothing. Six read prose, and only part of one is replaced:</p>
+<table>
+<thead>
+<tr>
+<th>Gate</th>
+<th>On a prose-only pull request</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>check-guidance</code></td>
+<td>Citations replaced by the text-only check. <strong>Stale phrases, version-against-pin, contradicted claims and counts are deferred to the <code>main</code> push</strong></td>
+</tr>
+<tr>
+<td><code>check-docs</code></td>
+<td>Nav entries and links covered independently by <code>mkdocs --strict</code>; the asset half is unreachable from a <code>docs/*.md</code>-only diff</td>
+</tr>
+<tr>
+<td><code>check-skills</code></td>
+<td>Deferred. A prose-only edit to <code>.agents/skills/**</code> is not under <code>docs/</code>, so this only bites a page that names a skill</td>
+</tr>
+<tr>
+<td><code>text-hygiene</code>, <code>line-endings</code></td>
+<td>Deferred. Whitespace and CRLF in a new page</td>
+</tr>
+<tr>
+<td><code>max-lines</code></td>
+<td>Deferred, and <strong>this is the sharpest one</strong>: a new 1200-line page merges green and fails the publish</td>
+</tr>
+</tbody>
+</table>
+<p>Every one of those still runs on the <code>main</code> push, in <code>publish</code>, whose cache posture and
+   unconditional gates are unchanged. So the trade is explicit: <strong>one property was moved forward onto
+   the pull request, five were left behind it</strong>, and the reason the trade is acceptable is that the
+   moved one is the only one whose post-merge failure blocks a publish on something a reviewer could
+   not see coming - the other five are visible in the diff and fail loudly with the page in front of
+   whoever wrote it.</p>
 <p><strong>What that means for the rest of this section:</strong> the 15m45s is still owed a measurement, and that
-   is what point 2 is for - it decides whether points 3 and 4 are needed at all once the text-only
+   is what point 2 is for - it decides whether points 3 and 4 are needed at all now that the text-only
    check has removed the reason the gate had to stay. Nothing about the closure being the cost has
    changed.
 2. <strong>Find out whether these numbers are cache misses.</strong> Both runs measured were the first after a
@@ -2800,6 +2856,12 @@ economise.</p>
 <p><strong>Done when</strong> an ADR-only change is gated in about a minute rather than seventeen <strong>on the pull
 request</strong>, with <code>check-docs</code>, <code>check-guidance</code> and mkdocs <code>--strict</code> all still running there, and with
 the publish job's cache posture unchanged. "Gated on the merge instead" does not satisfy this.</p>
+<p><strong>Point 1 does NOT satisfy that bar, and saying so is the point of writing it down.</strong> It buys the
+minute and it keeps mkdocs <code>--strict</code> and the citation half of <code>check-guidance</code> on the pull request -
+but <code>check-docs</code> and the rest of <code>check-guidance</code> are gated on the merge there, which this paragraph
+says plainly does not count. What closes the gap is point 3 or point 4: a cached <code>hygiene</code>, or a split
+that lets the prose gates run without a dependency closure. The residual table under point 1 is the
+honest interim state, not the finish line.</p>
 <h2 id="the-examples-are-the-demo-one-per-deployment-variant">The examples are the demo, one per deployment variant<a class="headerlink" href="#the-examples-are-the-demo-one-per-deployment-variant" title="Permanent link">&para;</a></h2>
 <p><strong>Every deployment variant gets a WORKING end-to-end example, and "working" means a test runs it.</strong> Not
 a README describing what would happen. The existing example is already exercised by
