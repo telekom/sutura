@@ -113,6 +113,19 @@ Rules:
 - If tooling is missing, report the exact install command and ask before installing it.
 - Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
 - The leak guard is not a hook here. Its pattern list lives in a private repo and runs from there.
+ . - **This shell's environment follows `cargo` into OTHER repositories, and it breaks builds there.**
+  `devenv` exports `CARGO_UNSTABLE_CODEGEN_BACKEND=true` and
+  `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` for our own inner loop, plus `DUCKDB_LIB_DIR` and
+  `DUCKDB_INCLUDE_DIR` pointing at nix store paths. Nothing scopes those to this directory, so a
+  `cargo` invocation in an unrelated checkout inherits all four: it gets built by cranelift, and a
+  crate linking C++ gets OUR DuckDB. **Measured, not theorised** - a control build of `duckdb-rs`
+  from this shell aborted with `libc++abi: terminating due to uncaught foreign exception` behind
+  3.4 million `ld: could not create compact unwind` lines and a 1.7 GB log, because cranelift's
+  unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is green with
+  the four variables unset. So when working in a checkout outside this repository - upstreaming a
+  patch, reproducing a bug against a dependency - **unset them first, and treat a red run from this
+  shell as unexplained until you have.** There is deliberately no mechanism for this: a gate here
+  cannot see a build somewhere else, which is exactly why it is written down.
 ## Canonical Sources And Generated Output
 
 One owner per artefact. Nothing here is hand-edited: each is regenerated from its source, and the
