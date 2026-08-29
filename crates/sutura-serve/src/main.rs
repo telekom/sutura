@@ -445,16 +445,164 @@ fn flatten(error: impl core::error::Error) -> String {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
+    use std::path::{Path, PathBuf};
 
-    use sutura_domain::model::TableName;
+    use sutura_config::EngineWorkers;
+    use sutura_domain::catalog::{Definitions, Description, Model};
+    use sutura_domain::knowledge::Knowledge;
+    use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
+    use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-    use super::refuse_unattached;
+    use super::{ENGINE_SOURCE, Opened, open_engine, refuse_unattached};
 
     fn tables(names: &[&str]) -> BTreeSet<TableName> {
         names
             .iter()
             .map(|raw| TableName::parse(raw).expect("a test table is a table"))
             .collect()
+    }
+
+    /// The example deployment's data directory, which is the one the quickstart points at.
+    fn data() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/single-player/data")
+    }
+
+    /// The narrowest width the engine will take, so a refusal that fires before the runtime is built
+    /// costs nothing and the one that fires after builds a single-threaded one.
+    fn one_worker() -> EngineWorkers {
+        EngineWorkers::parse(Some(1)).expect("one worker is a worker count")
+    }
+
+    /// The refusal a startup produced, or a failed test.
+    ///
+    /// `expect_err` wants a `Debug` on the success type, and `Opened` holds a live engine and a table
+    /// set. Dropping the success value here rather than deriving `Debug` on it keeps a test's
+    /// convenience out of the composition root's types, and the message the caller passes is what
+    /// says which arm was expected to fire.
+    fn refusal(opened: Result<Opened, String>, expected: &str) -> String {
+        opened.map(drop).expect_err(expected)
+    }
+
+    /// One model as a catalog document names it: the model, its data system, its table.
+    type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+
+    /// A pinned bundle over exactly the models given, and no metrics.
+    ///
+    /// Models are all `open_engine` reads: [`sutura_app::sources`] maps over them and `attach` is
+    /// called once per model, so a metric would add nothing any arm of that function looks at.
+    /// Leaving them out is what lets one helper stand behind every arm below.
+    fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
+        let declared: Vec<Model> = models
+            .iter()
+            .map(|&(model, source, table)| {
+                Model::new(
+                    ModelName::parse(model).expect("a test model is a model"),
+                    SourceName::parse(source).expect("a test source is a source"),
+                    TableName::parse(table).expect("a test table is a table"),
+                    BTreeSet::from([ColumnName::parse("customer_key").expect("a test column is a column")]),
+                    Description::default(),
+                )
+            })
+            .collect();
+        let definitions = Definitions::assemble(declared, vec![], vec![]).expect("the test bundle is consistent");
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions,
+            Knowledge::none(),
+        )
+        .expect("the test definitions hash")
+    }
+
+    #[test]
+    fn a_catalog_spanning_two_data_systems_starts_nothing() {
+        // The arm nothing proved, in the binary where it matters most: this refusal is what stops a
+        // SERVICE, so with it gone the deployment comes up and answers questions rather than failing
+        // one command. A plan runs against one data system - `PlanSpansTwoSources` is the query-path
+        // refusal - and this is that rule at startup.
+        //
+        // `local` is deliberately ONE OF THE PAIR, and its table has a real file in the example's
+        // data directory. That is what makes this discriminate: an arm that took the first source
+        // instead of refusing would find `local`, find `dim_customer.csv`, and start serving half a
+        // catalog under the whole bundle's digest.
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[
+                    ("customers", ENGINE_SOURCE, "dim_customer"),
+                    ("products", "production_warehouse", "dim_product"),
+                ]),
+                &data(),
+                one_worker(),
+            ),
+            "a catalog spanning two data systems must not get an engine",
+        );
+        assert!(
+            error.contains("spans 2 data systems"),
+            "the refusal must say how many it found: {error}"
+        );
+        // NOT the neighbouring arm, and this is the half that stops the test passing on the wrong
+        // branch: `production_warehouse` is also a source this build has no adapter for, so a test
+        // that only checked for *a* refusal would be green with the multi-source arm gone.
+        assert!(
+            !error.contains("no adapter"),
+            "this is the multi-source arm, not the wrong-name one: {error}"
+        );
+    }
+
+    #[test]
+    fn a_catalog_naming_another_data_system_starts_nothing() {
+        // The command-line tool has this test and the service did not, though the service is the one
+        // that would then answer every caller. The engine has its own identity and does not borrow
+        // the catalog's: naming it after the declared source would satisfy `sutura-app`'s
+        // `plan.source() != warehouse.source()` guard by construction, and a certified metric would
+        // be answered out of whatever files the configured data directory holds.
+        //
+        // `dim_customer.csv` is present, so nothing else fails either - which is what the assertion
+        // on the arm's own wording is for.
+        let error = refusal(
+            open_engine(
+                &bundle_over(&[("customers", "production_warehouse", "dim_customer")]),
+                &data(),
+                one_worker(),
+            ),
+            "a catalog naming another data system must not get this engine",
+        );
+        assert!(
+            error.contains("production_warehouse") && error.contains("no adapter"),
+            "the refusal must name the data system it has no adapter for: {error}"
+        );
+    }
+
+    #[test]
+    fn a_catalog_declaring_no_models_starts_nothing() {
+        // The empty bundle, and the claim the tests below this one make in a comment - that an empty
+        // catalog is "already refused earlier, by `open_engine`" - which nothing asserted in either
+        // binary. Without the arm this opens cleanly: the attach loop has nothing to iterate, so the
+        // service starts and refuses every question as an unknown metric, which reads as a question
+        // problem rather than as a catalog directory holding no models.
+        let error = refusal(
+            open_engine(&bundle_over(&[]), &data(), one_worker()),
+            "a catalog with no models opens nothing",
+        );
+        assert!(error.contains("declares no models"), "{error}");
+        assert!(
+            !error.contains("no adapter"),
+            "this is the empty arm, not the wrong-name one: {error}"
+        );
+    }
+
+    #[test]
+    fn a_model_with_no_file_behind_it_starts_nothing() {
+        // `attach` runs per model AFTER the source name is accepted, so this arm is reachable only by
+        // a catalog this build can otherwise open - which is why it names the engine source. It is
+        // also what makes `Opened::attached` evidence rather than bookkeeping: the set is collected
+        // from the successful call, so a startup that got here does not proceed with a table missing.
+        let error = refusal(
+            open_engine(&bundle_over(&[("orders", ENGINE_SOURCE, "fct_order")]), &data(), one_worker()),
+            "a model with no file behind it must not open",
+        );
+        assert!(error.contains("fct_order.csv"), "the CSV path is missing: {error}");
+        assert!(error.contains("fct_order.parquet"), "the Parquet path is missing: {error}");
+        assert!(error.contains("table fct_order"), "the table is not named: {error}");
     }
 
     #[test]

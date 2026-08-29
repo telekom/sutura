@@ -527,6 +527,100 @@ mod tests {
         );
     }
 
+    /// One model as a catalog document names it: the model, its data system, its table.
+    type DeclaredModel<'raw> = (&'raw str, &'raw str, &'raw str);
+
+    /// A pinned bundle over exactly the models given, and no metrics.
+    ///
+    /// Models are all `open_engine` reads: [`sutura_app::sources`] maps over them and `attach` is
+    /// called once per model, so a metric would add nothing any arm of that function looks at.
+    /// Leaving them out is what lets one helper stand behind the empty catalog, the catalog spanning
+    /// two data systems and the model with no file alike.
+    fn bundle_over(models: &[DeclaredModel<'_>]) -> PinnedDefinitions {
+        let declared: Vec<Model> = models
+            .iter()
+            .map(|&(model, source, table)| {
+                Model::new(
+                    ModelName::parse(model).expect("a test model is a model"),
+                    SourceName::parse(source).expect("a test source is a source"),
+                    TableName::parse(table).expect("a test table is a table"),
+                    BTreeSet::from([ColumnName::parse("customer_key").expect("a test column is a column")]),
+                    Description::default(),
+                )
+            })
+            .collect();
+        let definitions = Definitions::assemble(declared, vec![], vec![]).expect("the test bundle is consistent");
+        PinnedDefinitions::pin(
+            DefinitionVersion::parse("test-1").expect("a test version is a version"),
+            definitions,
+            Knowledge::none(),
+        )
+        .expect("the test definitions hash")
+    }
+
+    #[test]
+    fn a_catalog_spanning_two_data_systems_gets_no_engine() {
+        // The arm nothing proved. A plan runs against one data system - `PlanSpansTwoSources` is the
+        // refusal for the query path - and this is that rule at startup: a bundle whose models name
+        // two systems gets no engine at all, rather than one over whichever half happens to be local.
+        //
+        // `local` is deliberately ONE OF THE PAIR, and its table has a real file in the example's
+        // data directory. That is what makes this discriminate: an arm that took the first source
+        // instead of refusing would find `local`, find `dim_customer.csv`, and hand back a working
+        // engine serving half a catalog under the whole bundle's digest.
+        let error = open_engine(
+            &bundle_over(&[
+                ("customers", ENGINE_SOURCE, "dim_customer"),
+                ("products", "production_warehouse", "dim_product"),
+            ]),
+            &example().join("data"),
+        )
+        .expect_err("a catalog spanning two data systems must not get an engine");
+        assert!(
+            error.contains("spans 2 data systems"),
+            "the refusal must say how many it found: {error}"
+        );
+        // NOT the neighbouring arm, and this is the half that stops the test passing on the wrong
+        // branch: `production_warehouse` is also a source this build has no adapter for, so a test
+        // that only checked for *a* refusal would be green with the multi-source arm gone.
+        assert!(
+            !error.contains("no adapter"),
+            "this is the multi-source arm, not the wrong-name one: {error}"
+        );
+    }
+
+    #[test]
+    fn a_catalog_declaring_no_models_gets_no_engine() {
+        // The empty bundle. `sutura-serve`'s own `refuse_unattached` tests state in a comment that
+        // this case is "already refused earlier, by `open_engine`" - a claim neither binary had a
+        // test for. An engine opened over nothing would open successfully, because the attach loop
+        // has nothing to iterate, and then answer every question as an unknown metric - which reads
+        // as a question problem rather than as a catalog directory that holds no models.
+        let error = open_engine(&bundle_over(&[]), &example().join("data")).expect_err("a catalog with no models opens nothing");
+        assert!(error.contains("declares no models"), "{error}");
+        assert!(
+            !error.contains("no adapter"),
+            "this is the empty arm, not the wrong-name one: {error}"
+        );
+    }
+
+    #[test]
+    fn a_model_with_no_file_behind_it_gets_no_engine() {
+        // `attach` runs per model AFTER the source name is accepted, so this arm is reachable only by
+        // a catalog this build can otherwise open - which is why it names the engine source. Both
+        // candidate paths are asserted because the message is the only thing an operator can act on:
+        // that neither extension is present is the failure, and naming the two that were looked for
+        // is the difference between a fixable message and "and neither is there".
+        let error = open_engine(
+            &bundle_over(&[("orders", ENGINE_SOURCE, "fct_order")]),
+            &example().join("data"),
+        )
+        .expect_err("a model with no file behind it must not open");
+        assert!(error.contains("fct_order.csv"), "the CSV path is missing: {error}");
+        assert!(error.contains("fct_order.parquet"), "the Parquet path is missing: {error}");
+        assert!(error.contains("model orders"), "the model is not named: {error}");
+    }
+
     #[test]
     fn the_prompt_settings_reach_the_renderer() {
         // The point of the whole configuration group: what an operator wrote down is what the
