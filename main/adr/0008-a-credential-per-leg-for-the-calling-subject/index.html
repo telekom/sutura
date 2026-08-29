@@ -1743,6 +1743,8 @@
       
         
       
+        
+      
     
     
     
@@ -2089,6 +2091,34 @@
     
   
     sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
   
 
     
@@ -2765,6 +2795,108 @@ requirement rather than a documented PostgreSQL position.</p>
 <p><em>Verified, and it applies to both:</em> nothing re-checks a token mid-session, so a session outlives the
 token that opened it - the same conclusion the expiry discussion reaches from the other direction, and
 one more reason a long-lived session is the wrong shape here.</p>
+<p><strong>Option B needs two pieces nobody ships together, and this is what each costs.</strong> The paragraphs above
+say the option costs "a bespoke security-critical C library in the server". That was right about the
+shape and pessimistic about one half and optimistic about the other, so the state of both is recorded
+here rather than left to whoever picks the step up.</p>
+<p><em>Verified:</em> <code>oauth_validator_libraries</code> is <code>PGC_SIGHUP</code> with <code>GUC_SUPERUSER_ONLY</code> and a default of the
+empty string, so it is settable in <code>postgresql.conf</code> or on the postmaster's command line and nowhere
+else. <strong>That makes option B a self-managed option</strong>, which is what this record assumes throughout: it
+needs a file on the server's filesystem and a line in that server's configuration. <em>Verified, and it is
+one sentence because it is a limit rather than a path:</em> no major managed PostgreSQL offering exposes the
+<code>oauth</code> host-based-authentication method - the managed identity integrations put a short-lived token in
+the password field instead, which is a different mechanism - so a deployment on one has no impersonation
+path through this record's option B at all.</p>
+<p><strong>The server half: a module exists, it is not the stub, and its state should be read rather than
+assumed.</strong> <em>Verified:</em> upstream writes a validator - <code>src/test/modules/oauth_validator/validator.c</code> - and
+it is a test double rather than a starting point: it authorizes every token, reads the answer out of two
+of its own settings, checks no signature, issuer, audience or expiry, and logs the bearer token at <code>LOG</code>.
+It also reaches no installed artifact, because <code>src/Makefile</code>'s <code>SUBDIRS</code> names <code>test/regress</code>,
+<code>test/isolation</code> and <code>test/perl</code> and never <code>test/modules</code>.</p>
+<p><em>Verified, and it is why the gap should be read as persistent rather than as a young feature's:</em> the
+author of PostgreSQL's OAuth support says so himself, in
+<a href="https://www.enterprisedb.com/blog/developing-oauth">Developing OAuth</a> (2025-09-25) - <em>"I was pretty
+disappointed that I couldn't provide a fully 'batteries included' experience for OAuth in v18"</em>, and
+<em>"I'm not sure that it'll really be possible until a bunch of popular providers agree on a large number
+of conventions for the tokens that they issue."</em> So a deployment supplies the module, and
+<a href="https://www.postgresql.org/docs/18/oauth-validator-design.html">the validator design chapter</a> - which
+shipped with that same patch - is the specification it has to meet: <em>"Implementations must follow the
+provider's instructions to the letter, including any verification of issuer ("where is this token
+from?"), audience ("who is this token for?"), and validity period ("when can this token be used?")."</em>
+It also states, in the same voice this record uses for its own limits, that <em>"a malfunctioning validator
+is potentially worse than no authentication at all."</em></p>
+<p><strong>Two modules matter and neither is both things at once</strong>, checked on 2026-08-29.
+<code>percona/pg_oidc_validator</code> is the only one a vendor packages - Apache-2.0, C++23, module version 1.1.0,
+shipped as a listed component of Percona Distribution for PostgreSQL 18 and installed in its
+distribution image - and its own launch post (2025-10-22, before 1.0 and before that inclusion, with no
+retraction since) says <em>"It's not production-ready yet."</em> <code>proddata/pg_oauth_validator</code> is the only one
+written to the chapter's list, audience included - <em>"Audience has no safe universal default and must be
+configured explicitly"</em> - and it is the opposite trade: PostgreSQL License, C17, no tag, no release, no
+adoption, and its own README saying <em>"It remains under active security review and is not yet a tagged
+stable release."</em> <code>cloudnative-pg/postgres-keycloak-oauth-validator</code> is marked EXPERIMENTAL and is
+Keycloak-specific; <code>TantorLabs/oauth_validator</code> describes itself as performing <em>"minimal validation"</em>.
+<strong>Nothing occupies the slot that is both packaged and audience-checking</strong>, and which of those two
+properties a deployment gives up is its decision to make rather than ours to hide.</p>
+<p><strong><em>Verified by reading <code>pg_oidc_validator</code> 1.1.0's <code>validate_token</code>, and it lands on this record rather
+than on that module:</em></strong> it fetches the issuer's OIDC discovery document and its JWKS on every
+authentication, verifies the token's signature and its <code>iss</code> claim against the <code>pg_hba.conf</code> <code>issuer=</code>,
+and requires the entry's <code>scope=</code> to be a subset of the token's <code>scp</code> and <code>scope</code> claims - <strong>and it
+checks no <code>aud</code> claim at all</strong> - <code>jwt::verify().with_issuer(...)</code> with no <code>with_audience</code>, and the string
+<code>aud</code> appears in none of its non-vendored sources, its README, or the vendor's documentation. <strong>So it is
+an undocumented gap rather than a documented caveat, which is the sharper problem</strong>: there is no note for
+a reader to weigh. The option B paragraph above reasons that "the validator is told to check audience"
+and infers RFC 8693 from that requirement; against this module the inference has nothing to rest on, and
+a token minted for any audience at the same issuer, carrying the right scope, authenticates. A second
+thing worth knowing before writing a fixture: <code>scope=""</code> does not merely skip the scope comparison, it
+sets the result to authorized unconditionally. <strong>So "the validator checks audience" is a property to
+require of a chosen module and to test for, not one to assume from the mechanism</strong> - the chapter quoted
+above requires it and cannot enforce it, which is the same shape as every other row in this record whose
+limit had to be written down beside its claim.</p>
+<p><strong>The client half is the smaller half, and Rust is the ecosystem that has neither shipped it nor started
+it.</strong> <em>Verified on 2026-08-29:</em> <code>libpq</code> has <code>OAUTHBEARER</code> compiled unconditionally, and <code>jackc/pgx</code>
+merged OAuth support on 2026-03-01, so a shipped reference implementation exists to read; <code>pgjdbc</code> has an
+open pull request and <code>node-postgres</code> has one whose title is itself the shape argument below - <em>"Add SASL
+OAUTHBEARER support with application-supplied tokens"</em>. <code>tokio-postgres</code> and <code>sqlx</code> declare
+<code>SCRAM-SHA-256</code> and <code>SCRAM-SHA-256-PLUS</code> and nothing else, and neither repository carries an issue or a
+pull request about OAuth - and note that <code>sqlx</code> has moved to <code>transact-rs/sqlx</code>, so searching the old
+path finds nothing for the wrong reason. <em>Verified:</em> supplying a token you already hold to <code>libpq</code> is
+reachable only from C - there is no connection parameter, and <code>PQsetAuthDataHook</code> with a
+<code>PGoauthBearerRequest</code> is the whole interface. So the missing client work is nameable and small: the
+<code>OAUTHBEARER</code> initial client response carrying the token, one challenge/response round, <strong>token-first</strong> -
+the mechanism performs the SASL exchange and never talks to an identity provider, because part 4's
+<code>LegCredentials</code> is where the token comes from. Two pieces, then, and neither mysterious: a validator the
+operator installs, and a SASL mechanism we write.</p>
+<p><strong>What a client can determine about any of this at boot, which is narrower than it looks.</strong> The
+deployment already opens a connection at boot, so a check has somewhere to live, and it was worth
+establishing what such a check can actually observe before writing one:</p>
+<ul>
+<li><em>Verified:</em> <code>SHOW oauth_validator_libraries</code> and <code>current_setting('oauth_validator_libraries')</code> are
+  gated by the <code>GUC_SUPERUSER_ONLY</code> flag above. A role that is neither superuser nor a member of
+  <code>pg_read_all_settings</code> gets SQLSTATE <code>42501</code>, <code>permission denied to examine
+  "oauth_validator_libraries"</code>, with a detail naming that role.</li>
+<li><em>Verified, and it is the query that looks right and cannot fire:</em> <code>pg_settings</code> <strong>omits the row
+  entirely</strong> for such a role rather than showing it as null. Zero rows is therefore indistinguishable
+  from a server too old to have the parameter, so a check written over that view cannot tell "not
+  permitted" from "not PostgreSQL 18".</li>
+<li><em>Verified:</em> <code>current_setting('oauth_validator_libraries', true)</code> separates the three states, because
+  the missing-parameter branch returns before the privilege check - null for a server without the
+  parameter, <code>42501</code> for one that has it and will not show it, and the value otherwise, where an empty
+  string is the no-validator case.</li>
+<li><em>Verified, and it is what bounds such a check hardest:</em> the state a boot check would most want to
+  catch is <strong>not reachable on a running server.</strong> An <code>oauth</code> line in <code>pg_hba.conf</code> with an empty
+  <code>oauth_validator_libraries</code> fails upstream's own <code>check_oauth_validator</code>, which makes <code>load_hba()</code>
+  return false, which at startup is <code>FATAL: could not load pg_hba.conf</code> - the postmaster exits. On a
+  reload the new file is rejected wholesale and the previously parsed one stays in force. So this
+  record's "an empty value refuses every OAuth connection" is if anything understated, and a boot check
+  is moving a loud failure earlier rather than closing an open one.</li>
+</ul>
+<p>Two consequences for the check, and they are the reason it is written here rather than invented at the
+call site. It is worth having for the case that <em>is</em> reachable - a source declared
+<code>ImpersonationAtSource</code> against a server whose <code>server_version_num</code> is below 180000, which needs no
+privilege to read. And it has to be <strong>three-valued</strong>: refuse, refuse, or record undetermined and say so
+in the startup log, naming the source. Collapsing the third into a pass is how it would fail to a false
+green in every deployment that had not granted its boot role <code>pg_read_all_settings</code> - and that grant is a
+deliberate one rather than a default, because the role exposes every setting, file paths included.</p>
 <h3 id="oracle">Oracle<a class="headerlink" href="#oracle" title="Permanent link">&para;</a></h3>
 <p>Read against Oracle AI Database 26ai, the current release, with 19c noted where a claim is
 release-scoped.</p>
