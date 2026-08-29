@@ -144,6 +144,12 @@ cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo nextest run --workspace --all-features
 ```
 
+The first line is `just check`, and **a green run there is not a green tree** - it compiles one
+crate. The task prints that in its own output, so you do not have to remember it, and
+`cargo xtask check-scope` fails if the printed scope and the `-p` flags ever disagree. When the
+question is "does what I touched compile", `just check-changed` with no arguments reads the working
+tree and narrows to those packages; `just lint` is the workspace gate.
+
 `sutura-domain` must acquire **no** framework dependency - no tokio, axum, rmcp, datafusion,
 arrow. `cargo xtask check-boundaries` enforces it.
 

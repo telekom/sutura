@@ -23,6 +23,7 @@ mod max_lines;
 mod pins;
 mod repo;
 mod skills;
+mod tasks;
 mod text;
 mod unused_deps;
 mod warm_start;
@@ -144,6 +145,16 @@ const TASKS: &[Task] = &[
         description: "the skill router and the skill tree agree",
         kind: Kind::Hygiene,
         run: skills::run,
+    },
+    Task {
+        // Beside `check-guidance` because it is the same kind of rule - a claim checked against
+        // the thing it claims - and a different SCOPE: guidance reads documentation and filters
+        // to `.md`, `.nix`, `.yml`, `.yaml`, `.toml` and `.sh`, so the extensionless `justfile`
+        // is in neither its scan nor the citation script's `*.md` one. This gate is that file's.
+        name: "check-scope",
+        description: "a narrowed just recipe prints the scope it covered",
+        kind: Kind::Hygiene,
+        run: tasks::run,
     },
     Task {
         name: "check-guidance",

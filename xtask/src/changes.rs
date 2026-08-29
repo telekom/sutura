@@ -498,11 +498,47 @@ fn packages_for(root: &std::path::Path, args: &[String]) -> Option<BTreeSet<Stri
     Some(packages)
 }
 
+/// The paths `git status` reports, one per record, with the two status letters stripped.
+///
+/// `--porcelain -z` is machine format: `XY <path>\0`, and `--no-renames` keeps it to that one
+/// shape - with rename detection on, a record carries the destination AND the origin as two
+/// NUL-separated fields, and reading the second as a status line yields a path with three
+/// characters missing off the front. Same flag, same reason, as [`changed_paths`] above.
+fn status_paths(output: &str) -> Vec<String> {
+    output
+        .split('\0')
+        .filter(|record| record.len() > 3)
+        .filter_map(|record| record.get(3..))
+        .map(String::from)
+        .collect()
+}
+
+/// What the working tree changes against `HEAD`, untracked files included.
+///
+/// Untracked deliberately: a new module that was never added is the file the git-derived nix
+/// sandbox cannot see, and it is also the one a narrowed check would otherwise skip entirely.
+fn working_tree_paths() -> Option<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .args(["status", "--porcelain", "-z", "--no-renames", "--untracked-files=all"])
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| status_paths(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// `xtask check-changed [path...]` - `cargo check` for the packages that changed.
 ///
 /// The commit-time counterpart to CI's classification: editing one crate should not pay for
 /// a workspace check. Clippy over the workspace still runs as its own hook, so this is a
 /// fast-feedback narrowing, never the only thing that sees the code.
+///
+/// WITH NO PATHS IT READS THE WORKING TREE, and that is a fix rather than a feature. The hook
+/// always passes filenames, so the argument-free form is the one a person types - and it used to
+/// print `no Rust files changed` and exit 0 having looked at nothing, on a tree where a Rust file
+/// had changed and did not compile. That is the same defect as a `just check` whose output does not
+/// state its scope, in its worse form: a green line about a diff nobody read. Fails open the way
+/// `classify` does - git unavailable widens to the workspace rather than narrowing to nothing.
 pub(crate) fn run_check_changed(args: &[String]) -> Verdict {
     let Some(root) = repo::root() else {
         eprintln!("xtask check-changed: could not determine the repo root");
@@ -512,14 +548,37 @@ pub(crate) fn run_check_changed(args: &[String]) -> Verdict {
     let mut command = std::process::Command::new("cargo");
     command.current_dir(&root).args(["check", "--all-features", "--all-targets"]);
 
-    match packages_for(&root, args) {
+    let derived = args.is_empty();
+    let paths = if derived {
+        // Fails open, like `classify`: a git that will not answer is a reason to check MORE.
+        if let Some(found) = working_tree_paths() {
+            found
+        } else {
+            println!("xtask check-changed: git could not read the working tree - checking the workspace");
+            command.arg("--workspace");
+            return finish(&mut command);
+        }
+    } else {
+        args.to_vec()
+    };
+
+    match packages_for(&root, &paths) {
+        Some(packages) if packages.is_empty() && derived => {
+            println!("xtask check-changed: no Rust file differs from HEAD, so this compiled nothing.");
+            println!("  `just lint` is the workspace gate; `just test` runs the suite.");
+            return Verdict::Pass;
+        }
         Some(packages) if packages.is_empty() => {
             println!("xtask check-changed: no Rust files changed");
             return Verdict::Pass;
         }
         Some(packages) => {
             let names: Vec<&str> = packages.iter().map(String::as_str).collect();
-            println!("xtask check-changed: {}", names.join(", "));
+            // The SOURCE of the list is printed with it. "which packages" and "how they were
+            // decided" are different questions, and the second one is what a reader has to be
+            // able to answer before trusting a narrowed pass.
+            let source = if derived { " (from the working tree)" } else { "" };
+            println!("xtask check-changed{source}: {}", names.join(", "));
             for name in packages {
                 command.args(["--package", &name]);
             }
@@ -530,6 +589,11 @@ pub(crate) fn run_check_changed(args: &[String]) -> Verdict {
         }
     }
 
+    finish(&mut command)
+}
+
+/// Run the assembled `cargo check` and turn its status into a verdict.
+fn finish(command: &mut std::process::Command) -> Verdict {
     match command.status() {
         Ok(status) if status.success() => Verdict::Pass,
         Ok(_) => Verdict::Fail,
@@ -694,5 +758,45 @@ mod tests {
         assert_eq!(package_name("[workspace]\nmembers = []\n"), None);
         // A `name` under another table must not be mistaken for the package name.
         assert_eq!(package_name("[dependencies]\nname = \"nope\"\n"), None);
+    }
+
+    #[test]
+    fn a_working_tree_status_yields_the_paths_it_reports() {
+        use super::status_paths;
+
+        // Real `git status --porcelain -z` records: modified, untracked, deleted, staged. The
+        // untracked one is the point - a new module nobody has added is exactly the file the
+        // narrowed check would otherwise skip, and the one the nix sandbox cannot see either.
+        // `concat!` and not a `\`-continued literal: the continuation eats the LEADING WHITESPACE
+        // of the next line, which silently turned ` M path` into `M path` and made the fixture a
+        // record this format never produces. The unstaged status column is a space, and it is
+        // load-bearing here - the path starts at byte three either way.
+        let output = concat!(
+            " M crates/sutura-config/src/settings.rs\0",
+            "?? crates/sutura-app/src/new_module.rs\0",
+            " D docs/notes.md\0",
+            "M  crates/sutura-domain/src/lib.rs\0",
+        );
+        assert_eq!(
+            status_paths(output),
+            vec![
+                String::from("crates/sutura-config/src/settings.rs"),
+                String::from("crates/sutura-app/src/new_module.rs"),
+                String::from("docs/notes.md"),
+                String::from("crates/sutura-domain/src/lib.rs"),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_clean_tree_yields_no_paths_rather_than_a_malformed_one() {
+        use super::status_paths;
+
+        // `git status` on a clean tree prints nothing at all. A record too short to hold a path
+        // is dropped rather than turned into an empty string, which `packages_for` would then
+        // resolve against the repo root.
+        assert!(status_paths("").is_empty());
+        assert!(status_paths("\0").is_empty());
+        assert!(status_paths(" M \0").is_empty());
     }
 }

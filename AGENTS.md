@@ -50,6 +50,13 @@ adapter. A port trait arrives with its first implementor.
 | `-datahub`, `-postgres`, `-clickhouse`, `sutura-arrow` | Planned. None exists |
 
 `cargo check -p sutura-domain --no-default-features` is the inner loop; keep it under a second.
+**That width is the reason `just check` now prints what it covered:** cargo's own `Finished` line
+says nothing about scope, so a green run read as a green tree and a branch whose `sutura-config` did
+not compile was pushed on the strength of it. `cargo xtask check-scope` is what keeps the printed
+scope equal to the `-p` flags above it, so the notice cannot drift into a lie the way a comment
+would. **What no gate can do is know what a developer believed a task covered** - the honest output
+is the fix for that half, and `just check-changed` with no arguments is the cheap answer to "does
+what I touched compile".
 
 A data system's driver is a dev-dependency. `sutura-cli` links the engine only, which is what keeps
 the musl artifacts building - nixpkgs has no musl `libduckdb`. `nix/duckdb.nix` is the single path
@@ -60,7 +67,8 @@ from nixpkgs to that library, imported by `flake.nix` and `devenv.nix` alike.
 
 ```bash
 just validate       # THE gate. Run this before saying a change is done.
-just check          # fast inner loop, domain crate only
+just check          # fast inner loop, DOMAIN CRATE ONLY - and it says so on the way out
+just check-changed  # cargo check over what your working tree actually changes
 just test           # tests
 just lint           # clippy
 just fmt            # format
@@ -714,8 +722,12 @@ is a habit rather than a gate.
 - `xtask/` - every gate, each unit-tested, because a gate with no test is one nobody has seen
   fail. `cargo xtask --help` lists them; `hygiene` runs the cheap ones. `classify` /
   `check-changed` / `changed-packages` decide what a diff requires, and **fail open**: an
-  unmapped path, a bad base ref or an empty diff all run everything and say why, because the
-  expensive failure is a new directory silently skipped, not a wasted CI minute.
+  unmapped path, a bad base ref, an empty diff or a git that will not answer all run everything
+  and say why, because the expensive failure is a new directory silently skipped, not a wasted CI
+  minute. `check-scope` is the one that reads the `justfile` rather than Rust: a recipe compiling
+  PART of the workspace has to print which part, name a task that covers the whole of it, and cite
+  nothing that has been renamed away - which is checkable where "did you read the scope in the
+  comment" is not.
 - `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
   build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
