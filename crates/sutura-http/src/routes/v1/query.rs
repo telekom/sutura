@@ -178,6 +178,13 @@ const TAG: &str = "query";
 )]
 pub(crate) async fn ask(
     State(state): State<ServiceState>,
+    // Leg 1's conclusion, when this deployment has leg 1. **An extractor and not a body field**, and
+    // the difference is the whole control: `crate::inbound::VerifiedCaller` has one `pub(crate)`
+    // constructor, called only after a signature check, implements no `Deserialize`, and is put into
+    // the extensions by exactly one middleware. So this parameter cannot be reached by anything a
+    // caller writes - see `crate::principal`, which explains why the check moved from the arity of a
+    // function to a type.
+    caller: Option<axum::Extension<crate::inbound::VerifiedCaller>>,
     body: Result<Json<QuestionBody>, JsonRejection>,
 ) -> Result<Outcome, Failure> {
     let Json(body) = body.map_err(|rejection| rejected(&rejection))?;
@@ -215,10 +222,20 @@ pub(crate) async fn ask(
     let slot = state.admission().admit().await.map_err(|shed| refused(&shed))?;
 
     let surface = state.surface();
-    // Derived from what this transport established, and from nothing the caller sent. `established`
-    // takes no argument, which is what keeps a field of the body from ever contributing to it - see
-    // `crate::principal`.
-    let context = crate::principal::established();
+    // Derived from what this transport established, and from nothing the caller *sent*. Two answers:
+    // a verified caller where leg 1 established one, and the deployment itself where it did not.
+    // `established` takes no argument at all, and the other arm takes a value only a signature check
+    // can produce - see `crate::principal`.
+    let context = caller
+        .as_ref()
+        .map_or_else(crate::principal::established, |axum::Extension(verified)| {
+            crate::principal::of_verified(verified)
+        });
+    // WHO asked, onto the span, so every line of this request is attributable. The label and not the
+    // identifier: `established()` is a fixed word - `verified` or `deployment` - so it cannot raise
+    // the log's cardinality or carry a subject into a field a caller chose. The audit record is where
+    // the identifier goes, and `sutura_app::LocalService::answer` writes it.
+    span.record("asker", context.chain().subject().established());
     // `spawn_carrying_span` rather than `tokio::task::spawn_blocking`, and the bare call is now on
     // the `disallowed-methods` list in `clippy.toml`: the pool thread has no current span, so a
     // bare spawn writes every line the engine emits outside this request. The three lines that fix

@@ -296,7 +296,7 @@ fn a_declared_non_loopback_bind_still_needs_a_token() {
     assert_eq!(
         *refusals,
         vec![NotFitToServe::AccessTokenRequired {
-            because: "this service is bound where other hosts can reach it"
+            because: "this service is bound where other hosts can reach it and no inbound identity is configured"
         }]
     );
 }
@@ -830,3 +830,6 @@ fn two_sources_can_be_configured_and_each_says_what_it_is() {
     );
     assert!(matches!(Settings::load(&with_ceiling), Err(SettingsError::Source { .. })));
 }
+
+/// Reading an inbound-identity declaration. Carved out because this file hit the line limit.
+mod inbound;

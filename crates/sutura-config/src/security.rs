@@ -1,26 +1,34 @@
-//! The access control this service has, and the honest name for what it is not.
+//! The access control this service has, and the honest name for what each part of it is not.
 //!
-//! **There is no per-caller identity in sutura today, and nothing here invents one.** No request
-//! context reaches the query path, no credential is minted per request, and the `CredentialBroker`
-//! port that would do it is deliberately absent because a port arrives with its adapter.
-//! `examples/multi-player/README.md` is where that gap is written down for a reader.
+//! **Two controls that answer two different questions, and collapsing them is the mistake this
+//! module is arranged against:**
 //!
-//! So what an [`AccessToken`] does is narrower than authentication, and the narrowness is the
-//! point of this module documentation: a presented token proves the caller holds a secret the
-//! deployment was configured with. It proves nothing about *which* caller, it cannot be scoped,
-//! it cannot be revoked for one party without revoking it for all of them, and it does not reach
-//! the data system - every query still runs with whatever access the process already had.
+//! - the [`AccessToken`]: *may this caller reach this service at all*
+//! - [`InboundIdentity`]: *who is asking*
 //!
-//! It is worth having anyway, because the alternative on a non-loopback interface is an
-//! unauthenticated way to read whatever the process can read. It is not worth mistaking for
-//! identity, which is why [`SecuritySettings::describes_identity`] exists as an associated function
-//! that always answers the same thing: the startup log prints it, so an operator cannot deploy this
-//! believing otherwise.
+//! What an [`AccessToken`] does is narrower than authentication, and the narrowness is the point: a
+//! presented token proves the caller holds a secret the deployment was configured with. It proves
+//! nothing about *which* caller, it cannot be scoped, it cannot be revoked for one party without
+//! revoking it for all of them, and it does not reach the data system. It is worth having anyway,
+//! because the alternative on a non-loopback interface is an unauthenticated way to read whatever the
+//! process can read - and it is not worth mistaking for identity.
+//!
+//! [`SecuritySettings::describes_identity`] is what keeps that distinction printable. It used to be
+//! an associated function that always answered `false`; `crate::inbound` is what made it a value, and
+//! the startup log prints it on every boot so an operator cannot deploy either shape believing it is
+//! the other.
+//!
+//! **The limit that survives all of it:** a caller whose identity is established is still a caller
+//! whose questions run with whatever access this process already had.
+//! [`InboundIdentity::what_it_does_not_do`] is that sentence, and the startup log prints it beside the
+//! mode rather than leaving a reader to infer it.
 
 use sha2::Digest as _;
 use subtle::ConstantTimeEq as _;
 use sutura_domain::identity::Secret;
 use sutura_domain::source::{AcknowledgementReason, InvalidOperatorText};
+
+use crate::inbound::InboundIdentity;
 
 /// A pre-shared secret a caller presents to reach the service.
 ///
@@ -443,27 +451,48 @@ pub enum InvalidDeploymentIdentity {
 /// exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 /// agreeing that off-host is intended.
 ///
-/// **Three fields now, and the third answers a third question**: who a query runs *as*. It is an
-/// `Option` because it has no default and its absence is a refusal rather than a value - see
+/// **Four fields now, and the last two are the two halves of one story told from opposite ends.**
+/// [`Self::inbound`] is how the identity of a *caller* reaches this deployment; [`Self::identity`] is
+/// who a query then runs *as*. **Neither implies the other, and that is the fact worth writing down
+/// rather than the count:** a deployment can verify exactly who is asking and still read every row
+/// under one configured identity, because leg 2 - a credential per execution leg - is not built. The
+/// reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
+/// knows what a query runs as and nothing about who asked.
+///
+/// The inbound declaration lives in this group rather than one of its own because of
+/// [`Self::describes_identity`]: that function used to be a constant answering `false`, and a
+/// deployment that establishes a caller identity has to be able to make it answer otherwise from a
+/// value rather than from a rewrite. The deployment declaration is an `Option` for a different
+/// reason - it has no default and its absence is a refusal rather than a value; see
 /// [`DeploymentIdentity`], which explains why no combination of source postures may answer it on the
 /// operator's behalf.
 #[derive(Debug, Clone, Default)]
 pub struct SecuritySettings {
     access_token: Option<AccessToken>,
     tls_termination: TlsTermination,
+    inbound: Option<InboundIdentity>,
     identity: Option<DeploymentIdentity>,
 }
 
 impl SecuritySettings {
+    /// Assembles the group from parts that have each already been parsed.
+    ///
+    /// The inbound declaration is an `Option` because its absence is a posture rather than a gap: a
+    /// deployment that establishes no per-caller identity is a single-player deployment, which
+    /// `docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
+    /// once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
+    /// because the shape here cannot hold "a mode nobody named".
     #[inline]
     pub const fn new(
         access_token: Option<AccessToken>,
         tls_termination: TlsTermination,
+        inbound: Option<InboundIdentity>,
         identity: Option<DeploymentIdentity>,
     ) -> Self {
         Self {
             access_token,
             tls_termination,
+            inbound,
             identity,
         }
     }
@@ -496,32 +525,75 @@ impl SecuritySettings {
         if self.access_token.is_some() { "configured" } else { "absent" }
     }
 
+    /// How the identity of a caller reaches this deployment, if it does.
+    ///
+    /// `None` is the shape that ships today and the shape a single-player deployment keeps: the
+    /// bearer token authenticates the deployment, and there is no per-request identity to establish.
+    #[inline]
+    pub const fn inbound(&self) -> Option<&InboundIdentity> {
+        self.inbound.as_ref()
+    }
+
     /// Does anything here establish who the caller is?
     ///
-    /// Always `false`, and it is a function rather than a comment so the startup log and the
-    /// documentation read the same value. When a `CredentialBroker` and a request context exist,
-    /// this stops being a constant and the log line changes with it; until then a deployment is
-    /// told, on every boot, that the token authenticates the deployment and not the caller.
+    /// **This stopped being a constant, which is the change `docs/adr/0014` predicted.** It was an
+    /// associated function that always answered `false`, with a comment saying it would change when a
+    /// request context and an inbound credential existed. They exist, so it reads a value: `true`
+    /// exactly when an inbound declaration is configured, and `false` for the deployment token alone -
+    /// which authenticates the deployment and not the caller, whatever else is set.
     ///
-    /// **[`Self::identity`] does not change this answer, and that is deliberate.** A declared
+    /// It is still a function rather than a comment so the startup log and this documentation read
+    /// the same value.
+    ///
+    /// **[`Self::identity`] does not change this answer either, and that is deliberate.** A declared
     /// `multi-user` mode says what the deployment *intends* and decides where a shared source's
     /// acknowledgement has to be written; it does not make a caller identity arrive. Reading the
     /// declaration back as "this deployment knows who is asking" is the exact confusion this function
-    /// exists to prevent.
+    /// exists to prevent, and the two keys are independent for that reason.
+    ///
+    /// **The limit, next to the claim:** `true` here says a caller's identity is *established*. It
+    /// does not say a data source executes as that caller - see
+    /// [`InboundIdentity::what_it_does_not_do`], which the startup log prints beside this.
     #[inline]
-    pub const fn describes_identity() -> bool {
-        false
+    pub const fn describes_identity(&self) -> bool {
+        self.inbound.is_some()
+    }
+
+    /// Which mode establishes the caller's identity, as a word for the startup log.
+    ///
+    /// `"none"` rather than an `Option` because the caller is a log line, and a field that is
+    /// sometimes absent reads as a field that is sometimes broken.
+    #[inline]
+    pub const fn inbound_mode(&self) -> &'static str {
+        match self.inbound {
+            Some(ref inbound) => inbound.mode(),
+            None => "none",
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use crate::inbound::{IssuerUrl, KeySetFile, PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm};
+
     use super::{
-        AccessToken, DeploymentIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings, TlsTermination,
+        AccessToken, DeploymentIdentity, InboundIdentity, InvalidAccessToken, InvalidDeploymentIdentity, SecuritySettings,
+        TlsTermination,
     };
 
     /// Thirty-two characters, which is the floor.
     const GOOD: &str = "0123456789abcdef0123456789abcdef";
+
+    /// A deployment that is its own resource server. The narrowest declaration that exists.
+    fn direct() -> InboundIdentity {
+        InboundIdentity::Direct {
+            resource: ResourceIdentifier::parse("https://sutura.example.com").expect("a test resource is a resource"),
+            authorization_server: IssuerUrl::parse("https://issuer.example.com").expect("a test issuer is an issuer"),
+            key_set: KeySetFile::parse("/etc/sutura/jwks.json").expect("a test path is a path"),
+            algorithms: PinnedAlgorithms::of(SigningAlgorithm::Rs256),
+            token_type: crate::inbound::RequiredTokenType::access_token(),
+        }
+    }
 
     #[test]
     fn a_short_token_is_refused_and_the_value_is_not_in_the_message() {
@@ -580,6 +652,7 @@ mod tests {
         let settings = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::None,
+            None,
             Some(DeploymentIdentity::SubjectPerRequest),
         );
         let rendered = format!("{settings:?}");
@@ -601,23 +674,43 @@ mod tests {
     }
 
     #[test]
-    fn nothing_here_claims_to_know_who_the_caller_is() {
-        // Load-bearing rather than tautological: this is the value the startup log prints, and a
-        // future change that makes a shared token look like identity has to change this test.
-        let with = SecuritySettings::new(
+    fn a_shared_token_does_not_claim_to_know_who_the_caller_is_and_an_inbound_declaration_does() {
+        // The distinction the startup log prints, and the reason `describes_identity` stopped being a
+        // constant. A token - in EVERY termination posture, which is why one is set here - proves the
+        // caller holds a secret an operator distributed, and says nothing about which caller.
+        let with_token = SecuritySettings::new(
             Some(AccessToken::parse(GOOD).expect("a valid token")),
             TlsTermination::Ingress,
+            None,
             Some(DeploymentIdentity::SubjectPerRequest),
         );
         let without = SecuritySettings::default();
-        assert!(!SecuritySettings::describes_identity());
-        assert_eq!(with.token_state(), "configured");
+        assert!(!with_token.describes_identity(), "a shared token is not an identity");
+        assert!(!without.describes_identity());
+        assert_eq!(with_token.token_state(), "configured");
         assert_eq!(without.token_state(), "absent");
-        // A DECLARED multi-user mode does not change the answer, and that is the confusion this
-        // assertion exists for: the declaration says what the deployment intends and decides where a
-        // shared source's acknowledgement has to be written. It does not make a caller identity arrive.
-        assert_eq!(with.identity(), Some(&DeploymentIdentity::SubjectPerRequest));
-        assert!(!SecuritySettings::describes_identity());
+        assert_eq!(with_token.inbound_mode(), "none");
+
+        // And the other half, which is what makes the assertions above load-bearing rather than a
+        // tautology about a constant: a deployment that validates a caller's token DOES establish an
+        // identity, and the same function says so.
+        let verifying = SecuritySettings::new(None, TlsTermination::Ingress, Some(direct()), None);
+        assert!(verifying.describes_identity());
+        assert_eq!(verifying.inbound_mode(), "direct");
+        assert_eq!(verifying.token_state(), "absent");
+        assert!(verifying.inbound().is_some());
+
+        // And the third fact, which is the one the merge of leg 1 and the source registry made
+        // available to assert: the two declarations are independent. A DECLARED multi-user mode
+        // says what the deployment intends and decides where a shared source's acknowledgement
+        // has to be written; it does not make a caller identity arrive, and this function does
+        // not read it.
+        assert_eq!(with_token.identity(), Some(&DeploymentIdentity::SubjectPerRequest));
+        assert!(
+            !with_token.describes_identity(),
+            "a declared mode is not an established caller"
+        );
+        assert_eq!(verifying.identity(), None, "nor does establishing a caller declare a mode");
         assert_eq!(without.identity(), None, "the mode has no default");
     }
 

@@ -22,6 +22,7 @@ use sutura_domain::pinned::{DefinitionVersion, InvalidVersion};
 use crate::api::ApiSettings;
 use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 use crate::environment::{Environment, UnknownEnvironment};
+use crate::inbound::{InboundIdentity, InvalidAlgorithms, InvalidInboundValue};
 use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
 use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
@@ -51,6 +52,8 @@ pub const ENVIRONMENT_VARIABLE: &str = "SUTURA_ENVIRONMENT";
 pub const VARIABLE_PREFIX: &str = "SUTURA";
 /// The separator between nested key segments in a configuration variable name.
 pub const VARIABLE_SEPARATOR: &str = "__";
+
+pub use posture::NotFitToServe;
 
 /// The built-in defaults, embedded so a missing file cannot become a posture nobody chose.
 const DEFAULTS: &str = include_str!("defaults.yaml");
@@ -197,6 +200,36 @@ pub enum SettingsError {
         #[source]
         cause: InvalidTlsMaterial,
     },
+    /// A `security.inbound` block exists and does not say which mode.
+    ///
+    /// **The refusal `docs/adr/0014` asks for by name.** Both defaults are wrong in opposite
+    /// directions - `direct` makes a gateway deployment reject every caller, `behind-gateway` makes a
+    /// directly exposed deployment accept a forged proof - so a deployment that says nothing does not
+    /// start. Note what is *not* refused: no block at all, which is a single-player deployment and is
+    /// unaffected by any of this.
+    #[error(
+        "`security.inbound` is set and `security.inbound.mode` is not. It has no default because \
+         both would be wrong: `direct` makes a deployment behind a gateway reject every caller, and \
+         `behind-gateway` makes a directly exposed one accept a proof anybody can forge. Write one \
+         of: {}. Remove the whole block for a deployment with no per-caller identity",
+        InboundIdentity::MODES.join(", ")
+    )]
+    InboundModeUndeclared,
+    #[error("`security.inbound.mode` is `{found}` - one of: {}", InboundIdentity::MODES.join(", "))]
+    InboundModeUnknown { found: String },
+    /// A key this mode needs. The mode is in the message on purpose - see `required`.
+    #[error("`security.inbound.mode` is `{mode}`, which requires `{key}`")]
+    InboundKeyMissing { key: &'static str, mode: String },
+    #[error("a value in `security.inbound` is not usable")]
+    InboundValue {
+        #[source]
+        cause: InvalidInboundValue,
+    },
+    #[error("`security.inbound.algorithms` does not pin a usable set")]
+    InboundAlgorithms {
+        #[source]
+        cause: InvalidAlgorithms,
+    },
     #[error("a rate limit tier is not a quota")]
     Quota {
         #[source]
@@ -269,145 +302,6 @@ pub enum SettingsError {
         refusals.iter().map(ToString::to_string).collect::<Vec<String>>().join("\n  - ")
     )]
     NotFitToServe { refusals: Vec<NotFitToServe> },
-}
-
-/// A deployment this service refuses to start as.
-///
-/// **These are the security posture, and each one is a refusal rather than a warning on purpose.**
-/// The thing being guarded against is not an operator who ignores a log line - it is an operator
-/// who never sees one, because the line was emitted in a format nothing was collecting, on a
-/// process that went on to serve traffic. A process that does not start is noticed.
-///
-/// Every variant names the key to change, because a refusal that does not say what to do is a
-/// support request.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum NotFitToServe {
-    /// The bind address is reachable from other hosts and nobody said what protects the path to
-    /// it.
-    ///
-    /// **This is not a refusal of the bind, and the previous version of this row was.** A
-    /// plaintext listener on a pod network with an ingress controller or a sidecar terminating TLS
-    /// in front of it is the normal arrangement, and refusing it would refuse the deployment this
-    /// service is built for. What is refused is *silence*: the bearer token crosses whatever sits
-    /// between the terminator and this process in cleartext, and how far that reaches - a loopback
-    /// hop inside a pod, or the pod network - is a fact about the deployment that only the operator
-    /// knows. Naming it makes it a stated fact that the startup log can print, and a declaration
-    /// cannot be satisfied by agreeing that off-host was intended.
-    #[error(
-        "server.host is {bind}, which is reachable from other hosts, and security.tls_termination \
-         is `none`. Say where TLS is terminated - one of: sidecar, ingress, in-process - or bind \
-         127.0.0.1. The declaration does not encrypt anything: it records which cleartext hop \
-         this bearer token crosses, which is a fact only this deployment knows"
-    )]
-    TlsTerminationUndeclared { bind: String },
-    /// Something is reachable off-host, or this is production, and there is no token.
-    ///
-    /// Not authentication - see [`crate::security`] - but the difference between a bearer secret
-    /// and nothing at all is the difference between a configured reader and anyone who can route
-    /// a packet.
-    #[error(
-        "{because}, so security.access_token must be set. It authenticates the DEPLOYMENT and not \
-         the caller: sutura has no per-caller identity, so every query still runs with whatever \
-         access this process already had"
-    )]
-    AccessTokenRequired { because: &'static str },
-    /// Production with the limiter switched off.
-    #[error(
-        "rate_limit.enabled is false in production. A question here is an aggregate over up to ten \
-         years of history, so an unbounded caller is an unbounded load on the data system"
-    )]
-    RateLimitingDisabledInProduction,
-    /// Production asking the kernel to choose the port.
-    #[error(
-        "server.port is 0 in production, which asks the kernel for an ephemeral port. Nothing can \
-         then be configured to reach this service; port 0 is for a test that reads the port back"
-    )]
-    EphemeralPortInProduction,
-    /// A forwarded header would be believed with nobody named as the hop it may come from.
-    ///
-    /// **The one refusal in this list that exists because the permissive branch is worse than the
-    /// restrictive one in both directions.** With no trusted hop, `X-Forwarded-For` is a value any
-    /// caller writes, so every bucket becomes the caller's to choose - a limiter that reports a
-    /// configured limit and bounds nothing at all, which is strictly worse than the one shared
-    /// bucket that peer keying gives behind a proxy.
-    #[error(
-        "rate_limit.client_address is `forwarded` and rate_limit.trusted_proxies is empty. A \
-         forwarded header is a value any caller can write, so with no hop named it would let every \
-         caller pick their own rate-limit bucket. List the proxy addresses or blocks, or set \
-         client_address: peer"
-    )]
-    ForwardedWithoutTrustedProxies,
-    /// Trusted proxies were listed and nothing reads them.
-    ///
-    /// Refused rather than ignored, for the reason every unknown key here is an error: a list that
-    /// does nothing reads as a control that is in place.
-    #[error(
-        "rate_limit.trusted_proxies names {count} hop(s) and rate_limit.client_address is `peer`, \
-         which reads no header - so the list has no effect. Set client_address: forwarded, or \
-         remove the list"
-    )]
-    TrustedProxiesWithoutForwarding { count: usize },
-    /// TLS termination was declared as in-process and no certificate and key were given.
-    #[error(
-        "security.tls_termination is `in-process` and no server.tls_certificate and server.tls_key \
-         are set. This process cannot terminate TLS without them, and it will not fall back to \
-         plaintext on a port that was configured to be encrypted"
-    )]
-    InProcessTlsWithoutMaterial,
-    /// A certificate and key were given and nothing will use them.
-    #[error(
-        "server.tls_certificate and server.tls_key are set and security.tls_termination is \
-         `{declared}`, so this process serves plaintext and the material is never read. Set \
-         tls_termination: in-process, or remove the paths"
-    )]
-    TlsMaterialWithoutInProcessTermination { declared: &'static str },
-    /// TLS termination was declared as in-process and this binary cannot do it.
-    ///
-    /// **The loud failure the requirement asks for.** A binary built without the `tls` feature has
-    /// no TLS implementation linked in at all, so the alternative to refusing is serving plaintext
-    /// on a port an operator configured to be encrypted - which is the one failure mode that must
-    /// never be quiet.
-    #[error(
-        "security.tls_termination is `in-process` and this binary was built without the `tls` \
-         feature, so it has no TLS implementation linked in. Rebuild with `--features tls`, or \
-         terminate TLS in front of this process and declare `sidecar` or `ingress`"
-    )]
-    InProcessTlsNotCompiledIn,
-    /// Sources are configured and nobody said which kind of deployment this is.
-    ///
-    /// **The mode has no default, and this is the refusal that makes that true.** It is keyed on a
-    /// source being configured rather than raised unconditionally, because a deployment with no source
-    /// cannot answer anything and the composition root refuses it on the catalog naming a source with
-    /// no declaration - so every deployment that can serve a question reaches this check.
-    #[error(
-        "{count} source(s) are configured and {} is not set. Say which kind of deployment this is - \
-         one of: {}. It decides where a shared source's acknowledgement has to be written, and no \
-         combination of source postures may answer it on your behalf: a multi-tenant deployment whose \
-         sources are all shared is exactly the case a derived mode would exempt from the check it most \
-         needs",
-        DeploymentIdentity::KEY,
-        DeploymentIdentity::NAMES.join(", ")
-    )]
-    DeploymentIdentityUndeclared { count: usize },
-    /// A source is served to every caller as one identity in a multi-user deployment, and no operator
-    /// wrote that down on that source's own entry.
-    ///
-    /// **This is the check the shared posture exists to be caught by.** The wrong outcome here is not a
-    /// failure - it is an answer, computed from rows a caller's own permissions never filtered. Sutura
-    /// declares no data sensitivity, so it cannot see whether that was fine; what it can do is make the
-    /// posture impossible to arrive at by accident and impossible to arrive at in silence.
-    ///
-    /// Per source and never global: a deployment cannot acknowledge one source and inherit it for the
-    /// next. In single-user mode the mode's own declaration supplies the witness, because there the one
-    /// identity is the one user's own.
-    #[error(
-        "source `{alias}` is `shared-service-user`, {} is `multi-user`, and \
-         `sources.{alias}.acknowledged_because` is not set. Every caller would read that source as one \
-         identity that is not theirs. Write why that is intended on this entry - there is no global \
-         acknowledgement, and no acknowledgement is inherited from another source",
-        DeploymentIdentity::KEY
-    )]
-    SharedSourceNotAcknowledged { alias: String },
 }
 
 /// Which configuration files were read, in the order they were applied.
@@ -556,20 +450,7 @@ impl Settings {
         refusals.extend(self.tls_refusals());
         refusals.extend(self.keying_refusals());
         refusals.extend(self.identity_refusals());
-        if self.security.access_token().is_none() {
-            // Two different reasons, and the message says which: an operator whose production
-            // deployment refuses should not have to work out whether it was the bind or the
-            // environment that asked for the token.
-            if self.environment.is_production() {
-                refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this is a production deployment",
-                });
-            } else if off_host {
-                refusals.push(NotFitToServe::AccessTokenRequired {
-                    because: "this service is bound where other hosts can reach it",
-                });
-            }
-        }
+        refusals.extend(self.credential_refusals(off_host));
         if self.environment.is_production() {
             if !self.rate_limit.enabled() {
                 refusals.push(NotFitToServe::RateLimitingDisabledInProduction);
@@ -642,6 +523,44 @@ impl Settings {
                     alias: String::from(alias.as_str()),
                 });
             }
+        }
+        refusals
+    }
+
+    /// Everything wrong with what a request has to present, and with where it presents it.
+    ///
+    /// **Two rules that used to be one, and separating them is the change.** The deployment token was
+    /// required whenever the service was reachable off-host or was in production, because the
+    /// alternative was an unauthenticated way to read whatever the process can read. That argument is
+    /// about there being *no* credential - and a deployment that verifies every caller's own token has
+    /// one, per caller, audience-bound and expiring. So the requirement now reads "some credential",
+    /// and the message still names which of the two reasons asked for it.
+    ///
+    /// The second rule is the collision: see [`NotFitToServe::DeploymentTokenSharesTheHeader`]. The
+    /// two rules are here together rather than in two functions because they are one question asked
+    /// twice - what does a request present, and can it present it - and a deployment that got the
+    /// first wrong usually got the second wrong in the same edit.
+    fn credential_refusals(&self, off_host: bool) -> Vec<NotFitToServe> {
+        let mut refusals = Vec::new();
+        let inbound = self.security.inbound();
+        if self.security.access_token().is_none() && inbound.is_none() {
+            // Two different reasons, and the message says which: an operator whose production
+            // deployment refuses should not have to work out whether it was the bind or the
+            // environment that asked for the token.
+            if self.environment.is_production() {
+                refusals.push(NotFitToServe::AccessTokenRequired {
+                    because: "this is a production deployment with no inbound identity configured",
+                });
+            } else if off_host {
+                refusals.push(NotFitToServe::AccessTokenRequired {
+                    because: "this service is bound where other hosts can reach it and no inbound identity is configured",
+                });
+            }
+        }
+        // Asked of the requirement rather than of the variant, so a mode added later that also lands
+        // in `Authorization` cannot slip past this.
+        if self.security.access_token().is_some() && inbound.is_some_and(InboundIdentity::reads_the_authorization_header) {
+            refusals.push(NotFitToServe::DeploymentTokenSharesTheHeader);
         }
         refusals
     }
@@ -848,7 +767,11 @@ fn parse_security(raw: &RawSettings) -> Result<SecuritySettings, SettingsError> 
                 .map_err(|cause| SettingsError::Identity { cause })?,
         ),
     };
-    Ok(SecuritySettings::new(token, termination, identity))
+    let inbound = match raw.security.inbound {
+        None => None,
+        Some(ref written) => Some(crate::settings::inbound::parse_inbound(written)?),
+    };
+    Ok(SecuritySettings::new(token, termination, inbound, identity))
 }
 
 /// The data systems this deployment declares.
@@ -963,6 +886,13 @@ fn parse_prompt(raw: &RawSettings) -> Result<PromptSettings, SettingsError> {
     };
     Ok(PromptSettings::new(instructions, prose))
 }
+
+/// Reading the inbound-identity declaration. Carved out because this file hit the line limit.
+mod inbound;
+
+/// The refusal vocabulary. Carved out for the same reason, along the seam this module's own
+/// documentation names: the parse is here, the combination checks are there.
+mod posture;
 
 #[cfg(test)]
 mod tests;

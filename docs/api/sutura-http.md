@@ -28,19 +28,24 @@ anything reading a status alone. `wire::refusal` holds the mapping, the citation
 for each status. The domain invariant is untouched: `ToolOutcome::Refusal` is still a result and
 not an `Err`.
 
-**There is no per-caller identity.** No credential is minted per request, and the
-`CredentialBroker` port that would do it is deliberately absent because a port arrives with its
-adapter. Where an access token is configured, presenting it proves the caller holds a secret an
-operator configured - it authenticates the *deployment*, not the caller, and every question is
-still answered with whatever access the process already had. That sentence is in the generated
-document, in the startup log and in `sutura_config::security`, because those are three different
-readers.
+**A caller's identity is established, and it is still not per-caller access.** Where a deployment
+declares `security.inbound`, `inbound` verifies the caller's own token - signature against a
+pinned asymmetric algorithm, issuer, expiry, and an audience matching this deployment's own
+resource identifier - and the request runs under a
+`sutura_domain::identity::Subject::Verified`. Where it declares none, the answer is
+`sutura_domain::identity::Subject::TheDeploymentItself` and an access token, if one is
+configured, proves only that the caller holds a secret an operator distributed.
 
-A `sutura_domain::identity::RequestContext` *does* now reach the query path, and it does not
-weaken that: what it carries is a principal chain naming
-`sutura_domain::identity::Subject::TheDeploymentItself`, which is that same sentence expressed
-as a value instead of as prose. `crate::principal` is the one place it is constructed, and it
-takes no argument, so no field of a request can contribute to it.
+**What neither shape does is make a data system execute as the asking subject.** That is leg 2, it
+needs a credential per leg, and none of it is built - so every question is still answered with
+whatever access this process already had. `docs/adr/0014` says it in those words, the startup log
+prints it on every boot, and `inbound` lists the four things that record describes and this does
+not build.
+
+`crate::principal` is the one place a `sutura_domain::identity::RequestContext` is constructed,
+and there are exactly two ways in: one takes no argument, and the other takes a
+`VerifiedCaller`, whose only constructor is a signature check and which implements no
+`Deserialize`. So no *field* of a request can contribute to a chain either way.
 
 **`/health` carries nothing.** It is the one path an unauthenticated caller can always reach, so
 every field it might have is a field handed to anybody who can route a packet. No version, no
@@ -86,6 +91,12 @@ serve(router(&state)?, address, Shutdown::new()).await?;
 # Ok(())
 # }
 ```
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -390,6 +401,1071 @@ The longest value accepted from a caller.
 Generous rather than tight, and sized off what a caller plausibly already has: a UUID is 36
 characters and a W3C `traceparent` is 55. Anything longer is not an identifier somebody is
 correlating with, and an unbounded one is a log line of a size a caller chooses.
+
+## Module `inbound`
+
+Leg 1 of the identity path: how a caller proves who it is, on this transport.
+
+`docs/adr/0014` is the record. It decides two inbound modes with no default, and it puts every
+piece of this in the transport on purpose: *"All of it is transport: it parses a wire shape and
+produces a domain value, and it decides nothing about what a question may ask."* That is what this
+module is - a header becomes a `VerifiedCaller`, which becomes a
+`sutura_domain::identity::RequestContext` through `crate::principal::of_verified`, and nothing
+here can widen, narrow or parameterize what executes.
+
+| File | What it owns |
+| --- | --- |
+| `keys` | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
+| `token` | algorithm pinning, the audience check, and claims into a principal chain |
+| `caller` | `VerifiedCaller` and `Scopes` - the conclusion of a verification, as a type nothing can deserialize |
+| `gate` | the layer, and the `401` with its challenge |
+
+`sutura_config::inbound` owns the *declaration* - which mode, which issuer, which audience, which
+algorithms - and names no JWT library at all. The two vocabularies meet in exactly one function,
+`token::map_algorithm`, which is an exhaustive match.
+
+# What this delivers, and what it must not be read as delivering
+
+**Delivered:** a caller's identity is established from a signed, audience-bound, unexpired token,
+and `sutura_domain::identity::Subject::Verified` finally has a constructor with something real
+behind it. Every audit record written for such a call names the person rather than the deployment.
+
+**Not delivered, and `docs/adr/0014` says so in the same words:** leg 1 proves who is asking. It
+does *not* make a data source execute as that person - that is leg 2, and it needs a credential per
+leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows who
+is asking and still reads every row as one identity. The startup log prints that sentence on every
+boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
+infer it.
+
+# The five things this does not build, and each is named rather than left to be discovered
+
+An overstated claim is itself the defect, so each of these is written down here rather than found:
+
+1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
+   limit on it are built and are what a URL source would need anyway - see `keys` for the whole
+   argument and for the one property a file cannot have.
+2. **The two metadata documents.** A directly validating deployment is supposed to serve
+   protected-resource metadata a client can read to learn which authorization server governs it.
+   There is no such route. The `401` carries an RFC 6750 challenge naming the realm and no
+   `resource_metadata` parameter, so a client is configured with its issuer out of band.
+3. **Anything about client registration or client authentication.** Those are decisions for the
+   authorization server and for the client; this deployment is a resource server and validates what
+   arrives.
+4. **A ceiling derived from a scope.** `Scopes` is parsed and carried and *nothing reads it* - see
+   `caller`. Scope-filtered advertisement is `feat/agent-surface-scope`, the raw tool's gate is
+   `docs/adr/0013`, and a per-caller budget has no port to live behind.
+5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+   replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
+   deployment chose - and inside that window an intercepted assertion replays. There is no nonce
+   store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+   calls it a proof that *this request* transited anything, and why the hop between the component
+   and this process is a trusted transport boundary rather than an incidental one.
+
+# Why this is not shared with the agent surface
+
+`sutura-mcp` has its own `principal` module and it still answers
+`sutura_domain::identity::Subject::TheDeploymentItself`, honestly: it speaks over standard input and
+output, where there is no header for a token to arrive in. **Nothing here is reachable from it** -
+an adapter never calls another adapter, and that rule is what keeps this module from being the
+shape a second transport has to bend around. Which crate this code moves to when that surface
+acquires an inbound transport is an architecture decision, not a refactor.
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### Module `caller`
+
+What a verified token establishes: a principal chain, and the scopes it carried.
+
+# The type is the control, not the arity of a function
+
+`AGENTS.md` records an invariant in the form *"`sutura_http::principal::established()` takes no
+argument, so the transport has no parameter a request could reach"*. Leg 1 cannot keep that shape
+and still work - a verified identity *is* something read out of a request - so what replaces it has
+to be at least as strong. It is `VerifiedCaller`:
+
+- **It has one constructor**, `VerifiedCaller::established`, and it is `pub(crate)`. Nothing
+  outside this crate can make one at all.
+- **Inside this crate, the only caller of that constructor is
+  `crate::inbound::token::TokenValidator::verify`** - after a signature check against a pinned
+  asymmetric algorithm, an issuer, an expiry and this deployment's own audience.
+- **It implements neither `Deserialize` nor `Serialize`**, which is the same mechanism
+  `sutura_domain::identity::principal` uses for the chain itself: there is no code that could turn
+  caller-supplied bytes into one. A `compile_fail` doctest on `VerifiedCaller` asserts it, with a
+  compiling twin so the failure cannot be passing for a typo.
+
+So a handler receiving one has not received a claim; it has received the *conclusion* of a
+verification. `crate::principal::of_verified` is the one function that turns it into a request
+context, and it is why that module still has no way to build a chain out of a header.
+
+# Scopes are carried and consumed by nothing, and that is the honest state
+
+`docs/adr/0014` Decision 4 says a per-caller ceiling is **derived from the claims** and never read
+from anything the caller sends with its question - the same argument that keeps a subject off the
+`Query`. `Scopes` is that claim shape, parsed and bounded.
+
+**Nothing filters on it.** Advertisement filtered by scope is `feat/agent-surface-scope`, the raw
+tool's gate is `docs/adr/0013`, and a budget keyed on a principal has nowhere to live yet - there is
+no budget port in this workspace. What is here is the value those three need to exist and cannot
+currently get, plus a count on a log line. A reader must not take the presence of this type as a
+control.
+
+#### `enum InvalidScope`
+
+```rust
+pub enum InvalidScope
+```
+
+Why a scope string is not one.
+
+##### Variants
+
+- `TooLong`
+- `TooMany`
+- `NotAScopeToken` - A character RFC 6749's `scope-token` production does not allow.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct Scopes`
+
+```rust
+pub struct Scopes
+```
+
+The scopes a verified token carried.
+
+A `BTreeSet` rather than a `Vec`: RFC 6749's scope is a set, an issuer may repeat a value, and the
+ordering makes a log line and a test deterministic. Duplicates collapse rather than being refused,
+because a repeated scope says the same thing twice and is not a posture.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many distinct scopes were granted.
+
+The one thing that reaches a log line. The scope *names* deliberately do not: they are a
+caller's authorization detail, they multiply a log's cardinality, and nothing needs them there
+until something filters on them.
+
+```rust
+pub fn grants(&self, scope: &str) -> bool
+```
+
+Whether one scope was granted.
+
+**Here, and called by nothing that ships.** It is the accessor `feat/agent-surface-scope` and
+`docs/adr/0013`'s raw tool will each need, and it is on the type rather than left to a caller
+to write, so there is one comparison rather than one per consumer. It is exercised by this
+crate's own tests and by no request path.
+
+```rust
+pub fn none() -> Self
+```
+
+No scopes. What a token with no `scope` claim carried.
+
+**Not a `Default` that could stand in for an unparsed value**: `Default` is derived here because
+the empty set is a real answer - an issuer that grants no scopes - rather than because a caller
+needs a placeholder. There is nothing this type could be that has not been through a token.
+
+```rust
+pub fn parse(written: &str) -> Result<Self, InvalidScope>
+```
+
+Parses RFC 6749's space-delimited scope string.
+
+Splits on whitespace rather than on a single space, which is more permissive than the grammar
+and is right: an issuer that emitted two spaces has granted the same scopes, and refusing the
+token for it would be refusing a caller for their provider's formatting.
+
+##### Implements
+
+`Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+#### `struct VerifiedCaller`
+
+```rust
+pub struct VerifiedCaller
+```
+
+A caller whose token this deployment verified.
+
+**The only way to one of these is a signature check.** See the module documentation for the three
+properties that make that a mechanism rather than a convention.
+
+# A caller cannot state its own identity
+
+There is no `Deserialize`, so caller-supplied bytes cannot become one of these:
+
+```compile_fail
+// A transport that tried to read a verified caller off the wire does not compile.
+let caller: sutura_http::inbound::VerifiedCaller =
+    serde_json::from_str(r#"{"subject":"someone"}"#).expect("no");
+drop(caller);
+```
+
+The compiling twin, so the failure above cannot be passing for a typo - what a handler can do with
+one is read the chain it carries:
+
+```
+use sutura_domain::identity::Attribution;
+
+fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
+    matches!(caller.chain().attribution(), Attribution::BareSubject { .. })
+}
+```
+
+##### Methods
+
+```rust
+pub const fn chain(&self) -> &PrincipalChain
+```
+
+Who this call is attributed to.
+
+```rust
+pub const fn scopes(&self) -> &Scopes
+```
+
+What the token said this caller may do.
+
+Read by nothing on the request path - see the module documentation. A `#[must_use]` on the
+accessor is what keeps a call to it from reading as a check.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### Module `gate`
+
+The layer that turns a presented token into a verified caller, or answers `401` with a challenge.
+
+# Where it sits, and why after the deployment token rather than before
+
+`crate::router` installs the layers so a request travels: limiter, then the deployment token gate,
+then this. Two reasons, and neither is style:
+
+- **Cost.** The deployment token comparison is two hashes; this is a signature verification. Doing
+  the expensive one first would let an unauthenticated caller spend this deployment's CPU.
+- **The limiter stays outermost**, which `crate::router` explains at length: a wrong-credential
+  attempt has to cost a rate-limit cell or it is an unlimited guessing loop. That argument applies
+  to a forged signature exactly as it applies to a wrong shared secret.
+
+In the `direct` mode there is no deployment token to be after -
+`sutura_config::NotFitToServe::DeploymentTokenSharesTheHeader` refuses that combination - so the
+order matters only in the `behind-gateway` mode, where both are configured and each reads its own
+header.
+
+# What a refused request is told, and what it is not
+
+A `401` with an RFC 6750 `WWW-Authenticate` challenge naming the realm, which for a directly
+validating deployment is its own resource identifier. `docs/adr/0014` step 1 asks for *"a challenge
+naming where to look"*, and this is the half of that which exists: **the two metadata documents the
+record describes are not built**, so the challenge carries no `resource_metadata` parameter and a
+client learns the authorization server out of band. That is a named gap rather than a silent one -
+see `crate::inbound`.
+
+What the response does **not** say is which check failed. The log says - through the `#[source]`
+chain on `TokenRejected` - and the caller does not, because "the signature verified and the
+audience did not" tells somebody which half of a forgery to fix.
+
+#### `struct InboundGate`
+
+```rust
+pub struct InboundGate
+```
+
+Everything one deployment needs to establish who a caller is, built once at startup.
+
+**Built by the composition root and not by `crate::ServiceState::new`**, because building it
+reads a file: a constructor that could not fail would have to either swallow an unreadable key set
+or read it lazily on the first request, and both turn a refusal to start into a deployment that
+authenticates nobody. `crate::router` refuses to assemble a router for a deployment whose settings
+declare an inbound identity and whose state carries no gate, which is what makes forgetting to
+attach one a startup failure rather than an open door.
+
+##### Methods
+
+```rust
+pub fn challenge(&self) -> Option<String>
+```
+
+The RFC 6750 challenge a refused request carries, where one is meaningful.
+
+**`None` in the `behind-gateway` mode, and that is a fix rather than an omission.** A `Bearer`
+challenge tells a client to present a bearer token to *this* resource; behind a component, the
+caller holds no token for us and the thing that was missing was a header the component sets.
+Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
+client that followed it would start putting credentials in a header this deployment refuses to
+read.
+
+**No `error_description`** in the direct case, and that is the same decision the response body
+makes: a description would have to say which check failed to be worth anything, and that is the
+one thing a caller must not learn.
+
+```rust
+pub async fn describe_keys(&self) -> (usize, Vec<String>)
+```
+
+How many keys are cached, and their ids. For the startup log.
+
+```rust
+pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected>
+```
+
+Establishes who is asking, or says why it could not.
+
+The whole request path of leg 1, in one function, so the order of the four steps is readable in
+one place: read the header, read the key id it names, find the key, verify.
+
+**Takes the headers rather than the request, and both reasons are worth keeping.** The narrow
+one is that it is the whole of what leg 1 may read: a gate that was handed a request could
+establish an identity from a path, a query parameter or a body, and the signature is what makes
+that unavailable rather than merely unwise. The mechanical one is that `axum::body::Body` is not
+`Sync`, so a future holding `&Request` across an await is not `Send` and cannot run as a layer
+at all - which is how the narrow reason got discovered.
+
+```rust
+pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable>
+```
+
+Builds the gate from a declaration `sutura-config` already accepted, reading the key set once.
+
+**Called before the listener opens.** An unreadable or unusable key set is an error here, so it
+is a process that does not start rather than one that answers `401` to everybody.
+
+```rust
+pub fn header(&self) -> &str
+```
+
+The header this gate reads, for a startup log line and for a test.
+
+```rust
+pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown)
+```
+
+Starts the timer that bounds how long a revoked key keeps verifying.
+
+Called from the composition root, inside the runtime, for the reason
+`crate::tls::Renewal::watch_until_shutdown` is: the gate is built before a runtime exists, so it
+cannot spawn its own task at construction.
+
+**Forgetting it does not leave revocation unbounded**, and that is deliberate rather than
+forgiving: `crate::inbound::keys::KeySetCache::key_for` checks the age itself, so a deployment
+serving traffic re-reads within the same horizon. What the timer adds is the bound holding while
+nothing is being asked.
+
+##### Implements
+
+`Debug`
+
+#### `struct InboundNotUsable`
+
+```rust
+pub struct InboundNotUsable
+```
+
+The gate could not be built.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `fn require_verified_caller`
+
+```rust
+pub async fn require_verified_caller(__arg0: axum::extract::State<std::sync::Arc<InboundGate>>, request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Requires a verified caller, and puts one in the request extensions.
+
+A `from_fn_with_state` middleware over the gate rather than over
+[`crate::ServiceState`](crate::state::ServiceState), so the state a handler is given has no way to
+reach the validator: the only thing that crosses into the handler is the *result*, as a
+`VerifiedCaller` extension that only this function inserts.
+
+**The insertion overwrites**, which matters: `axum` extensions are a map, and a request arriving
+with something already under that type - which nothing can construct, but the reasoning should not
+rest on that alone - is replaced rather than joined.
+
+### Module `keys`
+
+The signing keys, the cache in front of them, and the two things that make it re-read.
+
+`docs/adr/0014` names key rotation as one of three things a directly validating deployment newly
+owns, and it names the standard way to get it wrong: *"Cache the key set, honour its cache
+headers, refetch on an unknown key id - and **rate-limit that refetch**. Without the limit, a
+forged key id turns every request into an outbound call to the authorization server, which is a
+denial-of-service primitive pointed at our own dependency."*
+
+# Two triggers, and the second one is a REVOCATION bound rather than a rotation one
+
+The rate limit was the whole mechanism here once, and review found what that left open: a key
+**removed** from the set kept verifying until an unrelated unknown key id happened to arrive. A
+caller-driven refetch cannot bound revocation, because the caller presenting a revoked key
+presents a `kid` this deployment *has* - so nothing triggers.
+
+So there are two triggers and they answer different questions:
+
+| Trigger | Answers | Bounded by |
+| --- | --- | --- |
+| an unknown key id | "has a key been ADDED that I have not seen" | `MIN_REFETCH_INTERVAL`, because the trigger is caller-controlled |
+| age | "has a key been REMOVED" | `MAX_KEY_SET_AGE`, because the trigger is the clock and a caller cannot make it fire faster |
+
+The age trigger fires from two places, deliberately. `KeySetCache::watch_until_shutdown` is a
+timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
+composition root inside the runtime - so revocation latency is bounded *whether or not this
+deployment is serving traffic*. And `KeySetCache::key_for` checks the age itself, so a
+composition root that never armed the timer still cannot serve a stale key set indefinitely: the
+first request past the horizon pays one file read. Neither is a second code path - both call
+`KeySetCache::poll_once`.
+
+# The bound is one read per window WHATEVER THE CONCURRENCY, and it was not
+
+Review measured three reads where two were required, from two concurrent misses. The cause was
+double-checked locking with the second check missing: `KeySetCache::key_for` decided a look was
+due from a value read under a *read* lock, and the write lock was taken only to stamp - so two
+callers observing the same `last_attempt` both went on to read the source, and an attacker
+amplified source I/O by the number of in-flight forged key ids.
+
+`KeySetCache::reserve` is the fix: **the check and the stamp are one lock acquisition**, the
+source read stays outside the lock, and it is the only place either window is compared. The two
+comparisons in `key_for` remain as a cheap fast path and decide nothing. Because `poll_once` is the
+single path, the timer cannot race a caller into two reads either - which is a question worth
+asking of a design with two triggers and is answered by there being one gate.
+
+# Why `now` is a parameter everywhere
+
+`KeySetCache::key_for` and `KeySetCache::poll_once` take the current instant rather than
+reading the clock. That is what makes the interesting cases - a forged key id arriving inside the
+window, a key set going stale, and two callers arriving at the same instant - assertable without a
+sleep, which is the same reason `Renewal::poll_once` is public. **A concurrency bound proved by a
+sleep being long enough is worse than none**, and this file is the second attempt at this bound.
+
+# What a key set is read from, and the gap that is named rather than hidden
+
+`FileKeySet` is the only source that ships. **There is no HTTPS fetcher**, and that is stated
+here rather than left to be discovered: an outbound HTTP client is a supply-chain change with its
+own review, and `docs/adr/0014` says plainly that the authorization server then becomes a hard
+runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
+is built.
+
+What is built is everything that a URL source would need anyway - the cache, both triggers, and
+the limit on the caller-driven one - behind `KeySetSource`, which is one method returning the
+document's **bytes**. A JWKS endpoint arrives as a second implementor and changes nothing else in
+this file. A file is also a real deployment shape rather than a placeholder: a sidecar that
+rewrites a mounted key set is how a process with no egress gets rotation.
+
+**The honest cost of the file source:** it does not honour a cache header, because a file has
+none. What bounds staleness is `MAX_KEY_SET_AGE` and nothing the issuer says.
+
+#### `struct KeyId`
+
+```rust
+pub struct KeyId
+```
+
+A key identifier, out of a token header or out of a key set.
+
+A newtype rather than a `String` because the value arrives from a caller and is then used as a map
+key, as the trigger for an outbound fetch, and as a log field. The field is private and
+`Self::parse` is the only way in.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, NotAKeyId>
+```
+
+Parses a key identifier.
+
+**No trim, deliberately**, unlike almost every other parse in this workspace. A `kid` is an
+opaque identifier an issuer chose and we compare byte for byte against a key set the same
+issuer published; trimming would make a token whose id has a trailing space match a key whose
+id does not, and the two are different strings to whoever wrote them.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `enum NotAKeyId`
+
+```rust
+pub enum NotAKeyId
+```
+
+Why a string is not a key identifier.
+
+##### Variants
+
+- `Empty`
+- `TooLong`
+- `NotPrintable` - Anything outside printable ASCII.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum InvalidKeySet`
+
+```rust
+pub enum InvalidKeySet
+```
+
+Why a document is not a usable key set.
+
+##### Variants
+
+- `NotAJwkSet`
+- `NoUsableKey`
+- `KeyWithoutAnId` - A key with no `kid`.
+- `UnusableKeyId`
+- `DuplicateKeyId` - Two keys under one id.
+- `SymmetricKey` - A symmetric key.
+- `UnusableKey`
+- `NoKeyOfThePinnedFamily` - Not one key of the family the pinned algorithms need.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `struct KeySet`
+
+```rust
+pub struct KeySet
+```
+
+The verifying keys this deployment holds, by id.
+
+A `BTreeMap` rather than a `HashMap`: a key set holds a handful of entries, the ordering makes a
+log line and a test deterministic, and there is no hash-collision surface on a caller-supplied
+lookup key at all.
+
+##### Methods
+
+```rust
+pub fn count(&self) -> usize
+```
+
+How many keys are held. For a startup log line, so an operator can see the set was read.
+
+```rust
+pub fn get(&self, id: &KeyId) -> Option<DecodingKey>
+```
+
+The verifier for one key id, if this set holds it.
+
+Cloned rather than borrowed, because the caller is about to await a lock release and then
+verify: a `DecodingKey` is a small owned value - a modulus and an exponent, or a point - and
+holding a read lock across the verification would serialise every request behind it.
+
+```rust
+pub fn holds(&self, family: KeyFamily) -> bool
+```
+
+Does this set hold a key of `family`?
+
+The question `InvalidKeySet::NoKeyOfThePinnedFamily` is asked of. **At least one** rather
+than all of them, deliberately: an issuer legitimately publishes RSA and elliptic-curve keys in
+one document, and what makes a deployment unable to authenticate anybody is holding *none* of
+the kind it pinned.
+
+```rust
+pub fn ids(&self) -> Vec<&KeyId>
+```
+
+The ids, for a log line and for a test.
+
+```rust
+pub fn parse(document: &str) -> Result<Self, InvalidKeySet>
+```
+
+Parses a JWK set document.
+
+**Every refusal here is a refusal to start, not a key that gets skipped.** A key set is
+operator-supplied configuration and a deployment that silently dropped half of it would
+authenticate an arbitrary subset of its callers - which reads exactly like an intermittent
+outage. `docs/adr/0014`'s posture is fail-closed on the query path and this is that.
+
+##### Implements
+
+`Clone`, `Debug`
+
+#### `trait KeySetSource`
+
+```rust
+pub trait KeySetSource
+```
+
+Where a key set is read from.
+
+One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
+the module documentation for why the only implementor today reads a file.
+
+**It returns the document's BYTES rather than a parsed key set**, and that is what lets
+`KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+comparison of parsed keys could not: the library's key type implements no equality, so the
+alternative was comparing key *ids*, which would miss a key whose material rotated under the same
+id.
+
+**Synchronous, deliberately.** The one implementor reads a small local file, at most once per
+`MAX_KEY_SET_AGE`, and making the trait `async` would either need a boxed future in the
+signature or force the file source to pretend. A URL source arrives with a real decision about
+where its I/O runs, and that decision belongs in the same change as the client.
+
+#### `enum KeySetUnavailable`
+
+```rust
+pub enum KeySetUnavailable
+```
+
+The source could not be read, or what it returned is not a key set.
+
+##### Variants
+
+- `Unreadable`
+- `Invalid`
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `struct FileKeySet`
+
+```rust
+pub struct FileKeySet
+```
+
+A key set on the local filesystem.
+
+##### Methods
+
+```rust
+pub fn at(path: impl Into<PathBuf>) -> Self
+```
+
+Names the file. Does not read it: `Self::read` is the read, and the composition root reads
+once before the listener opens so an unreadable key set is a refusal to start.
+
+```rust
+pub fn path(&self) -> &Path
+```
+
+The path, for a startup log line.
+
+##### Implements
+
+`Clone`, `Debug`, `KeySetSource`
+
+#### `enum KeyUnavailable`
+
+```rust
+pub enum KeyUnavailable
+```
+
+Why a token could not be matched to a verifying key.
+
+Separate from the token's own refusals because the two are different facts about a deployment: a
+signature that does not verify is a bad token, and a key id nobody has heard of after a refetch is
+either a rotation this deployment has not caught up with or a caller guessing.
+
+##### Variants
+
+- `RefetchRateLimited` - The id is not in the set, and it is too soon to look again.
+- `UnknownKeyId` - The id is not in the set after a fresh read.
+- `SourceUnavailable`
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum Refreshed`
+
+```rust
+pub enum Refreshed
+```
+
+What one look at the source did.
+
+The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
+is not a change, and a candidate that was examined and rejected is recorded as examined so
+identical bytes on the next tick are silent rather than logging a rejection once per interval
+forever.
+
+##### Variants
+
+- `Unchanged` - The document is byte-for-byte what is already in use, or it could not be read.
+- `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
+- `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
+- `NotDue` - **The source was not looked at**, because the window has not opened or another caller already reserved this look.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+#### `struct KeySetCache`
+
+```rust
+pub struct KeySetCache
+```
+
+The key set, cached, with a rate-limited refetch on an unknown key id and an age bound on the
+whole set.
+
+`tokio::sync::RwLock` rather than `std::sync::RwLock`, which `clippy.toml` bans: this is held
+across an `await` in an async middleware, which is exactly the deadlock that ban is for.
+
+**No read of the source happens while the write lock is held**, which review asked for: the lock
+is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
+under the first lock is what keeps two concurrent misses from becoming two reads.
+
+##### Methods
+
+```rust
+pub async fn describe(&self) -> (usize, Vec<String>)
+```
+
+How many keys are cached, and their ids. For a startup log line and for a test.
+
+```rust
+pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable>
+```
+
+The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
+
+The order is: read, then age or window, then `Self::poll_once`. **The two comparisons here are
+a cheap FAST PATH and not the decision**, which is the correction review forced: they run under a
+read lock, so two callers can both observe the same `last_attempt` and both fall through. Whether
+a look at the source actually happens is decided once, atomically, inside `poll_once` - see
+`Self::reserve`.
+
+**What a caller that loses the reservation gets, stated because it is a real outcome:** it does
+not wait. It answers from whatever is cached, which during a rotation may be an
+`KeyUnavailable::UnknownKeyId` for a key the winner is about to install, or - on the age path -
+one more use of a key the winner is about to remove. So revocation is bounded by
+`MAX_KEY_SET_AGE` plus the duration of one source read, and a rotation can cost a concurrent
+caller one `401` it can retry. Making it wait instead would put N request tasks behind one file
+read, which is the primitive this whole file is arranged against.
+
+```rust
+pub async fn poll_once(&self, now: Instant) -> Refreshed
+```
+
+Looks at the source if a look is due, and swaps the key set if what came back is usable and
+different.
+
+Public and taking `now`, for the reason `crate::tls::Renewal::poll_once` is public: a test
+rotating a key set must not have to wait for a timer, and asserting that a timer fires is a
+different assertion from asserting that a rotation works.
+
+**It is DUE-CHECKED, which is a deliberate departure from `Renewal::poll_once`.** That one looks
+unconditionally, because a TLS renewal watch is the only thing that calls it. This one is called
+by the timer *and* by two paths in `Self::key_for`, one of which a caller triggers - so there
+has to be exactly one place the reservation is taken, or the paths are three chances to get the
+bound wrong. **That is also the answer to whether the timer can race a caller into two reads: it
+cannot, because they are the same path.**
+
+**Loud, and then carry on with what works.** A document that will not parse, or that holds no
+key of the pinned family, is `Refreshed::Rejected` and the previous set keeps verifying -
+adopting a broken set would turn a rotation mistake into a total outage, which is the trade
+`crate::tls` already makes for the same reason.
+
+```rust
+pub fn primed(source: Box<dyn KeySetSource>, family: KeyFamily, pinned: String, now: Instant) -> Result<Self, KeySetUnavailable>
+```
+
+Reads the source once and caches what it returned.
+
+**Fails rather than starting empty**, which is what makes an unreadable key set a refusal to
+start: a cache that began empty would answer every request `401` while looking healthy, and the
+rate limit would keep it that way for thirty seconds at a time. It also fails when the document
+holds no key of the pinned family - see `InvalidKeySet::NoKeyOfThePinnedFamily`.
+
+```rust
+pub fn watch_until_shutdown(cache: &Arc<Self>, interval: Duration, shutdown: Shutdown)
+```
+
+Polls on an interval until shutdown is asked for.
+
+A `tokio` task rather than the OS thread `crate::middleware::spawn_reaper` uses, and the
+difference is where it is started from - the same difference `crate::tls::Renewal` records: the
+reaper is spawned while the router is assembled, before a runtime exists, and this is spawned
+from inside the served future.
+
+**Forgetting to arm it does not leave revocation unbounded**, which is why it is not the only
+trigger: `Self::key_for` checks the age itself, so a deployment serving traffic re-reads
+anyway. What the timer adds is a bound that holds while nothing is being asked.
+
+##### Implements
+
+`Debug`
+
+#### `constant MIN_REFETCH_INTERVAL`
+
+How long after one attempt to reach the source another may be made.
+
+**The rate limit `docs/adr/0014` asks for**, as a constant rather than a configuration key. It is
+not a posture decision - nothing a caller can do changes what the right answer is - and a knob
+here would only ever be set wrong, in the direction that reopens the denial-of-service primitive.
+Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
+forged key id.
+
+#### `constant MAX_KEY_SET_AGE`
+
+How stale a cached key set may be before it is re-read whatever a caller asks for.
+
+**This is the revocation bound**, and it is the number a reviewer should argue with if they argue
+with anything here: a key removed from the set keeps verifying for at most this long. A constant
+rather than a key for the same reason the limit above is one - and unlike that limit, this one
+only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
+minute per process, which is the same order as
+`crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+
+### Module `token`
+
+Verifying one token, and turning its claims into a principal chain.
+
+# The check review found missing, and it is the serious one
+
+**A signature, an issuer and an audience do not identify a token's CLASS.** Without a `typ` check,
+any JWT the issuer signed with this audience verifies - and an OIDC ID token has the same issuer
+and, whenever the resource identifier equals the client id, the same audience. That is the ordinary
+identity-provider arrangement rather than an exotic one, so the substitution is cheap: a document
+minted to describe a login establishes a caller for an API call. Review demonstrated it against
+this file.
+
+`TokenValidator::verify` now checks `typ` against `sutura_config::RequiredTokenType`, which
+defaults to RFC 9068's `at+jwt` in the `direct` mode. **The check happens on `decoded.header`,
+after the signature**, and that placement is the point: `TokenValidator::key_id`'s whole doc
+comment is that nothing configured applies yet because a JWT header is unauthenticated input, so a
+`typ` read there would be a rule applied to a document nobody signed. After `decode` it is a rule
+applied to a document the issuer signed - the same reasoning that already puts the actor-nesting
+bound there.
+
+# The three things `docs/adr/0014` says a direct deployment owns
+
+Key rotation is `super::keys`. The other two are here:
+
+**Algorithm pinning.** `TokenValidator::new` builds the validation from
+`sutura_config::PinnedAlgorithms`, which is a non-empty list of a single key family with no
+symmetric variant and no `none` variant *available to construct*. Nothing in this file reads the
+`alg` of the token being validated in order to choose how to verify it: the library compares the
+header's algorithm against the pinned list and refuses otherwise, and because the list can only
+hold asymmetric algorithms, the classic confusion - a token signed `HS256` with the issuer's public
+key as the HMAC secret - has no path. `super::keys::InvalidKeySet::SymmetricKey` closes the other
+half, which is a key set that published a shared secret.
+
+**The audience.** `Validation::set_audience` is given exactly one value: this deployment's own
+resource identifier, out of the configuration, and `aud` is in `required_spec_claims` - so a token
+with *no* audience is refused rather than accepted for want of a claim to compare. That is the
+security decision in the record: a client's resource indicator is welcome and is an optimisation,
+and this check is ours, unconditional, and not skippable when the indicator is absent.
+
+# What is not `deny_unknown_fields`, and why that is right exactly here
+
+`Claims` deliberately accepts unknown fields, which is the opposite of every other wire shape in
+this workspace. A token is not a document this deployment defines: an issuer puts `azp`, `jti`,
+`email`, `groups` and a dozen vendor claims in one, and refusing a token because its issuer added a
+claim would break every deployment on the issuer's next release. What keeps that from being a hole
+is that the fields we *do* read are the only ones anything downstream can see - and one of them,
+the actor chain, is bounded.
+
+# Where the caller's own text is bounded
+
+Before anything expensive: `MAX_TOKEN_BYTES` caps what is even looked at, and `SubjectId` and
+`Actor` are parsed by `sutura_domain::identity`, which bounds their length and refuses a control
+character or an invisible one - because those values are written into an audit record that is one
+line per call.
+
+#### `enum TokenRejected`
+
+```rust
+pub enum TokenRejected
+```
+
+Why a presented token did not establish a caller.
+
+**Every variant is "this caller is not authenticated", and none of them is a
+`sutura_domain::query::RefusalReason`.** That is the placement `docs/adr/0008` part 6 already gives
+an expired assertion: a refusal is a governance answer to a question that was understood, and a
+caller who has not proved who they are has not asked a question yet. `crate::problem::Failure` is
+where this becomes a status.
+
+**No variant carries the token, a claim value, or a key.** The `#[error]` text names what was
+wrong; the value that was wrong stays out of it, because these render into a log an operator reads
+and an error is not a place for credential material.
+
+##### Variants
+
+- `Absent` - No token where this deployment reads one.
+- `NotABearerToken` - A header with some other authentication scheme.
+- `TooLong`
+- `UnreadableHeader` - The header is not a JWT header, or names no key.
+- `NoKeyId` - No `kid`.
+- `UnusableKeyId`
+- `NoKey`
+- `NotVerified` - The signature, the expiry, the issuer or the audience.
+- `UnusableSubject` - A `sub` this workspace will not write into a record.
+- `UnusableActor`
+- `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
+- `UnusableScope`
+- `WrongTokenType` - The token is of a class this deployment does not accept.
+- `NoIssuedAt` - A transit proof with no `iat`.
+- `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
+- `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
+
+##### Implements
+
+`Debug`, `Display`, `Error`
+
+#### `enum PresentedType`
+
+```rust
+pub enum PresentedType
+```
+
+The `typ` a refused token presented, where it was one at all.
+
+A named type rather than an `Option<TokenType>` in the variant, so the *absent* case renders as a
+sentence rather than as `None` - and so the case where a `typ` was present but unusable is
+distinguishable from the case where there was none. Both are refusals; they are different
+diagnostics.
+
+##### Variants
+
+- `Named` - A `typ` that parsed, and is not the one required.
+- `Absent` - No `typ` header at all. Refused by anything but `any` - see `sutura_config::RequiredTokenType::accepts`.
+- `Unusable` - A `typ` header holding something no media type could be. Not rendered, for the reason `TokenRejected::WrongTokenType` gives.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+#### `struct TokenValidator`
+
+```rust
+pub struct TokenValidator
+```
+
+One deployment's whole token check, built once at startup.
+
+Holds the built `Validation` rather than rebuilding it per request, which is not an optimisation:
+building it per request would be a per-request opportunity for one of its fields to be set
+differently, and every field on it is a control.
+
+##### Methods
+
+```rust
+pub const fn audience(&self) -> &ResourceIdentifier
+```
+
+The audience this validator requires, for a challenge and for a log line.
+
+```rust
+pub fn key_id(token: &str) -> Result<KeyId, TokenRejected>
+```
+
+The key id the token names, bounded and parsed, without verifying anything.
+
+**Separate from `Self::verify` because it happens before the signature is checked** and the
+caller has to know that: the header of a JWT is unauthenticated input by construction, which is
+why the only thing taken out of it is an identifier that gets bounded, parsed and used as a map
+key. The algorithm in that header is read by nothing here.
+
+An associated function rather than a method, and that is the same point stated by the signature:
+nothing configured applies yet. There is no `&self` because there is nothing on the validator
+this step is allowed to consult.
+
+```rust
+pub const fn leeway() -> Duration
+```
+
+The leeway in effect, so a test asserts the value rather than the constant.
+
+```rust
+pub fn new(requirement: &TokenRequirement<'_>) -> Self
+```
+
+Builds the validation from a declaration `sutura-config` already accepted or refused.
+
+Every line here is a control, so each one says what it is for. What is **not** here is equally
+the point: no `insecure_disable_signature_validation`, no `validate_aud = false`, and no path
+that reads the algorithm out of the token in order to pick one.
+
+```rust
+pub fn verify(&self, token: &str, key: &DecodingKey) -> Result<VerifiedCaller, TokenRejected>
+```
+
+Verifies the token with the key and turns its claims into a caller.
+
+The order is the library's and it is the right one: signature first, then the registered
+claims, and only then is the claim payload deserialized into `Claims` - so every check below
+is applied to a document an issuer signed rather than to one a caller wrote. That is why the
+class check, the actor-nesting bound and the lifetime ceiling all live here and not in
+`Self::key_id`.
+
+##### Implements
+
+`Debug`
+
+#### `constant MAX_TOKEN_BYTES`
+
+The largest token this surface will look at.
+
+**Bounded before the signature is checked, because everything before that point is work done on
+behalf of an unauthenticated caller.** Eight kibibytes is generous for an access token carrying
+groups and an actor chain, and far below the header limit the HTTP implementation would otherwise
+be the only bound at. An unbounded input is a denial-of-service primitive whatever else it is.
 
 ## Module `middleware`
 
@@ -835,6 +1911,7 @@ Why the router could not be assembled.
 
 - `Limiter`
 - `Reaper` - The housekeeping thread for the limiter's keyed state would not start.
+- `InboundIdentityNotAttached` - The settings declare an inbound identity and the state carries no gate to establish it.
 
 #### Implements
 
@@ -1028,6 +2105,16 @@ pub fn definitions(&self) -> &sutura_domain::pinned::PinnedDefinitions
 The service, borrowed, for a handler that only reads the pinned bundle.
 
 ```rust
+pub const fn inbound_identity(&self) -> Option<&Arc<crate::inbound::InboundGate>>
+```
+
+Leg 1, if this deployment has it.
+
+Read by `crate::router` to install the layer, and by nothing else - a handler must not be able
+to reach the validator, which is why the middleware takes the gate as its own state rather than
+reading it back out of this one.
+
+```rust
 pub fn new(surface: Arc<dyn Surface>, settings: Arc<Settings>) -> Self
 ```
 
@@ -1049,6 +2136,16 @@ pub fn surface(&self) -> Arc<dyn Surface>
 ```
 
 The service, for a handler that is about to move the call onto the blocking pool.
+
+```rust
+pub fn with_inbound_identity(self, gate: Arc<crate::inbound::InboundGate>) -> Self
+```
+
+The same state, with leg 1 attached.
+
+Called by the composition root, after it has read the key set the declaration names. A state
+whose settings declare an inbound identity and which has not been through this is a state
+`crate::router::assemble` refuses.
 
 #### Implements
 

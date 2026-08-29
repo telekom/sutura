@@ -38,6 +38,12 @@ axum = { workspace = true }
 # Directly, for `middleware::StateInformationMiddleware` in the limiter's type. It is part of the
 # signature because emitting the remaining-quota headers is a construction-time choice.
 governor = { workspace = true }
+# Leg 1: signature verification, `exp`/`nbf`, issuer and audience, and JWK decoding. See the note on
+# the workspace entry for why the version is what it is and what it adds to the lock. `sutura-config`
+# owns the DECLARATION - which algorithms, which issuer, which audience - and names none of this: the
+# mapping from `sutura_config::SigningAlgorithm` onto this library's own enum lives in
+# `crate::inbound::token` and is the only place the two vocabularies meet.
+jsonwebtoken = { workspace = true }
 serde = { workspace = true }
 # The interface description is serialized once at startup and served from a clone, and the wire
 # shapes are asserted on as JSON in the tests, because the JSON is the contract.
@@ -60,9 +66,14 @@ utoipa-axum = { workspace = true }
 utoipa-swagger-ui = { workspace = true }
 
 [dev-dependencies]
-# The TLS tests generate their certificates rather than carrying one. See the workspace entry: a
-# committed pair cannot express "this key does not match this certificate", which is the case the
-# reload path has to refuse.
+# base64url, for writing a JWK in the leg 1 tests. See the workspace entry: test-only, and nothing in
+# a shipped path here encodes base64 first-party.
+base64 = { workspace = true }
+# TWO uses now, and they are the same argument. The TLS tests generate their certificates rather than
+# carrying one - see the workspace entry: a committed pair cannot express "this key does not match this
+# certificate", which is the case the reload path has to refuse. The leg 1 tests generate a signing key
+# for the same reason plus one more: a committed private key in a public repository is a committed
+# private key, whatever a comment beside it says, and `KeyPair::generate` costs a millisecond.
 rcgen = { workspace = true }
 # The SAME dependency as above, with the log-capture writer turned on. The router's span is
 # observable only as bytes, so the harness builds a subscriber over a buffer and asserts on them -

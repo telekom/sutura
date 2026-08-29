@@ -37,7 +37,7 @@ use sutura_domain::plan::{
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
 
-use crate::shared::settings;
+use crate::shared::{assert_absent_as_text, assert_one_placeholder_per_parameter, bound_value, settings};
 
 /// The metric's own model, on the data system the question started from.
 const FACT_TABLE: &str = "fct_subscription_monthly";
@@ -268,36 +268,6 @@ fn shapes() -> Vec<(&'static str, LegPlan)> {
     ]
 }
 
-/// A parameter's value as text, for comparing against what the leg was supposed to bind.
-fn bound_value(param: &ParamValue) -> String {
-    match *param {
-        ParamValue::Text(ref v) => v.clone(),
-        ParamValue::Date(d) => d.to_iso(),
-    }
-}
-
-/// The statement with every quoted identifier removed.
-///
-/// The same mechanism `golden/dialects.rs` uses on the mono-source corpus, and the reason it is
-/// spelled again here rather than shared is narrow: that module's pass is layered for a false
-/// positive the bucket's grain keyword causes in the IDENTIFIER claim, and the claim below is the
-/// VALUE claim, which wants the single-quoted spans kept. Identifiers are double-quoted and a value
-/// inlined as text would be single-quoted, so dropping the double-quoted spans leaves exactly the
-/// part of the statement a value could have leaked into - and it catches a value inlined bare, with
-/// no quotes at all.
-fn without_identifiers(sql: &str) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut inside = false;
-    for ch in sql.chars() {
-        if ch == '"' {
-            inside = !inside;
-        } else if !inside {
-            out.push(ch);
-        }
-    }
-    out
-}
-
 /// The leg plans themselves, pinned once.
 ///
 /// Dialect-independent, so it is off the per-dialect matrix: a leg plan is a function of the split
@@ -361,21 +331,28 @@ fn parses_in_the_dialect_it_was_generated_for(dialect: Dialect, target: polyglot
 /// predicates and builds its own placeholders, and a version of it that formatted a value into the
 /// statement would satisfy every other test in this file.
 ///
-/// Both halves, because either alone passes on a broken generator: the values are absent from the
-/// statement, AND they are present in the parameter list - so a generator that dropped the predicate
-/// entirely fails here instead of reading as clean.
+/// **The assertions themselves live in `shared` and are the same ones the question corpus makes.**
+/// They were a copy of that module's haystack when this file was written, and the copy is what let
+/// one hole exist in two places: a value the generator wrapped in double quotes was stripped out of
+/// the haystack before the search ran, so a mutation that inlined one passed here and there both.
+/// `shared::assert_absent_as_text` and `shared::assert_one_placeholder_per_parameter` carry the
+/// searches, the positive count and the limit that divides them.
+///
+/// Three assertions, because no two of them alone pass only on a correct generator: the statement names
+/// one bind parameter per value the leg carries, the values are absent from the statement, AND they
+/// are present in the parameter list - so a generator that dropped the predicate entirely fails here
+/// instead of reading as clean.
 fn no_leg_statement_carries_a_value(dialect: Dialect) {
     let mut with_params = 0_usize;
     for (name, leg) in shapes() {
         let query = generate_leg(&leg, dialect).expect("a leg fixture renders");
-        let searchable = without_identifiers(query.sql());
         let expected: Vec<String> = leg.params().iter().map(bound_value).collect();
+        // Counted against the LEG's parameters, for the reason the question corpus counts against
+        // the plan's: a generator that inlined a value and dropped it from its own list is still one
+        // placeholder short.
+        assert_one_placeholder_per_parameter(name, dialect, leg.params().len(), query.sql());
         for value in &expected {
-            assert!(
-                !searchable.contains(value.as_str()),
-                "{name} for {dialect} carries the value {value:?} as text:\n{}",
-                query.sql()
-            );
+            assert_absent_as_text(name, dialect, "the value", value.as_str(), query.sql());
             with_params = with_params.saturating_add(1);
         }
         let bound: BTreeSet<String> = query.params().iter().map(bound_value).collect();

@@ -60,13 +60,18 @@ one the caller may not have. Every one of those carries a stable `code` and a se
 to change. Repeating an unchanged question will not change the answer; the one refusal worth \
 retrying is 503 `source_unavailable`. 200 means the question was ANSWERED and nothing else does.
 
-NO PER-CALLER IDENTITY. Where an access token is configured, presenting it proves the caller holds \
-a secret an operator configured - it authenticates the deployment, not the caller. There is no \
-per-request credential and no row-level scoping: every question is answered with whatever access \
-the service process already had, whoever asked it. Each call IS recorded against a principal chain \
-before its outcome is returned, and on this deployment that chain names the deployment itself - it \
-is this paragraph as a value, not an identity for you to set. No request field carries one: a body \
-naming a subject is a 400 that says so.";
+WHO IS ASKING, and what it does not buy. A deployment may be configured to verify your own token - \
+signature, issuer, expiry, and an audience matching its own resource identifier - in which case a \
+401 carries a WWW-Authenticate challenge naming the realm, and your subject is what each call is \
+recorded against. A deployment configured without it authenticates the DEPLOYMENT instead, with a \
+shared access token, and records every call against the deployment itself. Which of the two this \
+one is, is a deployment decision and this document does not say.\n\
+\n\
+NEITHER IS PER-CALLER ACCESS. There is no per-request credential to a data system and no row-level \
+scoping either way: every question is answered with whatever access the service process already \
+had, whoever asked it. No token and no scope widens what a metric permits - a 403 is the catalog's \
+answer about the metric, never about your credential. And no request field carries an identity: a \
+body naming a subject is a 400 that says so.";
 
 /// The document, before the route fragments are merged into it.
 ///
@@ -171,11 +176,21 @@ mod tests {
     }
 
     #[test]
-    fn the_document_tells_a_reader_that_there_is_no_per_caller_identity() {
+    fn the_document_tells_a_reader_that_identity_is_not_access() {
         // The one thing somebody integrating against this surface will otherwise assume. It is in
         // the document rather than only in an operator's log, because they are different readers.
+        //
+        // **The notice changed shape with leg 1 and the assertion changed with it.** It used to read
+        // "NO PER-CALLER IDENTITY", which is now true of some deployments and false of others - and a
+        // document served by both cannot say either. What it says instead is the half that is
+        // unconditional and the half somebody acts on wrongly: whichever way a deployment
+        // authenticates, no question runs as the asker.
         let rendered = document_json().expect("the document serializes");
-        assert!(rendered.contains("NO PER-CALLER IDENTITY"), "the description lost the notice");
+        assert!(
+            rendered.contains("NEITHER IS PER-CALLER ACCESS"),
+            "the description lost the notice"
+        );
+        assert!(rendered.contains("WHO IS ASKING"), "the description lost the identity notice");
         assert!(
             rendered.contains("refusal is a RESULT"),
             "the description lost the refusal notice"
