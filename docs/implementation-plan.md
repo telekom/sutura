@@ -4,16 +4,19 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twenty-four steps, eight done, six of which can start at once.** Every number is counted off the table
+**Twenty-six steps, ten done, six of which can start at once.** Every number is counted off the table
 below rather than remembered, which is the fourth attempt at getting them right: a number typed by hand
 beside the table that owns it goes stale on the next row, and it has now gone stale three times -
 "eleven steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which"
 against eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows
 and seven done. **If the table and this sentence ever disagree again, the table is right**, and the
-three commands that settle it are `grep -c '^| [0-9]'` for the rows, the same with `| ~~` for the
-struck ones and `| \*\*yes\*\* |$` for the startable ones. Every step is one branch, one pull request,
-and green before the next depends on it. `stax` manages the stack; the `git-ops/stacked-branches` skill
-has the mechanics.
+three commands that settle it are `grep -c '^| [0-9]'` for the rows, `grep -c '^| [0-9].*\*\*DONE\*\*'` for the
+finished ones and `grep -c '| \*\*yes\*\* |$'` for the startable ones. **The middle command used to
+search for the strikethrough and it over-counted, which is worth a sentence because the fix is a
+habit:** the needle appeared in this paragraph as well as in the table, so the paragraph explaining the
+count was itself counted. Every command here is anchored at the start of a row for that reason. Every
+step is one branch, one pull request, and green before the next depends on it. `stax` manages the
+stack; the `git-ops/stacked-branches` skill has the mechanics.
 
 ## The stack
 
@@ -26,18 +29,18 @@ internal that a stable surface can grow behind.
 | --- | --- | --- | --- |
 | 1 | ~~`feat/agent-surface`~~ | - | **DONE** - #35 |
 | 2 | ~~`docs/inbound-identity`~~ | - | **DONE** - landed as [0014](adr/0014-how-a-caller-proves-who-it-is.md) |
-| 3 | ~~`feat/agent-surface-scope`~~ | 1, and leg 1 for a claim to filter on | **IN REVIEW** - stacked on the leg 1 branch |
+| 3 | ~~`feat/agent-surface-scope`~~ | 1, and leg 1 for a claim to filter on | **DONE** - #49 |
 | 4 | ~~`feat/federation-decomposability`~~ | - | **DONE** - #33. Built and NOT wired; see AGENTS.md |
 | 5 | ~~`feat/principal-chain`~~ | - | **DONE** - #37. Both tail positions still absent |
 | 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
-| 8 | ~~`feat/source-registry`~~ | - | **DONE**. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
+| 8 | ~~`feat/source-registry`~~ | - | **DONE** - #48. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
 | 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
 | 10 | `feat/two-source-execution` | 8, 9 - both **done** | **yes** |
 | 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
 | 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
-| 14 | `feat/compose-tier` | nothing in this repo - docker on the host | **IN REVIEW** - #34 |
+| 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
 | 15 | `feat/bigquery-adapter` | 8 - **done**, and the fixture decision | **yes** |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
 | 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
@@ -48,6 +51,8 @@ internal that a stable surface can grow behind.
 | 22 | `build/supply-chain` | nothing - orthogonal | **yes** |
 | 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
 | 24 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
+| 25 | `feat/metadata-composition` | nothing built - [0011](adr/0011-pluggable-by-declaration.md) decided all of it | **yes** |
+| 26 | `feat/datahub-catalog` | 25 for the assembler and the manifest, 11 for the packs, 14 - **done** - for an instance to read | after 25 |
 
 **Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
 [BigQuery](implementation-plan-bigquery.md), and rows 12 to 14 and 17 to 24 are in
@@ -113,7 +118,7 @@ project becomes something else.
 | Inspiration from Spice | **compared and declined as a dependency**, correctly - and nothing taken as SHAPE | the connector API, connection pooling and Arrow execution patterns are exactly what `feat/source-registry`, `feat/leg-plan-types`, `feat/two-source-execution` and `feat/postgres-adapter` need |
 | Execution from DataFusion | **present**, and it stays the combiner under federation | none |
 | Polyglot for rendering, transpilation if needed | **present for rendering**, three dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
-| Flexible sources and metadata systems | **decided, not built** | the eleven connectors and the declaration that carries them |
+| Flexible sources and metadata systems | **decided, not built - and one of the eleven connectors is now measured rather than assumed** | the connectors and the declaration that carries them, plus the composition step [what DataHub can carry](adr/0016-what-datahub-can-carry.md) put in front of the narrow ones |
 | Security | **the strongest part of the record** | the credential port is designed and unbuilt |
 | The agent-facing surface | **MISSING FROM THIS PLAN** | there is no `sutura-mcp`, and until now no step for it |
 
@@ -906,10 +911,97 @@ route not taken.
 **Done when** the semantic compiler is conformance-tested across catalogs with no container anywhere,
 the compile half runs on every push, and an orphaned snapshot fails a gate rather than accumulating.
 
+## Composing several metadata sources
+
+**Goal.** One bundle from N metadata sources, with the rules that make that safe.
+[Pluggable by declaration](adr/0011-pluggable-by-declaration.md) decided all of it and none of it is
+built; [what DataHub can carry](adr/0016-what-datahub-can-carry.md) is why it is now scheduled rather
+than dormant - the first narrow source is the first thing that needs it.
+
+**Touches.** `sutura-app` for the assembler, `sutura-domain`'s `PinnedDefinitions::pin` for the
+manifest, and every committed digest.
+
+**Adds.** An assembler in `sutura-app` over N `SemanticCatalog` ports - **application code, not an
+adapter over adapters**, for the three reasons 0011 gives, the load-bearing one being that "exactly one
+source may provide a given kind for a given entity" is a domain rule rather than one implementation's
+opinion. Exactly one source per kind per entity, refusing and naming both on a conflict. **No
+precedence for metrics, declared or otherwise** - two sources defining one metric is refused always.
+Declared-and-empty stays distinct from not-declared. Availability declared per source: required and
+unreachable at startup fails closed, optional and unreachable starts without it, and either one
+unreachable at refresh keeps the last validated bundle and says so.
+
+**And the contribution manifest, which is the part with a bill.** A canonical entry per configured
+metadata source - the declared name, its typed capability declaration, required or optional, and
+whether it was reached - hashed as a **third element** beside the definitions and the knowledge,
+computed by `pin` from what it stores with no manifest parameter. Without it the availability rules
+above are describing a distinction the code cannot make, because the digest is taken over the assembly:
+an optional source that was unreachable and contributed nothing anybody read produces the same digest
+as the run that included it. **Every committed digest moves once**, in one reviewable diff, and a
+single-source deployment carries a one-entry manifest so the interesting case is not the untested one.
+
+**Tests.** `two_sources_defining_one_metric_is_refused_naming_both`.
+`two_sources_providing_one_kind_for_one_entity_is_refused`.
+`a_source_that_never_declared_descriptions_cannot_contribute_one`.
+`an_unreachable_optional_source_produces_a_different_digest_from_the_run_that_included_it` - which is
+the test that fails today and is the whole reason the manifest is in this step.
+`a_source_rename_moves_the_digest`, asserting the honest limit rather than hiding it.
+
+**Done when** a deployment can read a source that carries descriptions and a source that carries
+metrics and serve one bundle whose digest says which sources produced it.
+
+## The DataHub catalog, and what it may not be asked for
+
+**Goal.** A `SemanticCatalog` over DataHub, declaring structure, descriptions,
+relationships-with-cardinality and glossary content, and declaring **no metrics**.
+
+**Read [what DataHub can carry](adr/0016-what-datahub-can-carry.md) first.** It is the measurement
+this step is shaped by, and the three things it decided are the three things this step must not
+quietly reverse: a DataHub measure is a per-dialect raw expression string and is **read and reported,
+never executed and never converted**; the `aggregationFunction` beside it is **not** harvested into a
+`Measure`, because it and the expression are authored independently and taking one certifies half a
+definition; and a relationship whose cardinality is absent or many-to-many is **refused at load**,
+naming the relationship, rather than defaulted in either direction.
+
+**Touches.** A new `sutura-catalog-datahub` crate. An HTTP client written here, because DataHub
+publishes Python and Java SDKs and no Rust one. **Which surface is already settled by DataHub's own
+guidance** and 0016 records why: its GraphQL API assumes frontend callers and says operations there
+are intentionally limited in scope, so this reads the versioned OpenAPI v3 entity surface, against a
+spec the deployment serves for itself, with a personal access token as a bearer. What is **not**
+settled is the cost - how many requests a whole bundle takes, and what keeps a generated client from
+drifting - and that is this step's first engineering question.
+
+**Depends on the composition step**, and the dependency is structural rather than convenient: a source
+that carries no measure cannot fill a bundle on its own, and the catalog conformance matrix's central
+behaviour is that every registered catalog produces **the same `Definitions`** as the hand-written
+oracle. A narrow source cannot pass that and no adapter code changes it. So this step also owes the
+matrix a second question - *did the source contribute exactly what it declared and nothing else* - and
+where that test lives is the composition step's to answer.
+
+**Note what this step does NOT get.** No source-level usage prose in the prompt: 0011 withdrew that
+claim in full, a note is attached to a `Referent` that names a metric, and there is nothing legal for a
+source's own instructions to point at. DataHub's `AiContext` - synonyms, instructions, examples - is
+the field a `Knowledge` contribution would come from, and it still has to name a metric the bundle
+declares.
+
+**Tests.** `a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined`.
+`a_relationship_with_no_declared_cardinality_is_refused_naming_it`.
+`a_many_to_many_cardinality_is_refused_because_no_join_type_represents_it`.
+`the_adapter_declares_no_metrics_so_content_for_that_kind_fails_the_load` - which is the existing
+`UndeclaredContent` guard doing the job it was built for, against a real source rather than a fixture.
+
+**Done when** a deployment reads its physical model, its prose and its joins from DataHub, its
+measures from a source that declares them, and serves one bundle whose digest names both.
+
 ## The rest of the stack
 
 The branch sections above cover the first eleven rows of the table - the surface, the domain and
-federation. **Rows 12 to 24 continue on two further pages.**
+federation - and rows 25 and 26, the metadata composition and the DataHub connector. **Those two are
+here rather than split off by the seam this page otherwise follows**, and the reason is in
+`devco/max-lines-ignore`: prose is exempt from the line cap, and the earlier splits of this document
+cost cross-references and paragraphs explaining themselves. Row 26 does need a live service, so by the
+seam's letter it belongs on the services page; separating a finding from the connector it shapes is the
+mistake that left DataHub with four accepted records and no row at all, and it is not worth repeating
+for tidiness. **Rows 12 to 24 continue on two further pages.**
 [BigQuery](implementation-plan-bigquery.md) carries rows 15 and 16.
 [Identity, services and the operational work](implementation-plan-identity-and-services.md) carries the
 credential port, the compose tier, the two Postgres steps, mutual TLS, the raw SQL tool, the demo

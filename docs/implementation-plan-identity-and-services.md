@@ -949,9 +949,18 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   behind the transpile feature this workspace does not compile.
 - **Untrusted-content marking in the result envelope.** Cheap before the first Arrow envelope, expensive
   after, so it lands with the envelope rather than after it.
-- **The remaining metadata connectors.** OKF, Datahub, OpenMetadata, the RDBMS catalog, BPMN and RDF are
-  all `feat/source-registry`-shaped once the packs exist: a registration, a declaration, and fixtures.
-  Branch name rather than a step number, because the numbers in the stack table have moved twice.
+- **The remaining metadata connectors** - OKF, OpenMetadata, the RDBMS catalog, BPMN and RDF.
+  **Datahub has left this bullet**: it has two rows of its own in the stack table, because
+  [what DataHub can carry](adr/0016-what-datahub-can-carry.md) measured it and found it carries part of
+  a model rather than all of one. **And that measurement falsifies what this bullet used to claim about
+  all six of them** - that they are *"all `feat/source-registry`-shaped once the packs exist: a
+  registration, a declaration, and fixtures."* A registration is what it costs to add a provider that
+  can fill a whole bundle; a provider that carries structure and prose and no measure needs the
+  composition step first, because the catalog conformance matrix asserts that every registered catalog
+  produces the same definitions as the hand-written oracle. The sentence was reasonable when written and
+  nothing had been measured against a narrow source. Four of the five remaining names are narrow by the
+  same reading, so the honest statement is that **each is a registration on top of the composition step
+  and not instead of it** - which is unscheduled work, not free work.
 - **Selective service CI.** Deferred rather than scheduled, with the reason and what survives of the
   design in its own section above: the fail-open property that justified it cannot be exercised by a
   new adapter, because `crates/**` already matches an area, and the cost it would save has never been

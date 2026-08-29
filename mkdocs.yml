@@ -170,6 +170,7 @@ nav:
       - A raw SQL tool, off by default: adr/0013-a-raw-sql-tool-off-by-default.md
       - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
       - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
+      - What DataHub can carry: adr/0016-what-datahub-can-carry.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
