@@ -80,8 +80,12 @@ fn succeeds(command: &mut Command) -> bool {
 /// network or a volume resolves it from an unset variable at destroy time - and the destroy targets
 /// the wrong network while reporting success. So the project goes in twice, here and in
 /// [`environment`], and both come from one place.
-pub(crate) fn scoped_args(root: &Path, project: &str) -> Vec<String> {
-    vec![
+///
+/// `profiles` are the compose profiles to activate. They go BEFORE the subcommand, because
+/// `--profile` is a flag on `docker compose` and not on `up` - and a service in an inactive profile
+/// is invisible to every subcommand, `down` included, which is why teardown passes them all.
+pub(crate) fn scoped_args(root: &Path, project: &str, profiles: &[&str]) -> Vec<String> {
+    let mut args = vec![
         String::from("compose"),
         String::from("--file"),
         root.join(COMPOSE_FILE).to_string_lossy().into_owned(),
@@ -89,7 +93,12 @@ pub(crate) fn scoped_args(root: &Path, project: &str) -> Vec<String> {
         root.to_string_lossy().into_owned(),
         String::from("--project-name"),
         String::from(project),
-    ]
+    ];
+    for profile in profiles {
+        args.push(String::from("--profile"));
+        args.push(String::from(*profile));
+    }
+    args
 }
 
 /// The environment every compose invocation carries. The other half of rule 3.
@@ -108,10 +117,10 @@ pub(crate) struct Output {
 }
 
 /// Run one compose subcommand, scoped to this worktree.
-pub(crate) fn compose(root: &Path, project: &str, extra: &[&str]) -> Result<Output, std::io::Error> {
+pub(crate) fn compose(root: &Path, project: &str, profiles: &[&str], extra: &[&str]) -> Result<Output, std::io::Error> {
     let mut command = Command::new("docker");
     command.current_dir(root);
-    command.args(scoped_args(root, project));
+    command.args(scoped_args(root, project, profiles));
     command.args(extra);
     for (name, value) in environment(project) {
         command.env(name, value);
@@ -366,7 +375,7 @@ mod tests {
 
     #[test]
     fn every_compose_invocation_names_one_project_and_one_file() {
-        let args = scoped_args(Path::new("/repo"), "sutura-dev-aaaa1111");
+        let args = scoped_args(Path::new("/repo"), "sutura-dev-aaaa1111", &[]);
         assert!(args.contains(&String::from("--project-name")));
         assert!(args.contains(&String::from("sutura-dev-aaaa1111")));
         assert!(args.iter().any(|a| a.ends_with("compose.services.yaml")));
@@ -399,7 +408,7 @@ mod tests {
         // the wrong network while reporting success. Both halves come from here, so they cannot
         // drift apart between the call that starts and the call that stops.
         let project = "sutura-dev-aaaa1111";
-        assert!(scoped_args(Path::new("/repo"), project).contains(&String::from(project)));
+        assert!(scoped_args(Path::new("/repo"), project, &[]).contains(&String::from(project)));
         assert_eq!(
             super::environment(project),
             vec![("COMPOSE_PROJECT_NAME", String::from(project))]

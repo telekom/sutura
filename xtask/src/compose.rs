@@ -105,6 +105,54 @@ fn requirement_from_env() -> Requirement {
 /// What a service reported as its published address, per service name.
 type Published = Vec<(&'static str, String)>;
 
+/// What `--with` asked for.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Requested {
+    /// The profiles to activate, in the order given. Empty means the default set only.
+    Profiles(Vec<&'static str>),
+    /// A profile name no service declares. Refused rather than ignored: a typo that silently
+    /// started nothing would look exactly like a service that failed to come up.
+    Unknown(String),
+    /// `--with` with nothing after it.
+    Missing,
+}
+
+/// Read `--with <profile>`, repeatable, against the profiles services actually declare.
+///
+/// Validated against the declaration rather than a literal list here, so a service that gains a
+/// profile needs no edit in this file - and a name nothing declares cannot be quietly accepted.
+pub(crate) fn requested(args: &[String], known: &[&'static str]) -> Requested {
+    let mut chosen: Vec<&'static str> = Vec::new();
+    let mut rest = args.iter();
+    while let Some(arg) = rest.next() {
+        if arg != "--with" {
+            continue;
+        }
+        let Some(name) = rest.next() else {
+            return Requested::Missing;
+        };
+        match known.iter().find(|profile| *profile == name) {
+            Some(profile) if !chosen.contains(profile) => chosen.push(profile),
+            Some(_) => {}
+            None => return Requested::Unknown(name.clone()),
+        }
+    }
+    Requested::Profiles(chosen)
+}
+
+/// The services this invocation will start: the default set, plus any whose profile was asked for.
+///
+/// The readiness gate and the port read-back both walk this, so a service left out of it is a
+/// service nothing waits for and nothing records - which is the correct behaviour for one that was
+/// never started, and would be a silent hole for one that was.
+pub(crate) fn expected_services(active: &[&'static str]) -> Vec<&'static str> {
+    SERVICES
+        .iter()
+        .filter(|service| service.is_default() || service.profile().is_some_and(|p| active.contains(&p)))
+        .map(sutura_dev::scope::Service::name)
+        .collect()
+}
+
 /// The worktree we are in, as a scope. Everything named is derived from this and nothing else - the
 /// scope carries the canonical root, so there is no second path for the two to disagree about.
 fn scope_here() -> Result<Scope, Verdict> {
@@ -150,7 +198,20 @@ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Ver
 }
 
 /// `dev-up`: bring this worktree's services up, wait for them to be healthy, write the endpoints.
-pub(crate) fn run_up(_args: &[String]) -> Verdict {
+pub(crate) fn run_up(args: &[String]) -> Verdict {
+    let known = sutura_dev::scope::profiles();
+    let active = match requested(args, &known) {
+        Requested::Profiles(chosen) => chosen,
+        Requested::Missing => {
+            eprintln!("xtask dev-up: `--with` needs a profile name; this file declares {known:?}");
+            return Verdict::Usage;
+        }
+        Requested::Unknown(name) => {
+            eprintln!("xtask dev-up: no service declares the profile `{name}`; there is {known:?}");
+            return Verdict::Usage;
+        }
+    };
+
     let Ok(scope) = scope_here() else {
         return Verdict::Fail;
     };
@@ -176,8 +237,15 @@ pub(crate) fn run_up(_args: &[String]) -> Verdict {
         }
     };
 
+    let expected = expected_services(&active);
     println!("xtask dev-up: {} in {}", scope.project(), root.display());
-    match docker::compose(&root, &scope.project(), &["up", "--detach", "--remove-orphans"]) {
+    println!("  services  {}", expected.join(", "));
+    if active.is_empty() {
+        println!("  profiles  none - `--with <profile>` adds one of {known:?}");
+    } else {
+        println!("  profiles  {}", active.join(", "));
+    }
+    match docker::compose(&root, &scope.project(), &active, &["up", "--detach", "--remove-orphans"]) {
         Ok(out) if out.ok => {}
         Ok(out) => {
             eprintln!("xtask dev-up: `docker compose up` failed");
@@ -190,12 +258,11 @@ pub(crate) fn run_up(_args: &[String]) -> Verdict {
         }
     }
 
-    let expected: Vec<&str> = SERVICES.iter().map(sutura_dev::scope::Service::name).collect();
-    if let Err(verdict) = wait_until_healthy(&root, &scope, &expected) {
+    if let Err(verdict) = wait_until_healthy(&root, &scope, &active, &expected) {
         return verdict;
     }
 
-    let bound = match read_back_ports(&root, &scope) {
+    let bound = match read_back_ports(&root, &scope, &active, &expected) {
         Ok(bound) => bound,
         Err(verdict) => return verdict,
     };
@@ -220,7 +287,7 @@ pub(crate) fn run_up(_args: &[String]) -> Verdict {
 /// A health GATE and not a sleep. The distinction is what happens when it is wrong: a sleep that was
 /// too short surfaces as a connection refused inside somebody's test; this says which service never
 /// became healthy and stops.
-fn wait_until_healthy(root: &Path, scope: &Scope, expected: &[&str]) -> Result<(), Verdict> {
+fn wait_until_healthy(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<(), Verdict> {
     let budget = std::time::Duration::from_secs(
         std::env::var("SUTURA_DEV_READY_TIMEOUT_SECS")
             .ok()
@@ -234,7 +301,7 @@ fn wait_until_healthy(root: &Path, scope: &Scope, expected: &[&str]) -> Result<(
     let mut last: Vec<String>;
 
     loop {
-        let out = docker::compose(root, &scope.project(), &["ps", "--all", "--format", "json"]);
+        let out = docker::compose(root, &scope.project(), profiles, &["ps", "--all", "--format", "json"]);
         let reported = match out {
             Ok(out) if out.ok => docker::parse_ps(&out.stdout),
             Ok(out) => {
@@ -277,11 +344,14 @@ fn wait_until_healthy(root: &Path, scope: &Scope, expected: &[&str]) -> Result<(
 ///
 /// This is the allocation being read back. Nothing here chooses a port; if the read-back fails, the
 /// provision fails rather than falling back to a guess - a fallback is how a constant gets in.
-fn read_back_ports(root: &Path, scope: &Scope) -> Result<Published, Verdict> {
+/// Only the services that were STARTED are read back: a service in a profile nobody asked for has
+/// no container and therefore no port, and asking for one would fail the provision over a service
+/// that was correctly absent.
+fn read_back_ports(root: &Path, scope: &Scope, profiles: &[&str], expected: &[&str]) -> Result<Published, Verdict> {
     let mut bound = Vec::new();
-    for service in SERVICES {
+    for service in SERVICES.iter().filter(|s| expected.contains(&s.name())) {
         let container_port = service.container_port().to_string();
-        let out = match docker::compose(root, &scope.project(), &["port", service.name(), &container_port]) {
+        let out = match docker::compose(root, &scope.project(), profiles, &["port", service.name(), &container_port]) {
             Ok(out) => out,
             Err(cause) => {
                 eprintln!("xtask dev-up: could not run docker: {cause}");
@@ -328,6 +398,16 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
     println!("xtask dev-down: {} in {}", project, root.display());
     teardown::describe(&plan);
 
+    // EVERY profile, not the ones this invocation asked for - `dev-down` takes no `--with`, and
+    // that is the point. `docker compose down` only considers services in ACTIVE profiles, so a
+    // destroy run without them would leave a profiled service's container and its named volume
+    // behind **while reporting success**. Derived from the declaration, so a new profile is covered
+    // without a second edit here.
+    let every_profile = sutura_dev::scope::profiles();
+    if !every_profile.is_empty() {
+        println!("  profiles  {} (all of them, so nothing survives)", every_profile.join(", "));
+    }
+
     if dry_run {
         println!("xtask dev-down: dry run - nothing was removed");
         drop(held);
@@ -353,7 +433,7 @@ pub(crate) fn run_down(args: &[String]) -> Verdict {
     }
 
     if let Some(target) = plan.target.as_deref() {
-        match docker::compose(&root, target, &teardown::down_args()) {
+        match docker::compose(&root, target, &every_profile, &teardown::down_args()) {
             Ok(out) if out.ok => println!("  removed  {target}"),
             Ok(out) => {
                 eprintln!("xtask dev-down: `docker compose down` failed");
@@ -456,6 +536,142 @@ mod tests {
         }
         for value in ["1", "true", "TRUE", "yes"] {
             assert!(truthy(value), "{value:?} read as falsy");
+        }
+    }
+
+    #[test]
+    fn the_identity_provider_starts_only_when_it_is_asked_for() {
+        // The reviewer's question turned into a mechanism: `dev-up` with no flag does not start
+        // keycloak, so CI does not pay for a service nothing here can use yet.
+        let default_set = super::expected_services(&[]);
+        assert!(default_set.contains(&"postgres"));
+        assert!(default_set.contains(&"clickhouse"));
+        assert!(
+            !default_set.contains(&"keycloak"),
+            "the default set must not include the identity provider: {default_set:?}"
+        );
+
+        let with_identity = super::expected_services(&["identity"]);
+        assert!(with_identity.contains(&"keycloak"), "{with_identity:?}");
+        assert_eq!(
+            with_identity.len(),
+            default_set.len() + 1,
+            "asking for a profile must ADD to the default set, not replace it"
+        );
+    }
+
+    #[test]
+    fn an_unknown_profile_is_refused_rather_than_silently_starting_nothing() {
+        // A typo that quietly started the default set would look exactly like a service that failed
+        // to come up - the reader would go looking at containers instead of at their command line.
+        let known = ["identity"];
+        let args = |v: &[&str]| -> Vec<String> { v.iter().map(|s| String::from(*s)).collect() };
+
+        assert_eq!(
+            super::requested(&args(&["--with", "identty"]), &known),
+            super::Requested::Unknown(String::from("identty"))
+        );
+        assert_eq!(super::requested(&args(&["--with"]), &known), super::Requested::Missing);
+        assert_eq!(
+            super::requested(&args(&["--with", "identity"]), &known),
+            super::Requested::Profiles(vec!["identity"])
+        );
+        // Repeated is not two, and no flag is none.
+        assert_eq!(
+            super::requested(&args(&["--with", "identity", "--with", "identity"]), &known),
+            super::Requested::Profiles(vec!["identity"])
+        );
+        assert_eq!(super::requested(&args(&[]), &known), super::Requested::Profiles(Vec::new()));
+    }
+
+    #[test]
+    fn teardown_enables_every_profile_so_nothing_survives_it() {
+        // `docker compose down` only considers services in ACTIVE profiles, so a destroy that ran
+        // without them would leave a profiled container and its named volume behind while reporting
+        // success - the silent-success failure the teardown contract is about. `dev-down` takes no
+        // `--with` for exactly this reason.
+        let every = sutura_dev::scope::profiles();
+        assert!(every.contains(&"identity"), "{every:?}");
+
+        let args = super::docker::scoped_args(std::path::Path::new("/repo"), "sutura-dev-aaaa1111", &every);
+        for profile in &every {
+            assert!(
+                args.contains(&String::from(*profile)),
+                "`{profile}` is not on the destroy's command line: {args:?}"
+            );
+        }
+        // The flag belongs to `docker compose`, before the subcommand - on `up` it is not a flag at
+        // all, so a profile appended after it would be read as a service name.
+        let profile_at = args.iter().position(|a| a == "--profile");
+        assert!(profile_at.is_some_and(|at| at > 0), "{args:?}");
+    }
+
+    /// The compose file's text, or `None` where the repo root cannot be found.
+    fn compose_text() -> Option<String> {
+        let root = crate::repo::root()?;
+        std::fs::read_to_string(root.join(super::docker::COMPOSE_FILE)).ok()
+    }
+
+    #[test]
+    fn every_image_is_reached_through_one_registry_variable() {
+        // A network behind a registry mirror has NO route to the public registry, and an unprefixed
+        // reference does not fall back - it fails. So a bare `image: postgres:18-alpine` is not a
+        // style problem, it is a service that cannot start there. Reviewed once, checked from now on.
+        let Some(text) = compose_text() else { return };
+
+        let images: Vec<&str> = text
+            .lines()
+            .map(str::trim)
+            .filter_map(|line| line.strip_prefix("image: "))
+            .collect();
+        assert!(images.len() >= 2, "the file should declare several images: {images:?}");
+
+        let mut defaults: Vec<&str> = Vec::new();
+        for image in &images {
+            let default = image
+                .strip_prefix("${")
+                .and_then(|rest| rest.split('}').next())
+                .and_then(|inside| inside.split(":-").nth(1));
+            let Some(default) = default else {
+                panic!("`{image}` does not come through a registry variable with a default");
+            };
+            defaults.push(default);
+        }
+        // ONE value an operator sets. Two defaults that disagree is the drift this catches: half the
+        // tier would follow the override and half would not, and only one service would fail.
+        defaults.sort_unstable();
+        defaults.dedup();
+        assert_eq!(defaults.len(), 1, "the registry defaults disagree: {defaults:?}");
+    }
+
+    #[test]
+    fn the_fixture_credential_is_defined_once() {
+        // Two definitions is how they drift and one service silently gets a different password. The
+        // anchor is the definition; every use is an alias. A literal repeated in a service block
+        // would pass a reading and fail here.
+        let Some(text) = compose_text() else { return };
+
+        for anchor in ["fixture-user", "fixture-password"] {
+            let defined = text.matches(&format!("&{anchor}")).count();
+            let used = text.matches(&format!("*{anchor}")).count();
+            assert_eq!(defined, 1, "`{anchor}` is defined {defined} times, not once");
+            assert!(used >= 2, "`{anchor}` is aliased {used} time(s) - inline it or use it");
+        }
+
+        // And no service writes the value directly. `_USER`/`_PASSWORD` keys must alias.
+        for line in text.lines().map(str::trim) {
+            let is_credential = line.starts_with("POSTGRES_PASSWORD:")
+                || line.starts_with("CLICKHOUSE_PASSWORD:")
+                || line.starts_with("KC_BOOTSTRAP_ADMIN_PASSWORD:")
+                || line.starts_with("POSTGRES_USER:")
+                || line.starts_with("CLICKHOUSE_USER:")
+                || line.starts_with("KC_BOOTSTRAP_ADMIN_USERNAME:");
+            if is_credential {
+                assert!(
+                    line.contains("*fixture-"),
+                    "`{line}` writes a credential instead of aliasing the one definition"
+                );
+            }
         }
     }
 

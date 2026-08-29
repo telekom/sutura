@@ -49,6 +49,12 @@ pub struct Service {
     /// The port the container listens on. Not a host port: the compose file publishes this one
     /// ephemerally, and `xtask` asks docker which host port it landed on.
     container_port: u16,
+    /// The compose profile that turns this service on, or `None` for one that is always started.
+    ///
+    /// A profile is how "this service is off unless somebody needs it" becomes a mechanism rather
+    /// than a paragraph. `keycloak` carries one because nothing in this repository can use an
+    /// identity provider yet, and a tier that starts it on every run pays for it on every run.
+    profile: Option<&'static str>,
 }
 
 impl Service {
@@ -64,6 +70,38 @@ impl Service {
     pub const fn container_port(&self) -> u16 {
         self.container_port
     }
+
+    /// The compose profile that turns this service on, or `None` for one always started.
+    #[must_use]
+    pub const fn profile(&self) -> Option<&'static str> {
+        self.profile
+    }
+
+    /// Is this service started when no profile was asked for?
+    #[must_use]
+    pub const fn is_default(&self) -> bool {
+        self.profile.is_none()
+    }
+}
+
+/// Every profile any service declares, in declaration order and without repeats.
+///
+/// Teardown enables all of them, and that is the reason this exists: `docker compose down` only
+/// considers services in ACTIVE profiles, so a destroy that forgot one would leave that service's
+/// container and named volume behind **while reporting success** - the same silent-success failure
+/// the teardown contract below is about. Derived rather than listed, so adding a profile does not
+/// need a second edit somewhere else to stay correct.
+#[must_use]
+pub fn profiles() -> Vec<&'static str> {
+    let mut found: Vec<&'static str> = Vec::new();
+    for service in SERVICES {
+        if let Some(profile) = service.profile
+            && !found.contains(&profile)
+        {
+            found.push(profile);
+        }
+    }
+    found
 }
 
 /// The services a worktree may run. Adding one is a row here plus a block in
@@ -113,14 +151,20 @@ pub const SERVICES: &[Service] = &[
     Service {
         name: "postgres",
         container_port: 5432,
+        profile: None,
     },
     Service {
         name: "clickhouse",
         container_port: 8123,
+        profile: None,
     },
     Service {
+        // OFF unless asked for. The reasoning lives beside the service in `compose.services.yaml`:
+        // it is only needed for the two-subject test, nothing here can use it yet, and it is the
+        // slowest of the three to become ready.
         name: "keycloak",
         container_port: 8080,
+        profile: Some("identity"),
     },
 ];
 
@@ -353,9 +397,46 @@ mod tests {
                 "`Service` grew a host-port field: {field}"
             );
         }
-        assert_eq!(fields.len(), 2, "an unreviewed field on `Service`: {fields:?}");
+        assert_eq!(fields.len(), 3, "an unreviewed field on `Service`: {fields:?}");
         for service in SERVICES {
             assert!(service.container_port() > 0, "{} has no container port", service.name());
+        }
+    }
+
+    #[test]
+    fn the_identity_provider_is_off_unless_it_is_asked_for() {
+        // The reviewer's question - "for what cases do we use keycloak? can we mock it in CI?" -
+        // answered as a mechanism rather than a paragraph. Nothing here can use an identity provider
+        // yet, so a tier that starts it on every run pays for it on every run and tests nothing.
+        let identity: Vec<&str> = SERVICES
+            .iter()
+            .filter(|service| !service.is_default())
+            .map(super::Service::name)
+            .collect();
+        assert_eq!(identity, vec!["keycloak"]);
+
+        // And the data sources are NOT behind a profile: those are what an adapter is tested
+        // against, so making them opt-in would be the tier failing at its own job.
+        for service in SERVICES.iter().filter(|s| s.name() != "keycloak") {
+            assert!(service.is_default(), "{} must start by default", service.name());
+        }
+    }
+
+    #[test]
+    fn every_declared_profile_is_discoverable_without_a_second_list() {
+        // Teardown enables every profile, because `docker compose down` only considers services in
+        // ACTIVE profiles - so a profile missing from this walk leaves a container and a named
+        // volume behind while the destroy reports success. Derived from `SERVICES`, so adding a
+        // profile cannot forget to update it.
+        assert_eq!(super::profiles(), vec!["identity"]);
+        for service in SERVICES {
+            if let Some(profile) = service.profile() {
+                assert!(
+                    super::profiles().contains(&profile),
+                    "{} declares `{profile}`, which the walk does not report",
+                    service.name()
+                );
+            }
         }
     }
 

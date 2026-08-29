@@ -405,6 +405,12 @@ doctor:
 dev-up:
     cargo run -q -p xtask -- dev-up
 
+# The same, plus the identity provider. Off by default because nothing here can use one yet:
+# `CredentialBroker` does not exist, and keycloak is the slowest of the three to become ready. The
+# reasoning lives beside the service in compose.services.yaml.
+dev-up-identity:
+    cargo run -q -p xtask -- dev-up --with identity
+
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
