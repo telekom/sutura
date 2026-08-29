@@ -15,6 +15,13 @@ its bind parameters; `expression` compiles the one thing a catalog is allowed to
 at load, for every dialect at once. `GeneratedQuery` is what `generate` returns, and it is at
 the crate root because it is this crate's output rather than any one module's detail.
 
+**Two entry points, one output type.** `generate` renders a whole answer from a `QueryPlan`;
+`generate_leg` renders one leg of a federated question from a `LegPlan`. They share every
+decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
+renders - and differ in the four ways `generate_leg`'s own documentation lists. Nothing in a
+binary calls the second one yet: there is no splitter, so `AGENTS.md`'s *Built And Not Wired*
+section is where its state is recorded.
+
 # Why this is its own crate and not the compiler's last stage
 
 It used to be `sutura_semantic::generate` and `sutura_semantic::dialect`, and rendering was
@@ -101,6 +108,8 @@ pub fn sql(&self) -> &str
 ### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+## `use None`
 
 ## `use None`
 
@@ -593,3 +602,40 @@ pub fn generate(plan: &sutura_domain::plan::QueryPlan, dialect: crate::dialect::
 ```
 
 Renders a plan as one statement, paired with its parameters.
+
+### `fn generate_leg`
+
+```rust
+pub fn generate_leg(leg: &sutura_domain::plan::LegPlan, dialect: crate::dialect::Dialect) -> Result<crate::GeneratedQuery, GenerateError>
+```
+
+Renders one leg of a federated question as one statement, paired with its parameters.
+
+**Four differences from `generate`, and each of them is why a second entry point exists rather
+than a flag on the first.**
+
+1. **It projects a LIST of term columns**, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls `measure_expression`, and it could not -
+   there is no `PlanMeasure` in a `LegPlan` to hand it.
+2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.
+3. **It emits no `LIMIT`.** A leg is not an answer:
+   `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
+   `QueryPlan::row_limit` is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts.
+4. **The `WHERE` clause is optional.** A `QueryPlan` always carries the two bounds of its range
+   so `GenerateError::NoPredicate` is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.
+
+Everything else is shared with `generate` on purpose - `column`, `aliased`, `aggregate`,
+`term_expression`, `predicate`, `bucket_expression`, `joined` and `render` - so a
+change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
+path and not the other.
+
+**Nothing calls this from a binary.** There is no splitter, so no `LegPlan` is constructed
+outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
+statement per shape per dialect, parse-checked in the dialect it was generated for.

@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "fct_subscription_monthly"."customer_key" AS "customer_key", CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) AS "period", SUM("fct_subscription_monthly"."mrr_cents") AS "mean_subscription_mrr__sum", COUNT("fct_subscription_monthly"."mrr_cents") AS "mean_subscription_mrr__count" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY "fct_subscription_monthly"."customer_key", CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY "fct_subscription_monthly"."customer_key", CAST(DATE_TRUNC('month', "fct_subscription_monthly"."month") AS DATE)

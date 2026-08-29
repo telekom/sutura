@@ -5,6 +5,7 @@
 
 use sutura_app::{answer, verify_anchors};
 use sutura_domain::pinned::AnchorCheck;
+use sutura_domain::plan::Executable;
 use sutura_domain::query::ToolOutcome;
 use sutura_domain::warehouse::RowSet;
 use sutura_semantic::{Compiled, compile};
@@ -107,7 +108,7 @@ where
             continue;
         };
         warehouse
-            .dry_run(plan)
+            .dry_run(Executable::Query(plan))
             .unwrap_or_else(|e| panic!("{} was rejected by {}: {e}", stem(&path), W::NAME));
     }
 }

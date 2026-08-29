@@ -79,6 +79,7 @@ map" send a reader to three different places.
 - `SchemaMismatch` - The result schema is not the one the plan's labels describe.
 - `MissingParam` - A predicate named a parameter index the plan does not have.
 - `NoPredicate` - A plan with no predicate at all.
+- `LegWithoutCombiner` - One leg of a federated answer, which this adapter has nothing to assemble above.
 
 ### Implements
 

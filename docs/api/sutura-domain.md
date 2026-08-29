@@ -3311,6 +3311,12 @@ cannot have any of them.
 A plan holds no SQL. Its serialized form is what a golden snapshot pins, so a change to what we
 decided shows up as a reviewable diff rather than as a different number.
 
+**Two shapes, not one, and `leg` holds the second.** A `QueryPlan` is a whole answer from one
+data system. A `LegPlan` is one data system's share of an answer assembled above it, and it is
+its own type rather than a `QueryPlan` with three fields made optional - `leg` says at length
+why. `Executable` is what the port takes, so an adapter's match over what it can be handed is
+exhaustive.
+
 ### `struct PlanColumn`
 
 ```rust
@@ -3696,6 +3702,12 @@ A required filter as a plan predicate, binding a parameter when it needs one.
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.
 
+### `use None`
+
+### `use None`
+
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -3718,6 +3730,315 @@ short; and a row count above this is
 [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge). A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.
+
+### Module `leg`
+
+One source's share of a federated question, and the only thing the port can be handed.
+
+**The shapes, their closure, and nothing that produces or executes one.** There is no splitter
+and no combiner in this workspace, so no production code constructs a `LegPlan`: what is here
+is the vocabulary a splitter will emit and `sutura-sql` already renders, pinned per dialect
+before anything runs it. `AGENTS.md`'s *Built And Not Wired* section carries that state, and this
+module says it rather than leaving it to be discovered.
+`docs/adr/0007-federating-across-different-data-systems.md` decides the shape and
+`docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 decides what a leg may compute.
+
+**Why a leg is not a `QueryPlan`, which is the whole reason this module exists.** A
+`QueryPlan` requires a `PlanBucket`, a [`PlanMeasure`](crate::plan::PlanMeasure) and a measure
+label, and a dimension lookup has none of the three: a dimension table has no time column, no
+measure and no metric name. Reaching for `Option` on those three fields would make *a dimension
+leg carrying a time range* constructible, which is the checked shape where this one is the
+unrepresentable one.
+
+And the measure is worse than absent. [`PlanMeasure`](crate::plan::PlanMeasure) has exactly two
+variants and the only one carrying two terms is the one that **divides** them -
+`sutura_sql::generate` renders a `Ratio` as `CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)`.
+So a decomposed `Avg` travelling as a sum beside a count, and a ratio travelling as an undivided
+numerator and denominator, are not expressible by `PlanMeasure` at all - and the division per leg
+that 0009's Decision 2 forbids is exactly what it *would* express. `LegTerm` is the answer: a
+`PlanTerm` and a label, with no shape that divides and no field a
+[`ZeroDenominator`](crate::measure::ZeroDenominator) fits in, at any depth. That is the same
+argument `crate::federation::Carried` makes one level up, and the two are deliberately built
+the same way.
+
+**Two variants and not three.** There are three shapes a leg can be - an aggregate fact leg, a
+distinct-key fact leg, and a dimension lookup - and only one of the two axes they split along is
+worth a variant. Splitting by *which model is read* moves four fields together: a dimension
+model has no time column, so no bucket and no range; it is not the metric's own model, so no
+metric name; and a one-hop dimension join does not start from it, so no joins. Splitting by
+*whether an aggregate is applied* moves one bit, and both halves render identically - project the
+key list, group by the key list. So the distinct-key leg is a `LegPlan::Fact` whose `terms` are
+empty, and it needs no variant of its own.
+
+**No leg carries a row cap.** A leg is not an answer, and [`MAX_ROWS`](crate::plan::MAX_ROWS)
+caps one answer's rows; `sutura_sql::generate_leg` emits no `LIMIT` for the same reason.
+
+#### `struct LegTerm`
+
+```rust
+pub struct LegTerm
+```
+
+One number a leg computes, and the label it is projected under.
+
+**A `PlanTerm` and not a [`PlanMeasure`](crate::plan::PlanMeasure), and that is a type rather
+than a convention.** There is no shape here that divides, so a leg's statement cannot carry a
+`NULLIF` guard and a per-leg quotient is unrepresentable rather than discouraged. The bug that
+closes is specific: applied *inside* a leg, `ZeroDenominator::Null` turns a subgroup with a zero
+denominator into a null, the re-aggregating `SUM` above skips nulls, and that subgroup's
+numerator is silently dropped from the answer instead of nulling it.
+
+A leg's terms come off `crate::federation::Federation::carried`, which is built purely from the
+term level for the same reason.
+
+The division a leg cannot express does not compile:
+
+```compile_fail
+use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+
+// `LegTerm::new` takes a term, and a ratio is not one.
+fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -> LegTerm {
+    LegTerm::new(
+        PlanMeasure::Ratio {
+            numerator,
+            denominator,
+            zero_denominator,
+        },
+        String::from("ratio"),
+    )
+}
+```
+
+And the twin, so a rename cannot make that block pass vacuously: the two halves travel as two
+terms, and the division happens above every leg.
+
+```
+use sutura_domain::plan::{LegTerm, PlanTerm};
+
+fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -> Vec<LegTerm> {
+    vec![
+        LegTerm::new(numerator, String::from("numerator")),
+        LegTerm::new(denominator, String::from("denominator")),
+    ]
+}
+```
+
+##### Methods
+
+```rust
+pub fn label(&self) -> &str
+```
+
+```rust
+pub const fn new(term: PlanTerm, label: String) -> Self
+```
+
+```rust
+pub const fn term(&self) -> &PlanTerm
+```
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum LegPlan`
+
+```rust
+pub enum LegPlan
+```
+
+One source's share of a federated question.
+
+An enum rather than a struct with four `Option`s, which is this repository's *prefer
+unrepresentable to checked* applied to the one place it buys the most: there are exactly two
+legal shapes, and the illegal combinations - a measure with no bucket, a time range on a table
+with no time column - are not constructible.
+
+A third shape cannot arrive without a rendering arm, because a match over this enum is
+exhaustive:
+
+```compile_fail
+use sutura_domain::plan::LegPlan;
+
+// Non-exhaustive: `Lookup` renders differently and has to say so.
+fn _render(leg: &LegPlan) -> &str {
+    match *leg {
+        LegPlan::Fact { .. } => "fact",
+    }
+}
+```
+
+```
+use sutura_domain::plan::LegPlan;
+
+fn _render(leg: &LegPlan) -> &str {
+    match *leg {
+        LegPlan::Fact { .. } => "fact",
+        LegPlan::Lookup { .. } => "lookup",
+    }
+}
+```
+
+A lookup leg has no bucket, no terms, no range and no metric, and that is the type rather than a
+check somebody runs:
+
+```compile_fail
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::plan::LegPlan;
+
+fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    }
+}
+```
+
+```
+use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::plan::LegPlan;
+
+fn _undated(source: SourceName, table: TableName) -> LegPlan {
+    LegPlan::Lookup {
+        source,
+        table,
+        keys: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+    }
+}
+```
+
+##### Variants
+
+- `Fact` - Read off the metric's own model, grouped by the bucket and by every key the answer or a non-descending term needs.
+- `Lookup` - Read off one remote dimension model: its join key, the columns the answer groups by, and whatever filters went with it.
+
+##### Methods
+
+```rust
+pub fn filters(&self) -> &[PlanFilter]
+```
+
+The predicates this leg applies.
+
+```rust
+pub fn keys(&self) -> &[PlanKey]
+```
+
+The columns this leg groups by and projects.
+
+```rust
+pub fn params(&self) -> &[ParamValue]
+```
+
+The values bound to this leg's placeholders, in placeholder order.
+
+```rust
+pub fn result_labels(&self) -> Vec<String>
+```
+
+The labels this leg's result will carry, in the order it projects them.
+
+One definition, for `QueryPlan::result_labels`'s reason: an adapter that builds a schema
+and an adapter that renders a projection cannot disagree about it. Keys, then the bucket if
+there is one, then one label per term.
+
+```rust
+pub const fn source(&self) -> &SourceName
+```
+
+The one data system this leg runs against.
+
+Every leg is mono-source, so *a plan cannot silently span two sources* applies per leg
+unchanged: neither variant has a second `SourceName` to disagree with this one.
+
+```rust
+pub const fn table(&self) -> &TableName
+```
+
+The table this leg reads.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum Executable`
+
+```rust
+pub enum Executable<'plan>
+```
+
+What the execution port can be handed.
+
+**One method rather than two, and the exhaustive match is the reason.** A second port method for
+legs is a smaller diff and worse where it matters: a second method invites a default body, a
+default that errors lets an adapter be silently non-federating, and *adding a data system is a
+registration* then stops being true in the one direction nobody would notice. With one method
+taking this enum, a third leg shape cannot be added without every adapter stating what it does
+with it.
+
+**It borrows.** A plan is built once and executed once, and the federated path multiplies the
+working set against a memory bound that refuses - so a copy per leg would be a correctness
+question rather than a style one.
+
+An adapter that does not answer for every shape does not compile:
+
+```compile_fail
+use sutura_domain::plan::Executable;
+
+fn _dispatch(executable: Executable<'_>) -> &'static str {
+    match executable {
+        Executable::Query(_) => "a whole answer",
+    }
+}
+```
+
+```
+use sutura_domain::plan::Executable;
+
+fn _dispatch(executable: Executable<'_>) -> &'static str {
+    match executable {
+        Executable::Query(_) => "a whole answer",
+        Executable::Leg(_) => "one source's share of one",
+    }
+}
+```
+
+##### Variants
+
+- `Query` - A whole answer from one data system.
+- `Leg` - One data system's share of an answer assembled above it.
+
+##### Methods
+
+```rust
+pub fn params(self) -> &'plan [ParamValue]
+```
+
+The values bound to this statement's placeholders, in placeholder order.
+
+```rust
+pub fn result_labels(self) -> Vec<String>
+```
+
+The labels the result will carry, in the order it projects them.
+
+```rust
+pub const fn source(self) -> &'plan SourceName
+```
+
+The one data system this runs against, whichever shape it is.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ## Module `query`
 
