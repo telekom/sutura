@@ -2,7 +2,7 @@
 
 The second half of [the implementation plan](implementation-plan.md), and one document with it: the
 stack table lives there and stays the only owner of a step number, the ordering decisions are stated
-there, and this page carries the branch sections for rows 12 to 21 - plus the work that is deferred
+there, and this page carries the branch sections for rows 12 to 24 - plus the work that is deferred
 rather than scheduled, and what is out of scope entirely.
 
 Split from that page because the two together crossed the 1000-line limit `cargo xtask max-lines`
@@ -336,6 +336,130 @@ same wrong argument from the same true-sounding sentence about `run_all`.
   observable*: silence is the failure mode.
 - **It is unit-tested Rust rather than YAML**, because a selection rule fails by *not* running
   something, which is the class of bug nothing else catches.
+
+## BigQuery, on a service account
+
+**Goal.** The first cloud data source, and the one the deployment actually cares about. Queried
+directly, no federation, no impersonation - a warehouse declaring `SharedServiceUser`, exactly the
+posture `examples/single-player` ships, authenticated by a service-account key or by the ambient
+credential the host provides.
+
+**Why this is ahead of Postgres now, where it used to be absent.** The stack table's ordering
+argument has always been cost - Postgres is nearly free, because the dialect is compiled and the
+statement and parameter goldens exist. That is still true and it is still not the deciding argument,
+because **BigQuery is where per-subject execution has to work and Postgres is where it would be nice
+if it did.** An ordering that puts the cheap step first delivers the cheap step first; this stack is
+paid for by the expensive one.
+
+**This step is NOT nearly free, and the difference from Postgres is one line of manifest with a
+measurable blast radius.** There is no `Dialect::BigQuery`: the enum is `DuckDb`, `Postgres`,
+`ClickHouse`, and `dialect::ALL` is a `const` with an exhaustiveness test, so a fourth variant is a
+generator arm and a full dialect of goldens rather than a registration. `polyglot-sql` does carry a
+`dialect-bigquery` feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
+nothing has to be written from scratch, and the cost is the corpus:
+
+- **63 snapshots become 84**, being 21 questions times four dialects. Verified by counting: 63 files
+  under `crates/sutura-app/tests/snapshots/` contain `10001` today.
+- **`cargo xtask check-guidance` fails until AGENTS.md says 84.** Not incidentally - the check reads
+  the number written before the marker `SQL goldens read` and compares it to what it counts, which is
+  the mechanism that caught `39` after the corpus had grown. So the invariant row is part of the
+  change, and the gate puts it in the diff rather than trusting anyone to remember.
+- **The placeholder style is a third variant or it is a bug.** `PlaceholderStyle` is `Question` and
+  `Numbered`, and BigQuery's job API takes either positional parameters or `@name` named ones. Decide
+  it against the client's actual request shape, not against the dialect layer's rendering, because the
+  two are separately capable of being right.
+
+**Blocked on one decision, to make FIRST: what a test runs against.** There is no BigQuery in a
+container. Three options and they are not equivalent - an emulator that speaks the API but not the
+SQL semantics would give us a green corpus that proves nothing, which is the failure mode
+`differential.rs` exists to prevent. The honest choices are a real project in CI with a
+service-account secret, a real project reachable only from a developer's machine with the corpus
+marked as not-in-CI, or the Storage Read API against a fixture table. Pick before writing the
+adapter, because the choice decides whether this step can claim acceptance at all or only rendering -
+and `parse-checked` is already
+[explicitly narrower](adr/0007-federating-across-different-data-systems.md) than accepted.
+
+**Touches.** A new adapter crate; `crates/sutura-sql` for the fourth dialect; `Cargo.toml` for the
+feature; `crates/sutura-config` for the source declaration; the `tests/adapters` registry; AGENTS.md
+for the golden count.
+
+**Adds.** A `Warehouse` over BigQuery: render through `sutura-sql` in the new dialect, bind parameters
+as parameters, forced quoting intact, `LIMIT 10001` unchanged. Nothing about the plan or the generator
+moves. **A billing project is declared, not inferred** - a federated identity has no project of its
+own to bill, so the declaration has to exist before the impersonation step needs it, and putting it
+here means the impersonation step does not also introduce it.
+
+**Tests.** The whole existing golden and refusal corpus, registered for this adapter. Whether the
+acceptance leg runs in CI is the decision above.
+
+**Done when** the corpus renders and is green, the fourth dialect's 21 statement goldens have been
+reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
+whatever the first test happened to do.
+
+## BigQuery, per subject
+
+**Goal.** The first real impersonation, and the one that matters most. A query executes as the
+subject who asked it, and two subjects get different rows.
+
+**Builds on the adapter above rather than introducing one.** Driver, dialect, source declaration and
+corpus registration are merged and green on a service account, so this step changes one thing: how the
+connection is authenticated. Same shape as the Postgres pair below, and for the same reason - if the
+identity route fails, it blocks one step rather than the whole cloud story.
+
+**Blocked on one verification, to do FIRST, and it is the riskiest item in this plan:** *can the
+enterprise identity provider mint an **ID token** whose audience is a third party's provider?* The
+chain needs it, and nothing else in the chain is in doubt:
+
+1. The agent presents a token whose audience is **sutura**. Correct per RFC 8707 - a token presented
+   to us must be for us.
+2. sutura validates it; the subject is established. This is [0014](adr/0014-how-a-caller-proves-who-it-is.md).
+3. **Exchange one, at the enterprise provider** (RFC 8693): swap it for a token whose audience names
+   the workforce pool provider.
+4. **Exchange two, at the cloud provider's security token service**: that becomes an access token for
+   the federated principal, and IAM on the dataset decides what it may read.
+
+Steps 1, 2 and 4 are documented mechanisms with documented request shapes. **Step 3 is the one that
+can simply not be available.** The pool provider takes a subject token typed as an ID token; RFC 8693
+lets a client *ask* for `requested_token_type: id_token`, and an enterprise provider commonly answers
+a token-exchange for a registered downstream resource with an **access** token instead - which is
+precisely what the pool provider will not accept. So the verification is not "does token exchange
+work", it is "does token exchange return an ID token for an audience we do not control".
+
+**And a cheaper path to price at the same time, because it may remove step 3 entirely.** A workforce
+pool provider's allowed-audiences list is configurable. Configured to accept sutura's own audience,
+the token we already hold works directly as the subject token at step 4 - one exchange, no provider
+round trip, and the ID-token question never arises. **The cost is real and belongs written down next
+to the option:** the token stops being single-audience, so a leaked sutura token becomes replayable
+against the cloud provider as that subject. Audience restriction is the control being spent, and
+whether that is acceptable is a decision for whoever owns the pool - not one this step may quietly
+take because it is easier.
+
+**Touches.** The adapter crate; `crates/sutura-config`; the credential port from step 12.
+
+**Adds.** The warehouse declares `ImpersonationAtSource`. A credential is minted per leg, for the
+calling subject, per [0008](adr/0008-a-credential-per-leg-for-the-calling-subject.md). **Not** a
+service account that the request's identity is passed to as an argument: that is the shared-service-user
+posture with extra steps, and the source would authorize the service account.
+
+**Tests.** Compose tier cannot help here - there is no local cloud - so these run wherever the fixture
+decision put the acceptance leg.
+
+- **Two identities, a row access policy at the source, different rows**, asserted against what each
+  identity is entitled to rather than merely against each other. "Different" alone passes against a
+  fixture that differs for the wrong reason.
+- **The session reports the borrowed subject.** The job's own principal is readable, so the test
+  asserts the query ran as the asker.
+- **A credential is not reused past its expiry.** A minted access token is short-lived by design and
+  the job outlives it, so a question after expiry mints again - the assertion that keeps a per-subject
+  credential cache from becoming the long-lived session 0008 rejects.
+- **The exchange failing is a refusal, not an error.** A subject the pool declines to federate is a
+  question this deployment cannot answer, which is `ToolOutcome::Refusal` in the `Ok`, per
+  [0005](adr/0005-a-refusal-carries-a-status.md). A caller must not be able to mistake it for a hiccup
+  and retry.
+
+**Done when** two subjects get different rows through the same question, the ID-token verification has
+an answer recorded either way, and - if the answer was the allowed-audiences shortcut - the audience
+cost is written into 0008 rather than left in a commit message.
 
 ## A Postgres adapter, on a static credential
 

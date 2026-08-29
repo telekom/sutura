@@ -35,22 +35,24 @@ internal that a stable surface can grow behind.
 | 12 | `feat/credential-port` | 2, 5, 8 | after 8 |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
 | 14 | `feat/compose-tier` | nothing in this repo - docker on the host | **yes** |
-| 15 | `feat/postgres-adapter` | 8, 14, and the artifact question | after 14 |
-| 16 | `feat/postgres-oauth` | 12, 15, and the OAUTHBEARER verification | after 15 |
-| 17 | `feat/source-mtls` | 8, 15 | after 15 |
-| 18 | `feat/raw-sql-tool` | 3, 8, 12 | after 12 |
-| 19 | `feat/demo-tasks` | 14, and one example to demo | after 14 |
-| 20 | `build/supply-chain` | nothing - orthogonal | **yes** |
-| 21 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
-| 22 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
+| 15 | `feat/bigquery-adapter` | 8, and the fixture decision | after 8 |
+| 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
+| 17 | `feat/postgres-adapter` | 8, 14, and the artifact question | after 14 |
+| 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
+| 19 | `feat/source-mtls` | 8, 17 | after 17 |
+| 20 | `feat/raw-sql-tool` | 3, 8, 12 | after 12 |
+| 21 | `feat/demo-tasks` | 14, and one example to demo | after 14 |
+| 22 | `build/supply-chain` | nothing - orthogonal | **yes** |
+| 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
+| 24 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
 
-**Rows 1 to 11 have their branch sections on this page. Rows 12 to 21 are in
+**Rows 1 to 11 have their branch sections on this page. Rows 12 to 24 are in
 [identity, services and the operational work](implementation-plan-identity-and-services.md)**, which is
 the same document under a second file name: this table stays the only owner of a step number, and the
 split is at the stack's own phase boundary - nothing up to and including the conformance packs needs a
 live service or an identity decision, and everything after it needs one or both.
 
-**Five orderings in that table are decisions rather than convenience, and each replaced an earlier
+**Six orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:**
 
 - **The compose tier moves ahead of the first network adapter, not behind it.** An earlier version had
@@ -65,6 +67,15 @@ arrangement that would have gone wrong:**
   change; it puts the rendered SQL in front of a real Postgres for the first time, which the goldens
   cannot do; and it means the SASL OAUTHBEARER verification, if it fails, blocks one step instead of
   the whole network story.
+- **BigQuery moves ahead of Postgres, and the argument is value rather than cost.** The bullet above
+  is a cost argument and it still holds - Postgres is nearly free. It is also not the deciding one:
+  **BigQuery is where per-subject execution has to work, and Postgres is where it would be nice if it
+  did.** An earlier version of this table had no BigQuery row at all, which meant the plan ordered
+  purely on cost while the deployment's priority ordered on value, and the two disagreed silently.
+  BigQuery is genuinely the more expensive step - there is no `Dialect::BigQuery`, so it costs a
+  fourth dialect of goldens and an AGENTS.md invariant the guidance gate will fail until it is
+  updated - and it goes first anyway. **Cheap-first is a tiebreak, not a rule**; when the expensive
+  step is the one that pays for the stack, it leads.
 - **The agent surface is split, and slice one is deliberately thin.** See below.
 - **One step in this stack is a RECORD rather than code, and it is deliberately early.**
   `docs/inbound-identity` answers the question
@@ -823,9 +834,9 @@ the compile half runs on every push, and an orphaned snapshot fails a gate rathe
 ## The rest of the stack
 
 The branch sections above cover the first eleven rows of the table - the surface, the domain and
-federation. **Rows 12 to 21 continue in
+federation. **Rows 12 to 24 continue in
 [identity, services and the operational work](implementation-plan-identity-and-services.md)**: the
-credential port, the compose tier, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
+credential port, the compose tier, the two BigQuery steps, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
 tasks, the supply chain and the CI cost of a prose change - plus the selective-service-CI work that
 is deferred rather than scheduled, and what is deliberately not in this plan at all.
 
