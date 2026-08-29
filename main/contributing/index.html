@@ -2506,7 +2506,7 @@ can change, and it is not uniform - so here is the actual state rather than a ti
 <td>the <code>rust-fmt</code>, <code>rust-check-changed</code> and <code>rust-doctests</code> commit hooks</td>
 </tr>
 <tr>
-<td>the <code>rust-clippy</code> commit hook</td>
+<td>the <code>rust-clippy</code> commit hook and the <code>rust-clippy-push</code> push hook</td>
 <td>typing <code>cargo</code> yourself</td>
 </tr>
 <tr>
@@ -2543,7 +2543,7 @@ invalidates every artifact in it.</p>
 <tbody>
 <tr>
 <td>commit</td>
-<td><code>cargo fmt --check</code>; clippy over the workspace, <code>--all-targets --all-features</code>, <code>-D warnings</code>; <code>hygiene</code>, the cheap structural gates in one hook; <code>cargo check</code> narrowed to the changed packages; <code>cargo nextest</code> and doctests; the <strong>CRAP score</strong> when the scored crate or its policy changed; a staged secret scan; workflow static analysis when a workflow changed</td>
+<td><code>cargo fmt --check</code>; clippy over the workspace, <code>--all-targets --all-features</code>, <code>-D warnings</code>; <code>hygiene</code>, the cheap structural gates in one hook; <code>cargo check</code> narrowed to the changed packages; <code>cargo nextest</code> and doctests; the <strong>CRAP score</strong> when the scored crate or its policy changed; a staged secret scan; shellcheck over every <code>.sh</code> we ship; workflow static analysis when a workflow changed</td>
 </tr>
 <tr>
 <td>commit-msg</td>
@@ -2551,7 +2551,7 @@ invalidates every artifact in it.</p>
 </tr>
 <tr>
 <td>push</td>
-<td>a secret scan over the whole tree rather than the staged diff, <code>cargo-deny</code>, formatting on stable as CI checks it, and shellcheck over every <code>.sh</code> we ship</td>
+<td>a secret scan over the whole tree rather than the staged diff, <code>cargo-deny</code>, formatting on stable as CI checks it, and <strong>clippy again - the push stage compiles</strong></td>
 </tr>
 <tr>
 <td>CI</td>
@@ -2561,9 +2561,36 @@ invalidates every artifact in it.</p>
 </table>
 <p><code>hygiene</code> is one hook because <code>xtask</code> owns the list: <code>check-boundaries</code>, <code>max-lines</code>,
 <code>check-pins</code>, <code>check-warm-start</code>, <code>unused-deps</code>, <code>check-arrow</code>, <code>line-endings</code>, <code>text-hygiene</code>,
-<code>check-skills</code>, <code>check-scope</code>, <code>check-guidance</code>, <code>check-workflows</code>, <code>check-docs</code>, <code>check-crap</code>.
-<code>cargo xtask --help</code> prints them, marked - and that is the authority, because this sentence had
-gone stale on two of them before <code>check-scope</code> was added to it.</p>
+<code>check-skills</code>, <code>check-scope</code>, <code>check-hook-tiers</code>, <code>check-guidance</code>, <code>check-workflows</code>,
+<code>check-docs</code>, <code>check-crap</code>. <code>cargo xtask --help</code> prints them, marked - and that is the authority,
+because this sentence had gone stale on two of them before <code>check-scope</code> was added to it.</p>
+<p><strong>Two rows of that table used to be wrong, and both are called out rather than quietly fixed</strong> -
+one because closing it is what this section's push gate is for, the other because it is the same
+mistake in the other direction: a document describing a tier the hook did not have.</p>
+<p><strong>The push stage used to compile nothing.</strong> Every compiling gate was a commit hook, and <code>git
+rebase</code> - <code>git rebase --continue</code> included - runs no commit hook at all. So a conflict resolution
+went to the remote with nothing having built it, which happened three times in one day: a
+hand-resolved merge whose <code>sutura-config</code> did not compile, a CLEAN merge where one branch changed
+<code>PinnedDefinitions::provenance</code> and the other added a call site for the old signature (git cannot
+see that as a conflict), and a branch red on CI's format step. <code>cargo xtask check-hook-tiers</code> is
+what keeps this row true: it fails when no <code>pre-push</code> hook compiles, and it fails when the
+push-stage invocation is not the commit stage's own.</p>
+<p>It is the SAME clippy run, and the file expresses that as a YAML anchor rather than a second copy,
+because a gate that makes <code>git push</code> slow gets bypassed with <code>--no-verify</code> and then guards nothing.
+cargo keys its fingerprints on the invocation, so an identical command reuses what the commit hook
+built. Measured on this tree: <strong>1.0 s</strong> for the push-stage clippy after a commit hook ran, <strong>2-3 s</strong>
+when a rebase changed a crate, and <strong>76.6 s</strong> for the same command into an empty target directory -
+which is the honest worst case, and is paid by the first commit in a fresh clone anyway, since
+<code>rust-clippy</code> is a commit hook too. <code>cargo check</code> was the other candidate and is worse on both
+counts: it shares no fingerprints with clippy for the workspace's own crates, so it is a second pass
+over them - 3.4 s measured right after a warm clippy - to report less. And one thing the push tier
+already caught before this hook, which is why it is not <em>"push compiled nothing"</em> without
+qualification: <code>fmt-parity</code> runs rustfmt, which cannot PARSE an unclosed delimiter, so a syntax
+error was refused there. What escaped was a tree that parses and does not type-check.</p>
+<p><strong>Shellcheck was never a push gate.</strong> It declares no <code>stages:</code>, so it has always inherited
+<code>default_stages: [pre-commit]</code>; it sat under the push banner in <code>.pre-commit-config.yaml</code> and this
+table read the banner. The hook moved up into the commit block rather than being restaged - the
+tier it has always run at is the right one for it.</p>
 <p><strong>The CRAP gate</strong> scores cyclomatic complexity weighted by the tests that cover it, which is the
 combination neither a complexity limit nor a coverage percentage catches alone. It is in two
 halves by cost: <code>check-crap</code> reads the policy and compiles nothing, so it is in the sweep above;
