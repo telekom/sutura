@@ -2101,7 +2101,7 @@ the single-player credential is the process's own access. That is stated rather 
 adapter is not a stand-in for a data system with grants, and it is the one place in the design
 where "run as the calling subject" is trivially satisfied because there is nobody else to be.</p>
 <p>Two things this adapter deliberately does not offer:</p>
-<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes a <code>QueryPlan</code> and renders
+<p><strong>No arbitrary SQL entry point.</strong> <code>DuckDbWarehouse::execute</code> takes an <code>Executable</code> and renders
 the statement itself, into a <code>GeneratedQuery</code> that carries its parameters separately. There is
 no method that takes a string. A development affordance that ran a statement somebody typed would
 be the shortest path around every check upstream of here.</p>
@@ -2124,6 +2124,7 @@ place the habit started.</p>
 <li><code>NoSchema</code> - The driver handed back a result set with no statement behind it, so there are no column labels to read.</li>
 <li><code>Render</code> - The plan could not be rendered as SQL.</li>
 <li><code>Attach</code></li>
+<li><code>LegWithoutCombiner</code> - One leg of a federated answer, which nothing here can assemble above.</li>
 </ul>
 <h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>

@@ -1900,6 +1900,12 @@ decisions the dialect layer does not make for us; <code>generate</code> turns a 
 its bind parameters; <code>expression</code> compiles the one thing a catalog is allowed to author as SQL,
 at load, for every dialect at once. <code>GeneratedQuery</code> is what <code>generate</code> returns, and it is at
 the crate root because it is this crate's output rather than any one module's detail.</p>
+<p><strong>Two entry points, one output type.</strong> <code>generate</code> renders a whole answer from a <code>QueryPlan</code>;
+<code>generate_leg</code> renders one leg of a federated question from a <code>LegPlan</code>. They share every
+decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
+renders - and differ in the four ways <code>generate_leg</code>'s own documentation lists. Nothing in a
+binary calls the second one yet: there is no splitter, so <code>AGENTS.md</code>'s <em>Built And Not Wired</em>
+section is where its state is recorded.</p>
 <h1 id="why-this-is-its-own-crate-and-not-the-compilers-last-stage">Why this is its own crate and not the compiler's last stage<a class="headerlink" href="#why-this-is-its-own-crate-and-not-the-compilers-last-stage" title="Permanent link">&para;</a></h1>
 <p>It used to be <code>sutura_semantic::generate</code> and <code>sutura_semantic::dialect</code>, and rendering was
 already off the compile path - <code>sutura_semantic::compile</code> stops at a plan, because the
@@ -1970,6 +1976,7 @@ not domain.</p>
 <h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_9"><code>use None</code><a class="headerlink" href="#use-none_9" title="Permanent link">&para;</a></h2>
 <h2 id="module-dialect">Module <code>dialect</code><a class="headerlink" href="#module-dialect" title="Permanent link">&para;</a></h2>
 <p>Which data system a statement is rendered for, and the two things we do not delegate.</p>
 <p>The dialect layer we build on knows more about dialects than we do: it renders <code>DATE_TRUNC</code> as
@@ -2296,6 +2303,37 @@ differently. A plan that will not render is a bug here or upstream.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Renders a plan as one statement, paired with its parameters.</p>
+<h3 id="fn-generate_leg"><code>fn generate_leg</code><a class="headerlink" href="#fn-generate_leg" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate_leg</span><span class="p">(</span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Renders one leg of a federated question as one statement, paired with its parameters.</p>
+<p><strong>Four differences from <code>generate</code>, and each of them is why a second entry point exists rather
+than a flag on the first.</strong></p>
+<ol>
+<li><strong>It projects a LIST of term columns</strong>, one per descending term, instead of one measure
+   expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed <code>Avg</code>
+   travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+   so nothing here can emit a division. It never calls <code>measure_expression</code>, and it could not -
+   there is no <code>PlanMeasure</code> in a <code>LegPlan</code> to hand it.</li>
+<li><strong>The bucket and the joins are the fact leg's alone.</strong> A dimension lookup reads a table with
+   no time column, so it projects its keys and groups by them, which is a distinct key set.</li>
+<li><strong>It emits no <code>LIMIT</code>.</strong> A leg is not an answer:
+   <code>sutura_domain::plan::MAX_ROWS</code> caps one answer's rows and
+   <code>QueryPlan::row_limit</code> is how an adapter asks for one more than the cap, so a cap applied per
+   leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+   at the conversion boundary, which belongs with the code that converts.</li>
+<li><strong>The <code>WHERE</code> clause is optional.</strong> A <code>QueryPlan</code> always carries the two bounds of its range
+   so <code>GenerateError::NoPredicate</code> is unreachable there; a lookup leg for a remote dimension
+   that carries no filter has no predicate at all, and no clause is the correct rendering rather
+   than an error.</li>
+</ol>
+<p>Everything else is shared with <code>generate</code> on purpose - <code>column</code>, <code>aliased</code>, <code>aggregate</code>,
+<code>term_expression</code>, <code>predicate</code>, <code>bucket_expression</code>, <code>joined</code> and <code>render</code> - so a
+change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
+path and not the other.</p>
+<p><strong>Nothing calls this from a binary.</strong> There is no splitter, so no <code>LegPlan</code> is constructed
+outside a test; what pins it is the golden family under <code>crates/sutura-app/tests/golden</code>, one
+statement per shape per dialect, parse-checked in the dialect it was generated for.</p>
 
 
 

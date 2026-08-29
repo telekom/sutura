@@ -4144,6 +4144,11 @@ an aliased expression, a placeholder in the wrong syntax. An adapter that never 
 cannot have any of them.</p>
 <p>A plan holds no SQL. Its serialized form is what a golden snapshot pins, so a change to what we
 decided shows up as a reviewable diff rather than as a different number.</p>
+<p><strong>Two shapes, not one, and <code>leg</code> holds the second.</strong> A <code>QueryPlan</code> is a whole answer from one
+data system. A <code>LegPlan</code> is one data system's share of an answer assembled above it, and it is
+its own type rather than a <code>QueryPlan</code> with three fields made optional - <code>leg</code> says at length
+why. <code>Executable</code> is what the port takes, so an adapter's match over what it can be handed is
+exhaustive.</p>
 <h3 id="struct-plancolumn"><code>struct PlanColumn</code><a class="headerlink" href="#struct-plancolumn" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-224-1"><a id="__codelineno-224-1" name="__codelineno-224-1" href="#__codelineno-224-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">PlanColumn</span>
 </span></code></pre></div>
@@ -4361,6 +4366,9 @@ vocabulary is one arm here instead of one arm per shape.</p>
 <p><code>bind</code> is called only for the operators that compare against a value, and returns the index it
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.</p>
+<h3 id="use-none_24"><code>use None</code><a class="headerlink" href="#use-none_24" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_25"><code>use None</code><a class="headerlink" href="#use-none_25" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_26"><code>use None</code><a class="headerlink" href="#use-none_26" title="Permanent link">&para;</a></h3>
 <h3 id="constant-max_rows"><code>constant MAX_ROWS</code><a class="headerlink" href="#constant-max_rows" title="Permanent link">&para;</a></h3>
 <p>The most rows any plan may return.</p>
 <p>A hard cap rather than a budget, for now. A bounded range and a bounded set of group-by keys
@@ -4379,6 +4387,226 @@ short; and a row count above this is
 <a href="crate::query::RefusalReason::ResultTooLarge"><code>RefusalReason::ResultTooLarge</code></a>. A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.</p>
+<h3 id="module-leg">Module <code>leg</code><a class="headerlink" href="#module-leg" title="Permanent link">&para;</a></h3>
+<p>One source's share of a federated question, and the only thing the port can be handed.</p>
+<p><strong>The shapes, their closure, and nothing that produces or executes one.</strong> There is no splitter
+and no combiner in this workspace, so no production code constructs a <code>LegPlan</code>: what is here
+is the vocabulary a splitter will emit and <code>sutura-sql</code> already renders, pinned per dialect
+before anything runs it. <code>AGENTS.md</code>'s <em>Built And Not Wired</em> section carries that state, and this
+module says it rather than leaving it to be discovered.
+<code>docs/adr/0007-federating-across-different-data-systems.md</code> decides the shape and
+<code>docs/adr/0009-the-plan-from-one-source-to-many.md</code> Decision 2 decides what a leg may compute.</p>
+<p><strong>Why a leg is not a <code>QueryPlan</code>, which is the whole reason this module exists.</strong> A
+<code>QueryPlan</code> requires a <code>PlanBucket</code>, a <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a> and a measure
+label, and a dimension lookup has none of the three: a dimension table has no time column, no
+measure and no metric name. Reaching for <code>Option</code> on those three fields would make <em>a dimension
+leg carrying a time range</em> constructible, which is the checked shape where this one is the
+unrepresentable one.</p>
+<p>And the measure is worse than absent. <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a> has exactly two
+variants and the only one carrying two terms is the one that <strong>divides</strong> them -
+<code>sutura_sql::generate</code> renders a <code>Ratio</code> as <code>CAST(numerator AS DOUBLE) / NULLIF(denominator, 0)</code>.
+So a decomposed <code>Avg</code> travelling as a sum beside a count, and a ratio travelling as an undivided
+numerator and denominator, are not expressible by <code>PlanMeasure</code> at all - and the division per leg
+that 0009's Decision 2 forbids is exactly what it <em>would</em> express. <code>LegTerm</code> is the answer: a
+<code>PlanTerm</code> and a label, with no shape that divides and no field a
+<a href="crate::measure::ZeroDenominator"><code>ZeroDenominator</code></a> fits in, at any depth. That is the same
+argument <code>crate::federation::Carried</code> makes one level up, and the two are deliberately built
+the same way.</p>
+<p><strong>Two variants and not three.</strong> There are three shapes a leg can be - an aggregate fact leg, a
+distinct-key fact leg, and a dimension lookup - and only one of the two axes they split along is
+worth a variant. Splitting by <em>which model is read</em> moves four fields together: a dimension
+model has no time column, so no bucket and no range; it is not the metric's own model, so no
+metric name; and a one-hop dimension join does not start from it, so no joins. Splitting by
+<em>whether an aggregate is applied</em> moves one bit, and both halves render identically - project the
+key list, group by the key list. So the distinct-key leg is a <code>LegPlan::Fact</code> whose <code>terms</code> are
+empty, and it needs no variant of its own.</p>
+<p><strong>No leg carries a row cap.</strong> A leg is not an answer, and <a href="crate::plan::MAX_ROWS"><code>MAX_ROWS</code></a>
+caps one answer's rows; <code>sutura_sql::generate_leg</code> emits no <code>LIMIT</code> for the same reason.</p>
+<h4 id="struct-legterm"><code>struct LegTerm</code><a class="headerlink" href="#struct-legterm" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-274-1"><a id="__codelineno-274-1" name="__codelineno-274-1" href="#__codelineno-274-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegTerm</span>
+</span></code></pre></div>
+<p>One number a leg computes, and the label it is projected under.</p>
+<p><strong>A <code>PlanTerm</code> and not a <a href="crate::plan::PlanMeasure"><code>PlanMeasure</code></a>, and that is a type rather
+than a convention.</strong> There is no shape here that divides, so a leg's statement cannot carry a
+<code>NULLIF</code> guard and a per-leg quotient is unrepresentable rather than discouraged. The bug that
+closes is specific: applied <em>inside</em> a leg, <code>ZeroDenominator::Null</code> turns a subgroup with a zero
+denominator into a null, the re-aggregating <code>SUM</code> above skips nulls, and that subgroup's
+numerator is silently dropped from the answer instead of nulling it.</p>
+<p>A leg's terms come off <code>crate::federation::Federation::carried</code>, which is built purely from the
+term level for the same reason.</p>
+<p>The division a leg cannot express does not compile:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-275-1"><a id="__codelineno-275-1" name="__codelineno-275-1" href="#__codelineno-275-1"></a>use sutura_domain::measure::ZeroDenominator;
+</span><span id="__span-275-2"><a id="__codelineno-275-2" name="__codelineno-275-2" href="#__codelineno-275-2"></a>use sutura_domain::plan::{LegTerm, PlanMeasure, PlanTerm};
+</span><span id="__span-275-3"><a id="__codelineno-275-3" name="__codelineno-275-3" href="#__codelineno-275-3"></a>
+</span><span id="__span-275-4"><a id="__codelineno-275-4" name="__codelineno-275-4" href="#__codelineno-275-4"></a>// `LegTerm::new` takes a term, and a ratio is not one.
+</span><span id="__span-275-5"><a id="__codelineno-275-5" name="__codelineno-275-5" href="#__codelineno-275-5"></a>fn _divided(numerator: PlanTerm, denominator: PlanTerm, zero_denominator: ZeroDenominator) -&gt; LegTerm {
+</span><span id="__span-275-6"><a id="__codelineno-275-6" name="__codelineno-275-6" href="#__codelineno-275-6"></a>    LegTerm::new(
+</span><span id="__span-275-7"><a id="__codelineno-275-7" name="__codelineno-275-7" href="#__codelineno-275-7"></a>        PlanMeasure::Ratio {
+</span><span id="__span-275-8"><a id="__codelineno-275-8" name="__codelineno-275-8" href="#__codelineno-275-8"></a>            numerator,
+</span><span id="__span-275-9"><a id="__codelineno-275-9" name="__codelineno-275-9" href="#__codelineno-275-9"></a>            denominator,
+</span><span id="__span-275-10"><a id="__codelineno-275-10" name="__codelineno-275-10" href="#__codelineno-275-10"></a>            zero_denominator,
+</span><span id="__span-275-11"><a id="__codelineno-275-11" name="__codelineno-275-11" href="#__codelineno-275-11"></a>        },
+</span><span id="__span-275-12"><a id="__codelineno-275-12" name="__codelineno-275-12" href="#__codelineno-275-12"></a>        String::from("ratio"),
+</span><span id="__span-275-13"><a id="__codelineno-275-13" name="__codelineno-275-13" href="#__codelineno-275-13"></a>    )
+</span><span id="__span-275-14"><a id="__codelineno-275-14" name="__codelineno-275-14" href="#__codelineno-275-14"></a>}
+</span></code></pre></div>
+<p>And the twin, so a rename cannot make that block pass vacuously: the two halves travel as two
+terms, and the division happens above every leg.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-276-1"><a id="__codelineno-276-1" name="__codelineno-276-1" href="#__codelineno-276-1"></a>use sutura_domain::plan::{LegTerm, PlanTerm};
+</span><span id="__span-276-2"><a id="__codelineno-276-2" name="__codelineno-276-2" href="#__codelineno-276-2"></a>
+</span><span id="__span-276-3"><a id="__codelineno-276-3" name="__codelineno-276-3" href="#__codelineno-276-3"></a>fn _undivided(numerator: PlanTerm, denominator: PlanTerm) -&gt; Vec&lt;LegTerm&gt; {
+</span><span id="__span-276-4"><a id="__codelineno-276-4" name="__codelineno-276-4" href="#__codelineno-276-4"></a>    vec![
+</span><span id="__span-276-5"><a id="__codelineno-276-5" name="__codelineno-276-5" href="#__codelineno-276-5"></a>        LegTerm::new(numerator, String::from("numerator")),
+</span><span id="__span-276-6"><a id="__codelineno-276-6" name="__codelineno-276-6" href="#__codelineno-276-6"></a>        LegTerm::new(denominator, String::from("denominator")),
+</span><span id="__span-276-7"><a id="__codelineno-276-7" name="__codelineno-276-7" href="#__codelineno-276-7"></a>    ]
+</span><span id="__span-276-8"><a id="__codelineno-276-8" name="__codelineno-276-8" href="#__codelineno-276-8"></a>}
+</span></code></pre></div>
+<h5 id="methods_53">Methods<a class="headerlink" href="#methods_53" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-277-1"><a id="__codelineno-277-1" name="__codelineno-277-1" href="#__codelineno-277-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">label</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-278-1"><a id="__codelineno-278-1" name="__codelineno-278-1" href="#__codelineno-278-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">term</span><span class="p">:</span><span class="w"> </span><span class="nc">PlanTerm</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="nb">String</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-279-1"><a id="__codelineno-279-1" name="__codelineno-279-1" href="#__codelineno-279-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">term</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PlanTerm</span>
+</span></code></pre></div>
+<h5 id="implements_75">Implements<a class="headerlink" href="#implements_75" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h4 id="enum-legplan"><code>enum LegPlan</code><a class="headerlink" href="#enum-legplan" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-280-1"><a id="__codelineno-280-1" name="__codelineno-280-1" href="#__codelineno-280-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LegPlan</span>
+</span></code></pre></div>
+<p>One source's share of a federated question.</p>
+<p>An enum rather than a struct with four <code>Option</code>s, which is this repository's <em>prefer
+unrepresentable to checked</em> applied to the one place it buys the most: there are exactly two
+legal shapes, and the illegal combinations - a measure with no bucket, a time range on a table
+with no time column - are not constructible.</p>
+<p>A third shape cannot arrive without a rendering arm, because a match over this enum is
+exhaustive:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-281-1"><a id="__codelineno-281-1" name="__codelineno-281-1" href="#__codelineno-281-1"></a>use sutura_domain::plan::LegPlan;
+</span><span id="__span-281-2"><a id="__codelineno-281-2" name="__codelineno-281-2" href="#__codelineno-281-2"></a>
+</span><span id="__span-281-3"><a id="__codelineno-281-3" name="__codelineno-281-3" href="#__codelineno-281-3"></a>// Non-exhaustive: `Lookup` renders differently and has to say so.
+</span><span id="__span-281-4"><a id="__codelineno-281-4" name="__codelineno-281-4" href="#__codelineno-281-4"></a>fn _render(leg: &amp;LegPlan) -&gt; &amp;str {
+</span><span id="__span-281-5"><a id="__codelineno-281-5" name="__codelineno-281-5" href="#__codelineno-281-5"></a>    match *leg {
+</span><span id="__span-281-6"><a id="__codelineno-281-6" name="__codelineno-281-6" href="#__codelineno-281-6"></a>        LegPlan::Fact { .. } =&gt; "fact",
+</span><span id="__span-281-7"><a id="__codelineno-281-7" name="__codelineno-281-7" href="#__codelineno-281-7"></a>    }
+</span><span id="__span-281-8"><a id="__codelineno-281-8" name="__codelineno-281-8" href="#__codelineno-281-8"></a>}
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-282-1"><a id="__codelineno-282-1" name="__codelineno-282-1" href="#__codelineno-282-1"></a>use sutura_domain::plan::LegPlan;
+</span><span id="__span-282-2"><a id="__codelineno-282-2" name="__codelineno-282-2" href="#__codelineno-282-2"></a>
+</span><span id="__span-282-3"><a id="__codelineno-282-3" name="__codelineno-282-3" href="#__codelineno-282-3"></a>fn _render(leg: &amp;LegPlan) -&gt; &amp;str {
+</span><span id="__span-282-4"><a id="__codelineno-282-4" name="__codelineno-282-4" href="#__codelineno-282-4"></a>    match *leg {
+</span><span id="__span-282-5"><a id="__codelineno-282-5" name="__codelineno-282-5" href="#__codelineno-282-5"></a>        LegPlan::Fact { .. } =&gt; "fact",
+</span><span id="__span-282-6"><a id="__codelineno-282-6" name="__codelineno-282-6" href="#__codelineno-282-6"></a>        LegPlan::Lookup { .. } =&gt; "lookup",
+</span><span id="__span-282-7"><a id="__codelineno-282-7" name="__codelineno-282-7" href="#__codelineno-282-7"></a>    }
+</span><span id="__span-282-8"><a id="__codelineno-282-8" name="__codelineno-282-8" href="#__codelineno-282-8"></a>}
+</span></code></pre></div>
+<p>A lookup leg has no bucket, no terms, no range and no metric, and that is the type rather than a
+check somebody runs:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-283-1"><a id="__codelineno-283-1" name="__codelineno-283-1" href="#__codelineno-283-1"></a>use sutura_domain::calendar::TimeRange;
+</span><span id="__span-283-2"><a id="__codelineno-283-2" name="__codelineno-283-2" href="#__codelineno-283-2"></a>use sutura_domain::model::{SourceName, TableName};
+</span><span id="__span-283-3"><a id="__codelineno-283-3" name="__codelineno-283-3" href="#__codelineno-283-3"></a>use sutura_domain::plan::LegPlan;
+</span><span id="__span-283-4"><a id="__codelineno-283-4" name="__codelineno-283-4" href="#__codelineno-283-4"></a>
+</span><span id="__span-283-5"><a id="__codelineno-283-5" name="__codelineno-283-5" href="#__codelineno-283-5"></a>fn _dated(source: SourceName, table: TableName, range: TimeRange) -&gt; LegPlan {
+</span><span id="__span-283-6"><a id="__codelineno-283-6" name="__codelineno-283-6" href="#__codelineno-283-6"></a>    LegPlan::Lookup {
+</span><span id="__span-283-7"><a id="__codelineno-283-7" name="__codelineno-283-7" href="#__codelineno-283-7"></a>        source,
+</span><span id="__span-283-8"><a id="__codelineno-283-8" name="__codelineno-283-8" href="#__codelineno-283-8"></a>        table,
+</span><span id="__span-283-9"><a id="__codelineno-283-9" name="__codelineno-283-9" href="#__codelineno-283-9"></a>        keys: Vec::new(),
+</span><span id="__span-283-10"><a id="__codelineno-283-10" name="__codelineno-283-10" href="#__codelineno-283-10"></a>        filters: Vec::new(),
+</span><span id="__span-283-11"><a id="__codelineno-283-11" name="__codelineno-283-11" href="#__codelineno-283-11"></a>        params: Vec::new(),
+</span><span id="__span-283-12"><a id="__codelineno-283-12" name="__codelineno-283-12" href="#__codelineno-283-12"></a>        range,
+</span><span id="__span-283-13"><a id="__codelineno-283-13" name="__codelineno-283-13" href="#__codelineno-283-13"></a>    }
+</span><span id="__span-283-14"><a id="__codelineno-283-14" name="__codelineno-283-14" href="#__codelineno-283-14"></a>}
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-284-1"><a id="__codelineno-284-1" name="__codelineno-284-1" href="#__codelineno-284-1"></a>use sutura_domain::model::{SourceName, TableName};
+</span><span id="__span-284-2"><a id="__codelineno-284-2" name="__codelineno-284-2" href="#__codelineno-284-2"></a>use sutura_domain::plan::LegPlan;
+</span><span id="__span-284-3"><a id="__codelineno-284-3" name="__codelineno-284-3" href="#__codelineno-284-3"></a>
+</span><span id="__span-284-4"><a id="__codelineno-284-4" name="__codelineno-284-4" href="#__codelineno-284-4"></a>fn _undated(source: SourceName, table: TableName) -&gt; LegPlan {
+</span><span id="__span-284-5"><a id="__codelineno-284-5" name="__codelineno-284-5" href="#__codelineno-284-5"></a>    LegPlan::Lookup {
+</span><span id="__span-284-6"><a id="__codelineno-284-6" name="__codelineno-284-6" href="#__codelineno-284-6"></a>        source,
+</span><span id="__span-284-7"><a id="__codelineno-284-7" name="__codelineno-284-7" href="#__codelineno-284-7"></a>        table,
+</span><span id="__span-284-8"><a id="__codelineno-284-8" name="__codelineno-284-8" href="#__codelineno-284-8"></a>        keys: Vec::new(),
+</span><span id="__span-284-9"><a id="__codelineno-284-9" name="__codelineno-284-9" href="#__codelineno-284-9"></a>        filters: Vec::new(),
+</span><span id="__span-284-10"><a id="__codelineno-284-10" name="__codelineno-284-10" href="#__codelineno-284-10"></a>        params: Vec::new(),
+</span><span id="__span-284-11"><a id="__codelineno-284-11" name="__codelineno-284-11" href="#__codelineno-284-11"></a>    }
+</span><span id="__span-284-12"><a id="__codelineno-284-12" name="__codelineno-284-12" href="#__codelineno-284-12"></a>}
+</span></code></pre></div>
+<h5 id="variants_36">Variants<a class="headerlink" href="#variants_36" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Fact</code> - Read off the metric's own model, grouped by the bucket and by every key the answer or a non-descending term needs.</li>
+<li><code>Lookup</code> - Read off one remote dimension model: its join key, the columns the answer groups by, and whatever filters went with it.</li>
+</ul>
+<h5 id="methods_54">Methods<a class="headerlink" href="#methods_54" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-285-1"><a id="__codelineno-285-1" name="__codelineno-285-1" href="#__codelineno-285-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filters</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">PlanFilter</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The predicates this leg applies.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-286-1"><a id="__codelineno-286-1" name="__codelineno-286-1" href="#__codelineno-286-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">keys</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">PlanKey</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The columns this leg groups by and projects.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-287-1"><a id="__codelineno-287-1" name="__codelineno-287-1" href="#__codelineno-287-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">ParamValue</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The values bound to this leg's placeholders, in placeholder order.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-288-1"><a id="__codelineno-288-1" name="__codelineno-288-1" href="#__codelineno-288-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">result_labels</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The labels this leg's result will carry, in the order it projects them.</p>
+<p>One definition, for <code>QueryPlan::result_labels</code>'s reason: an adapter that builds a schema
+and an adapter that renders a projection cannot disagree about it. Keys, then the bucket if
+there is one, then one label per term.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-289-1"><a id="__codelineno-289-1" name="__codelineno-289-1" href="#__codelineno-289-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>The one data system this leg runs against.</p>
+<p>Every leg is mono-source, so <em>a plan cannot silently span two sources</em> applies per leg
+unchanged: neither variant has a second <code>SourceName</code> to disagree with this one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-290-1"><a id="__codelineno-290-1" name="__codelineno-290-1" href="#__codelineno-290-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">table</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">TableName</span>
+</span></code></pre></div>
+<p>The table this leg reads.</p>
+<h5 id="implements_76">Implements<a class="headerlink" href="#implements_76" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
+<h4 id="enum-executable"><code>enum Executable</code><a class="headerlink" href="#enum-executable" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-291-1"><a id="__codelineno-291-1" name="__codelineno-291-1" href="#__codelineno-291-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Executable</span><span class="o">&lt;'</span><span class="na">plan</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What the execution port can be handed.</p>
+<p><strong>One method rather than two, and the exhaustive match is the reason.</strong> A second port method for
+legs is a smaller diff and worse where it matters: a second method invites a default body, a
+default that errors lets an adapter be silently non-federating, and <em>adding a data system is a
+registration</em> then stops being true in the one direction nobody would notice. With one method
+taking this enum, a third leg shape cannot be added without every adapter stating what it does
+with it.</p>
+<p><strong>It borrows.</strong> A plan is built once and executed once, and the federated path multiplies the
+working set against a memory bound that refuses - so a copy per leg would be a correctness
+question rather than a style one.</p>
+<p>An adapter that does not answer for every shape does not compile:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-292-1"><a id="__codelineno-292-1" name="__codelineno-292-1" href="#__codelineno-292-1"></a>use sutura_domain::plan::Executable;
+</span><span id="__span-292-2"><a id="__codelineno-292-2" name="__codelineno-292-2" href="#__codelineno-292-2"></a>
+</span><span id="__span-292-3"><a id="__codelineno-292-3" name="__codelineno-292-3" href="#__codelineno-292-3"></a>fn _dispatch(executable: Executable&lt;'_&gt;) -&gt; &amp;'static str {
+</span><span id="__span-292-4"><a id="__codelineno-292-4" name="__codelineno-292-4" href="#__codelineno-292-4"></a>    match executable {
+</span><span id="__span-292-5"><a id="__codelineno-292-5" name="__codelineno-292-5" href="#__codelineno-292-5"></a>        Executable::Query(_) =&gt; "a whole answer",
+</span><span id="__span-292-6"><a id="__codelineno-292-6" name="__codelineno-292-6" href="#__codelineno-292-6"></a>    }
+</span><span id="__span-292-7"><a id="__codelineno-292-7" name="__codelineno-292-7" href="#__codelineno-292-7"></a>}
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-293-1"><a id="__codelineno-293-1" name="__codelineno-293-1" href="#__codelineno-293-1"></a>use sutura_domain::plan::Executable;
+</span><span id="__span-293-2"><a id="__codelineno-293-2" name="__codelineno-293-2" href="#__codelineno-293-2"></a>
+</span><span id="__span-293-3"><a id="__codelineno-293-3" name="__codelineno-293-3" href="#__codelineno-293-3"></a>fn _dispatch(executable: Executable&lt;'_&gt;) -&gt; &amp;'static str {
+</span><span id="__span-293-4"><a id="__codelineno-293-4" name="__codelineno-293-4" href="#__codelineno-293-4"></a>    match executable {
+</span><span id="__span-293-5"><a id="__codelineno-293-5" name="__codelineno-293-5" href="#__codelineno-293-5"></a>        Executable::Query(_) =&gt; "a whole answer",
+</span><span id="__span-293-6"><a id="__codelineno-293-6" name="__codelineno-293-6" href="#__codelineno-293-6"></a>        Executable::Leg(_) =&gt; "one source's share of one",
+</span><span id="__span-293-7"><a id="__codelineno-293-7" name="__codelineno-293-7" href="#__codelineno-293-7"></a>    }
+</span><span id="__span-293-8"><a id="__codelineno-293-8" name="__codelineno-293-8" href="#__codelineno-293-8"></a>}
+</span></code></pre></div>
+<h5 id="variants_37">Variants<a class="headerlink" href="#variants_37" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Query</code> - A whole answer from one data system.</li>
+<li><code>Leg</code> - One data system's share of an answer assembled above it.</li>
+</ul>
+<h5 id="methods_55">Methods<a class="headerlink" href="#methods_55" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-294-1"><a id="__codelineno-294-1" name="__codelineno-294-1" href="#__codelineno-294-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">params</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">plan</span><span class="w"> </span><span class="p">[</span><span class="n">ParamValue</span><span class="p">]</span>
+</span></code></pre></div>
+<p>The values bound to this statement's placeholders, in placeholder order.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-295-1"><a id="__codelineno-295-1" name="__codelineno-295-1" href="#__codelineno-295-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">result_labels</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The labels the result will carry, in the order it projects them.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-296-1"><a id="__codelineno-296-1" name="__codelineno-296-1" href="#__codelineno-296-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">source</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">plan</span><span class="w"> </span><span class="nc">SourceName</span>
+</span></code></pre></div>
+<p>The one data system this runs against, whichever shape it is.</p>
+<h5 id="implements_77">Implements<a class="headerlink" href="#implements_77" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="module-query">Module <code>query</code><a class="headerlink" href="#module-query" title="Permanent link">&para;</a></h2>
 <p>The tool surface: what a caller may ask, and what comes back.</p>
 <p><strong>This module is the governance boundary, and it is defined by what it does not contain.</strong>
@@ -4388,7 +4616,7 @@ property than it sounds: a refusal can be retried until something succeeds, and 
 cannot.</p>
 <p>Widening this is a governance change. <code>AGENTS.md</code> says which mechanism has to still hold.</p>
 <h3 id="struct-filter"><code>struct Filter</code><a class="headerlink" href="#struct-filter" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-274-1"><a id="__codelineno-274-1" name="__codelineno-274-1" href="#__codelineno-274-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Filter</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-297-1"><a id="__codelineno-297-1" name="__codelineno-297-1" href="#__codelineno-297-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Filter</span>
 </span></code></pre></div>
 <p>One equality filter: a dimension, and a value the pinned bundle declares.</p>
 <p>The value is a <code>DimensionValue</code> here and a bind parameter by the time it reaches a statement. It
@@ -4419,46 +4647,46 @@ and reports <code>filters[i].value</code> without the parse error underneath it,
 <a href="crate::catalog::InvalidDimensionValue"><code>InvalidDimensionValue</code></a> carries the offending input and
 <code>RefusalReason</code>'s own rule is that caller-supplied text is never reflected into a message that
 reaches a log, a UI and an agent's context.</p>
-<h4 id="methods_53">Methods<a class="headerlink" href="#methods_53" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-275-1"><a id="__codelineno-275-1" name="__codelineno-275-1" href="#__codelineno-275-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dimension</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DimensionName</span>
+<h4 id="methods_56">Methods<a class="headerlink" href="#methods_56" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-298-1"><a id="__codelineno-298-1" name="__codelineno-298-1" href="#__codelineno-298-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dimension</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DimensionName</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-276-1"><a id="__codelineno-276-1" name="__codelineno-276-1" href="#__codelineno-276-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">dimension</span><span class="p">:</span><span class="w"> </span><span class="nc">DimensionName</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">DimensionValue</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-299-1"><a id="__codelineno-299-1" name="__codelineno-299-1" href="#__codelineno-299-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">dimension</span><span class="p">:</span><span class="w"> </span><span class="nc">DimensionName</span><span class="p">,</span><span class="w"> </span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="nc">DimensionValue</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-277-1"><a id="__codelineno-277-1" name="__codelineno-277-1" href="#__codelineno-277-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DimensionValue</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-300-1"><a id="__codelineno-300-1" name="__codelineno-300-1" href="#__codelineno-300-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">value</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DimensionValue</span>
 </span></code></pre></div>
-<h4 id="implements_75">Implements<a class="headerlink" href="#implements_75" title="Permanent link">&para;</a></h4>
+<h4 id="implements_78">Implements<a class="headerlink" href="#implements_78" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="struct-query"><code>struct Query</code><a class="headerlink" href="#struct-query" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-278-1"><a id="__codelineno-278-1" name="__codelineno-278-1" href="#__codelineno-278-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Query</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-301-1"><a id="__codelineno-301-1" name="__codelineno-301-1" href="#__codelineno-301-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Query</span>
 </span></code></pre></div>
 <p>A modelled question.</p>
 <p><code>deny_unknown_fields</code> is load-bearing rather than strict-for-its-own-sake. Without it a question
 carrying <code>sql:</code> or <code>table:</code> deserializes cleanly with the extra field dropped on the floor, and a
 caller who believes they sent SQL gets an answer to a different question. With it, the attempt is
 an error naming the field.</p>
-<h4 id="methods_54">Methods<a class="headerlink" href="#methods_54" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-279-1"><a id="__codelineno-279-1" name="__codelineno-279-1" href="#__codelineno-279-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">DimensionName</span><span class="p">]</span>
+<h4 id="methods_57">Methods<a class="headerlink" href="#methods_57" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-302-1"><a id="__codelineno-302-1" name="__codelineno-302-1" href="#__codelineno-302-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">dimensions</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">DimensionName</span><span class="p">]</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-280-1"><a id="__codelineno-280-1" name="__codelineno-280-1" href="#__codelineno-280-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filters</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Filter</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-303-1"><a id="__codelineno-303-1" name="__codelineno-303-1" href="#__codelineno-303-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filters</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="n">Filter</span><span class="p">]</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-281-1"><a id="__codelineno-281-1" name="__codelineno-281-1" href="#__codelineno-281-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grain</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Grain</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-304-1"><a id="__codelineno-304-1" name="__codelineno-304-1" href="#__codelineno-304-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grain</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Grain</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-282-1"><a id="__codelineno-282-1" name="__codelineno-282-1" href="#__codelineno-282-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">literals</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-305-1"><a id="__codelineno-305-1" name="__codelineno-305-1" href="#__codelineno-305-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">literals</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BTreeSet</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The literal text this question carries, for the assertion that none of it reaches the SQL.</p>
 <p>It exists so the no-injection golden can be written as "no value from the question appears in
 the statement" rather than as a list of places to look, which is the form that goes stale the
 first time a field is added.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-283-1"><a id="__codelineno-283-1" name="__codelineno-283-1" href="#__codelineno-283-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metric</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MetricName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-306-1"><a id="__codelineno-306-1" name="__codelineno-306-1" href="#__codelineno-306-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">metric</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MetricName</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-284-1"><a id="__codelineno-284-1" name="__codelineno-284-1" href="#__codelineno-284-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="nc">MetricName</span><span class="p">,</span><span class="w"> </span><span class="n">grain</span><span class="p">:</span><span class="w"> </span><span class="nc">Grain</span><span class="p">,</span><span class="w"> </span><span class="n">range</span><span class="p">:</span><span class="w"> </span><span class="nc">TimeRange</span><span class="p">,</span><span class="w"> </span><span class="n">dimensions</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">DimensionName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">filters</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Filter</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-307-1"><a id="__codelineno-307-1" name="__codelineno-307-1" href="#__codelineno-307-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="nc">MetricName</span><span class="p">,</span><span class="w"> </span><span class="n">grain</span><span class="p">:</span><span class="w"> </span><span class="nc">Grain</span><span class="p">,</span><span class="w"> </span><span class="n">range</span><span class="p">:</span><span class="w"> </span><span class="nc">TimeRange</span><span class="p">,</span><span class="w"> </span><span class="n">dimensions</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">DimensionName</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">filters</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Filter</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-285-1"><a id="__codelineno-285-1" name="__codelineno-285-1" href="#__codelineno-285-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">range</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TimeRange</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-308-1"><a id="__codelineno-308-1" name="__codelineno-308-1" href="#__codelineno-308-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">range</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TimeRange</span>
 </span></code></pre></div>
-<h4 id="implements_76">Implements<a class="headerlink" href="#implements_76" title="Permanent link">&para;</a></h4>
+<h4 id="implements_79">Implements<a class="headerlink" href="#implements_79" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-refusalreason"><code>enum RefusalReason</code><a class="headerlink" href="#enum-refusalreason" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-286-1"><a id="__codelineno-286-1" name="__codelineno-286-1" href="#__codelineno-286-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RefusalReason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-309-1"><a id="__codelineno-309-1" name="__codelineno-309-1" href="#__codelineno-309-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">RefusalReason</span>
 </span></code></pre></div>
 <p>Why a question was not answered.</p>
 <p>Typed rather than prose, because the variant is the contract and the message is not. Every
@@ -4476,7 +4704,7 @@ type would govern authorship in order to govern requests.</p>
 <code>DimensionValueNotAllowed</code> names the dimension and stops there. Reflecting caller-supplied text
 into a message that reaches a log, a UI and an agent's context is how a rejected value becomes
 somebody else's input.</p>
-<h4 id="variants_36">Variants<a class="headerlink" href="#variants_36" title="Permanent link">&para;</a></h4>
+<h4 id="variants_38">Variants<a class="headerlink" href="#variants_38" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>MetricUnknown</code> - No metric of that name is in the pinned bundle.</li>
 <li><code>GrainNotSupported</code> - The metric exists and does not declare that grain. Not a narrower question: a grain the author did not render is a number nobody certified.</li>
@@ -4491,26 +4719,26 @@ somebody else's input.</p>
 <li><code>SourceUnavailable</code> - The plan named a data system this process did not open.</li>
 <li><code>ResourcesExhausted</code> - An engine operator asked its memory pool for more than the deployment's working-set ceiling.</li>
 </ul>
-<h4 id="implements_77">Implements<a class="headerlink" href="#implements_77" title="Permanent link">&para;</a></h4>
+<h4 id="implements_80">Implements<a class="headerlink" href="#implements_80" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-tooloutcome"><code>enum ToolOutcome</code><a class="headerlink" href="#enum-tooloutcome" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-287-1"><a id="__codelineno-287-1" name="__codelineno-287-1" href="#__codelineno-287-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ToolOutcome</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-310-1"><a id="__codelineno-310-1" name="__codelineno-310-1" href="#__codelineno-310-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ToolOutcome</span>
 </span></code></pre></div>
 <p>What a tool call produced.</p>
 <p>A refusal is a <em>variant of the result</em>, not an <code>Err</code>. A caller cannot mistake it for a transport
 hiccup and retry until something works, which is what an error would invite.</p>
-<h4 id="variants_37">Variants<a class="headerlink" href="#variants_37" title="Permanent link">&para;</a></h4>
+<h4 id="variants_39">Variants<a class="headerlink" href="#variants_39" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Answer</code></li>
 <li><code>Refusal</code></li>
 </ul>
-<h4 id="methods_55">Methods<a class="headerlink" href="#methods_55" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-288-1"><a id="__codelineno-288-1" name="__codelineno-288-1" href="#__codelineno-288-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<h4 id="methods_58">Methods<a class="headerlink" href="#methods_58" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-311-1"><a id="__codelineno-311-1" name="__codelineno-311-1" href="#__codelineno-311-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-289-1"><a id="__codelineno-289-1" name="__codelineno-289-1" href="#__codelineno-289-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RefusalReason</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-312-1"><a id="__codelineno-312-1" name="__codelineno-312-1" href="#__codelineno-312-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RefusalReason</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The refusal reason, if this is one. Convenience for tests and for an audit sink.</p>
-<h4 id="implements_78">Implements<a class="headerlink" href="#implements_78" title="Permanent link">&para;</a></h4>
+<h4 id="implements_81">Implements<a class="headerlink" href="#implements_81" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="constant-max_dimensions"><code>constant MAX_DIMENSIONS</code><a class="headerlink" href="#constant-max_dimensions" title="Permanent link">&para;</a></h3>
 <p>The most dimensions one question may group by.</p>
@@ -4565,7 +4793,7 @@ value is a closed set of typed variants an adapter binds, never text somebody co
 <code>crate::query</code> is the <em>tool</em> surface, where SQL must be unrepresentable because the text would
 come from a caller; here there is no text for a value to reach at all.</p>
 <h3 id="enum-paramvalue"><code>enum ParamValue</code><a class="headerlink" href="#enum-paramvalue" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-290-1"><a id="__codelineno-290-1" name="__codelineno-290-1" href="#__codelineno-290-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ParamValue</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-313-1"><a id="__codelineno-313-1" name="__codelineno-313-1" href="#__codelineno-313-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ParamValue</span>
 </span></code></pre></div>
 <p>A value bound to a placeholder.</p>
 <p>A closed set rather than a string, because the whole point is that these never become text on
@@ -4586,38 +4814,38 @@ is <code>"500"</code> compare as a number: the same wrong comparison, arrived at
 <p>So it goes when a typed column model does, and not before. The reasoning is the one
 <code>sutura_exec_datafusion</code>'s <code>cell</code> gives for leaving <code>Date64</code> unmapped: an unreachable arm holding
 a semantic choice nobody reviewed is worse than not having the arm.</p>
-<h4 id="variants_38">Variants<a class="headerlink" href="#variants_38" title="Permanent link">&para;</a></h4>
+<h4 id="variants_40">Variants<a class="headerlink" href="#variants_40" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Text</code></li>
 <li><code>Date</code></li>
 </ul>
-<h4 id="methods_56">Methods<a class="headerlink" href="#methods_56" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-291-1"><a id="__codelineno-291-1" name="__codelineno-291-1" href="#__codelineno-291-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<h4 id="methods_59">Methods<a class="headerlink" href="#methods_59" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-314-1"><a id="__codelineno-314-1" name="__codelineno-314-1" href="#__codelineno-314-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>A human-readable form, for showing a plan to a person.</p>
 <p><strong>Display only.</strong> It is deliberately not the SQL literal for the value: a function that
 produced one would be the thing somebody reaches for the day they want to inline a parameter,
 and inlining a parameter is the one move this type exists to prevent. Text is quoted the way
 <code>Debug</code> quotes it, which makes an empty or space-padded value visible rather than SQL-shaped.</p>
-<h4 id="implements_79">Implements<a class="headerlink" href="#implements_79" title="Permanent link">&para;</a></h4>
+<h4 id="implements_82">Implements<a class="headerlink" href="#implements_82" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-notfinite"><code>enum NotFinite</code><a class="headerlink" href="#enum-notfinite" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-292-1"><a id="__codelineno-292-1" name="__codelineno-292-1" href="#__codelineno-292-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotFinite</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-315-1"><a id="__codelineno-315-1" name="__codelineno-315-1" href="#__codelineno-315-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotFinite</span>
 </span></code></pre></div>
 <p>Why a floating-point cell was refused.</p>
 <p>Two variants rather than one, because the two faults have different causes and a reader chasing
 one is not chasing the other: an infinity is a non-zero quantity divided by zero, and a <code>NaN</code> is
 zero divided by zero. The variant carries the value rather than a formatted sentence, for the
 reason every error in this crate does.</p>
-<h4 id="variants_39">Variants<a class="headerlink" href="#variants_39" title="Permanent link">&para;</a></h4>
+<h4 id="variants_41">Variants<a class="headerlink" href="#variants_41" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Infinite</code> - Infinite, in either direction.</li>
 <li><code>NotANumber</code> - Not a number at all. Its own variant rather than a value on the one above, because <code>NaN</code> compares unequal to itself: an <code>Infinite</code> carrying one would make two of these errors unequal for a reason that has nothing to do with what happened.</li>
 </ul>
-<h4 id="implements_80">Implements<a class="headerlink" href="#implements_80" title="Permanent link">&para;</a></h4>
+<h4 id="implements_83">Implements<a class="headerlink" href="#implements_83" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-real"><code>struct Real</code><a class="headerlink" href="#struct-real" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-293-1"><a id="__codelineno-293-1" name="__codelineno-293-1" href="#__codelineno-293-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Real</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-316-1"><a id="__codelineno-316-1" name="__codelineno-316-1" href="#__codelineno-316-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Real</span>
 </span></code></pre></div>
 <p>A real number a result may carry: finite, and nothing else.</p>
 <p><strong>Parsed rather than validated, and the class it closes is larger than the bug that found it.</strong>
@@ -4637,90 +4865,90 @@ numbers divide to a non-finite one, so a type that let the result back in withou
 gains <code>Deserialize</code>, this needs <code>#[serde(try_from = ..)]</code> routing through <code>parse</code>, because a
 derived one writes straight into the private field.</p>
 <p><code>parse</code>: Real::parse</p>
-<h4 id="methods_57">Methods<a class="headerlink" href="#methods_57" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-294-1"><a id="__codelineno-294-1" name="__codelineno-294-1" href="#__codelineno-294-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">f64</span>
+<h4 id="methods_60">Methods<a class="headerlink" href="#methods_60" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-317-1"><a id="__codelineno-317-1" name="__codelineno-317-1" href="#__codelineno-317-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">f64</span>
 </span></code></pre></div>
 <p>The number, for a caller that has to do arithmetic on it.</p>
 <p>Named rather than reached through <code>Deref</code>, so the point at which the invariant stops applying
 is a call somebody wrote.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-295-1"><a id="__codelineno-295-1" name="__codelineno-295-1" href="#__codelineno-295-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotFinite</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-318-1"><a id="__codelineno-318-1" name="__codelineno-318-1" href="#__codelineno-318-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">value</span><span class="p">:</span><span class="w"> </span><span class="kt">f64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotFinite</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Parses a real number, rejecting a non-finite one.</p>
-<h4 id="implements_81">Implements<a class="headerlink" href="#implements_81" title="Permanent link">&para;</a></h4>
+<h4 id="implements_84">Implements<a class="headerlink" href="#implements_84" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>LowerExp</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-value"><code>enum Value</code><a class="headerlink" href="#enum-value" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-296-1"><a id="__codelineno-296-1" name="__codelineno-296-1" href="#__codelineno-296-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Value</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-319-1"><a id="__codelineno-319-1" name="__codelineno-319-1" href="#__codelineno-319-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Value</span>
 </span></code></pre></div>
 <p>One cell of a result.</p>
 <p><code>Real</code> is deliberately last on the list of things to reach for. A measure over integer minor
 units stays exact, and an anchor comparison over a float would depend on how two languages print
 the same bits. It exists because <code>avg</code> has to land somewhere - and it is a checked type rather
 than an <code>f64</code>, so the one thing a float can be that a number cannot does not fit in a cell.</p>
-<h4 id="variants_40">Variants<a class="headerlink" href="#variants_40" title="Permanent link">&para;</a></h4>
+<h4 id="variants_42">Variants<a class="headerlink" href="#variants_42" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Null</code></li>
 <li><code>Integer</code></li>
 <li><code>Real</code></li>
 <li><code>Text</code></li>
 </ul>
-<h4 id="methods_58">Methods<a class="headerlink" href="#methods_58" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-297-1"><a id="__codelineno-297-1" name="__codelineno-297-1" href="#__codelineno-297-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<h4 id="methods_61">Methods<a class="headerlink" href="#methods_61" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-320-1"><a id="__codelineno-320-1" name="__codelineno-320-1" href="#__codelineno-320-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">render</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>The canonical text form, which is what an anchor is compared against.</p>
 <p>One function so there is one answer. An anchor comparison that formatted the value at the
 call site would compare differently in two places, and the failure would look like a data
 problem rather than a formatting one.</p>
-<h4 id="implements_82">Implements<a class="headerlink" href="#implements_82" title="Permanent link">&para;</a></h4>
+<h4 id="implements_85">Implements<a class="headerlink" href="#implements_85" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="struct-rowset"><code>struct RowSet</code><a class="headerlink" href="#struct-rowset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-298-1"><a id="__codelineno-298-1" name="__codelineno-298-1" href="#__codelineno-298-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RowSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-321-1"><a id="__codelineno-321-1" name="__codelineno-321-1" href="#__codelineno-321-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RowSet</span>
 </span></code></pre></div>
 <p>A result set: the column labels, and the rows.</p>
 <p>Labels are <code>String</code> rather than <code>crate::model::ColumnName</code> because a generated projection names
 things a model did not: the truncated time bucket, and the measure under the metric's own name.
 Constraining them to model column names would mean either lying about what they are or refusing
 to name them.</p>
-<h4 id="methods_59">Methods<a class="headerlink" href="#methods_59" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-299-1"><a id="__codelineno-299-1" name="__codelineno-299-1" href="#__codelineno-299-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cell</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">row</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Value</span><span class="o">&gt;</span>
+<h4 id="methods_62">Methods<a class="headerlink" href="#methods_62" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-322-1"><a id="__codelineno-322-1" name="__codelineno-322-1" href="#__codelineno-322-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">cell</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">row</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">,</span><span class="w"> </span><span class="n">column</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Value</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>One cell, by row and column position.</p>
 <p><code>Option</code> rather than indexing, because <code>indexing_slicing</code> is denied for library crates here
 and because a caller that has a position from <code>column_index</code> still should not be able to
 panic on a result set that came back a different shape than expected.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-300-1"><a id="__codelineno-300-1" name="__codelineno-300-1" href="#__codelineno-300-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_index</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">usize</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-323-1"><a id="__codelineno-323-1" name="__codelineno-323-1" href="#__codelineno-323-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">column_index</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">label</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="kt">usize</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Where a column with this label sits, if there is exactly one.</p>
 <p><code>None</code> for a label that appears twice, not the first match. Two columns with one label means
 the projection is not what we think it is, and returning either of them would answer with a
 number from a column nobody chose. <code>Definitions::assemble</code> refuses the catalog shapes that
 could cause it, so this is the second line rather than the first.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-301-1"><a id="__codelineno-301-1" name="__codelineno-301-1" href="#__codelineno-301-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-324-1"><a id="__codelineno-324-1" name="__codelineno-324-1" href="#__codelineno-324-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">columns</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">String</span><span class="p">]</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-302-1"><a id="__codelineno-302-1" name="__codelineno-302-1" href="#__codelineno-302-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-325-1"><a id="__codelineno-325-1" name="__codelineno-325-1" href="#__codelineno-325-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">String</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">rows</span><span class="p">:</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">MalformedRowSet</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds a result set, rejecting a ragged one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-303-1"><a id="__codelineno-303-1" name="__codelineno-303-1" href="#__codelineno-303-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">]</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-326-1"><a id="__codelineno-326-1" name="__codelineno-326-1" href="#__codelineno-326-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">rows</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[</span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">Value</span><span class="o">&gt;</span><span class="p">]</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-304-1"><a id="__codelineno-304-1" name="__codelineno-304-1" href="#__codelineno-304-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scalar</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Value</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-327-1"><a id="__codelineno-327-1" name="__codelineno-327-1" href="#__codelineno-327-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scalar</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Value</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The single cell of a single-row, single-column result, which is what an anchor check reads.</p>
 <p><code>None</code> for any other shape rather than a panic or a silent first-cell: an anchor query that
 came back with three rows means the statement is not the one we thought, and reading its
 first cell would turn that into a wrong number.</p>
-<h4 id="implements_83">Implements<a class="headerlink" href="#implements_83" title="Permanent link">&para;</a></h4>
+<h4 id="implements_86">Implements<a class="headerlink" href="#implements_86" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="enum-malformedrowset"><code>enum MalformedRowSet</code><a class="headerlink" href="#enum-malformedrowset" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-305-1"><a id="__codelineno-305-1" name="__codelineno-305-1" href="#__codelineno-305-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedRowSet</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-328-1"><a id="__codelineno-328-1" name="__codelineno-328-1" href="#__codelineno-328-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedRowSet</span>
 </span></code></pre></div>
 <p>Why a result set could not be built.</p>
-<h4 id="variants_41">Variants<a class="headerlink" href="#variants_41" title="Permanent link">&para;</a></h4>
+<h4 id="variants_43">Variants<a class="headerlink" href="#variants_43" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>RowWidth</code> - A row has a different number of cells than there are columns.</li>
 </ul>
-<h4 id="implements_84">Implements<a class="headerlink" href="#implements_84" title="Permanent link">&para;</a></h4>
+<h4 id="implements_87">Implements<a class="headerlink" href="#implements_87" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="trait-warehouse"><code>trait Warehouse</code><a class="headerlink" href="#trait-warehouse" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-306-1"><a id="__codelineno-306-1" name="__codelineno-306-1" href="#__codelineno-306-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">Warehouse</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-329-1"><a id="__codelineno-329-1" name="__codelineno-329-1" href="#__codelineno-329-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">Warehouse</span>
 </span></code></pre></div>
 <p>Where a plan runs.</p>
 <p><strong>The port takes a <code>crate::plan::QueryPlan</code>, not a statement, and that is what makes a second
