@@ -1376,6 +1376,8 @@
       
         
       
+        
+      
     
     
     
@@ -1717,6 +1719,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1825,10 +1855,18 @@ although an in-process engine over a local file has no row-level security to lea
 adding a cache here would be the place the habit started.</p>
 <p>What it does offer is two narrow, typed attach affordances, <code>DataFusionWarehouse::attach_csv</code>
 and <code>DataFusionWarehouse::attach_parquet</code>, which is what a golden fixture needs.</p>
-<h1 id="three-files-along-two-seams">Three files, along two seams<a class="headerlink" href="#three-files-along-two-seams" title="Permanent link">&para;</a></h1>
+<p><strong>The engine's memory is bounded, and the bound is not this process's memory.</strong> Every session here
+is built with a <code>RuntimeEnv</code> carrying a fixed-size pool, because the alternative is the engine's
+unbounded one - and under <code>panic = "abort"</code> a large enough hash join is then process death for
+every concurrent caller rather than an error for the one who asked. A refused reservation leaves as
+<code>RefusalReason::ResourcesExhausted</code>. What the pool counts is operator reservations and <strong>nothing
+else</strong>: not what a driver buffers, not <code>collect()</code> materialising every batch, not the row set built
+in the conversion loop below. See <code>pool</code>, which states the gap rather than implying it is closed.</p>
+<h1 id="four-files-along-three-seams">Four files, along three seams<a class="headerlink" href="#four-files-along-three-seams" title="Permanent link">&para;</a></h1>
 <p><code>translate.rs</code> turns a plan into expressions and never reads a result; <code>collect.rs</code> turns a result
-into domain rows and never reads a plan except for its labels. What is left here is what neither
-of them is about: the session, the runtime, attaching a file, and executing.</p>
+into domain rows and never reads a plan except for its labels; <code>pool.rs</code> is the working-set ceiling
+and reads neither. What is left here is what none of them is about: the session, the runtime,
+attaching a file, and executing.</p>
 <h2 id="enum-datafusionerror"><code>enum DataFusionError</code><a class="headerlink" href="#enum-datafusionerror" title="Permanent link">&para;</a></h2>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DataFusionError</span>
 </span></code></pre></div>
@@ -1839,6 +1877,7 @@ map" send a reader to three different places.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
 <li><code>Runtime</code> - The runtime this adapter executes on could not be built.</li>
+<li><code>Environment</code> - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.</li>
 <li><code>Attach</code></li>
 <li><code>Build</code> - A logical plan could not be assembled from the query plan.</li>
 <li><code>Analyze</code> - The engine refused the plan: an unknown table, an unknown column, a type mismatch.</li>
@@ -1873,12 +1912,27 @@ read options' default.</p>
 <p>The CSV affordance's twin, and why the <code>parquet</code> feature is on. Neither <code>compression</code> nor
 <code>avro</code> is: each reintroduces a licence the supply-chain gate does not allow, and the
 manifest's comment records which.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">memory_pool</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Arc</span><span class="o">&lt;</span><span class="k">dyn</span><span class="w"> </span><span class="n">MemoryPool</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The pool every operator in this session reserves against.</p>
+<p><strong>An accessor because the fields are private and stay private</strong>, and because
+<code>docs/adr/0015</code> needs <code>MemoryPool::reserved</code> for a gauge whose absence it currently specifies:
+a gauge reading zero while no pool exists is a lie an operator builds an alert on.</p>
+<p><strong>State the limit with the reading.</strong> What comes back counts operator reservations - a
+hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
+memory, and it must not be alerted on as though it were: <code>collect()</code> materialising every batch
+and the row set built during conversion are both outside it, on the same request path.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds an adapter with nothing registered.</p>
 <p>There is no file to open, which is the difference from the <code>DuckDB</code> adapter: the engine is
 this process, and a table exists once it has been attached.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
+<p><strong>It takes a ceiling, and that is not optional.</strong> <code>SessionContext::new()</code> installs the
+engine's unbounded pool, which under <code>panic = "abort"</code> makes a large enough join process death
+rather than a refusal - so a constructor that let a caller skip the bound would be the one
+place the whole control could be forgotten. <code>sutura_config::WorkingSetCeiling::DEFAULT_BYTES</code>
+is what a caller with no settings to read uses.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_worker_threads</span><span class="p">(</span><span class="n">source</span><span class="p">:</span><span class="w"> </span><span class="nc">SourceName</span><span class="p">,</span><span class="w"> </span><span class="n">workers</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">,</span><span class="w"> </span><span class="n">working_set</span><span class="p">:</span><span class="w"> </span><span class="nc">WorkingSet</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">DataFusionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The same adapter, <code>workers</code> threads wide.</p>
 <p><strong>What <code>Self::new</code> costs when several threads call it at once, measured rather than
@@ -1934,8 +1988,77 @@ otherwise build sixteen-way plans and execute them two at a time. Pinning it is 
 widths above are <em>ahead</em> of the baseline rather than level with it.</p>
 <p><code>Self::new</code> is deliberately left alone: the command-line tool answers one question and
 exits, and it is also the caller with no settings to read a width from.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">working_set</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">WorkingSet</span>
+</span></code></pre></div>
+<p>The ceiling this adapter's pool was built with.</p>
+<p>From the configured value rather than from <code>MemoryPool::memory_limit</code>, which defaults to
+<code>Unknown</code>: a pool that does not override it reports no ceiling, and then the reserved-against-
+ceiling ratio an operator actually wants cannot be computed.</p>
 <h3 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h3>
 <p><code>Debug</code>, <code>Warehouse</code></p>
+<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="module-pool">Module <code>pool</code><a class="headerlink" href="#module-pool" title="Permanent link">&para;</a></h2>
+<p>The working-set ceiling.</p>
+<p>The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
+because it is a third seam, and because <code>lib.rs</code> is at the length gate.
+The working-set ceiling.</p>
+<p>The pool the engine's operators reserve against, and how a refused reservation is recognised on
+the way back out.</p>
+<h1 id="why-this-file-exists-at-all">Why this file exists at all<a class="headerlink" href="#why-this-file-exists-at-all" title="Permanent link">&para;</a></h1>
+<p><strong>There was no memory pool.</strong> Nothing in the workspace constructed a <code>RuntimeEnv</code>, so
+<code>DataFusion</code> installed its <code>UnboundedMemoryPool</code> at both <code>SessionContext</code> construction sites -
+and shipped profiles compile <code>panic = "abort"</code>, so a hash join or an aggregate wide enough to
+outgrow the machine was not an error for the caller who asked. It was the process ending for every
+caller in flight. A bounded pool turns that into a reservation that fails, which
+<code>sutura_app::answer</code> turns into <code>RefusalReason::ResourcesExhausted</code>.</p>
+<h1 id="what-the-pool-counts-and-what-it-does-not">What the pool counts, and what it does not<a class="headerlink" href="#what-the-pool-counts-and-what-it-does-not" title="Permanent link">&para;</a></h1>
+<p>It counts what the engine's own operators reserve: a hash-join build side, aggregate state, a
+sort. <strong>It counts nothing else.</strong> Not what a driver buffers, not <code>collect()</code> materialising every
+batch into memory at once, not the <code>Vec&lt;Vec&lt;Value&gt;&gt;</code> built while a result is converted into domain
+rows - all three of which are on the path a question takes through this crate. So this is not a
+bound on the process's memory and must not be alerted on as one: a question large enough to end
+the process on one of those paths still ends it. <code>docs/adr/0009</code> puts the bound that reaches them
+- a byte budget applied as rows are converted - with the execution boundary rather than here, and
+says so rather than letting this one be read as wider than it is.</p>
+<h1 id="greedy-and-never-spilling">Greedy, and never spilling<a class="headerlink" href="#greedy-and-never-spilling" title="Permanent link">&para;</a></h1>
+<p><code>GreedyMemoryPool</code> rather than <code>FairSpillPool</code>: first come, first served, and a reservation over
+the ceiling fails immediately. <code>docs/adr/0009</code> Decision 3 decides the policy and the second of its
+two reasons is what settles it - spilling writes the <strong>asking subject's rows</strong> to the pod's local
+disk, a data-at-rest surface nothing in this design governs, on the one path whose whole purpose
+is that a query executes as the person who asked. A bound that protects memory by making an
+ungoverned copy of the data has not protected anything.</p>
+<p>So temporary files are <strong>disabled</strong> rather than left at the engine's default of an OS temporary
+directory. That is belt and braces on purpose: the pool alone would still let a spilling operator
+react to a refused reservation by writing, and <code>DiskManagerMode::Disabled</code> is what makes there be
+nowhere to write to. No spill directory, no disk sizing, and a refusal that does not depend on
+disk state.</p>
+<p>Not wrapped in <code>TrackConsumersPool</code> either, though it would improve the engine's own message: what
+reaches a caller is <code>sutura_domain::query::RefusalReason::ResourcesExhausted</code>,
+which carries the configured ceiling and deliberately nothing about what the question demanded.</p>
+<h3 id="struct-workingset"><code>struct WorkingSet</code><a class="headerlink" href="#struct-workingset" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkingSet</span>
+</span></code></pre></div>
+<p>How many bytes the engine's operators may reserve at once.</p>
+<p><strong>A newtype for the unit rather than for a range</strong>, and that is the whole of its job:
+<a href="crate::DataFusionWarehouse::with_worker_threads"><code>DataFusionWarehouse::with_worker_threads</code></a>
+already takes a <code>NonZeroUsize</code> for a thread count, so a second bare <code>NonZeroUsize</code> beside it would
+be two arguments of one type whose meanings are a width and a quantity of memory. Swapping them
+compiles and installs a three-byte pool. Wrapped, the swap does not build.</p>
+<p>It parses nothing beyond non-zero, which the inner type already carries - the range that matters is
+parsed once, in <code>sutura_config::WorkingSetCeiling</code>, against the memory the process can actually
+reach. This crate does not depend on that one and must not: an adapter does not call another
+adapter, so the composition root converts.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>The ceiling, for whatever sizes the pool.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of_bytes</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="nc">core</span><span class="p">::</span><span class="n">num</span><span class="p">::</span><span class="n">NonZeroUsize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The ceiling, in bytes.</p>
+<p>The one constructor, named for the unit so a call site reads as bytes at the point of the call
+rather than at the declaration it came from.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
 

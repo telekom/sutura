@@ -1376,6 +1376,8 @@
       
         
       
+        
+      
     
     
     
@@ -1717,6 +1719,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1805,7 +1835,12 @@
 <h1 id="sutura-runtime">sutura-runtime<a class="headerlink" href="#sutura-runtime" title="Permanent link">&para;</a></h1>
 <p>The public API of <code>sutura-runtime</code>, rendered from rustdoc JSON.</p>
 <p>Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
-the banner, and the bound on how much executes at once.</p>
+the banner, the bound on how much executes at once, and the audit sink a deployment gets for
+free.</p>
+<p>The sink is here for the same reason everything else is: it writes onto the process subscriber
+this crate installs, so it is a <em>use</em> of a process-global rather than a second installation of
+one. It is the first implementor of <code>sutura_domain::audit::AuditSink</code>, which is what keeps that
+port from being a guess at a signature - see <code>audit</code>.</p>
 <h1 id="why-this-is-its-own-crate">Why this is its own crate<a class="headerlink" href="#why-this-is-its-own-crate" title="Permanent link">&para;</a></h1>
 <p>Everything here is process-<em>global</em>. Installing a subscriber, replacing the panic hook and
 registering signal handlers are one-per-process operations that a library must not perform as a
@@ -1856,6 +1891,7 @@ thing.</p>
 <h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_8"><code>use None</code><a class="headerlink" href="#use-none_8" title="Permanent link">&para;</a></h2>
 <h2 id="module-admission">Module <code>admission</code><a class="headerlink" href="#module-admission" title="Permanent link">&para;</a></h2>
 <p>How many questions may be executing at once, and how long a caller waits for a turn.</p>
 <h1 id="why-this-is-a-bound-on-the-work-and-not-a-bound-on-the-reply">Why this is a bound on the work and not a bound on the reply<a class="headerlink" href="#why-this-is-a-bound-on-the-work-and-not-a-bound-on-the-reply" title="Permanent link">&para;</a></h1>
@@ -1943,6 +1979,46 @@ false by the time it is acted on, which is what <code>Self::admit</code> exists 
 contract is its <code>Drop</code>: the slot comes back when the value is dropped, and a wrapper would only
 add a way to get that wrong. Owned rather than borrowed so it can be moved into the blocking
 task, which is the whole point - see the module documentation.</p>
+<h2 id="module-audit">Module <code>audit</code><a class="headerlink" href="#module-audit" title="Permanent link">&para;</a></h2>
+<p>The one implementor of <code>AuditSink</code> that needs nothing from anybody.</p>
+<p>A structured writer over the tracing subscriber this crate already composes. It is here rather
+than in a transport for the reason everything in this crate is here: the subscriber is
+process-global, and the sink is a use of it rather than a second installation.</p>
+<h1 id="why-this-is-the-first-implementor-rather-than-a-fake">Why this is the first implementor rather than a fake<a class="headerlink" href="#why-this-is-the-first-implementor-rather-than-a-fake" title="Permanent link">&para;</a></h1>
+<p><code>AGENTS.md</code> says a port trait arrives with its first implementor, because a trait with no
+implementor is a guess at a signature. This is the sink a deployment that attaches nothing else
+gets: it writes into the log pipeline the deployment already runs, so there is no configuration,
+no credential and no second egress path to decide about. <strong>Whether that pipeline keeps anything
+is the deployment's answer, not ours</strong> - which is the limit <code>sutura_domain::audit</code> states, and
+this type is where it is most visible.</p>
+<h1 id="it-replaces-a-log-line-rather-than-adding-a-channel-beside-one">It replaces a log line rather than adding a channel beside one<a class="headerlink" href="#it-replaces-a-log-line-rather-than-adding-a-channel-beside-one" title="Permanent link">&para;</a></h1>
+<p>Before this existed, <code>sutura_http</code>'s query handler wrote one <code>tracing::info!</code> per outcome, and
+its own doc comment said there was no audit sink and nothing recorded a principal chain. The
+fields that line carried - the row count, the definition version, the refusal variant - are
+carried here, so an operator's existing filters keep working while the line gains the thing it
+was missing. What that line also carried, and this does not, is the HTTP status: the status is
+the transport's and the application cannot see it. Nothing is lost, because <code>tower_http</code>'s
+response line already carries it inside the same request span, configured at <code>info</code> in
+<code>sutura_http::router</code> - which is where a status belongs.</p>
+<h3 id="struct-tracingauditsink"><code>struct TracingAuditSink</code><a class="headerlink" href="#struct-tracingauditsink" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TracingAuditSink</span>
+</span></code></pre></div>
+<p>Writes each record as one structured event on the process subscriber.</p>
+<p>There is nothing to configure, and a <code>new</code> that took a level or a target would be two ways to
+write the same record. The subscriber decides where the event goes, which is the one decision a
+deployment already makes.</p>
+<p>A private marker field rather than a unit struct, for two reasons and the first is the honest
+one: <code>cargo xtask check-boundaries</code> reads a file line by line, and a unit <code>pub struct</code> leaves its
+scan waiting for a body - so the next braced block in the file is read as this struct's field
+list and a <code>pub fn</code> in it is reported as a <code>pub</code> field. That is a defect in the gate rather than
+in this type, and it is written down here rather than worked around silently. The second reason
+stands on its own: a field, even an empty one, means <code>Self::new</code> is the only way in from
+outside this crate, where a unit struct is its own literal.</p>
+<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>AuditSink</code>, <code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Default</code></p>
 <h2 id="module-banner">Module <code>banner</code><a class="headerlink" href="#module-banner" title="Permanent link">&para;</a></h2>
 <p>What the process says about itself on the way up.</p>
 <p>Two things, and they go to different places on purpose.</p>
@@ -1953,14 +2029,14 @@ without needing the log format to be readable yet.</p>
 whatever a collector is ingesting. It is for an operator, and the lines that matter most are
 the ones about what this service does <em>not</em> do.</p>
 <h3 id="fn-print"><code>fn print</code><a class="headerlink" href="#fn-print" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">(</span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">print</span><span class="p">(</span><span class="n">version</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Environment</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Prints the banner and the build line to standard output.</p>
 <p>Before the subscriber, deliberately. <code>version</code> is the caller's <code>CARGO_PKG_VERSION</code>: taking it
 as an argument rather than reading this crate's own means the number printed is the binary's,
 which is the one somebody is trying to identify.</p>
 <h3 id="fn-announce"><code>fn announce</code><a class="headerlink" href="#fn-announce" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announce</span><span class="p">(</span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Settings</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">announce</span><span class="p">(</span><span class="n">settings</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">Settings</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Writes the resolved configuration to the log.</p>
 <p><strong>Every value comes from the loaded <code>Settings</code>, not from a file.</strong> The environment layer is
@@ -2000,7 +2076,7 @@ that subscriber; the event then finds it there. Under a subscriber scoped to one
 whatever global default exists instead. That is why the test for this is an integration test
 that installs a global subscriber, and not a unit test in this file.</p>
 <h3 id="fn-spawn_carrying_span"><code>fn spawn_carrying_span</code><a class="headerlink" href="#fn-spawn_carrying_span" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spawn_carrying_span</span><span class="o">&lt;</span><span class="n">Work</span><span class="p">,</span><span class="w"> </span><span class="n">Answer</span><span class="o">&gt;</span><span class="p">(</span><span class="n">work</span><span class="p">:</span><span class="w"> </span><span class="nc">Work</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio</span><span class="p">::</span><span class="n">task</span><span class="p">::</span><span class="n">JoinHandle</span><span class="o">&lt;</span><span class="n">Answer</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">spawn_carrying_span</span><span class="o">&lt;</span><span class="n">Work</span><span class="p">,</span><span class="w"> </span><span class="n">Answer</span><span class="o">&gt;</span><span class="p">(</span><span class="n">work</span><span class="p">:</span><span class="w"> </span><span class="nc">Work</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">tokio</span><span class="p">::</span><span class="n">task</span><span class="p">::</span><span class="n">JoinHandle</span><span class="o">&lt;</span><span class="n">Answer</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Spawns <code>work</code> on the blocking pool, entered in the caller's current span.</p>
 <p>The span is captured <em>here</em>, on the caller's thread, and entered inside the closure - which is
@@ -2010,10 +2086,10 @@ thread's span, which is none.</p>
 permit or a guard is released at the end of the closure: the release happens inside the span
 too, so a diagnostic emitted while dropping is still attributable to the request.</p>
 <h1 id="example">Example<a class="headerlink" href="#example" title="Permanent link">&para;</a></h1>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
-</span><span id="__span-14-2"><a id="__codelineno-14-2" name="__codelineno-14-2" href="#__codelineno-14-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
-</span><span id="__span-14-3"><a id="__codelineno-14-3" name="__codelineno-14-3" href="#__codelineno-14-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
-</span><span id="__span-14-4"><a id="__codelineno-14-4" name="__codelineno-14-4" href="#__codelineno-14-4"></a># }
+<div class="language-text highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a># async fn call() -&gt; Result&lt;u8, tokio::task::JoinError&gt; {
+</span><span id="__span-16-2"><a id="__codelineno-16-2" name="__codelineno-16-2" href="#__codelineno-16-2"></a>// A synchronous port call. Anything traced inside belongs to the caller's request.
+</span><span id="__span-16-3"><a id="__codelineno-16-3" name="__codelineno-16-3" href="#__codelineno-16-3"></a>sutura_runtime::spawn_carrying_span(|| 7_u8).await
+</span><span id="__span-16-4"><a id="__codelineno-16-4" name="__codelineno-16-4" href="#__codelineno-16-4"></a># }
 </span></code></pre></div>
 <h2 id="module-panics">Module <code>panics</code><a class="headerlink" href="#module-panics" title="Permanent link">&para;</a></h2>
 <p>A panic that reaches the log rather than only the terminal.</p>
@@ -2027,7 +2103,7 @@ nothing in the collected log looks, from the outside, exactly like one that was 
 <p>The previous hook is kept and called afterwards, so the default rendering and any backtrace
 still appear. Replacing it outright would trade one loss for another.</p>
 <h3 id="fn-install_panic_hook"><code>fn install_panic_hook</code><a class="headerlink" href="#fn-install_panic_hook" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install_panic_hook</span><span class="p">()</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install_panic_hook</span><span class="p">()</span>
 </span></code></pre></div>
 <p>Makes every subsequent panic emit a <code>tracing</code> error before the default hook runs.</p>
 <p>Call it before the first thread is spawned and after the subscriber is installed. Before the
@@ -2054,7 +2130,7 @@ but the panic it was installed for would be the one that is lost.</p>
 and that is what makes this testable: a test triggers the same value a signal would, with no
 process-wide side effect and nothing to install.</p>
 <h3 id="enum-shutdownreason"><code>enum ShutdownReason</code><a class="headerlink" href="#enum-shutdownreason" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ShutdownReason</span>
 </span></code></pre></div>
 <p>Why the process is stopping.</p>
 <h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
@@ -2063,30 +2139,30 @@ process-wide side effect and nothing to install.</p>
 <li><code>Terminate</code> - A termination request. An orchestrator is replacing this process, and a deadline is running.</li>
 <li><code>Requested</code> - Something in this process asked for it - a fatal error on a path that is not the server, or a test.</li>
 </ul>
-<h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-shutdown"><code>struct Shutdown</code><a class="headerlink" href="#struct-shutdown" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shutdown</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Shutdown</span>
 </span></code></pre></div>
 <p>A shared "stop now" flag that remembers why.</p>
 <p>Cloneable and cheap, so the server, the signal listener and anything else that has to wind down
 all hold the same one. Built on a <code>watch</code> channel rather than a cancellation token from a
 utility crate: the channel is in <code>tokio</code> already, and carrying the <em>reason</em> in the value is
 what makes the log line at the end say something.</p>
-<h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grace_period</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">grace_period</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>The whole budget for stopping, from the moment stopping is asked for.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A fresh, untriggered shutdown with the default grace period.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ShutdownReason</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">ShutdownReason</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The reason, if shutdown has been asked for.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_grace</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining_grace</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
 <p>What is left of that budget.</p>
 <p><strong>The connection drain is not the whole of stopping, and this is the difference.</strong> Dropping
@@ -2104,26 +2180,26 @@ answer and means the budget is spent: whatever waits on it should not wait at al
 is racing is an orchestrator's kill timer, which is wall time, and what consumes it is
 <code>tokio::runtime::Runtime::shutdown_timeout</code>, which is also wall time. A test-controllable
 clock here would make the two disagree in exactly the deployment where it matters.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requested</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownReason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">requested</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">ShutdownReason</span>
 </span></code></pre></div>
 <p>Resolves when shutdown has been asked for.</p>
 <p>Checks the current value before waiting, which is the bug this shape exists to avoid: a
 <code>watch</code> receiver created after the send marks that value as already seen, so a naive
 <code>changed().await</code> on a shutdown that has <em>already</em> happened waits for a second one that
 never comes.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trigger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownReason</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">trigger</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nc">ShutdownReason</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Asks for shutdown, and logs why.</p>
 <p><strong>The first reason wins, and a second call is a no-op.</strong> A <code>SIGINT</code> arriving while a
 <code>SIGTERM</code> drain is already running should not restart the clock or rewrite the record of
 what started it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_grace</span><span class="p">(</span><span class="n">grace</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">with_grace</span><span class="p">(</span><span class="n">grace</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>A fresh shutdown with an explicit grace period. What a test uses.</p>
-<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
 <h3 id="fn-listen"><code>fn listen</code><a class="headerlink" href="#fn-listen" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">listen</span><span class="p">(</span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">listen</span><span class="p">(</span><span class="n">shutdown</span><span class="p">:</span><span class="w"> </span><span class="nc">Shutdown</span><span class="p">)</span>
 </span></code></pre></div>
 <p>Waits for the first operating-system shutdown signal and triggers <code>shutdown</code>.</p>
 <p>Spawned as a task by the composition root. It returns once it has triggered, so a caller can
@@ -2144,7 +2220,7 @@ spelling of this, an <em>invalid</em> <code>RUST_LOG</code> is an error rather t
 a discarded filter means the process logs at some other level and nothing says so, which is the
 failure mode a filter exists to prevent.</p>
 <h3 id="enum-telemetrynotinstalled"><code>enum TelemetryNotInstalled</code><a class="headerlink" href="#enum-telemetrynotinstalled" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TelemetryNotInstalled</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TelemetryNotInstalled</span>
 </span></code></pre></div>
 <p>Why the log could not be set up.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -2152,10 +2228,10 @@ failure mode a filter exists to prevent.</p>
 <li><code>Filter</code> - A filter directive would not parse. Either the configured one or <code>RUST_LOG</code>; <code>source</code> says which, because they fail for different reasons and only one of them is in a file.</li>
 <li><code>FilterNotUnicode</code> - <code>RUST_LOG</code> held bytes that are not text.</li>
 </ul>
-<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-subscriber"><code>fn subscriber</code><a class="headerlink" href="#fn-subscriber" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">subscriber</span><span class="o">&lt;</span><span class="n">Sink</span><span class="o">&gt;</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">Sink</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">BuiltSubscriber</span><span class="p">,</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">subscriber</span><span class="o">&lt;</span><span class="n">Sink</span><span class="o">&gt;</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">Sink</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">BuiltSubscriber</span><span class="p">,</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Builds the subscriber for these settings, writing to <code>sink</code>.</p>
 <p>Boxed, and that is what lets the two arms be one type: a pretty formatter and a bunyan
@@ -2164,7 +2240,7 @@ is paid once, at startup.</p>
 <p>Generic in the sink so a test can build both arms over a buffer and assert on the bytes. That
 is the only way to test this: installing a subscriber is process-global and happens once.</p>
 <h3 id="fn-install"><code>fn install</code><a class="headerlink" href="#fn-install" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">install</span><span class="p">(</span><span class="n">telemetry</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_config</span><span class="p">::</span><span class="n">TelemetrySettings</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">TelemetryNotInstalled</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Installs the subscriber for these settings as the process-wide one, writing to standard output.</p>
 <p>Standard output rather than standard error, for both formats: a collector reads one stream, and
@@ -2201,21 +2277,21 @@ has the same problem and a second copy of a writer is a second thing to keep in 
 helpers that build a subscriber around it stay <code>cfg(test)</code>: they use <code>expect</code>, which is denied
 outside test code, so a feature that exposed them would make <code>--all-features</code> fail to lint.</p>
 <h3 id="struct-capture"><code>struct Capture</code><a class="headerlink" href="#struct-capture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Capture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Capture</span>
 </span></code></pre></div>
 <p>A writer that keeps what was written.</p>
 <p><code>std::sync::Mutex</code> is on the workspace's disallowed list, and the reason recorded there is that
 an async task holding one across an <code>await</code> can deadlock the executor. Neither half applies
 here: <code>MakeWriter</code> and <code>io::Write</code> are synchronous traits that cannot await, the guard is taken
 and dropped inside one statement, and no runtime is involved in the tests that use this.</p>
-<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contents</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">contents</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>Everything written so far, as text.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>An empty buffer, teeing to standard output if <code>TEE_VARIABLE</code> is set.</p>
-<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Default</code>, <code>MakeWriter&lt;'a&gt;</code>, <code>Write</code></p>
 <h3 id="constant-tee_variable"><code>constant TEE_VARIABLE</code><a class="headerlink" href="#constant-tee_variable" title="Permanent link">&para;</a></h3>
 <p>Set this to anything non-empty to have a captured log also reach standard output.</p>

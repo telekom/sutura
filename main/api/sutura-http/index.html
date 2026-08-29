@@ -16,7 +16,7 @@
         <link rel="prev" href="../sutura-runtime/">
       
       
-        <link rel="next" href="../../changelog/">
+        <link rel="next" href="../sutura-mcp/">
       
       
         
@@ -1376,6 +1376,8 @@
       
         
       
+        
+      
     
     
     
@@ -1717,6 +1719,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1820,13 +1850,18 @@ survive checking, and a <code>200</code> made a governance refusal indistinguish
 anything reading a status alone. <code>wire::refusal</code> holds the mapping, the citations and the reason
 for each status. The domain invariant is untouched: <code>ToolOutcome::Refusal</code> is still a result and
 not an <code>Err</code>.</p>
-<p><strong>There is no per-caller identity.</strong> No request context reaches the query path, no credential is
-minted per request, and the <code>CredentialBroker</code> port that would do it is deliberately absent
-because a port arrives with its adapter. Where an access token is configured, presenting it
-proves the caller holds a secret an operator configured - it authenticates the <em>deployment</em>, not
-the caller, and every question is still answered with whatever access the process already had.
-That sentence is in the generated document, in the startup log and in
-<code>sutura_config::security</code>, because those are three different readers.</p>
+<p><strong>There is no per-caller identity.</strong> No credential is minted per request, and the
+<code>CredentialBroker</code> port that would do it is deliberately absent because a port arrives with its
+adapter. Where an access token is configured, presenting it proves the caller holds a secret an
+operator configured - it authenticates the <em>deployment</em>, not the caller, and every question is
+still answered with whatever access the process already had. That sentence is in the generated
+document, in the startup log and in <code>sutura_config::security</code>, because those are three different
+readers.</p>
+<p>A <code>sutura_domain::identity::RequestContext</code> <em>does</em> now reach the query path, and it does not
+weaken that: what it carries is a principal chain naming
+<code>sutura_domain::identity::Subject::TheDeploymentItself</code>, which is that same sentence expressed
+as a value instead of as prose. <code>crate::principal</code> is the one place it is constructed, and it
+takes no argument, so no field of a request can contribute to it.</p>
 <p><strong><code>/health</code> carries nothing.</strong> It is the one path an unauthenticated caller can always reach, so
 every field it might have is a field handed to anybody who can route a packet. No version, no
 build, no configuration, no catalog. A test asserts the body byte for byte.</p>
@@ -1840,9 +1875,15 @@ build, no configuration, no catalog. A test asserts the body byte for byte.</p>
   document, and it buys nothing until somebody is asked to quote it; the honest state is that an
   operator can find a request in the log and a caller cannot yet name one. If a caller ever
   needs to, that is an additive field and this bullet is where it changes.</li>
-<li><strong>No audit sink.</strong> <code>AGENTS.md</code> records "every call is attributable, refusals included" as an
-  invariant enforced by one. There is none, and there is no principal to record if there were.
-  Every question and every outcome reaches the log, and the log is named for what it is.</li>
+<li><strong>No audit sink <em>here</em>, and no store anywhere.</strong> There is a sink now - the port is
+  <code>sutura_domain::audit::AuditSink</code> and <code>sutura_app::LocalService</code> writes one record per outcome
+  through it, before the outcome returns - but this crate neither implements it nor chooses it.
+  The composition root attaches one; the writer a deployment gets for free is
+  <code>sutura_runtime::TracingAuditSink</code>, which puts the record on the log this crate already emits
+  into. <strong>Nothing retains a record</strong>: sutura writes and keeps nothing, so what happens after the
+  write belongs to the deployment's log pipeline, including the case where that is nothing. The
+  per-outcome <code>tracing::info!</code> this handler used to write was replaced by that record rather than
+  joined by it - see <code>routes::v1::query</code>.</li>
 <li><strong>No readiness route.</strong> The module documentation on the liveness route says why: there is
   nothing it could report that is not
   already true of a process that is listening.</li>

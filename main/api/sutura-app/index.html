@@ -1376,6 +1376,8 @@
       
         
       
+        
+      
     
     
     
@@ -1881,6 +1883,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -2184,7 +2214,8 @@ A transport's request handler is a concrete function - an <code>axum</code> hand
 table by path, and named again by the macro that generates the interface description - so a
 handler cannot be generic over the warehouse without the whole router becoming generic in it,
 and the generated document becoming generic in it too.</p>
-<p><code>Surface</code> is the seam: this crate's two operations, with <code>W</code> gone.</p>
+<p><code>Surface</code> is the seam: this crate's two operations, with <code>W</code> gone - and with the audit sink's
+own parameter gone for the same reason, since <code>LocalService</code> is generic in that too.</p>
 <h1 id="why-it-is-here-and-not-in-the-transport-that-uses-it">Why it is HERE and not in the transport that uses it<a class="headerlink" href="#why-it-is-here-and-not-in-the-transport-that-uses-it" title="Permanent link">&para;</a></h1>
 <p><strong>It used to be in <code>sutura-http</code>, and a review was right that that is the wrong crate.</strong> The
 module comment there said a second transport - an MCP one - would consume the same trait, which
@@ -2256,6 +2287,13 @@ refusal: one is our own bundle or generator being wrong, and the other is the da
 answering.</p>
 <p>The variants are exhaustive and stay exhaustive - a transport chooses its status code from the
 split - and each one carries the cause it was built from rather than a rendering of it.</p>
+<p><strong>No audit record is written for either, and that is the limit on "every call is recorded".</strong>
+<code>sutura_domain::audit</code> records an <em>outcome</em> - an answer or a refusal - and neither of these is
+one: a bundle that will not compile and a data system that did not answer are our own faults
+rather than answers to a question. A transport logs them, with the cause chain, which is what
+<code>cause_chain</code> is for. Widening the record to cover a failure means giving
+<code>sutura_domain::audit::RecordedOutcome</code> a third variant, and that is a change to what a record
+means rather than a field added to one.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Compile</code></li>
@@ -2275,19 +2313,24 @@ split - and each one carries the cause it was built from rather than a rendering
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-localservice"><code>struct LocalService</code><a class="headerlink" href="#struct-localservice" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LocalService</span><span class="o">&lt;</span><span class="n">W</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LocalService</span><span class="o">&lt;</span><span class="n">W</span><span class="p">,</span><span class="w"> </span><span class="n">S</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The one implementation: a validated bundle and one data system, behind the ports.</p>
+<p>The one implementation: a validated bundle, one data system and one audit sink, behind the ports.</p>
 <p>Holds the bundle as <code>Validated</code>, which has no constructor other than one that executes every
 anchor against a warehouse - so a <code>LocalService</code> that exists is one whose anchors held. That
 is not a check this type performs; it is a type it could not otherwise have been built from.</p>
+<p><strong>The sink is a constructor argument and not an <code>Option</code>.</strong> A service cannot be started without
+one, so "this deployment forgot to attach a sink" is not a state that exists - which is the
+difference between a record that is always written and a record that is usually written. What the
+sink then <em>does</em> with a record is the deployment's, and <code>sutura_domain::audit</code> states that limit
+where the port is declared.</p>
 <h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">C</span><span class="p">,</span><span class="w"> </span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ServiceNotStarted</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">start</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span><span class="p">(</span><span class="n">catalog</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">C</span><span class="p">,</span><span class="w"> </span><span class="n">warehouse</span><span class="p">:</span><span class="w"> </span><span class="nc">W</span><span class="p">,</span><span class="w"> </span><span class="n">sink</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ServiceNotStarted</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Loads a catalog through its port, re-runs every anchor against <code>warehouse</code>, and returns a
 service only if all of them held.</p>
-<p>Both ports are consumed here, which is what lets a transport be transport-only: it never
-reads a catalog directory and never opens a data system.</p>
+<p>Every port is consumed here, which is what lets a transport be transport-only: it never
+reads a catalog directory, never opens a data system and never decides where a record goes.</p>
 <p><code>C::Error: Send + Sync</code> for the same reason <code>W::Error</code> is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
