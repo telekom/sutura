@@ -326,7 +326,10 @@ in
       echo "== the gates' own unit tests"
       # A gate with no test is a gate nobody has seen fail, and these are the checks
       # everything else is trusted to.
-      cargo nextest run -q -p xtask --all-features
+      # NOT `-q`: `cargo-nextest` has no such flag, and the pin rejects it - which broke this
+      # whole recipe rather than making it quieter. `--status-level fail` is the flag that
+      # means what `-q` was reaching for, and `just test` is where the full output lives.
+      cargo nextest run --status-level fail -p xtask --all-features
 
       echo "== red-before-green for changed tests"
       cargo run -q -p xtask -- test-causality --since "$merge_base"
