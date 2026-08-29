@@ -1952,10 +1952,21 @@ for; a process that does not start is read by everybody.</p>
 <li><code>security.tls_termination: in-process</code> without a certificate and key, or in a binary built
   without the <code>tls</code> feature; or a certificate and key no declaration would ever read.</li>
 <li><code>server.port: 0</code> in production.</li>
+<li>A configured source with no <code>security.identity</code>. The mode has no default and no derivation - see
+  <code>security::DeploymentIdentity</code>, which explains why no combination of source
+  postures may answer it on the operator's behalf.</li>
+<li>A <code>shared-service-user</code> source in <code>multi-user</code> mode with no <code>acknowledged_because</code> on that
+  source's own entry. Per source, because an acknowledgement inherited from a neighbour is how a
+  source nobody thought about gets served to everybody as somebody else's identity.</li>
 </ul>
 <p>The checks read the <em>loaded</em> values, not any one file, because the variable layer is applied
 last: a check against <code>production.yaml</code> would be checking something the process is not running
 on.</p>
+<p><strong>Two refusals a deployment can still hit are NOT in this crate, and the split follows what each
+half can see.</strong> Whether the <em>linked adapter</em> can carry a per-subject credential at all is a property
+of the build, and whether the <em>bundle</em> declares an anchor is a property of the catalog; this crate
+sees neither, so both are startup refusals in the composition root. <code>sources</code> says so where the
+declarations are.</p>
 <p><strong>A value out of range is a different refusal, through a different type, and one of them reads the
 machine.</strong> <code>NotFitToServe</code> is about a <em>combination</em> of settings that are each individually legal;
 a single value the type will not accept is a <code>SettingsError</code> out of <code>Settings::load</code>, so it
@@ -2036,6 +2047,15 @@ happened rather than implying the check was run.</p>
 <h2 id="use-none_67"><code>use None</code><a class="headerlink" href="#use-none_67" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_68"><code>use None</code><a class="headerlink" href="#use-none_68" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_69"><code>use None</code><a class="headerlink" href="#use-none_69" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_70"><code>use None</code><a class="headerlink" href="#use-none_70" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_71"><code>use None</code><a class="headerlink" href="#use-none_71" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_72"><code>use None</code><a class="headerlink" href="#use-none_72" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_73"><code>use None</code><a class="headerlink" href="#use-none_73" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_74"><code>use None</code><a class="headerlink" href="#use-none_74" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_75"><code>use None</code><a class="headerlink" href="#use-none_75" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_76"><code>use None</code><a class="headerlink" href="#use-none_76" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_77"><code>use None</code><a class="headerlink" href="#use-none_77" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_78"><code>use None</code><a class="headerlink" href="#use-none_78" title="Permanent link">&para;</a></h2>
 <h2 id="module-api">Module <code>api</code><a class="headerlink" href="#module-api" title="Permanent link">&para;</a></h2>
 <p>Whether the generated documentation is served, and why the default differs by environment.</p>
 <p>The <code>OpenAPI</code> document and the browser UI over it are generated from the handlers, so they are
@@ -2388,17 +2408,17 @@ when the indicator is absent.</p>
 <p>Which class of token, out of the <code>typ</code> header, checked after the signature verified.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
-<h3 id="use-none_70"><code>use None</code><a class="headerlink" href="#use-none_70" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_71"><code>use None</code><a class="headerlink" href="#use-none_71" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_72"><code>use None</code><a class="headerlink" href="#use-none_72" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_73"><code>use None</code><a class="headerlink" href="#use-none_73" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_74"><code>use None</code><a class="headerlink" href="#use-none_74" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_75"><code>use None</code><a class="headerlink" href="#use-none_75" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_76"><code>use None</code><a class="headerlink" href="#use-none_76" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_77"><code>use None</code><a class="headerlink" href="#use-none_77" title="Permanent link">&para;</a></h3>
-<h3 id="use-none_78"><code>use None</code><a class="headerlink" href="#use-none_78" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_79"><code>use None</code><a class="headerlink" href="#use-none_79" title="Permanent link">&para;</a></h3>
 <h3 id="use-none_80"><code>use None</code><a class="headerlink" href="#use-none_80" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_81"><code>use None</code><a class="headerlink" href="#use-none_81" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_82"><code>use None</code><a class="headerlink" href="#use-none_82" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_83"><code>use None</code><a class="headerlink" href="#use-none_83" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_84"><code>use None</code><a class="headerlink" href="#use-none_84" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_85"><code>use None</code><a class="headerlink" href="#use-none_85" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_86"><code>use None</code><a class="headerlink" href="#use-none_86" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_87"><code>use None</code><a class="headerlink" href="#use-none_87" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_88"><code>use None</code><a class="headerlink" href="#use-none_88" title="Permanent link">&para;</a></h3>
+<h3 id="use-none_89"><code>use None</code><a class="headerlink" href="#use-none_89" title="Permanent link">&para;</a></h3>
 <h2 id="module-limits">Module <code>limits</code><a class="headerlink" href="#module-limits" title="Permanent link">&para;</a></h2>
 <p>How many requests a caller gets, and the two tiers that answer differently.</p>
 <p><strong>Rate limiting is not authentication.</strong> It bounds how fast something can be done, not who
@@ -3112,8 +3132,94 @@ value - which is why the refusal for a non-loopback bind is keyed on this rather
 <p>The configured value did not name a place TLS is terminated.</p>
 <h4 id="implements_32">Implements<a class="headerlink" href="#implements_32" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-deploymentidentity"><code>enum DeploymentIdentity</code><a class="headerlink" href="#enum-deploymentidentity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-122-1"><a id="__codelineno-122-1" name="__codelineno-122-1" href="#__codelineno-122-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DeploymentIdentity</span>
+</span></code></pre></div>
+<p>Which kind of deployment this is, and therefore where a shared source's acknowledgement may come
+from.</p>
+<p><strong>Two modes that differ in kind rather than in degree, and the deployment DECLARES which it is.</strong></p>
+<p><em>Single-user</em> means credentials are static configuration: one user, one host, not multi-tenant.
+There is no per-request identity to establish, so a shared source is correct for <strong>everything</strong> -
+the one user reads all, by design, and the configured credential is that user's own.
+<code>examples/single-player</code> is this, and it is a first-class deployment rather than a degraded one.</p>
+<p><em>Multi-user</em> means the caller's identity arrives per request. Shared sources are still permitted,
+and that is the whole difficulty: the deployment has to say so <strong>per source</strong>, on purpose.</p>
+<h1 id="it-is-declared-and-never-derived-and-the-derivation-that-was-on-offer-is-unsound">It is declared and never derived, and the derivation that was on offer is unsound<a class="headerlink" href="#it-is-declared-and-never-derived-and-the-derivation-that-was-on-offer-is-unsound" title="Permanent link">&para;</a></h1>
+<p>The tempting derivation is "every source shared means single-user, any source impersonating means
+multi-user". It fails in exactly the configuration that most needs the check: a genuinely
+multi-tenant deployment whose sources are <em>all</em> shared derives to single-user, and the
+acknowledgement is required in multi-user mode only - so the derivation would exempt from the
+acknowledgement the one deployment where every caller reads every source as somebody else's
+identity. The failure is silent, it is one user's data served to another, and it arrives by leaving
+a field out.</p>
+<p>So there is <strong>no <code>Default</code></strong>, no derivation, and a deployment that configures a source without
+declaring the mode does not boot -
+<a href="crate::NotFitToServe::DeploymentIdentityUndeclared"><code>NotFitToServe::DeploymentIdentityUndeclared</code></a>.
+The refusal is keyed on a source being configured rather than raised unconditionally, and that is
+not a softening: a deployment with no source configured cannot answer anything, and the composition
+root refuses it on the catalog naming a source with no declaration - so every deployment that can
+serve a question has to declare the mode.</p>
+<h1 id="what-flipping-the-mode-does">What flipping the mode does<a class="headerlink" href="#what-flipping-the-mode-does" title="Permanent link">&para;</a></h1>
+<p>It re-evaluates every source. A single-user deployment legitimately holds every source under one
+static credential; the same file in multi-user mode serves every one of those sources to every
+caller as one identity. The mode is an input to the whole check rather than to an incremental view
+of what changed, so a deployment that flips it and has acknowledged nothing does not boot.</p>
+<h1 id="the-variant-names-are-not-the-configured-words-and-that-is-deliberate">The variant names are not the configured words, and that is deliberate<a class="headerlink" href="#the-variant-names-are-not-the-configured-words-and-that-is-deliberate" title="Permanent link">&para;</a></h1>
+<p>A deployment writes <code>single-user</code> or <code>multi-user</code> - <code>Self::as_str</code> and <code>Self::NAMES</code> own those
+spellings, and they are the vocabulary
+<a href="https://github.com/telekom/sutura/blob/main/docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md">a credential per leg</a>
+5a names. The variants are named for the <em>property each mode decides</em> instead, because
+<code>SingleUser</code>/<code>MultiUser</code> share a postfix and <code>clippy::enum_variant_names</code> is denied - and the names
+that survived that say more: what changes between the two is whether credentials are static
+configuration or a subject arrives per request.</p>
+<h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>StaticCredentials</code> - Static credentials, one user, one host - the <code>single-user</code> mode. Carries the operator's own reason, so the mode is unreachable by leaving a key out.</li>
+<li><code>SubjectPerRequest</code> - A subject per request, established by the transport - the <code>multi-user</code> mode.</li>
+</ul>
+<h4 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-123-1"><a id="__codelineno-123-1" name="__codelineno-123-1" href="#__codelineno-123-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The spelling, for the startup log.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-124-1"><a id="__codelineno-124-1" name="__codelineno-124-1" href="#__codelineno-124-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">needs_per_source_acknowledgement</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Does a shared source need an acknowledgement on its own entry under this mode?</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-125-1"><a id="__codelineno-125-1" name="__codelineno-125-1" href="#__codelineno-125-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">word</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="n">reason</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidDeploymentIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the declared mode and, for single-user, the operator's reason.</p>
+<p>The reason is <strong>required</strong> for single-user and <strong>refused</strong> for multi-user, which is the same
+rule <code>server.tls_certificate</code> gets: a value nothing reads is a control that appears to be in
+place. Both halves are returned as one typed error rather than checked later, because the mode
+and its witness are one declaration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-126-1"><a id="__codelineno-126-1" name="__codelineno-126-1" href="#__codelineno-126-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">shared_witness</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">AcknowledgementReason</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The reason a shared source may borrow as its acknowledgement, if this mode supplies one.</p>
+<p><code>Some</code> for single-user only, and an exhaustive match rather than an <code>is_single_user()</code> boolean:
+what the mode contributes is the <em>witness</em>, so returning the value is what a caller needs and a
+boolean would leave every caller to work out where the witness comes from.</p>
+<h4 id="implements_33">Implements<a class="headerlink" href="#implements_33" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknowndeploymentidentity"><code>struct UnknownDeploymentIdentity</code><a class="headerlink" href="#struct-unknowndeploymentidentity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-127-1"><a id="__codelineno-127-1" name="__codelineno-127-1" href="#__codelineno-127-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownDeploymentIdentity</span>
+</span></code></pre></div>
+<p>The configured value did not name a deployment mode.</p>
+<h4 id="implements_34">Implements<a class="headerlink" href="#implements_34" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-invaliddeploymentidentity"><code>enum InvalidDeploymentIdentity</code><a class="headerlink" href="#enum-invaliddeploymentidentity" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-128-1"><a id="__codelineno-128-1" name="__codelineno-128-1" href="#__codelineno-128-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidDeploymentIdentity</span>
+</span></code></pre></div>
+<p>Why a deployment mode declaration is not usable.</p>
+<h4 id="variants_13">Variants<a class="headerlink" href="#variants_13" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Unknown</code></li>
+<li><code>SingleUserWithoutAReason</code> - Single-user mode with no reason written.</li>
+<li><code>ReasonWithoutSingleUser</code> - A single-user reason on a multi-user deployment, where nothing would read it.</li>
+<li><code>Reason</code></li>
+</ul>
+<h4 id="implements_35">Implements<a class="headerlink" href="#implements_35" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-securitysettings"><code>struct SecuritySettings</code><a class="headerlink" href="#struct-securitysettings" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-122-1"><a id="__codelineno-122-1" name="__codelineno-122-1" href="#__codelineno-122-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SecuritySettings</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-129-1"><a id="__codelineno-129-1" name="__codelineno-129-1" href="#__codelineno-129-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SecuritySettings</span>
 </span></code></pre></div>
 <p>The access posture, and the declaration that goes with a non-loopback bind.</p>
 <p>Two fields rather than one, because they answer different questions and collapsing them was
@@ -3124,17 +3230,26 @@ with nothing in front has answered only the first.</p>
 <code>expose_beyond_loopback</code> - recorded that somebody meant to publish the service and said nothing
 about what protects the token in flight, so a wildcard bind with no terminator anywhere read
 exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
-agreeing that off-host is intended.
-<strong>Three fields now, and the third is the one that changes what the other two mean.</strong>
-<code>Self::inbound</code> is how the identity of a <em>caller</em> reaches this deployment, and the whole reason
-it lives here rather than in a group of its own is <code>Self::describes_identity</code>: that function used
-to be a constant answering <code>false</code>, and a deployment that establishes a caller identity has to be
-able to make it answer otherwise from a value rather than from a rewrite.</p>
-<h4 id="methods_24">Methods<a class="headerlink" href="#methods_24" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-123-1"><a id="__codelineno-123-1" name="__codelineno-123-1" href="#__codelineno-123-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">access_token</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">AccessToken</span><span class="o">&gt;</span>
+agreeing that off-host is intended.</p>
+<p><strong>Four fields now, and the last two are the two halves of one story told from opposite ends.</strong>
+<code>Self::inbound</code> is how the identity of a <em>caller</em> reaches this deployment; <code>Self::identity</code> is
+who a query then runs <em>as</em>. <strong>Neither implies the other, and that is the fact worth writing down
+rather than the count:</strong> a deployment can verify exactly who is asking and still read every row
+under one configured identity, because leg 2 - a credential per execution leg - is not built. The
+reverse holds too, and is the shape that ships: a single-user deployment with no inbound block
+knows what a query runs as and nothing about who asked.</p>
+<p>The inbound declaration lives in this group rather than one of its own because of
+<code>Self::describes_identity</code>: that function used to be a constant answering <code>false</code>, and a
+deployment that establishes a caller identity has to be able to make it answer otherwise from a
+value rather than from a rewrite. The deployment declaration is an <code>Option</code> for a different
+reason - it has no default and its absence is a refusal rather than a value; see
+<code>DeploymentIdentity</code>, which explains why no combination of source postures may answer it on the
+operator's behalf.</p>
+<h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-130-1"><a id="__codelineno-130-1" name="__codelineno-130-1" href="#__codelineno-130-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">access_token</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">AccessToken</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The configured token, if there is one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-124-1"><a id="__codelineno-124-1" name="__codelineno-124-1" href="#__codelineno-124-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">describes_identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-131-1"><a id="__codelineno-131-1" name="__codelineno-131-1" href="#__codelineno-131-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">describes_identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Does anything here establish who the caller is?</p>
 <p><strong>This stopped being a constant, which is the change <code>docs/adr/0014</code> predicted.</strong> It was an
@@ -3144,20 +3259,28 @@ exactly when an inbound declaration is configured, and <code>false</code> for th
 which authenticates the deployment and not the caller, whatever else is set.</p>
 <p>It is still a function rather than a comment so the startup log and this documentation read
 the same value.</p>
+<p><strong><code>Self::identity</code> does not change this answer either, and that is deliberate.</strong> A declared
+<code>multi-user</code> mode says what the deployment <em>intends</em> and decides where a shared source's
+acknowledgement has to be written; it does not make a caller identity arrive. Reading the
+declaration back as "this deployment knows who is asking" is the exact confusion this function
+exists to prevent, and the two keys are independent for that reason.</p>
 <p><strong>The limit, next to the claim:</strong> <code>true</code> here says a caller's identity is <em>established</em>. It
 does not say a data source executes as that caller - see
 <code>InboundIdentity::what_it_does_not_do</code>, which the startup log prints beside this.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-125-1"><a id="__codelineno-125-1" name="__codelineno-125-1" href="#__codelineno-125-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inbound</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">InboundIdentity</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-132-1"><a id="__codelineno-132-1" name="__codelineno-132-1" href="#__codelineno-132-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">DeploymentIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Which kind of deployment this is, if the operator declared one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-133-1"><a id="__codelineno-133-1" name="__codelineno-133-1" href="#__codelineno-133-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inbound</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">InboundIdentity</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>How the identity of a caller reaches this deployment, if it does.</p>
 <p><code>None</code> is the shape that ships today and the shape a single-player deployment keeps: the
 bearer token authenticates the deployment, and there is no per-request identity to establish.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-126-1"><a id="__codelineno-126-1" name="__codelineno-126-1" href="#__codelineno-126-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inbound_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-134-1"><a id="__codelineno-134-1" name="__codelineno-134-1" href="#__codelineno-134-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">inbound_mode</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Which mode establishes the caller's identity, as a word for the startup log.</p>
 <p><code>"none"</code> rather than an <code>Option</code> because the caller is a log line, and a field that is
 sometimes absent reads as a field that is sometimes broken.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-127-1"><a id="__codelineno-127-1" name="__codelineno-127-1" href="#__codelineno-127-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">access_token</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">AccessToken</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="nc">TlsTermination</span><span class="p">,</span><span class="w"> </span><span class="n">inbound</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">InboundIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">access_token</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">AccessToken</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="nc">TlsTermination</span><span class="p">,</span><span class="w"> </span><span class="n">inbound</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">InboundIdentity</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">identity</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">DeploymentIdentity</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Assembles the group from parts that have each already been parsed.</p>
 <p>The inbound declaration is an <code>Option</code> because its absence is a posture rather than a gap: a
@@ -3165,15 +3288,15 @@ deployment that establishes no per-caller identity is a single-player deployment
 <code>docs/adr/0008</code> part 5a calls a first-class shape. What is <em>not</em> optional is saying which mode,
 once a block exists at all - and that refusal lives in <code>crate::settings::parse_inbound</code>,
 because the shape here cannot hold "a mode nobody named".</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-128-1"><a id="__codelineno-128-1" name="__codelineno-128-1" href="#__codelineno-128-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls_termination</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TlsTermination</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls_termination</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">TlsTermination</span>
 </span></code></pre></div>
 <p>Where the operator said TLS is terminated.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-129-1"><a id="__codelineno-129-1" name="__codelineno-129-1" href="#__codelineno-129-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">token_state</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-137-1"><a id="__codelineno-137-1" name="__codelineno-137-1" href="#__codelineno-137-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">token_state</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Whether a token is configured, as a word for the startup log.</p>
 <p>A method and not a <code>Debug</code> of the option, so the log line cannot become the token by
 somebody changing the field type later.</p>
-<h4 id="implements_33">Implements<a class="headerlink" href="#implements_33" title="Permanent link">&para;</a></h4>
+<h4 id="implements_36">Implements<a class="headerlink" href="#implements_36" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Default</code></p>
 <h2 id="module-server">Module <code>server</code><a class="headerlink" href="#module-server" title="Permanent link">&para;</a></h2>
 <p>Where the service listens, and the two bounds every request is held to.</p>
@@ -3184,77 +3307,77 @@ Making the bind an IP address rather than a string is what lets
 <code>BindAddress::is_loopback</code> be a fact the startup refusals can read, instead of a substring
 test somebody has to remember to write.</p>
 <h3 id="struct-bindaddress"><code>struct BindAddress</code><a class="headerlink" href="#struct-bindaddress" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-130-1"><a id="__codelineno-130-1" name="__codelineno-130-1" href="#__codelineno-130-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BindAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-138-1"><a id="__codelineno-138-1" name="__codelineno-138-1" href="#__codelineno-138-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BindAddress</span>
 </span></code></pre></div>
 <p>The socket the service listens on.</p>
 <p>An <code>IpAddr</code> and a port, never a hostname. A hostname is refused rather than resolved: a name
 resolves to whatever the resolver says today, which may be a public interface tomorrow, and
 a perimeter that moves when DNS moves is not a perimeter. The operator writes the interface
 they mean.</p>
-<h4 id="methods_25">Methods<a class="headerlink" href="#methods_25" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-131-1"><a id="__codelineno-131-1" name="__codelineno-131-1" href="#__codelineno-131-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_loopback</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<h4 id="methods_26">Methods<a class="headerlink" href="#methods_26" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-139-1"><a id="__codelineno-139-1" name="__codelineno-139-1" href="#__codelineno-139-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_loopback</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is this address reachable only from this host?</p>
 <p>The question the production refusals are keyed on. The two wildcard addresses answer
 <code>false</code>, which is the answer that matters: the wildcard is the bind that reaches every
 interface, and it is the one an operator reaches for without meaning to publish anything.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-132-1"><a id="__codelineno-132-1" name="__codelineno-132-1" href="#__codelineno-132-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBindAddress</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-140-1"><a id="__codelineno-140-1" name="__codelineno-140-1" href="#__codelineno-140-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">host</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">port</span><span class="p">:</span><span class="w"> </span><span class="kt">u16</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBindAddress</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a host and port.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-133-1"><a id="__codelineno-133-1" name="__codelineno-133-1" href="#__codelineno-133-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-141-1"><a id="__codelineno-141-1" name="__codelineno-141-1" href="#__codelineno-141-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">port</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The port, so a caller can report the one it actually got.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-134-1"><a id="__codelineno-134-1" name="__codelineno-134-1" href="#__codelineno-134-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">socket</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SocketAddr</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-142-1"><a id="__codelineno-142-1" name="__codelineno-142-1" href="#__codelineno-142-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">socket</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SocketAddr</span>
 </span></code></pre></div>
 <p>The address, for whatever binds the socket.</p>
-<h4 id="implements_34">Implements<a class="headerlink" href="#implements_34" title="Permanent link">&para;</a></h4>
+<h4 id="implements_37">Implements<a class="headerlink" href="#implements_37" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidbindaddress"><code>enum InvalidBindAddress</code><a class="headerlink" href="#enum-invalidbindaddress" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-135-1"><a id="__codelineno-135-1" name="__codelineno-135-1" href="#__codelineno-135-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBindAddress</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-143-1"><a id="__codelineno-143-1" name="__codelineno-143-1" href="#__codelineno-143-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBindAddress</span>
 </span></code></pre></div>
 <p>Why a host and port are not an address to listen on.</p>
-<h4 id="variants_12">Variants<a class="headerlink" href="#variants_12" title="Permanent link">&para;</a></h4>
+<h4 id="variants_14">Variants<a class="headerlink" href="#variants_14" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotAnIpAddress</code> - The host was not an <code>IPv4</code> or <code>IPv6</code> literal.</li>
 </ul>
-<h4 id="implements_35">Implements<a class="headerlink" href="#implements_35" title="Permanent link">&para;</a></h4>
+<h4 id="implements_38">Implements<a class="headerlink" href="#implements_38" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-requesttimeout"><code>struct RequestTimeout</code><a class="headerlink" href="#struct-requesttimeout" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-136-1"><a id="__codelineno-136-1" name="__codelineno-136-1" href="#__codelineno-136-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RequestTimeout</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-144-1"><a id="__codelineno-144-1" name="__codelineno-144-1" href="#__codelineno-144-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RequestTimeout</span>
 </span></code></pre></div>
 <p>How long one request may take before the service gives up on it.</p>
 <p>Bounded at both ends. Zero is a service that answers nothing, and an hour is a connection
 held open long enough that a handful of them are the outage: a question here is one
 aggregate over a bounded range, so a minute is already generous and five is the ceiling.</p>
-<h4 id="methods_26">Methods<a class="headerlink" href="#methods_26" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-137-1"><a id="__codelineno-137-1" name="__codelineno-137-1" href="#__codelineno-137-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+<h4 id="methods_27">Methods<a class="headerlink" href="#methods_27" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-145-1"><a id="__codelineno-145-1" name="__codelineno-145-1" href="#__codelineno-145-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">duration</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-138-1"><a id="__codelineno-138-1" name="__codelineno-138-1" href="#__codelineno-138-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-146-1"><a id="__codelineno-146-1" name="__codelineno-146-1" href="#__codelineno-146-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a timeout in whole seconds.</p>
 <p>Seconds and not a duration string: sub-second precision is meaningless for a bound this
 coarse, and a parser for a suffixed number is a second grammar for a single value.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-139-1"><a id="__codelineno-139-1" name="__codelineno-139-1" href="#__codelineno-139-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-147-1"><a id="__codelineno-147-1" name="__codelineno-147-1" href="#__codelineno-147-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">seconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
 </span></code></pre></div>
-<h4 id="implements_36">Implements<a class="headerlink" href="#implements_36" title="Permanent link">&para;</a></h4>
+<h4 id="implements_39">Implements<a class="headerlink" href="#implements_39" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-bodylimit"><code>struct BodyLimit</code><a class="headerlink" href="#struct-bodylimit" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-140-1"><a id="__codelineno-140-1" name="__codelineno-140-1" href="#__codelineno-140-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BodyLimit</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-148-1"><a id="__codelineno-148-1" name="__codelineno-148-1" href="#__codelineno-148-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BodyLimit</span>
 </span></code></pre></div>
 <p>The largest request body the service will read.</p>
 <p>A modelled question is a metric name, a grain, two dates and at most four dimensions, which
 is a few hundred bytes. The bound exists because a body limit is the cheapest availability
 control there is, and because the default in most stacks is whatever arrives.</p>
-<h4 id="methods_27">Methods<a class="headerlink" href="#methods_27" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-141-1"><a id="__codelineno-141-1" name="__codelineno-141-1" href="#__codelineno-141-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<h4 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-149-1"><a id="__codelineno-149-1" name="__codelineno-149-1" href="#__codelineno-149-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bytes</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-142-1"><a id="__codelineno-142-1" name="__codelineno-142-1" href="#__codelineno-142-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-150-1"><a id="__codelineno-150-1" name="__codelineno-150-1" href="#__codelineno-150-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">usize</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidBound</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a body limit in bytes.</p>
-<h4 id="implements_37">Implements<a class="headerlink" href="#implements_37" title="Permanent link">&para;</a></h4>
+<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-shutdowngrace_1"><code>struct ShutdownGrace</code><a class="headerlink" href="#struct-shutdowngrace_1" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-143-1"><a id="__codelineno-143-1" name="__codelineno-143-1" href="#__codelineno-143-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ShutdownGrace</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-151-1"><a id="__codelineno-151-1" name="__codelineno-151-1" href="#__codelineno-151-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ShutdownGrace</span>
 </span></code></pre></div>
 <p>How long stopping may take, once stopping has been asked for.</p>
 <p>Chosen against the deadline on the other side rather than as a round number. An orchestrator
@@ -3266,22 +3389,22 @@ first, and what is left of it is what the runtime will wait for a blocking task 
 cancel. See <code>sutura_runtime::Shutdown::remaining_grace</code>.</p>
 <p>Zero is refused for the reason every bound in this module is. A zero grace period means "drop
 every in-flight answer immediately", which is a decision somebody would write differently.</p>
-<h4 id="implements_38">Implements<a class="headerlink" href="#implements_38" title="Permanent link">&para;</a></h4>
+<h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidbound"><code>enum InvalidBound</code><a class="headerlink" href="#enum-invalidbound" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-144-1"><a id="__codelineno-144-1" name="__codelineno-144-1" href="#__codelineno-144-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBound</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidBound</span>
 </span></code></pre></div>
 <p>Why a bound is not a bound.</p>
-<h4 id="variants_13">Variants<a class="headerlink" href="#variants_13" title="Permanent link">&para;</a></h4>
+<h4 id="variants_15">Variants<a class="headerlink" href="#variants_15" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Zero</code> - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.</li>
 <li><code>TooLarge</code> - Above the ceiling this type declares.</li>
 <li><code>AboveAvailableMemory</code> - Above the memory this process can actually reach.</li>
 </ul>
-<h4 id="implements_39">Implements<a class="headerlink" href="#implements_39" title="Permanent link">&para;</a></h4>
+<h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-tlsmaterial"><code>struct TlsMaterial</code><a class="headerlink" href="#struct-tlsmaterial" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-145-1"><a id="__codelineno-145-1" name="__codelineno-145-1" href="#__codelineno-145-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsMaterial</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TlsMaterial</span>
 </span></code></pre></div>
 <p>A certificate chain and the private key that goes with it, as paths.</p>
 <p><strong>Paths and nothing more, and the split is deliberate.</strong> This crate holds no framework and
@@ -3290,55 +3413,206 @@ files are readable, whether they are PEM at all, and whether the key matches the
 are questions only the TLS implementation can answer, so they are answered once, in
 <code>sutura_http::tls</code>, before the socket is bound. Two checks in two crates would be two messages
 for one mistake, and the weaker one would be the reassuring one.</p>
-<h4 id="methods_28">Methods<a class="headerlink" href="#methods_28" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-146-1"><a id="__codelineno-146-1" name="__codelineno-146-1" href="#__codelineno-146-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<h4 id="methods_29">Methods<a class="headerlink" href="#methods_29" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">certificate</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The certificate chain, in PEM.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-147-1"><a id="__codelineno-147-1" name="__codelineno-147-1" href="#__codelineno-147-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">key</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The private key, in PEM.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-148-1"><a id="__codelineno-148-1" name="__codelineno-148-1" href="#__codelineno-148-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">Option</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidTlsMaterial</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">certificate</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">key</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="nb">Option</span><span class="o">&lt;</span><span class="bp">Self</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidTlsMaterial</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads the pair, or nothing.</p>
 <p><code>None</code> for both is "no in-process TLS", which is the default and is not an error.</p>
-<h4 id="implements_40">Implements<a class="headerlink" href="#implements_40" title="Permanent link">&para;</a></h4>
+<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidtlsmaterial"><code>enum InvalidTlsMaterial</code><a class="headerlink" href="#enum-invalidtlsmaterial" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-149-1"><a id="__codelineno-149-1" name="__codelineno-149-1" href="#__codelineno-149-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidTlsMaterial</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidTlsMaterial</span>
 </span></code></pre></div>
 <p>Why a pair of paths is not usable TLS material.</p>
-<h4 id="variants_14">Variants<a class="headerlink" href="#variants_14" title="Permanent link">&para;</a></h4>
+<h4 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>OnlyOneHalf</code> - One half was given and the other was not.</li>
 <li><code>EmptyPath</code> - A path was given as an empty string, which is not a path.</li>
 </ul>
-<h4 id="implements_41">Implements<a class="headerlink" href="#implements_41" title="Permanent link">&para;</a></h4>
+<h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-serversettings"><code>struct ServerSettings</code><a class="headerlink" href="#struct-serversettings" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-150-1"><a id="__codelineno-150-1" name="__codelineno-150-1" href="#__codelineno-150-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServerSettings</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServerSettings</span>
 </span></code></pre></div>
 <p>Everything about the socket, the two per-request bounds, and the TLS material if there is any.</p>
 <p><strong>Not <code>Copy</code>, and that is the TLS paths.</strong> Every accessor borrows or returns a <code>Copy</code> value, and
 the group itself is read once, at assembly time.</p>
-<h4 id="methods_29">Methods<a class="headerlink" href="#methods_29" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-151-1"><a id="__codelineno-151-1" name="__codelineno-151-1" href="#__codelineno-151-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BindAddress</span>
+<h4 id="methods_30">Methods<a class="headerlink" href="#methods_30" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BindAddress</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-152-1"><a id="__codelineno-152-1" name="__codelineno-152-1" href="#__codelineno-152-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BodyLimit</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_body</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BodyLimit</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-153-1"><a id="__codelineno-153-1" name="__codelineno-153-1" href="#__codelineno-153-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">bind</span><span class="p">:</span><span class="w"> </span><span class="nc">BindAddress</span><span class="p">,</span><span class="w"> </span><span class="n">request_timeout</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestTimeout</span><span class="p">,</span><span class="w"> </span><span class="n">max_body</span><span class="p">:</span><span class="w"> </span><span class="nc">BodyLimit</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">bind</span><span class="p">:</span><span class="w"> </span><span class="nc">BindAddress</span><span class="p">,</span><span class="w"> </span><span class="n">request_timeout</span><span class="p">:</span><span class="w"> </span><span class="nc">RequestTimeout</span><span class="p">,</span><span class="w"> </span><span class="n">max_body</span><span class="p">:</span><span class="w"> </span><span class="nc">BodyLimit</span><span class="p">,</span><span class="w"> </span><span class="n">tls</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>Assembles the group from parts that have each already been parsed.</p>
 <p>Infallible, and that is the shape the newtypes buy: there is no cross-field rule inside
 this group, so once every part exists the group exists. The cross-field rules - the ones
 that pair a bind address with an environment, a token and a TLS declaration - live in
 <code>crate::Settings::parse</code>, because they need the other groups to decide.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-154-1"><a id="__codelineno-154-1" name="__codelineno-154-1" href="#__codelineno-154-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">request_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RequestTimeout</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">request_timeout</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">RequestTimeout</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-155-1"><a id="__codelineno-155-1" name="__codelineno-155-1" href="#__codelineno-155-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tls</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">TlsMaterial</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The certificate and key this process would terminate TLS with, if any were configured.</p>
-<h4 id="implements_42">Implements<a class="headerlink" href="#implements_42" title="Permanent link">&para;</a></h4>
+<h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h2 id="module-sources">Module <code>sources</code><a class="headerlink" href="#module-sources" title="Permanent link">&para;</a></h2>
+<p>The sources this deployment declares: one entry per data system, keyed by the alias a model names.</p>
+<p><strong>Beside <code>catalog.data_dir</code> rather than instead of it, and the two answer different questions.</strong>
+<code>catalog.dir</code> and <code>catalog.data_dir</code> are the <em>catalog</em>: authored definitions, and the directory the
+<code>sutura</code> command reads. A <code>sources:</code> entry is a <em>data system</em>: what kind it is, where it is, which
+identity a query reaches it as, and which identity re-ran its anchors at boot. A model's <code>source:</code>
+is the key that selects one.</p>
+<p><strong>The service reads this tree and not <code>catalog.data_dir</code></strong>, which is the one operator-facing break
+worth stating at the top: a deployment that pointed the service at its files with
+<code>catalog.data_dir</code> has to declare a source instead, and one that declares none does not serve -
+the catalog names a source with no entry, and the composition root refuses before a listener is
+bound.</p>
+<h1 id="what-is-refused-here-and-what-is-refused-later">What is refused here, and what is refused later<a class="headerlink" href="#what-is-refused-here-and-what-is-refused-later" title="Permanent link">&para;</a></h1>
+<p>This module is the <strong>parse</strong>: an alias that is not a name, two entries whose aliases are one name,
+a kind this build has no adapter for, an entry with no file location, a relative path, a word that
+is not a posture, and a pairing of declarations that contradict each other. Every one of those is a
+value or a combination this type cannot hold, so it is a
+<a href="crate::SettingsError"><code>SettingsError</code></a> naming the key.</p>
+<p>Two checks are deliberately <strong>not</strong> here, and they are not here for two different reasons.</p>
+<ul>
+<li><strong>The shared-identity acknowledgement</strong> is a <a href="crate::NotFitToServe"><code>NotFitToServe</code></a> out of
+  <code>Settings::refusals</code>, because whether it is required depends on the <em>declared deployment mode</em> -
+  a fact about the tree as a whole rather than about this entry. A single-user deployment holds
+  every source under one static credential legitimately: that credential <em>is</em> the one user's.</li>
+<li><strong>Whether the linked adapter can carry a per-subject credential at all</strong> is a startup refusal in
+  the composition root, because it is a property of the BUILD. This crate cannot see which adapters
+  were linked and must not pretend to.</li>
+</ul>
+<p>And one is not a parse check on purpose: <strong>whether the directory exists.</strong> <code>CatalogSettings::parse</code>
+declines the same check for the reason that applies here unchanged - a directory that disappears
+between reading the configuration and opening the engine would make an existence check a claim that
+is already stale, and it would make configuration validation depend on the filesystem. A missing
+<em>file</em> is refused where it is discovered, at boot, by the composition root that tries to attach it.</p>
+<h3 id="enum-sourcekind"><code>enum SourceKind</code><a class="headerlink" href="#enum-sourcekind" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SourceKind</span>
+</span></code></pre></div>
+<p>What kind of data system a source is.</p>
+<p><strong>A closed set of typed declarations rather than something discovered</strong>, which is the whole of
+<em>pluggable by declaration</em>: a capability nobody declared cannot be used, and a new kind is a
+compile error in every place that has to decide about it. One variant today, because one adapter
+ships.</p>
+<p><strong>It replaced a comparison against a hard-coded source NAME</strong>, and that is the change worth reading
+rather than the enum. The composition root used to refuse any source not called <code>local</code>, on the
+argument that the engine has its own identity and does not borrow the catalog's. That argument was
+right while the catalog was the only signal - a catalog naming <code>production_warehouse</code> said nothing
+about what the deployment held - and it stops being right once the DEPLOYMENT declares each source:
+an operator who writes <code>sources.production_warehouse.kind: files</code> with a directory beside it has
+stated that this source is a directory of files, which is the statement the name comparison was
+standing in for. Under the old rule that deployment could not be served at all, and it is a
+legitimate one.</p>
+<h4 id="variants_17">Variants<a class="headerlink" href="#variants_17" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Files</code> - A directory of CSV or Parquet files, read by the in-process engine.</li>
+</ul>
+<h4 id="methods_31">Methods<a class="headerlink" href="#methods_31" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The spelling, for the startup log.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownSourceKind</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads the configured word.</p>
+<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknownsourcekind"><code>struct UnknownSourceKind</code><a class="headerlink" href="#struct-unknownsourcekind" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownSourceKind</span>
+</span></code></pre></div>
+<p>The configured word did not name a kind of data system.</p>
+<h4 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-configuredsource"><code>struct ConfiguredSource</code><a class="headerlink" href="#struct-configuredsource" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ConfiguredSource</span>
+</span></code></pre></div>
+<p>One declared data system.</p>
+<p>The identity is an <code>Option</code>, and its <code>None</code> is <strong>fail-closed rather than permissive</strong>: it means
+this entry declared the shared posture and nobody acknowledged it, which
+<code>Settings::refusals</code> refuses. A <code>Settings</code> obtained through <code>Settings::load</code> therefore has <code>Some</code>
+for every source. It stays an <code>Option</code> rather than being unwrapped here because a composition root
+that treated the absence as permission is a bug the type should not be able to hide, and because
+<code>Settings::parse</code> is reachable from this crate's own tests without the refusal having run.</p>
+<h4 id="methods_32">Methods<a class="headerlink" href="#methods_32" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">data_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>Where the files behind this source's models live.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SourceIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>How this source establishes identity, once the deployment-level refusal has passed.</p>
+<p><code>None</code> only for a shared source nobody acknowledged - see the type's own note.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
+</span></code></pre></div>
+<p>What kind of data system this is, which is what decides which adapter opens it.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-172-1"><a id="__codelineno-172-1" name="__codelineno-172-1" href="#__codelineno-172-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">posture</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SourcePosture</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The posture this source was declared with, if it is one a deployment may be served with.</p>
+<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-unknownposture"><code>struct UnknownPosture</code><a class="headerlink" href="#struct-unknownposture" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-173-1"><a id="__codelineno-173-1" name="__codelineno-173-1" href="#__codelineno-173-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownPosture</span>
+</span></code></pre></div>
+<p>The configured word did not name a posture.</p>
+<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="enum-invalidsourceregistry"><code>enum InvalidSourceRegistry</code><a class="headerlink" href="#enum-invalidsourceregistry" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-174-1"><a id="__codelineno-174-1" name="__codelineno-174-1" href="#__codelineno-174-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidSourceRegistry</span>
+</span></code></pre></div>
+<p>Why a <code>sources:</code> tree is not usable.</p>
+<p>Every variant names the alias, because a refusal that does not say which entry to change is a
+support request - and a deployment with several sources is exactly the deployment where "one of
+your sources is wrong" is useless.</p>
+<p>No <code>Clone</code>, and the reason is worth a line rather than a shrug: one variant's cause is
+<code>sutura_domain::model::InvalidIdentifier</code>, which is not <code>Clone</code> either. Deriving it here would mean
+either a second copy of that error's shape or a <code>Clone</code> added to a domain type for a config crate's
+convenience, and nothing needs to clone a startup refusal.</p>
+<h4 id="variants_18">Variants<a class="headerlink" href="#variants_18" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Alias</code> - The key is not a name a model could write in its <code>source:</code> field.</li>
+<li><code>DuplicateAlias</code> - Two entries name one source.</li>
+<li><code>NoDataDirectory</code> - The entry names no file location.</li>
+<li><code>RelativeDataDirectory</code> - The path is relative, so it resolves against the process working directory.</li>
+<li><code>Posture</code> - The <code>posture:</code> word is not one of the two.</li>
+<li><code>Kind</code> - The <code>kind:</code> word does not name a data system this build has an adapter for.</li>
+<li><code>Text</code> - A piece of operator-written text on this entry is not usable.</li>
+<li><code>Conflict</code> - The entry's two identity declarations contradict each other.</li>
+</ul>
+<h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-sourceregistry"><code>struct SourceRegistry</code><a class="headerlink" href="#struct-sourceregistry" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-175-1"><a id="__codelineno-175-1" name="__codelineno-175-1" href="#__codelineno-175-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SourceRegistry</span>
+</span></code></pre></div>
+<p>Every source this deployment declares, keyed by the alias a model's <code>source:</code> names.</p>
+<p>A newtype over the map rather than the map, so <code>Self::parse</code> is the only way one comes into
+existence and the duplicate-alias refusal cannot be skipped by building the map directly.</p>
+<p><strong>May be empty, and that is not a refusal here.</strong> A deployment configuring no source is one that
+has not said where its data is; what refuses it is the composition root, which finds the catalog
+naming a source with no declaration and stops before a listener is bound. Refusing an empty tree in
+this crate would mean <code>Settings::load</code> on the embedded defaults could not produce a <code>Settings</code> at
+all, and the defaults are what the <code>prompt</code> command and every settings test read.</p>
+<h4 id="methods_33">Methods<a class="headerlink" href="#methods_33" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-176-1"><a id="__codelineno-176-1" name="__codelineno-176-1" href="#__codelineno-176-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many sources are declared.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-177-1"><a id="__codelineno-177-1" name="__codelineno-177-1" href="#__codelineno-177-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">each</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every declared source, in alias order.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-178-1"><a id="__codelineno-178-1" name="__codelineno-178-1" href="#__codelineno-178-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">alias</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ConfiguredSource</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The source declared under <code>alias</code>, if there is one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-179-1"><a id="__codelineno-179-1" name="__codelineno-179-1" href="#__codelineno-179-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Did this deployment declare any source at all?</p>
+<h4 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Default</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h2 id="module-telemetry">Module <code>telemetry</code><a class="headerlink" href="#module-telemetry" title="Permanent link">&para;</a></h2>
 <p>What the log looks like, and who is meant to read it.</p>
 <p>One decision with two right answers, which is why it is a type rather than a flag. In
@@ -3351,36 +3625,36 @@ set inconsistently by omission. An explicit value overrides it - a developer deb
 the collector will actually receive needs that - and the startup log says which of the two
 happened.</p>
 <h3 id="enum-logformat"><code>enum LogFormat</code><a class="headerlink" href="#enum-logformat" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-156-1"><a id="__codelineno-156-1" name="__codelineno-156-1" href="#__codelineno-156-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-180-1"><a id="__codelineno-180-1" name="__codelineno-180-1" href="#__codelineno-180-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LogFormat</span>
 </span></code></pre></div>
 <p>How a log line is rendered.</p>
-<h4 id="variants_15">Variants<a class="headerlink" href="#variants_15" title="Permanent link">&para;</a></h4>
+<h4 id="variants_19">Variants<a class="headerlink" href="#variants_19" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Bunyan</code> - One JSON object per line, in the bunyan schema. What a collector ingests.</li>
 <li><code>Pretty</code> - Indented, coloured, and meant for a terminal.</li>
 </ul>
-<h4 id="methods_30">Methods<a class="headerlink" href="#methods_30" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-157-1"><a id="__codelineno-157-1" name="__codelineno-157-1" href="#__codelineno-157-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_34">Methods<a class="headerlink" href="#methods_34" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-181-1"><a id="__codelineno-181-1" name="__codelineno-181-1" href="#__codelineno-181-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-158-1"><a id="__codelineno-158-1" name="__codelineno-158-1" href="#__codelineno-158-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-182-1"><a id="__codelineno-182-1" name="__codelineno-182-1" href="#__codelineno-182-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The format an environment gets when the configuration does not say.</p>
 <p><strong>This is the split, in one function.</strong> Production is machine-readable and everything else
 is human-readable, and it is expressed as a total match rather than an <code>if</code> so a fourth
 environment cannot inherit an answer nobody chose for it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-159-1"><a id="__codelineno-159-1" name="__codelineno-159-1" href="#__codelineno-159-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownLogFormat</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-183-1"><a id="__codelineno-183-1" name="__codelineno-183-1" href="#__codelineno-183-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownLogFormat</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a format name.</p>
-<h4 id="implements_43">Implements<a class="headerlink" href="#implements_43" title="Permanent link">&para;</a></h4>
+<h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="struct-unknownlogformat"><code>struct UnknownLogFormat</code><a class="headerlink" href="#struct-unknownlogformat" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-160-1"><a id="__codelineno-160-1" name="__codelineno-160-1" href="#__codelineno-160-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownLogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-184-1"><a id="__codelineno-184-1" name="__codelineno-184-1" href="#__codelineno-184-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownLogFormat</span>
 </span></code></pre></div>
 <p>The string was neither format.</p>
-<h4 id="implements_44">Implements<a class="headerlink" href="#implements_44" title="Permanent link">&para;</a></h4>
+<h4 id="implements_53">Implements<a class="headerlink" href="#implements_53" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-logfilter"><code>struct LogFilter</code><a class="headerlink" href="#struct-logfilter" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-161-1"><a id="__codelineno-161-1" name="__codelineno-161-1" href="#__codelineno-161-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LogFilter</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-185-1"><a id="__codelineno-185-1" name="__codelineno-185-1" href="#__codelineno-185-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LogFilter</span>
 </span></code></pre></div>
 <p>A tracing filter directive, as written for <code>RUST_LOG</code>.</p>
 <p>Kept as text here and turned into a real filter by whatever installs the subscriber, because
@@ -3388,68 +3662,68 @@ the type that parses one lives in <code>tracing-subscriber</code> and this crate
 <em>is</em> checked here is that it is not empty and not a smuggled second line: an empty filter
 silently means "no directives", which is a service that logs at the default level while its
 configuration says otherwise.</p>
-<h4 id="methods_31">Methods<a class="headerlink" href="#methods_31" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-162-1"><a id="__codelineno-162-1" name="__codelineno-162-1" href="#__codelineno-162-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_35">Methods<a class="headerlink" href="#methods_35" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-186-1"><a id="__codelineno-186-1" name="__codelineno-186-1" href="#__codelineno-186-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-163-1"><a id="__codelineno-163-1" name="__codelineno-163-1" href="#__codelineno-163-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidLogFilter</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-187-1"><a id="__codelineno-187-1" name="__codelineno-187-1" href="#__codelineno-187-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidLogFilter</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a filter directive.</p>
-<h4 id="implements_45">Implements<a class="headerlink" href="#implements_45" title="Permanent link">&para;</a></h4>
+<h4 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidlogfilter"><code>enum InvalidLogFilter</code><a class="headerlink" href="#enum-invalidlogfilter" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-164-1"><a id="__codelineno-164-1" name="__codelineno-164-1" href="#__codelineno-164-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidLogFilter</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-188-1"><a id="__codelineno-188-1" name="__codelineno-188-1" href="#__codelineno-188-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidLogFilter</span>
 </span></code></pre></div>
 <p>Why a string is not a filter directive.</p>
-<h4 id="variants_16">Variants<a class="headerlink" href="#variants_16" title="Permanent link">&para;</a></h4>
+<h4 id="variants_20">Variants<a class="headerlink" href="#variants_20" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Empty</code> - Empty, or only whitespace.</li>
 <li><code>ControlCharacter</code> - A control character, which in practice is a newline pasted in with the value. A newline in a filter is a log line an attacker can forge if the value ever reaches the log itself.</li>
 </ul>
-<h4 id="implements_46">Implements<a class="headerlink" href="#implements_46" title="Permanent link">&para;</a></h4>
+<h4 id="implements_55">Implements<a class="headerlink" href="#implements_55" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-servicename"><code>struct ServiceName</code><a class="headerlink" href="#struct-servicename" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-165-1"><a id="__codelineno-165-1" name="__codelineno-165-1" href="#__codelineno-165-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServiceName</span>
 </span></code></pre></div>
 <p>The name every log line is attributed to.</p>
 <p>A separate type because it is the field a collector groups by, so an empty or whitespace one
 makes every line from this deployment unattributable.</p>
-<h4 id="methods_32">Methods<a class="headerlink" href="#methods_32" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-166-1"><a id="__codelineno-166-1" name="__codelineno-166-1" href="#__codelineno-166-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_36">Methods<a class="headerlink" href="#methods_36" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-190-1"><a id="__codelineno-190-1" name="__codelineno-190-1" href="#__codelineno-190-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-167-1"><a id="__codelineno-167-1" name="__codelineno-167-1" href="#__codelineno-167-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidServiceName</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-191-1"><a id="__codelineno-191-1" name="__codelineno-191-1" href="#__codelineno-191-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidServiceName</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a service name.</p>
 <p>Narrow on purpose: a name with a space or a quote in it has to be escaped by every
 consumer, and the one that forgets produces a log line that does not parse.</p>
-<h4 id="implements_47">Implements<a class="headerlink" href="#implements_47" title="Permanent link">&para;</a></h4>
+<h4 id="implements_56">Implements<a class="headerlink" href="#implements_56" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidservicename"><code>enum InvalidServiceName</code><a class="headerlink" href="#enum-invalidservicename" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-168-1"><a id="__codelineno-168-1" name="__codelineno-168-1" href="#__codelineno-168-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-192-1"><a id="__codelineno-192-1" name="__codelineno-192-1" href="#__codelineno-192-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidServiceName</span>
 </span></code></pre></div>
 <p>Why a string is not a service name.</p>
-<h4 id="variants_17">Variants<a class="headerlink" href="#variants_17" title="Permanent link">&para;</a></h4>
+<h4 id="variants_21">Variants<a class="headerlink" href="#variants_21" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Empty</code></li>
 <li><code>NotAnIdentifier</code></li>
 </ul>
-<h4 id="implements_48">Implements<a class="headerlink" href="#implements_48" title="Permanent link">&para;</a></h4>
+<h4 id="implements_57">Implements<a class="headerlink" href="#implements_57" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-telemetrysettings"><code>struct TelemetrySettings</code><a class="headerlink" href="#struct-telemetrysettings" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-169-1"><a id="__codelineno-169-1" name="__codelineno-169-1" href="#__codelineno-169-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TelemetrySettings</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-193-1"><a id="__codelineno-193-1" name="__codelineno-193-1" href="#__codelineno-193-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TelemetrySettings</span>
 </span></code></pre></div>
 <p>Everything about the log.</p>
-<h4 id="methods_33">Methods<a class="headerlink" href="#methods_33" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-170-1"><a id="__codelineno-170-1" name="__codelineno-170-1" href="#__codelineno-170-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filter</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LogFilter</span>
+<h4 id="methods_37">Methods<a class="headerlink" href="#methods_37" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-194-1"><a id="__codelineno-194-1" name="__codelineno-194-1" href="#__codelineno-194-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filter</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LogFilter</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-171-1"><a id="__codelineno-171-1" name="__codelineno-171-1" href="#__codelineno-171-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-195-1"><a id="__codelineno-195-1" name="__codelineno-195-1" href="#__codelineno-195-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LogFormat</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-172-1"><a id="__codelineno-172-1" name="__codelineno-172-1" href="#__codelineno-172-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-196-1"><a id="__codelineno-196-1" name="__codelineno-196-1" href="#__codelineno-196-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-173-1"><a id="__codelineno-173-1" name="__codelineno-173-1" href="#__codelineno-173-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="nc">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFilter</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFormat</span><span class="p">,</span><span class="w"> </span><span class="n">format_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-197-1"><a id="__codelineno-197-1" name="__codelineno-197-1" href="#__codelineno-197-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="nc">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFilter</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFormat</span><span class="p">,</span><span class="w"> </span><span class="n">format_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-174-1"><a id="__codelineno-174-1" name="__codelineno-174-1" href="#__codelineno-174-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service_name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-198-1"><a id="__codelineno-198-1" name="__codelineno-198-1" href="#__codelineno-198-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service_name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceName</span>
 </span></code></pre></div>
-<h4 id="implements_49">Implements<a class="headerlink" href="#implements_49" title="Permanent link">&para;</a></h4>
+<h4 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 

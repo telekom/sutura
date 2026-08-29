@@ -957,6 +957,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2312,6 +2323,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#sources" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Sources
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#address-families" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2543,10 +2565,34 @@ them one at a time.</p>
 <td>any malformed or misspelled configuration key</td>
 <td>a key that is silently ignored is a default the operator believes they overrode</td>
 </tr>
+<tr>
+<td>a configured source and no <code>security.identity</code></td>
+<td>the mode decides where a shared source's acknowledgement has to be written, and no combination of source postures may answer it: a multi-tenant deployment whose sources are all shared is exactly the case a derived mode would exempt from the check it most needs</td>
+</tr>
+<tr>
+<td>a <code>shared-service-user</code> source in <code>multi-user</code> mode with no <code>acknowledged_because</code></td>
+<td>every caller would read that source as one identity that is not theirs. Sutura declares no data sensitivity, so it cannot tell whether that was fine - what it can do is make the posture impossible to arrive at by accident and impossible to arrive at in silence</td>
+</tr>
+<tr>
+<td>a source the catalog reads and no <code>sources.&lt;alias&gt;</code> entry declares</td>
+<td>there is no location for its files and no posture for its queries, and defaulting either would serve data under a configuration nobody wrote</td>
+</tr>
+<tr>
+<td><code>posture: impersonation-at-source</code> on a source this build's adapter cannot impersonate</td>
+<td>the alternative is a deployment that believes it impersonates and reads everything as this process. There is no fallback</td>
+</tr>
+<tr>
+<td>an anchor on a metric reading an <code>impersonation-at-source</code> source with no <code>verification_identity</code></td>
+<td>there is no identity to re-run that certified number as. Not skipped, not warned about and not treated as a passing anchor - a deployment that wants an impersonating source with no boot identity gets it by authoring no anchors on its metrics</td>
+</tr>
 </tbody>
 </table>
 <p>The checks read the <strong>loaded</strong> values, not any one file. The environment-variable layer is applied
 last, so a check against a file would be checking something the process is not running on.</p>
+<p>The last two are the <strong>composition root's</strong> rather than the settings tree's, and the split is not
+filing: whether the <em>linked adapter</em> can carry a per-subject credential at all is a property of the
+build, and whether the <em>bundle</em> declares an anchor is a property of the catalog. Neither is visible to
+a file, so neither is checked where files are parsed.</p>
 <h2 id="who-is-asking">Who is asking<a class="headerlink" href="#who-is-asking" title="Permanent link">&para;</a></h2>
 <p>Leg 1, and it is <strong>opt-in</strong>: a deployment with no <code>security.inbound</code> block has no per-caller identity
 and is unaffected by everything in this section.</p>
@@ -3085,6 +3131,16 @@ selects which file is layered, so a file that could change it would be self-refe
 <td>One of <code>none</code>, <code>sidecar</code>, <code>ingress</code>, <code>in-process</code>. Must be declared for any bind other hosts can reach</td>
 </tr>
 <tr>
+<td><code>security.identity</code></td>
+<td><strong>absent, and absence is a refusal</strong></td>
+<td><code>single-user</code> or <code>multi-user</code>. Required once any source is configured. See <a href="#sources">Sources</a></td>
+</tr>
+<tr>
+<td><code>security.single_user_because</code></td>
+<td>absent</td>
+<td>The operator's reason. Required with <code>single-user</code>, refused with <code>multi-user</code></td>
+</tr>
+<tr>
 <td><code>security.inbound.mode</code></td>
 <td>absent, and <strong>no default</strong></td>
 <td><code>direct</code> or <code>behind-gateway</code>. Absent means no per-caller identity; present-but-unset does not start. See <a href="#who-is-asking">who is asking</a></td>
@@ -3212,12 +3268,37 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>catalog.data_dir</code></td>
 <td><code>data</code></td>
-<td>Where the engine's CSV and Parquet files are</td>
+<td>Read by the <code>sutura</code> command. <strong>Not read by the service</strong> - a served source's files come from its own <code>sources.&lt;alias&gt;.data_dir</code></td>
 </tr>
 <tr>
 <td><code>catalog.version</code></td>
 <td><code>unversioned</code></td>
 <td>A commit id or a build number. What identifies the snapshot</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.kind</code></td>
+<td>absent</td>
+<td><code>files</code> is the only kind this build has an adapter for. Required, with no default</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.data_dir</code></td>
+<td>absent</td>
+<td>Where that source's files are. Required, and absolute</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.posture</code></td>
+<td>absent</td>
+<td><code>shared-service-user</code> or <code>impersonation-at-source</code>. Required, with no default</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.acknowledged_because</code></td>
+<td>absent</td>
+<td>The operator's reason. Required for a shared source in <code>multi-user</code> mode</td>
+</tr>
+<tr>
+<td><code>sources.&lt;alias&gt;.verification_identity</code></td>
+<td>absent</td>
+<td>The identity that re-runs that source's anchors. Only on an impersonating source</td>
 </tr>
 <tr>
 <td><code>runtime.max_concurrent_queries</code></td>
@@ -3243,6 +3324,78 @@ selects which file is layered, so a file that could change it would be self-refe
 </table>
 <p>A zero is refused wherever it would read as "no limit", and every bound has a ceiling, because a
 value nobody chose is worse than a value somebody has to argue with.</p>
+<h3 id="sources">Sources<a class="headerlink" href="#sources" title="Permanent link">&para;</a></h3>
+<p><strong>The service reads its data systems from <code>sources:</code>, one entry per data system, keyed by the alias a
+model's <code>source:</code> names.</strong> <code>catalog.data_dir</code> is no longer where a served source's files are found: it
+is the <code>sutura</code> command's data directory and stays that. A deployment that declares no source does not
+serve, because the catalog names a source with no entry and the process refuses before a listener is
+bound.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="c1"># single-user or multi-user. No default: see the refusal table above.</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">  </span><span class="nt">identity</span><span class="p">:</span><span class="w"> </span><span class="s">"single-user"</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span><span class="nt">single_user_because</span><span class="p">:</span><span class="w"> </span><span class="s">"one</span><span class="nv"> </span><span class="s">operator,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">files,</span><span class="nv"> </span><span class="s">their</span><span class="nv"> </span><span class="s">own</span><span class="nv"> </span><span class="s">credentials"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="nt">sources</span><span class="p">:</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a><span class="w">  </span><span class="nt">local</span><span class="p">:</span>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">    </span><span class="c1"># `files` is the only kind this build has an adapter for. Required, with no default.</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">kind</span><span class="p">:</span><span class="w"> </span><span class="s">"files"</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="c1"># Absolute. A relative path resolves against whatever working directory the supervisor chose.</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="nt">data_dir</span><span class="p">:</span><span class="w"> </span><span class="s">"/srv/sutura/data"</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="c1"># shared-service-user, or impersonation-at-source. Required, with no default.</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a><span class="w">    </span><span class="nt">posture</span><span class="p">:</span><span class="w"> </span><span class="s">"shared-service-user"</span>
+</span></code></pre></div>
+<p>Two facts, declared by two different parties, and conflating them gives the mode two owners:</p>
+<ul>
+<li><strong>the deployment declares the POSTURE</strong>, per source - which identity a query is to reach that source
+  as;</li>
+<li><strong>the adapter declares its CAPABILITY</strong>, in code - whether it can carry a per-subject credential at
+  all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
+  subject to appear. Saying so explicitly is the point of the declaration.</li>
+</ul>
+<p>The boot check compares them. A source configured to impersonate on an adapter that cannot does not
+start, and there is no fallback.</p>
+<table>
+<thead>
+<tr>
+<th>Posture</th>
+<th>What it means</th>
+<th>What decides what a subject sees</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>shared-service-user</code></td>
+<td>Every query reaches the source under one identity the deployment holds</td>
+<td>that identity's grants. Every caller sees the same rows</td>
+</tr>
+<tr>
+<td><code>impersonation-at-source</code></td>
+<td>Each query reaches the source as the asking subject</td>
+<td>the SOURCE: its own authorization, its row and column policies, its own catalog</td>
+</tr>
+</tbody>
+</table>
+<p><strong><code>shared-service-user</code> is honest, not broken.</strong> It is right for a single-user deployment and right for
+a source nobody needs to see per subject. The failure is never the posture; it is a source in that
+posture being <em>believed</em> to impersonate - which is what the acknowledgement makes impossible to hold
+accidentally.</p>
+<p><strong>The mode does not make a caller identity arrive.</strong> Nothing in this service establishes one: the
+bearer token authenticates the deployment, and the startup log says so on every boot. What
+<code>security.identity</code> decides today is where a shared source's acknowledgement has to be written, which
+is what a deployment needs in place <em>before</em> a subject exists rather than after.</p>
+<p><strong>Every answer carries the posture per leg</strong>, in <code>provenance</code> on the HTTP surface and in <code>executed_as</code>
+beside it. It is read off the adapter that executed rather than off this file, so a record cannot
+report a leg as impersonated on the strength of a configuration key. Say plainly what that is worth:
+it reaches a caller <em>after</em> the rows did, so it cannot prevent a disclosure. It makes one attributable
+and it makes a misconfiguration visible to whoever reads an answer; the startup refusals above are the
+gate.</p>
+<p><strong>A catalog whose models sit on two declared sources is now servable</strong>, and an engine is opened per
+source the catalog names. A <em>question</em> whose plan would span two is still refused, as
+<code>plan_spans_two_sources</code>, at plan time. There is no federation: nothing combines results from two
+sources, and the refusal is what says so rather than a partial answer.</p>
+<p><em>The limit, because it decides what is worth configuring today:</em> the only adapter this build links is
+the in-process engine, so two configured sources are two engines over two directories. A data system
+across a network arrives with its own adapter.</p>
 <h3 id="address-families">Address families<a class="headerlink" href="#address-families" title="Permanent link">&para;</a></h3>
 <p><code>server.host</code> takes an address of either family. <code>127.0.0.1</code> and <code>::1</code> are both recognised as
 loopback, so neither of them trips the off-host refusal above, and <code>::1</code> may be written bracketed or
@@ -3305,18 +3458,18 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 <h3 id="terminating-it-in-this-process">Terminating it in this process<a class="headerlink" href="#terminating-it-in-this-process" title="Permanent link">&para;</a></h3>
 <p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
 which the default build does not:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
 </span></code></pre></div>
 <p>The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
 artifact that will never present a certificate is cost with no return. With the feature off the
 dependency is absent from the build rather than merely unused, and asking for <code>in-process</code>
 termination is a startup refusal that names the feature - so the two cannot disagree.</p>
 <p>Then:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
-</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nt">server</span><span class="p">:</span>
-</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
-</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
+</span><span id="__span-7-5"><a id="__codelineno-7-5" name="__codelineno-7-5" href="#__codelineno-7-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
 </span></code></pre></div>
 <p>Both halves or neither. A certificate with no key is refused rather than half-configured, and a path
 set to the empty string is an error naming the key rather than TLS quietly switching itself off -
@@ -3413,10 +3566,10 @@ for a deployment being replaced. Nothing here can know how long a question takes
 check it - the number that <em>is</em> checked is that it is neither zero nor above five minutes.</p>
 <h2 id="running-it">Running it<a class="headerlink" href="#running-it" title="Permanent link">&para;</a></h2>
 <p>The engine reads files, so there is nothing to provision:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">SUTURA__CATALOG__DATA_DIR</span><span class="o">=</span>examples/single-player/data<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="nv">SUTURA__CATALOG__DATA_DIR</span><span class="o">=</span>examples/single-player/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-8-4"><a id="__codelineno-8-4" name="__codelineno-8-4" href="#__codelineno-8-4"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
 </span></code></pre></div>
 <p>It binds <code>127.0.0.1:8080</code>, needs no token there, and serves the browser interface at <code>/docs</code>. Startup
 loads the catalog through its port and re-executes <strong>every declared anchor</strong> against the data system;

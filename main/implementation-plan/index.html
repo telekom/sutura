@@ -1047,6 +1047,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The source registry, the mode, and the boot check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-branch-found-and-where-this-section-was-underspecified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the branch found, and where this section was underspecified
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2362,6 +2379,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The source registry, the mode, and the boot check">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-the-branch-found-and-where-this-section-was-underspecified" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the branch found, and where this section was underspecified
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2432,13 +2466,16 @@
 <p>Operational, and expected to churn. The decisions it executes live in
 <a href="../adr/0009-the-plan-from-one-source-to-many/">the ADRs</a> and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.</p>
-<p><strong>Twenty-two steps, one done, eight of which can start at once.</strong> Both numbers are counted off the table below
-rather than remembered, which is the third attempt at getting them right: a number typed by hand beside
-the table that owns it goes stale on the next row, and it has now gone stale twice - "eleven steps" in a
-pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
-eight startable. <strong>If the table and this sentence ever disagree again, the table is right.</strong> Every step
-is one branch, one pull request, and green before the next depends on it. <code>stax</code> manages the stack; the
-<code>git-ops/stacked-branches</code> skill has the mechanics. Nothing in this plan is started.</p>
+<p><strong>Twenty-four steps, eight done, six of which can start at once.</strong> Every number is counted off the table
+below rather than remembered, which is the fourth attempt at getting them right: a number typed by hand
+beside the table that owns it goes stale on the next row, and it has now gone stale three times -
+"eleven steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which"
+against eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows
+and seven done. <strong>If the table and this sentence ever disagree again, the table is right</strong>, and the
+three commands that settle it are <code>grep -c '^| [0-9]'</code> for the rows, the same with <code>| ~~</code> for the
+struck ones and <code>| \*\*yes\*\* |$</code> for the startable ones. Every step is one branch, one pull request,
+and green before the next depends on it. <code>stax</code> manages the stack; the <code>git-ops/stacked-branches</code> skill
+has the mechanics.</p>
 <h2 id="the-stack">The stack<a class="headerlink" href="#the-stack" title="Permanent link">&para;</a></h2>
 <p><strong>Steps are named, not numbered, because the order moves and headings should not.</strong> This table is the
 order, and it is the <strong>only</strong> place a step gets a number - the ADRs name branches and let this table
@@ -2498,21 +2535,21 @@ internal that a stable surface can grow behind.</p>
 </tr>
 <tr>
 <td>8</td>
-<td><code>feat/source-registry</code></td>
-<td>6 - <strong>done</strong></td>
-<td><strong>yes</strong></td>
+<td>~~<code>feat/source-registry</code>~~</td>
+<td>-</td>
+<td><strong>DONE</strong>. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind</td>
 </tr>
 <tr>
 <td>9</td>
-<td><code>feat/leg-plan-types</code></td>
-<td>4 - <strong>done</strong></td>
-<td><strong>IN REVIEW</strong> - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md</td>
+<td>~~<code>feat/leg-plan-types</code>~~</td>
+<td>-</td>
+<td><strong>DONE</strong> - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md</td>
 </tr>
 <tr>
 <td>10</td>
 <td><code>feat/two-source-execution</code></td>
-<td>8, 9</td>
-<td>after 9</td>
+<td>8, 9 - both <strong>done</strong></td>
+<td><strong>yes</strong></td>
 </tr>
 <tr>
 <td>11</td>
@@ -2523,8 +2560,8 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>12</td>
 <td><code>feat/credential-port</code></td>
-<td>2, 5, 8</td>
-<td>after 8</td>
+<td>2, 5, 8 - all <strong>done</strong></td>
+<td><strong>yes</strong></td>
 </tr>
 <tr>
 <td>13</td>
@@ -2541,8 +2578,8 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>15</td>
 <td><code>feat/bigquery-adapter</code></td>
-<td>8, and the fixture decision</td>
-<td>after 8</td>
+<td>8 - <strong>done</strong>, and the fixture decision</td>
+<td><strong>yes</strong></td>
 </tr>
 <tr>
 <td>16</td>
@@ -2553,7 +2590,7 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>17</td>
 <td><code>feat/postgres-adapter</code></td>
-<td>8, 14, and the artifact question</td>
+<td>8 - <strong>done</strong>, 14, and the artifact question</td>
 <td>after 14</td>
 </tr>
 <tr>
@@ -2565,13 +2602,13 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>19</td>
 <td><code>feat/source-mtls</code></td>
-<td>8, 17</td>
+<td>8 - <strong>done</strong>, 17</td>
 <td>after 17</td>
 </tr>
 <tr>
 <td>20</td>
 <td><code>feat/raw-sql-tool</code></td>
-<td>3, 8, 12</td>
+<td>3, 8 - <strong>done</strong>, 12</td>
 <td>after 12</td>
 </tr>
 <tr>
@@ -3170,6 +3207,50 @@ pinned the wrong thing: an adapter cannot declare a mode it does not own.</p>
   with a compiling twin.</p>
 <p><strong>Done when</strong> two sources can be configured, each says what it is, and an answer says which mode
 produced it.</p>
+<h3 id="what-the-branch-found-and-where-this-section-was-underspecified">What the branch found, and where this section was underspecified<a class="headerlink" href="#what-the-branch-found-and-where-this-section-was-underspecified" title="Permanent link">&para;</a></h3>
+<p><strong>DONE.</strong> Four corrections, and each one is here because the section as written could not be
+implemented as written rather than because it was inconvenient.</p>
+<p><strong>One: the source declaration needed a KIND, and this section never mentions one.</strong> Without it there
+is no way for a deployment to say <em>what</em> a source is, so the composition root's only signal is the
+source NAME - and <code>sutura-serve</code> did exactly that, refusing any source not called <code>local</code>. That
+comparison makes the <em>Done when</em> above unreachable: a second source can never be <code>local</code>, so two
+sources can be configured and only one can ever be opened. It also refuses a legitimate deployment -
+an operator holding a warehouse extract as a directory of files and calling that source <code>warehouse</code>
+was told this build had no adapter for it, on the strength of an alias. So <code>sources.&lt;alias&gt;.kind</code> is
+required, with <code>files</code> the one variant that ships, an unknown word is a parse refusal listing what is
+available, and which adapter opens a declared kind is an exhaustive match in the root - a second kind
+is a compile error there rather than an arm that falls through. <strong>This deleted a test that landed one
+step earlier:</strong> <code>a_catalog_naming_another_data_system_starts_nothing</code> asserted the name comparison, and
+<code>a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured</code> replaces it.</p>
+<p><strong>Two: <code>a_missing_file_is_refused_at_parse</code> cannot mean what it says.</strong> <code>CatalogSettings::parse</code>
+already declines an existence check and documents why - a directory that disappears between reading
+the configuration and opening the engine makes the check a claim that is already stale, and it makes
+configuration validation depend on a filesystem. That argument holds unchanged for a source's
+directory, so the refusal implemented is <code>NoDataDirectory</code>: an entry that named no location at all.
+The test is <code>a_missing_file_location_is_refused_at_parse</code>. A missing <em>file</em> is still refused, at boot,
+by the composition root that tries to attach it.</p>
+<p><strong>Three: the DEPLOYMENT MODE is load-bearing here and is not in the <em>Adds</em> list.</strong> The
+acknowledgement test names a multi-user deployment, so the mode has to be expressible - and
+<a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> 5a requires it
+declared, with no default and no derivation. It also answers a question the <em>Adds</em> list leaves open:
+in single-user mode a shared source needs no per-source acknowledgement, so where does the witness on
+<code>SourcePosture::SharedServiceUser</code> come from? From the mode's own required reason. Without that, a
+single-user deployment could not construct the posture at all. <code>security.identity</code> is therefore
+required <strong>once any source is configured</strong>, which keeps <code>Settings::load</code> on the embedded defaults
+working - and no deployment escapes it, because one with no source is refused by the root for naming a
+source it has no entry for.</p>
+<p><strong>Four: a CATALOG spanning two sources stops being a boot refusal</strong>, which is the point of the branch
+and worth stating because it deletes a second test from the step before it. Two declared sources are
+now two engines, and only a QUESTION whose plan would span both is refused - <code>PlanSpansTwoSources</code>, at
+plan time, where it always belonged. What survives is the half that is still a misconfiguration: a
+source the catalog reads and the deployment never declared.</p>
+<p><strong>Two things this step does NOT deliver, so the next reader does not assume them.</strong> <code>Warehouses&lt;W&gt;</code> is
+generic in one adapter type, so two sources are two engines over two directories and a file engine
+beside a network adapter is not expressible - that is <code>feat/bigquery-adapter</code>'s, and it wants a closed
+enum over the registered adapters rather than <code>dyn</code>, because <code>Warehouse</code> carries a required associated
+constant and is not object-safe. And the verification identity is a DECLARATION with a boot refusal
+behind it; nothing passes it to the port, so what re-runs an anchor is still <code>execute</code> under whatever
+identity the adapter holds. <code>feat/credential-port</code> is the step that closes that.</p>
 <h2 id="the-leg-plan-types-and-their-rendering">The leg plan types, and their rendering<a class="headerlink" href="#the-leg-plan-types-and-their-rendering" title="Permanent link">&para;</a></h2>
 <p><strong>Goal.</strong> The shapes a federated query is made of, as domain types with a generator entry point and
 goldens each - before anything executes them. <strong>This is a correction of an earlier version of this plan
