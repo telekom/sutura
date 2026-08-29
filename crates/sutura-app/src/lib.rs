@@ -57,6 +57,13 @@ pub mod prompt;
 // what an absence means - while which adapters exist is the root's.
 pub mod warehouses;
 
+// What this surface can be asked to do, and what one caller may do of it. Here for the same reason
+// `surface` is: the tool set IS the driving port's operation set, `sutura-mcp` and `sutura-http`
+// cannot see each other, and a set owned by one transport is a set the other has to reach through
+// it. The module's own documentation carries the argument and the limits.
+pub mod capability;
+
+pub use crate::capability::{Capability, Permitted};
 pub use crate::proof::{Validated, verify_and_validate};
 
 /// The proof, and the only operation that can mint it.

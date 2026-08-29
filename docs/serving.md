@@ -142,7 +142,7 @@ What the checks are, in both modes:
 | `aud` | Must contain **this deployment's own** resource identifier, byte for byte, and the claim is **required** - a token carrying no audience is refused rather than passing a check with nothing to compare. A client may also ask its authorization server for a narrowly scoped token; that is welcome and it is an optimisation, and it is never what makes the token safe |
 | `sub` | Required, and parsed: a control character or an invisible code point in it is a refusal, because the value is written into an audit record that is one line per call |
 | `act` | RFC 8693's actor claim, if present, becomes the ordered actor chain in the record - so a call by an agent for a person is a different event from a call by that person |
-| `scope` | Parsed, bounded, carried - and **read by nothing**. Scope-filtered advertisement and a per-caller ceiling are not built |
+| `scope` | Parsed, bounded, and **read** - it decides which of this surface's operations the caller may invoke. See *What a scope grants* below. A per-caller ceiling derived from a scope is still not built |
 
 A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
 realm="<your resource identifier>", error="invalid_token"`. It deliberately does **not** say which
@@ -168,13 +168,46 @@ adopting a broken set turns a rotation mistake into a total outage.
 Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
 it, and the bucket it counts against is a network address rather than a principal.
 
+### What a scope grants
+
+**Only where `security.inbound` is configured.** A deployment with no block has no verified claim to
+narrow by, so every operation is available - and a filter over an unverified claim would look like a
+control and be none.
+
+Two scopes, one per operation this surface has. They are the same strings for every deployment, and
+they name a **capability** rather than a metric - deliberately, so that adding or renaming a metric in
+the catalog can never change what a token means:
+
+| Scope | What it grants |
+| --- | --- |
+| `sutura:catalog.read` | `GET /v1/catalog` |
+| `sutura:metrics.ask` | `POST /v1/query` |
+
+**It fails closed.** A caller is granted exactly the capabilities its `scope` claim names. A token
+this deployment verified that carries no capability scope reaches **nothing** - which means switching
+`security.inbound` on before authoring these scopes at your authorization server switches every caller
+off. The response says so and says what to add: `403`, `code: insufficient_scope`, and the missing
+scope string in the detail. A scope this surface does not know is ignored rather than refused, so a
+token minted for other resources too is fine.
+
+**What it does not grant, and this is the sentence to keep.** A scope decides which *operations* a
+caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
+same pinned bundle and every question executes with whatever access the service process already had -
+leg 2 does not exist, so no source executes as the asking subject. A caller granted
+`sutura:metrics.ask` gets exactly the numbers any other caller would.
+
+The agent surface offers the same two capabilities under the names `describe_catalog` and `ask_metric`,
+from the same declaration, so the two transports cannot describe different tool sets. It speaks over
+standard input and output, where there is no header a token could arrive in, so nothing narrows the set
+there today.
+
 ## The endpoints
 
 | Method and path | Token | What it is |
 | --- | --- | --- |
 | `GET /health` | no | Liveness. The body is exactly `{"status":"ok"}` |
-| `GET /v1/catalog` | yes, when one is configured | The metrics this catalog defines, with grains, dimensions and the values a filter may use |
-| `POST /v1/query` | yes, when one is configured | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
+| `GET /v1/catalog` | yes, when one is configured; plus `sutura:catalog.read` where `security.inbound` is | The metrics this catalog defines, with grains, dimensions and the values a filter may use |
+| `POST /v1/query` | yes, when one is configured; plus `sutura:metrics.ask` where `security.inbound` is | One certified question. `200` only when it was answered; a refusal carries its own status - see [A refusal carries a status](#a-refusal-carries-a-status). `503 at_capacity` when no execution slot is free - see [Capacity](#capacity) |
 | `GET /openapi.json` | yes, when one is configured | The generated interface description |
 | `GET /docs` | yes, when one is configured | A browser interface over that description |
 
@@ -245,11 +278,15 @@ depends on why:
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 
-**The `403`s are not about your credential.** No token and no scope widens a metric's dimension set;
-a `403` is the catalog's answer to "may this be asked of this metric", and the sentence names the
-metric and the dimension so it cannot be mistaken for the other thing. That stays true with leg 1
-configured: a verified caller is a caller whose identity is known, not a caller with more permissions -
-nothing anywhere reads a scope.
+**The refusal `403`s are not about your credential.** No token and no scope widens a metric's
+dimension set; a refusal `403` is the catalog's answer to "may this be asked of this metric", and the
+sentence names the metric and the dimension so it cannot be mistaken for the other thing. A verified
+caller is a caller whose identity is known, not a caller with more permissions.
+
+**There is now one `403` that IS about your credential, and `code` is what tells them apart.**
+`insufficient_scope` means the credential is valid and does not carry the scope the *operation*
+requires; it carries no `outcome` field, because it is a failure rather than a refusal, and its detail
+names the scope to grant. It still says nothing about any metric - see *What a scope grants*.
 
 **Two statuses are shared with something that is not a refusal**, and `code` is what separates them -
 as is the body shape, because only a refusal carries `outcome`:

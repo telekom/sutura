@@ -43,6 +43,24 @@ pub enum Failure {
     /// One variant for all three, deliberately: telling a caller which of the three they got wrong
     /// is telling them whether the secret they tried was close.
     Unauthorized,
+    /// The caller is authenticated and was not granted the capability this route needs.
+    ///
+    /// **`403` and not `401`, and the difference is the whole point.** A `401` says *present a
+    /// credential*; this says *the credential you presented is valid and does not carry this*. A
+    /// client told `401` re-authenticates and gets the same token back, forever.
+    ///
+    /// **It names the scope, which is the one place in this module a refusal is deliberately more
+    /// informative than the others**, and RFC 6750 section 3.1 is why: `insufficient_scope` is defined
+    /// to carry the scope required, because the caller here is a client an operator configured and the
+    /// fix is a grant at an authorization server. Without it, a deployment that switched
+    /// `security.inbound` on before authoring scopes gets an empty tool list and a `403` with nothing
+    /// to act on. The scope strings are `sutura_app::Capability::scope`'s own literals - published, and
+    /// the same for every deployment - so this leaks a capability's existence and nothing about *this*
+    /// deployment.
+    ///
+    /// `&'static str` rather than a `String`: the value can only be a capability's own literal, and a
+    /// type that could hold caller text is a type somebody reflects caller text through.
+    InsufficientScope { required: &'static str },
     /// The body is not a question. Carries a message naming the field.
     NotAQuestion { detail: String },
     /// The body is larger than the configured bound.
@@ -82,6 +100,7 @@ impl Failure {
         use axum::http::StatusCode;
         match *self {
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::InsufficientScope { .. } => StatusCode::FORBIDDEN,
             Self::NotAQuestion { .. } => StatusCode::BAD_REQUEST,
             Self::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
@@ -106,6 +125,7 @@ impl Failure {
         match *self {
             Self::AtCapacity { retry_after_seconds } => Some(retry_after_seconds),
             Self::Unauthorized
+            | Self::InsufficientScope { .. }
             | Self::NotAQuestion { .. }
             | Self::TooLarge
             | Self::RateLimited
@@ -119,6 +139,7 @@ impl Failure {
     const fn code(&self) -> &'static str {
         match *self {
             Self::Unauthorized => "unauthorized",
+            Self::InsufficientScope { .. } => "insufficient_scope",
             Self::NotAQuestion { .. } => "not_a_question",
             Self::TooLarge => "too_large",
             Self::RateLimited => "rate_limited",
@@ -133,6 +154,10 @@ impl Failure {
     fn detail(&self) -> String {
         match *self {
             Self::Unauthorized => String::from("this service requires a bearer token"),
+            // The scope, and nothing else about this deployment. See the variant.
+            Self::InsufficientScope { required } => {
+                format!("your credential does not carry the scope `{required}`, which this operation requires")
+            }
             Self::NotAQuestion { ref detail } => detail.clone(),
             Self::TooLarge => String::from("the body is larger than this service will read"),
             Self::RateLimited => String::from("too many requests; slow down and retry"),
@@ -226,6 +251,9 @@ mod tests {
     fn every_failure_has_a_distinct_code_and_a_status_that_matches_its_kind() {
         let failures = [
             Failure::Unauthorized,
+            Failure::InsufficientScope {
+                required: "sutura:metrics.ask",
+            },
             Failure::NotAQuestion {
                 detail: String::from("`grain` is not a grain"),
             },
@@ -272,6 +300,9 @@ mod tests {
         assert_eq!(Failure::AtCapacity { retry_after_seconds: 5 }.retry_after(), Some(5));
         for quiet in [
             Failure::Unauthorized,
+            Failure::InsufficientScope {
+                required: "sutura:metrics.ask",
+            },
             Failure::TooLarge,
             Failure::RateLimited,
             Failure::Timeout,
@@ -280,6 +311,26 @@ mod tests {
         ] {
             assert_eq!(quiet.retry_after(), None, "{quiet:?} invented a retry hint");
         }
+    }
+
+    /// An authenticated caller without a grant is told which scope, and told it with a `403`.
+    ///
+    /// Three properties, and each is a decision rather than a detail: the status says *your
+    /// credential is valid and does not carry this* rather than *present a credential*; the code is
+    /// RFC 6750's own name for it; and the sentence carries the scope, which is the one thing an
+    /// operator can act on. A `401` here would have a client re-authenticate forever, and a `403` with
+    /// no scope named would have an operator guessing at their authorization server.
+    #[test]
+    fn an_authenticated_caller_without_the_scope_is_told_which_scope_and_told_it_with_a_403() {
+        let failure = Failure::InsufficientScope {
+            required: sutura_app::Capability::AskMetric.scope(),
+        };
+        assert_eq!(failure.status().as_u16(), 403);
+        assert_eq!(failure.code(), "insufficient_scope");
+        assert!(failure.detail().contains("sutura:metrics.ask"), "{}", failure.detail());
+        // And it is not the same answer as a missing credential, in either half.
+        assert_ne!(failure.status(), Failure::Unauthorized.status());
+        assert_ne!(failure.code(), Failure::Unauthorized.code());
     }
 
     #[test]

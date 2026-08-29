@@ -1,6 +1,6 @@
 ---
 source: crates/sutura-mcp/src/tool.rs
-expression: "canonical(&serde_json::Value::Object(input_schema()), 0)"
+expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
 ---
 {
   "$defs": {

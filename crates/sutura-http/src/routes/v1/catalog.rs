@@ -25,10 +25,23 @@ const TAG: &str = "catalog";
 #[utoipa::path(
     get,
     path = "/catalog",
+    // The capability this operation IS, so the generated document names the same thing the agent
+    // surface names its tool. It is `sutura_app::Capability::DescribeCatalog::id()`'s literal, written
+    // out because a `#[utoipa::path]` attribute takes a literal - and
+    // `crate::openapi::tests::both_transports_describe_the_same_tools` is what asserts the two agree.
+    operation_id = "describe_catalog",
     tag = TAG,
     responses(
         (status = 200, description = "The pinned bundle, as a reader's view.", body = CatalogBody),
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
+        (
+            status = 403,
+            description = "`code: insufficient_scope`. Your credential is valid and does not carry \
+                           the scope this operation requires; the detail names it. Not a statement \
+                           about the catalog - nothing in it is hidden from a caller who may read it \
+                           at all.",
+            body = crate::problem::ProblemBody
+        ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
     )
 )]

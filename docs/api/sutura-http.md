@@ -146,6 +146,153 @@ serve(router(&state)?, address, Shutdown::new()).await?;
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## Module `capability`
+
+Which capability each route is, and the layer that refuses one this caller was not granted.
+
+# The mapping is a table, and it is checked at ASSEMBLY rather than per request
+
+`sutura_app::Capability` is the tool set both transports render - see that module for why it is
+not owned by either of them. This file is the HTTP side of the rendering: one row per route,
+naming the capability it is.
+
+**A route missing from that table is a route this crate refuses to serve.**
+`crate::router::RouterNotBuilt::RouteNotGoverned` is returned by `assemble`, which reads the
+generated interface description - so the check is over the routes the router actually mounts
+rather than over a second list somebody kept in step. That is the same shape as
+`InboundIdentityNotAttached`: the failure is a process that does not start, not a request that
+slips through.
+
+The alternative was a check inside each handler, and it was rejected for one reason: a handler can
+forget. A layer over the whole subtree cannot, and the only place left to forget is a row in
+`governed` - which is what the assembly refusal covers.
+
+# What this gates, and what it does not
+
+**It decides which OPERATIONS a caller may invoke. It decides nothing about which rows an answer
+contains.** Both routes read the same pinned bundle and every question executes under the same
+identity, because no source executes as the asking subject - `docs/adr/0014`'s leg 1 establishes
+who is asking and leg 2 does not exist. A caller granted `sutura:metrics.ask` and not
+`sutura:catalog.read` cannot list the catalog and gets exactly the same numbers from a question as
+anybody else would.
+
+# Where the grant comes from, and the one honest hole in it
+
+`permitted_for` is the whole derivation, and it is two cases:
+
+* A `crate::inbound::VerifiedCaller` in the request extensions - which only
+  `crate::inbound::gate::require_verified_caller` inserts, after a signature check - means the
+  token's scopes decide, and **only** they do.
+* No such extension means no caller identity was established, so there is no verified claim to
+  narrow by and every capability is permitted. That is the single-player deployment this service
+  ships as, and it is the correct answer rather than a fallback: a filter over an unverified claim
+  looks like a control and is not one.
+
+**The hole a reader should check for, and why it is closed:** if the second case could be reached
+by a deployment that *meant* to establish an identity, this layer would be a control that silently
+turned itself off. It cannot be. `crate::router::assemble` returns
+`RouterNotBuilt::InboundIdentityNotAttached` when the settings declare a mode and no gate was
+attached, and the gate either refuses the request with a `401` or inserts the extension. So on a
+deployment that declares `security.inbound`, a request reaching a handler has been through the
+gate. `crate::inbound::tests::router` already asserts the assembly half and the `401`.
+
+# It fails closed, and the refusal is what makes that survivable
+
+A verified caller whose token names no capability scope may do nothing - `sutura_app::Permitted`
+carries that decision and its consequence. What keeps a deployment that forgot to author scopes
+from being a mystery is the response: `403` with `code: insufficient_scope` and a sentence naming
+the exact scope string, which is RFC 6750's own answer to this and is diagnosable without a log.
+
+### `struct GovernedRoute`
+
+```rust
+pub struct GovernedRoute
+```
+
+One row of the table: a method, the route template as `axum` matched it, and what it is.
+
+**The route template and not the request's path**, which matters: `MatchedPath` is a value from
+this process's own routing table, so nothing a caller sends can steer the lookup. The same reason
+`crate::router::request_span` reads it rather than `uri().path()`.
+
+A named type rather than a tuple because `crate::router` reads it too, and a three-tuple of
+`(Method, String, Capability)` at two call sites is where an argument order gets swapped. Private
+fields with accessors, which is the rule for a `pub struct` in a library crate here.
+
+#### Methods
+
+```rust
+pub const fn capability(&self) -> Capability
+```
+
+What invoking this route is.
+
+```rust
+pub fn route(&self) -> &str
+```
+
+The route template, as it appears in the generated document and in `MatchedPath`.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `fn governed`
+
+```rust
+pub fn governed() -> [GovernedRoute; 2]
+```
+
+Every route this crate governs.
+
+Built as a function rather than a `const` because the paths are composed from `API_V1_PREFIX`
+and `base_paths`, and composing them here is what keeps one owner for a path.
+
+`pub` because `crate::router::assemble` reads it to refuse an ungoverned route, and because a test
+in `crate::openapi` compares it against the generated document's operation identifiers.
+
+### `fn capability_of`
+
+```rust
+pub fn capability_of(method: &axum::http::Method, route: &str) -> Option<sutura_app::Capability>
+```
+
+The capability a route is, or `None` if this crate does not govern it.
+
+`None` is what `crate::router::assemble` refuses over. At request time it cannot happen - the
+layer is installed on the versioned subtree only, and assembly proved every route in it has a row
+- and the layer still refuses rather than passing, because "cannot happen" is not a control.
+
+### `fn permitted_for`
+
+```rust
+pub fn permitted_for(request: &axum::extract::Request) -> sutura_app::Permitted
+```
+
+What this request's caller may do.
+
+See the module documentation for the two cases and for why the second is not a fallback.
+
+### `fn require_capability`
+
+```rust
+pub async fn require_capability(request: axum::extract::Request, next: axum::middleware::Next) -> axum::response::Response
+```
+
+Refuses a request for a capability this caller was not granted.
+
+A layer over the versioned subtree rather than a check in each handler, so there is nothing for a
+handler to forget. Installed INSIDE `crate::inbound::gate::require_verified_caller`, which is what
+makes the extension available here - see `crate::router` for the whole order.
+
 ## Module `client_address`
 
 The address a rate-limit bucket is counted against, and why it is not simply the peer.
@@ -451,9 +598,11 @@ An overstated claim is itself the defect, so each of these is written down here 
 3. **Anything about client registration or client authentication.** Those are decisions for the
    authorization server and for the client; this deployment is a resource server and validates what
    arrives.
-4. **A ceiling derived from a scope.** `Scopes` is parsed and carried and *nothing reads it* - see
-   `caller`. Scope-filtered advertisement is `feat/agent-surface-scope`, the raw tool's gate is
-   `docs/adr/0013`, and a per-caller budget has no port to live behind.
+4. **A ceiling derived from a scope.** `Scopes` is now read by exactly one thing -
+   `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
+   decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
+   live behind, and `docs/adr/0013`'s raw tool is not built. See `caller` for the limit stated
+   beside the claim.
 5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
@@ -539,17 +688,25 @@ So a handler receiving one has not received a claim; it has received the *conclu
 verification. `crate::principal::of_verified` is the one function that turns it into a request
 context, and it is why that module still has no way to build a chain out of a header.
 
-# Scopes are carried and consumed by nothing, and that is the honest state
+# What the scopes are read for, and what they are still not read for
 
 `docs/adr/0014` Decision 4 says a per-caller ceiling is **derived from the claims** and never read
 from anything the caller sends with its question - the same argument that keeps a subject off the
 `Query`. `Scopes` is that claim shape, parsed and bounded.
 
-**Nothing filters on it.** Advertisement filtered by scope is `feat/agent-surface-scope`, the raw
-tool's gate is `docs/adr/0013`, and a budget keyed on a principal has nowhere to live yet - there is
-no budget port in this workspace. What is here is the value those three need to exist and cannot
-currently get, plus a count on a log line. A reader must not take the presence of this type as a
-control.
+**One consumer exists now**, and it did not when this type landed: `crate::capability` hands
+`Scopes::iter` to `sutura_app::Permitted::granted_by`, which decides which of this surface's
+capabilities this caller may invoke. A route it may not invoke answers `403` with
+`insufficient_scope`.
+
+**Two consumers still do not exist, and the presence of this type must not be read as either.**
+`docs/adr/0013`'s raw tool is not built, and a budget keyed on a principal has nowhere to live -
+there is no budget port in this workspace.
+
+**And the limit on the one that does exist is the important sentence here:** a scope decides which
+*operations* a caller may invoke. It decides nothing about which rows an answer contains. No source
+executes as the asking subject - that is leg 2 and it does not exist - so a narrowed caller gets
+the same numbers from a question as anybody else would.
 
 #### `enum InvalidScope`
 
@@ -599,10 +756,31 @@ pub fn grants(&self, scope: &str) -> bool
 
 Whether one scope was granted.
 
-**Here, and called by nothing that ships.** It is the accessor `feat/agent-surface-scope` and
-`docs/adr/0013`'s raw tool will each need, and it is on the type rather than left to a caller
-to write, so there is one comparison rather than one per consumer. It is exercised by this
-crate's own tests and by no request path.
+**On the type rather than left to a caller to write**, so there is one comparison rather than
+one per consumer. It is what `docs/adr/0013`'s raw tool would ask, and it is not what the
+capability gate asks: that reads `Scopes::iter` and hands the whole set to
+`sutura_app::Permitted::granted_by`, so the comparison against a capability's own scope literal
+happens once, in the crate that owns the capability, rather than once per transport.
+
+```rust
+pub fn iter(&self) -> impl Iterator<Item> + '_
+```
+
+Every scope granted, in sorted order.
+
+**The one thing that leaves this type as a set of values**, and it exists for
+`sutura_app::Permitted::granted_by`: the surface's capabilities and the scopes that license
+them are declared in `sutura_app`, so the derivation from a token's claims to what a caller may
+do belongs there and not here. Handing over the values rather than answering
+`Scopes::grants` per capability is what keeps this transport from holding a copy of that
+comparison - and `sutura_app` needs no parse, because it compares against fixed literals.
+
+**The type does not move, deliberately.** `docs/adr/0014`'s closing section reserves the
+decision of which crate a validator lives in for whoever makes the agent surface reachable over
+a network, and moving the parse now would be taking it early.
+
+Not `Display` and not a log field: the scope *names* are a caller's authorization detail and
+`Scopes::count` is what a line carries.
 
 ```rust
 pub fn none() -> Self
@@ -1805,6 +1983,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 #### Variants
 
 - `Unauthorized` - A credential is required and was absent, malformed or wrong.
+- `InsufficientScope` - The caller is authenticated and was not granted the capability this route needs.
 - `NotAQuestion` - The body is not a question. Carries a message naming the field.
 - `TooLarge` - The body is larger than the configured bound.
 - `RateLimited` - Too many requests from this address, too quickly.
@@ -1912,6 +2091,7 @@ Why the router could not be assembled.
 - `Limiter`
 - `Reaper` - The housekeeping thread for the limiter's keyed state would not start.
 - `InboundIdentityNotAttached` - The settings declare an inbound identity and the state carries no gate to establish it.
+- `RouteNotGoverned` - A route under the version prefix that `crate::capability::governed` names no capability for.
 
 #### Implements
 

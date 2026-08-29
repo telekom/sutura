@@ -167,6 +167,41 @@ mod tests {
         }
     }
 
+    /// **This crate's half of `both_transports_describe_the_same_tools`, in the DOCUMENT.**
+    ///
+    /// `crate::capability::tests` asserts the route table covers `sutura_app::Capability::every()`.
+    /// This asserts the generated interface description names the same capabilities by the same
+    /// identifiers - so a client reading the document and an agent reading `tools/list` see one tool
+    /// set under one set of names.
+    ///
+    /// It matters because the two are written down twice: the table is Rust, the `operation_id` is a
+    /// literal inside a `#[utoipa::path]` attribute, and an attribute cannot take a `const`. This is
+    /// the test that catches the pair drifting.
+    #[test]
+    fn both_transports_describe_the_same_tools() {
+        let document = document();
+        let mut documented: Vec<String> = Vec::new();
+        for (route, item) in &document.paths.paths {
+            if !route.starts_with(API_V1_PREFIX) {
+                continue;
+            }
+            for operation in [item.get.as_ref(), item.post.as_ref()].into_iter().flatten() {
+                documented.push(
+                    operation
+                        .operation_id
+                        .clone()
+                        .unwrap_or_else(|| format!("{route} declares no operation_id")),
+                );
+            }
+        }
+        documented.sort();
+        let mut expected: Vec<String> = sutura_app::Capability::every()
+            .map(|capability| String::from(capability.id()))
+            .collect();
+        expected.sort();
+        assert_eq!(documented, expected, "{documented:?}");
+    }
+
     #[test]
     fn liveness_is_documented_outside_the_version_prefix() {
         // Deliberate: an orchestrator's probe must not need reconfiguring for a version bump.

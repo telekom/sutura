@@ -94,6 +94,9 @@ const TAG: &str = "query";
 #[utoipa::path(
     post,
     path = "/query",
+    // The capability this operation IS - `sutura_app::Capability::AskMetric::id()`'s literal, written
+    // out because a `#[utoipa::path]` attribute takes a literal. See the note on the catalog route.
+    operation_id = "ask_metric",
     tag = TAG,
     request_body = QuestionBody,
     responses(
@@ -109,13 +112,20 @@ const TAG: &str = "query";
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "REFUSED - `outcome: refusal`. The catalog does not permit this of this \
+            description = "TWO THINGS, and the body shape tells them apart - `outcome: refusal` for \
+                           the first, `code` with no `outcome` for the second.\n\n\
+                           REFUSED (`outcome: refusal`): the catalog does not permit this of this \
                            metric. `code` says which: `dimension_not_permitted` (the metric \
                            declares no such dimension), `dimension_not_filterable` (it can be \
                            grouped by and not filtered on), `dimension_value_not_allowed` (the \
                            value is outside the declared allowlist - the value itself is never \
-                           echoed back). NOT a statement about your credential: no token widens a \
-                           metric's dimension set.",
+                           echoed back). Still NOT a statement about your credential: no token \
+                           widens a metric's dimension set.\n\n\
+                           FAILED (`code: insufficient_scope`): your credential IS valid and does \
+                           not carry the scope this operation requires; the detail names it. This is \
+                           the one 403 that is about your credential, and it says nothing about any \
+                           metric - a caller who is granted the scope gets exactly the same rows \
+                           anybody else would.",
             body = OutcomeBody
         ),
         (

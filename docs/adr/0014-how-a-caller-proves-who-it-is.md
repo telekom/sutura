@@ -310,8 +310,14 @@ mutual TLS.
 - **Token lifetime, refresh, and what a long-running agent task does when its token expires mid-question.** The
   deadline bound makes a question shorter than any sane token lifetime, so this is a question about a session
   rather than about a query - but it is unanswered.
-- **Where scopes are authored.** A scope naming a metric couples the authorization server to the catalog, and a
-  scope naming a capability does not. The second is almost certainly right and it is not yet argued.
+- ~~**Where scopes are authored.**~~ **Answered by `feat/agent-surface-scope`: a scope names a capability, never a
+  metric.** The leaning recorded here was right and the argument it was missing is that a catalog edit must not be
+  able to change what a token means. A scope naming `revenue` puts the authorization server's vocabulary under the
+  catalog's version: adding a metric silently grants it to every token holding a wildcard, and renaming one revokes
+  a grant nobody edited - an authorization change made by a definition author, in a repository the authorization
+  server does not read. `sutura_app::Capability::scope` is two fixed literals no catalog can move, pinned by value
+  in a test because an authorization server is configured with them by hand. What is still open is whether a
+  *deployment* may author additional scopes of its own; nothing reads one today.
 
 ## What is built, and what of this record is not
 
@@ -365,10 +371,25 @@ Two findings the record did not anticipate, both now refusals:
    for the authorization server and the client. This deployment is a resource server and validates
    what arrives; nothing here excludes any of the three mechanisms and nothing here implements one.
 4. **A ceiling derived from a scope.** Decision 4's claim shape exists - `Scopes`, parsed and bounded,
-   on the verified caller - and **nothing reads it.** Scope-filtered advertisement is
-   `feat/agent-surface-scope`, the raw tool's gate is
-   [a raw SQL tool](0013-a-raw-sql-tool-off-by-default.md), and a per-caller budget has no port to
-   live behind. A reader must not take the presence of that type as a control.
+   on the verified caller - and a **per-caller ceiling** still reads nothing from it: there is no
+   budget port in this workspace, and the raw tool's gate is
+   [a raw SQL tool](0013-a-raw-sql-tool-off-by-default.md), which is not built either.
+
+   **Scope-filtered advertisement is now built, by `feat/agent-surface-scope`, and it is narrower than
+   the phrase suggests.** `sutura_app::Capability` declares this surface's two operations and the scope
+   that licenses each; `sutura_app::Permitted` derives what a caller may do from the claim; both
+   transports render that one declaration, and the HTTP surface refuses an ungranted operation with
+   `403 insufficient_scope` naming the scope. Three limits belong with it:
+
+   - **What it gates is which OPERATIONS a caller may invoke, not which rows an answer contains.**
+     Leg 2 does not exist, so a narrowed caller gets the same numbers as anybody else. The word
+     *authorization* is correct for the surface and wrong for the data.
+   - **Filtering the advertisement is presentation; the control is the refusal at invocation.** A
+     caller that names an unadvertised operation is refused whether or not it was ever shown one, and
+     the two read the same set so they cannot disagree.
+   - **Nothing narrows the agent surface today.** It speaks over standard input and output, where there
+     is no header a token could arrive in. The narrowing is a required constructor argument there, so
+     the decision the next section names arrives as a composition change rather than as a redesign.
 5. **Binding a gateway assertion to a request, and any record of what has been seen.** Added by
    review, and it is the reason Decision 1's wording changed - see the correction below.
 

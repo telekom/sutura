@@ -1,0 +1,11 @@
+---
+source: crates/sutura-mcp/src/tool.rs
+expression: "canonical(&serde_json::Value::Object(input_schema(capability)), 0)"
+---
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "This tool takes no arguments. It returns the whole of what this deployment measures, and there is\nnothing to filter or select: send an empty object.",
+  "title": "DescribeCatalogArgs",
+  "type": "object"
+}
