@@ -612,13 +612,16 @@ mod tests {
         std::fs::read_to_string(root.join(super::docker::COMPOSE_FILE)).ok()
     }
 
-    #[test]
-    fn every_image_is_reached_through_one_registry_variable() {
-        // A network behind a registry mirror has NO route to the public registry, and an unprefixed
-        // reference does not fall back - it fails. So a bare `image: postgres:18-alpine` is not a
-        // style problem, it is a service that cannot start there. Reviewed once, checked from now on.
-        let Some(text) = compose_text() else { return };
+    /// The one variable every container in this repository is reached through.
+    const REGISTRY_VARIABLE: &str = "SUTURA_IMAGE_REGISTRY";
 
+    /// Every registry default the compose tier's `image:` lines name, deduplicated.
+    ///
+    /// A helper rather than a local, because the compose file is no longer the only place here that
+    /// names a container: `pixi.toml`'s gcloud login task runs one too, and it CANNOT spell the
+    /// fallback the compose file's way - pixi runs a task in its own shell, which does not
+    /// implement `${VAR:-default}` - so the two agree by comparison or they do not agree at all.
+    fn registry_defaults(text: &str) -> Vec<String> {
         let images: Vec<&str> = text
             .lines()
             .map(str::trim)
@@ -626,7 +629,7 @@ mod tests {
             .collect();
         assert!(images.len() >= 2, "the file should declare several images: {images:?}");
 
-        let mut defaults: Vec<&str> = Vec::new();
+        let mut defaults: Vec<String> = Vec::new();
         for image in &images {
             let default = image
                 .strip_prefix("${")
@@ -635,13 +638,64 @@ mod tests {
             let Some(default) = default else {
                 panic!("`{image}` does not come through a registry variable with a default");
             };
-            defaults.push(default);
+            defaults.push(String::from(default));
         }
-        // ONE value an operator sets. Two defaults that disagree is the drift this catches: half the
-        // tier would follow the override and half would not, and only one service would fail.
         defaults.sort_unstable();
         defaults.dedup();
+        defaults
+    }
+
+    #[test]
+    fn every_image_is_reached_through_one_registry_variable() {
+        // A network behind a registry mirror has NO route to the public registry, and an unprefixed
+        // reference does not fall back - it fails. So a bare `image: postgres:18-alpine` is not a
+        // style problem, it is a service that cannot start there. Reviewed once, checked from now on.
+        let Some(text) = compose_text() else { return };
+        // ONE value an operator sets. Two defaults that disagree is the drift this catches: half the
+        // tier would follow the override and half would not, and only one service would fail.
+        let defaults = registry_defaults(&text);
         assert_eq!(defaults.len(), 1, "the registry defaults disagree: {defaults:?}");
+    }
+
+    #[test]
+    fn the_gcloud_login_container_follows_the_same_registry_default() {
+        // The second place a container is named, and the one a reading of the compose file misses.
+        // `pixi.toml`'s `gl` task runs the Google Cloud CLI to authenticate a developer, and on a
+        // network behind a registry mirror an unprefixed reference fails there for exactly the
+        // reason it fails for a service. It cannot be written the compose file's way, so the shapes
+        // differ and only the DEFAULT can be compared - which is the half that drifts: a mirror
+        // override would move the tier and leave the login pointing at a registry with no route.
+        let Some(compose) = compose_text() else { return };
+        let Some(root) = crate::repo::root() else { return };
+        let Ok(pixi) = std::fs::read_to_string(root.join("pixi.toml")) else {
+            return;
+        };
+
+        let defaults = registry_defaults(&compose);
+        let Some(expected) = defaults.first() else {
+            panic!("the compose tier names no registry default to compare against");
+        };
+
+        // Comments are skipped because the argument for the variable is written out beside the
+        // task, and prose naming it is not a reference to it.
+        let references: Vec<&str> = pixi
+            .lines()
+            .map(str::trim)
+            .filter(|line| !line.starts_with('#') && line.contains(REGISTRY_VARIABLE))
+            .collect();
+        // FAIL CLOSED. None found means either the login task stopped reaching the registry
+        // variable or this scan stopped finding it, and both are the defect this test is for.
+        assert!(
+            !references.is_empty(),
+            "no line in pixi.toml reaches a container through `{REGISTRY_VARIABLE}`"
+        );
+        for line in &references {
+            assert!(
+                line.contains(expected.as_str()),
+                "pixi.toml reaches a container through `{REGISTRY_VARIABLE}` but its default is \
+                 not the compose tier's `{expected}`: {line}"
+            );
+        }
     }
 
     #[test]

@@ -421,6 +421,19 @@ skills-relock:
 hooks *args:
     pixi run --frozen prek run {{ args }}
 
+# Through pixi's ISOLATED `gcloud` environment, which holds a task and no packages: the Google
+# Cloud CLI is reached as a pinned container rather than as a conda dependency, because
+# conda-forge has no `win-64` build of it and this workspace declares that platform. pixi.toml
+# carries the argument and the two variables a developer can set.
+#
+# It is INTERACTIVE - `docker run -it` - so it needs a real terminal and cannot be part of any
+# gate. Nothing is written into this repository: both logins land in the developer's own gcloud
+# configuration directory, where a native `gcloud`, `bq` or a client library already looks.
+
+# Authenticate against Google Cloud, for the BigQuery work. Both logins, in a container.
+gcloud-login:
+    pixi run --frozen -e gcloud gl
+
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

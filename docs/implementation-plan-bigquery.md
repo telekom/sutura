@@ -19,6 +19,39 @@ reasons that stand on their own:
   a real reason and an unglamorous one, and it is the kind that actually predicts whether a split
   survives.
 
+## Before either step: authenticating a developer against a test instance
+
+**`just gcloud-login` is the whole entry point**, and it lands ahead of the adapter because the
+decision the first step is blocked on - *what does a test run against* - cannot be made without
+something live to try it against. It performs both logins that matter, in one task: `gcloud auth
+login` authorizes the CLI, and `gcloud auth application-default login` writes the credential a
+client library reads. Doing the first and forgetting the second is the failure that reads as a
+broken adapter.
+
+**The CLI is a pinned container rather than a package**, and `pixi.toml` carries the argument:
+conda-forge publishes no `win-64` build of it, this workspace declares that platform, and the
+manifest's own rule is that tooling which cannot resolve on a platform we ship to is tooling nobody
+can run there. The alternative - a package on three platforms and a container on the fourth - is two
+invocations to keep in step, and the one that drifts is the one nobody runs. The image is reached
+through the same registry variable every service in the development tier uses, so a network behind a
+registry mirror needs no change here; `xtask`'s own suite compares the two defaults, because the two
+spellings cannot be compared by reading.
+
+**Nothing lands in this repository.** Both logins write into the developer's own gcloud
+configuration directory, which is bind-mounted into the container, so a native `gcloud`, `bq` or any
+client library on the host is authenticated afterwards - and there is no repo-local credential to
+leak or to clean up. `CLOUDSDK_CONFIG` is honoured where that directory has been moved, which is
+also how a developer on Windows points at it.
+
+**Which project, dataset or location a developer works against is not written down here and will not
+be.** A developer names it in their own environment: `.envrc` already sources a file under the user's
+own configuration directory for exactly this class of value, and [building without direct
+egress](enterprise-mirrors.md) is the generic form of the same split. This repository is public, so
+the value belongs on the machine and only the hook belongs here.
+
+**This is tooling availability and not the adapter.** No Rust dependency, nothing in
+`sutura-config`, no `Dialect::BigQuery`. Everything below is still to do.
+
 ## BigQuery, on a service account
 
 **Goal.** The first cloud data source, and the one the deployment actually cares about. Queried
