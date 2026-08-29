@@ -397,18 +397,69 @@ and `sqlx` each declare `SCRAM-SHA-256` and `SCRAM-SHA-256-PLUS` and nothing els
 carries an issue or a pull request about OAuth - checked on 2026-08-29, and `sqlx` has moved to
 `transact-rs/sqlx`, so a search of the old path finds nothing for the wrong reason. So the option this
 paragraph used to leave open - "a second client for this source" - has one occupant, `libpq`, and
-supplying a token you already hold to `libpq` is reachable **only from C**: there is no connection
-parameter for it, and `PQsetAuthDataHook` with a `PGoauthBearerRequest` is the whole interface. The step
-therefore owes **first-party protocol code**, and that is scoped rather than open-ended - see *Adds*.
+supplying a token you already hold to `libpq` goes through `PQsetAuthDataHook` with a
+`PGoauthBearerRequest`, which is the whole interface: **there is no connection parameter for a token.**
+**That is not the same as "reachable only from C", and this paragraph said so twice before it was
+corrected twice** - the hook takes a C function pointer, and `extern "C"` is how Rust supplies one, so
+no C source is required. What `libpq` costs is a linked native library on every target, which is the
+same artifact question `feat/postgres-adapter` exists to answer. The step therefore owes **first-party
+protocol code**, and that is scoped rather than open-ended - see *Adds*.
 
-**And the server side owes a module, which `feat/compose-tier` established the route for.** Core
-Postgres ships no validator; upstream's stub is `src/test/modules/oauth_validator/validator.c` and
-reaches no installed artifact, because `src/Makefile`'s `SUBDIRS` never names `test/modules` and the
-official image deletes its source and its toolchain. The route that needs no compiler is a prebuilt one
-on the registry the tier already reaches: `percona/percona-distribution-postgresql:18` installs
-`percona-pg_oidc_validator18`. `compose.services.yaml`'s postgres block carries the whole finding, the
-module's maturity and the reason the fixture belongs under the `identity` profile; this step wires it and
-brings it up, which is what proves it.
+**And the server side owes a module. The route is settled, and it is NOT the convenient one.** Core
+Postgres ships no validator; upstream's stub is `src/test/modules/oauth_validator/validator.c` and is a
+**test double rather than a starting point** - it authorizes every token it is handed, takes the answer
+from two GUCs of its own, checks no signature, issuer, audience or expiry, and **logs the bearer token at
+`LOG`**. It also reaches no installed artifact by three independent mechanisms: `src/Makefile`'s
+`SUBDIRS` never names `test/modules`, `src/test/Makefile` excludes `modules` from `install`, and the
+module's own Makefile sets `NO_INSTALLCHECK`. The official image then deletes its source and its
+toolchain.
+
+**The selection criterion is audience validation, and it is not negotiable.** A validator that does not
+read the token's `aud` claim accepts a token minted for some *other* service as a Postgres login. That
+is audience confusion. It is also the same control every other source in this stack depends on - a
+token audience-restricted to us is what stops one presented to us being replayed elsewhere, and a
+validator that ignores `aud` is the replay working in the inbound direction. It is spent once or not at
+all; a second mechanism relying on it is not defence in depth. Measured against that, the three
+candidates split cleanly and uncomfortably:
+
+| Module | Reads `aud` | Install | Licence |
+| --- | --- | --- | --- |
+| `proddata/pg_oauth_validator` | **Yes - mandatory, fail-closed.** The setting has **no default**, and its absence refuses to build a policy rather than skipping the check | **Compiler required.** PGXS, and no release and no tag exist | PostgreSQL License, statically linking **MPL-2.0** libjwt |
+| Percona's `pg_oidc_validator` | **No. Not at all** - the verifier is built with the issuer and never an audience, and no audience setting exists | **Package.** apt and RPM, a listed component of a real distribution with a release cadence | Apache-2.0 |
+| CloudNativePG's `kc_validator` | **No.** Its `audience` setting is the *request parameter* of a Keycloak decision call, not a claim check | Compiler required; README points at a `-testing:18-dev` image | Apache-2.0, marked **EXPERIMENTAL** |
+
+So the module that satisfies the criterion is the one with no package, and the one that installs as a
+package fails it. **We take the criterion over the convenience**, and the decision is two-part rather
+than one, because the second part is what eventually makes the first part unnecessary:
+
+- **Now: `proddata/pg_oauth_validator`, compiled into the image we control, pinned by commit.** Not by
+  tag, because there is no tag. This is third-party derived material in a shipped artifact, so it
+  arrives with a `VENDOR.md` entry - upstream repository, commit, date, local changes - and the
+  **MPL-2.0 static-link obligation stated rather than implied**, because *"inspired by"* is not a
+  licence position and neither is *"we only linked it"*. Its rigour is the reason it is worth the
+  packaging cost: signature before claims, exactly one JWKS entry accepted, RS256/ES256 only, a missing
+  expiry treated as its own error, and clock skew capped.
+- **Next, and upstream: one call to Percona's verifier.** Its gap is `.with_audience(...)` absent from a
+  builder chain that already carries `.with_issuer(...)`, plus a setting to feed it. That is a small
+  patch to an Apache-2.0 project that ships packages on a cadence, and if it lands we move to the
+  package and genuinely do install an addon and call it a day. It is the cheapest item on the upstream
+  contribution list this repository keeps, and the only one whose absence is a security property rather
+  than an inconvenience.
+
+**Two findings about Percona that belong next to the recommendation rather than in a footnote.** Its
+`aud` gap is **undocumented**, not a documented caveat - the published documentation says the validator
+*"verifies the token signature and claims"*, which actively implies otherwise, and its setup procedure
+configures no audience at all. An undocumented gap is the worse of the two readings, because an operator
+gets no signal. And independently of `aud`, it accepts a JWKS entry whose key type is **`oct`** - a
+symmetric key published in a key set and then used to verify a signature, which is a weakness in its own
+right and not one we would want to inherit even after the audience patch.
+
+**What the compose fixture needs is a smaller thing than any of this, and conflating the two would
+overpay.** The tier's assertion is the health gate: an `oauth` HBA line with an empty
+`oauth_validator_libraries` fails HBA parse, so the postmaster does not start. That test needs **no
+validator at all**, which is why `feat/compose-tier` records the route and deliberately does not wire a
+module. A fixture that authenticates real tokens is a later, separate need, and the packaged module is
+adequate *there* precisely because the tokens are ours and the audience risk is a production risk.
 
 **A third prerequisite was listed here and is withdrawn, because it was checked and it is false.** The
 earlier version required that the `libpq` in the toolchain be built with curl. Curl is needed only for
