@@ -1,5 +1,11 @@
 //! Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
-//! the banner, and the bound on how much executes at once.
+//! the banner, the bound on how much executes at once, and the audit sink a deployment gets for
+//! free.
+//!
+//! The sink is here for the same reason everything else is: it writes onto the process subscriber
+//! this crate installs, so it is a *use* of a process-global rather than a second installation of
+//! one. It is the first implementor of `sutura_domain::audit::AuditSink`, which is what keeps that
+//! port from being a guess at a signature - see [`audit`].
 //!
 //! # Why this is its own crate
 //!
@@ -52,6 +58,7 @@
 //! thing.
 
 pub mod admission;
+pub mod audit;
 pub mod banner;
 pub mod blocking;
 pub mod panics;
@@ -67,6 +74,7 @@ pub mod telemetry;
 pub mod testing;
 
 pub use crate::admission::{Admission, AtCapacity, Slot};
+pub use crate::audit::TracingAuditSink;
 pub use crate::blocking::spawn_carrying_span;
 pub use crate::panics::install_panic_hook;
 pub use crate::shutdown::{Shutdown, ShutdownReason};

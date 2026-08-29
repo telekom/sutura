@@ -42,7 +42,7 @@ use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
 use sutura_exec_datafusion::DataFusionWarehouse;
 use sutura_http::{LocalService, ServiceState};
-use sutura_runtime::{Shutdown, banner, shutdown, telemetry};
+use sutura_runtime::{Shutdown, TracingAuditSink, banner, shutdown, telemetry};
 
 /// The only data system this build can open.
 ///
@@ -117,7 +117,13 @@ fn run() -> Result<(), String> {
     // serves, and the only way to guarantee that is for the same call to do both. The load above
     // exists so the engine can be opened for the sources the catalog actually names, which has to
     // happen first.
-    let service = LocalService::start(&catalog, opened.engine).map_err(flatten)?;
+    //
+    // The audit sink is named here too, and it is the third port this root attaches. A deployment
+    // that wants records somewhere else replaces this one argument; a deployment that attaches
+    // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
+    // this crate can promise exists. What that log pipeline retains is the deployment's - sutura
+    // writes a record per outcome and keeps nothing.
+    let service = LocalService::start(&catalog, opened.engine, TracingAuditSink::new()).map_err(flatten)?;
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
     // calls is therefore served with no table registered behind it, and `answer` cannot see that -

@@ -131,7 +131,8 @@ table by path, and named again by the macro that generates the interface descrip
 handler cannot be generic over the warehouse without the whole router becoming generic in it,
 and the generated document becoming generic in it too.
 
-`Surface` is the seam: this crate's two operations, with `W` gone.
+`Surface` is the seam: this crate's two operations, with `W` gone - and with the audit sink's
+own parameter gone for the same reason, since `LocalService` is generic in that too.
 
 # Why it is HERE and not in the transport that uses it
 
@@ -227,6 +228,14 @@ answering.
 The variants are exhaustive and stay exhaustive - a transport chooses its status code from the
 split - and each one carries the cause it was built from rather than a rendering of it.
 
+**No audit record is written for either, and that is the limit on "every call is recorded".**
+`sutura_domain::audit` records an *outcome* - an answer or a refusal - and neither of these is
+one: a bundle that will not compile and a data system that did not answer are our own faults
+rather than answers to a question. A transport logs them, with the cause chain, which is what
+`cause_chain` is for. Widening the record to cover a failure means giving
+`sutura_domain::audit::RecordedOutcome` a third variant, and that is a change to what a record
+means rather than a field added to one.
+
 #### Variants
 
 - `Compile`
@@ -256,26 +265,32 @@ Why a service could not be started.
 ### `struct LocalService`
 
 ```rust
-pub struct LocalService<W>
+pub struct LocalService<W, S>
 ```
 
-The one implementation: a validated bundle and one data system, behind the ports.
+The one implementation: a validated bundle, one data system and one audit sink, behind the ports.
 
 Holds the bundle as `Validated`, which has no constructor other than one that executes every
 anchor against a warehouse - so a `LocalService` that exists is one whose anchors held. That
 is not a check this type performs; it is a type it could not otherwise have been built from.
 
+**The sink is a constructor argument and not an `Option`.** A service cannot be started without
+one, so "this deployment forgot to attach a sink" is not a state that exists - which is the
+difference between a record that is always written and a record that is usually written. What the
+sink then *does* with a record is the deployment's, and `sutura_domain::audit` states that limit
+where the port is declared.
+
 #### Methods
 
 ```rust
-pub fn start<C>(catalog: &C, warehouse: W) -> Result<Self, ServiceNotStarted>
+pub fn start<C>(catalog: &C, warehouse: W, sink: S) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
 service only if all of them held.
 
-Both ports are consumed here, which is what lets a transport be transport-only: it never
-reads a catalog directory and never opens a data system.
+Every port is consumed here, which is what lets a transport be transport-only: it never
+reads a catalog directory, never opens a data system and never decides where a record goes.
 
 `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
 startup failure is reported from wherever the composition root happens to be.

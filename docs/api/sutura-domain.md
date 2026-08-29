@@ -17,12 +17,13 @@ is worth more as a check than as a sentence in a design document. The allowlist 
 digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
 and no SQL parser anywhere in this crate, `expression` included.
 
-**Two ports live here now, and each arrived with the adapter that implements it.** A port exists
+**Three ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 guess at a signature that only the first real adapter can settle, and in a library crate `pub`
 hides such a guess from `dead_code`. `pinned::SemanticCatalog` arrived with the local catalog
-adapter and `warehouse::Warehouse` with the `DuckDB` one. `CredentialBroker` is still absent for
-the same reason it always was: nothing implements it yet.
+adapter, `warehouse::Warehouse` with the `DuckDB` one, and `audit::AuditSink` with the
+structured writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets.
+`CredentialBroker` is still absent for the same reason it always was: nothing implements it yet.
 
 The modules are grouped by concept rather than named after traits, so a port sits next to the
 types it speaks in:
@@ -49,12 +50,149 @@ types it speaks in:
 - `query` is the tool surface, defined mostly by what it has no field for.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
-- `definitions` and `identity` hold the digest and the credential-shaped newtypes.
+- `definitions` and `identity` hold the digest and the credential-shaped newtypes. The
+  principal chain a call is attributed to lives in `identity` as well, beside the redaction,
+  because both are properties of who is asking rather than of what was asked.
+- `audit` is the record one call is written to, and the port it goes through. It is not a
+  store: sutura writes a record before the outcome returns and retains nothing, so what the
+  sink does with it is the deployment's.
 
 One module is private, and it is the only one: `text` holds the set of invisible and
 direction-changing code points that a phrase, a note body, a version label and an authored SQL
 fragment all refuse. It exists because that set was written down twice, in two files, and the two
 had already drifted.
+
+## Module `audit`
+
+The record one call is written to, and the port it is written through.
+
+# Why this is sutura's job and cannot be delegated downstream
+
+`docs/adr/0008` walks every identity model a data system offers and finds that only one of them
+can express "an agent acting for a human" in the session itself. The token exchange this design
+uses issues an *impersonation* token rather than a *delegation* one - there is no `act` claim to
+carry - so the source's own audit log says "this person" and cannot say "sutura, for this
+person". The principal chain therefore exists nowhere downstream, and a record of it has to be
+written here or nowhere.
+
+# Written before the outcome returns, and retained not at all
+
+Two claims, and they answer different questions.
+
+**Written.** One record per call, refusals included, before the outcome goes back to the caller.
+Before rather than after, because a record written after the response is the record a crash
+loses, and the call worth having a record of is the one that went wrong. It is a different
+channel from `crate::pinned::Provenance`: provenance rides on the result and a client is free
+to drop it, and a record only the caller holds is not a record.
+
+**Retained nothing.** No archive, no rotation, no retention window, no query interface over past
+calls, and no obligation inherited from any of those. Everything after the write belongs to the
+deployment: where the records go, how long they are kept, who may read them.
+
+**The limit, next to the claim.** An emitted record is worth what the sink behind it is worth,
+and sutura cannot vouch for a sink it does not retain. A deployment whose sink drops records has
+no audit trail on this side and nothing here can tell it so - which is why the sources' own logs,
+written under the asking subject, carry the part of the obligation that matters.
+
+# What the record does NOT carry yet, said here rather than implied
+
+`docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
+the posture each leg ran under, and the expiry the credentials carried.** The last two are absent
+from `CallRecord`, and not by oversight: there is no credential broker, no per-leg posture and
+no expiry type in this workspace, so a field for either would be a field nothing could fill. A
+plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
+what makes that true - so the source set is one name a reader already has from the bundle. Each
+is a field this record gains when the type it would carry exists.
+
+### `trait AuditSink`
+
+```rust
+pub trait AuditSink
+```
+
+Where a record of one call goes.
+
+# Returns nothing a caller can branch on
+
+Deliberately. A sink that could refuse would make writing the record a step the query path has
+to decide about - continue without a record, or refuse the question - and both answers are worse
+than the question. Continuing silently is the failure this port exists to prevent; refusing a
+question because a log pipeline is unwell is an availability decision nobody asked for. So the
+port takes the record and owns everything that happens to it, including failing, which is the
+deployment's half of the bargain the module header states.
+
+`&self` rather than `&mut self`, so one sink is shared by every request without a lock in the
+port's signature. Synchronous, because the ports either side of it are: the interior names no
+framework, and a transport that answers on a blocking pool is already off the reactor.
+
+# Its first implementor
+
+`sutura_runtime::TracingAuditSink`, a structured writer over the tracing subscriber this
+repository already composes. It needs nothing from anybody, which is what makes it the sink a
+deployment that attaches nothing else gets - and what keeps this trait from being a guess at a
+signature.
+
+### `struct CallRecord`
+
+```rust
+pub struct CallRecord<'a>
+```
+
+What one call is recorded as.
+
+Borrows rather than owns: it is built at the call site, handed to the sink, and dropped. A sink
+that needs to keep something copies what it needs, which is the sink's decision rather than a
+cost this type imposes on every call.
+
+#### Methods
+
+```rust
+pub const fn chain(&self) -> &PrincipalChain
+```
+
+Who the call is attributable to.
+
+```rust
+pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome) -> Self
+```
+
+The only constructor, and it derives the outcome half from the outcome itself.
+
+There is no way to build a record that describes an answer as a refusal or the other way
+round: the match is here, once, rather than at every call site that would otherwise be
+trusted to get it right. That is the same reason `crate::pinned::PinnedDefinitions::pin`
+takes no digest parameter.
+
+```rust
+pub const fn outcome(&self) -> &RecordedOutcome<'a>
+```
+
+How it ended.
+
+#### Implements
+
+`Debug`
+
+### `enum RecordedOutcome`
+
+```rust
+pub enum RecordedOutcome<'a>
+```
+
+How the call ended, as the two outcomes a question has.
+
+**A refusal is a variant here for the same reason it is one in `ToolOutcome`**, and it is the
+half a log line gets wrong by omission: refusals are the demand signal for which questions have
+no certified answer, and a channel that records only answers cannot report it.
+
+#### Variants
+
+- `Answered` - The question was answered. The row count sizes it; the provenance says which definitions produced it, so a record can be matched against the bundle that was serving.
+- `Refused` - The question was declined. The variant is what a reader needs - not a sentence - because it is what an aggregate over records can group by.
+
+#### Implements
+
+`Debug`
 
 ## Module `calendar`
 
@@ -1503,6 +1641,16 @@ earlier name, and it described one property of one type - so the module could no
 the principal chain, the request context or the `CredentialBroker` port that belong beside
 it, and every one of those would have arrived somewhere else.
 
+Two of those three are here now, in `principal`: the chain a call is attributed to, and the
+request context that carries it. `CredentialBroker` is still absent for the reason it always was
+- nothing implements it yet, and a port trait arrives with its first implementor.
+
+**Nothing in `principal` is `Serialize` or `Deserialize`, and `Secret` is neither either.**
+That is one property rather than two coincidences: an identity is derived from what a transport
+established, and a type that could be read off the wire is a caller stating its own. The
+credential material and the chain are the two things in this workspace where being unable to
+parse the value from a request body is the control.
+
 The redaction is the point of `Secret`, so it has a test. A secret that reaches a log
 through `{:?}` is not recoverable once shipped, and every structured-logging call site is
 a chance for it - so the type, not the call site, is where this is fixed.
@@ -1541,6 +1689,26 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ## Module `knowledge`
 

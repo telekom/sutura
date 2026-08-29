@@ -8,7 +8,13 @@
 The public API of `sutura-runtime`, rendered from rustdoc JSON.
 
 Process-lifecycle concerns for a sutura service: the log, the panic hook, the shutdown signal,
-the banner, and the bound on how much executes at once.
+the banner, the bound on how much executes at once, and the audit sink a deployment gets for
+free.
+
+The sink is here for the same reason everything else is: it writes onto the process subscriber
+this crate installs, so it is a *use* of a process-global rather than a second installation of
+one. It is the first implementor of `sutura_domain::audit::AuditSink`, which is what keeps that
+port from being a guess at a signature - see `audit`.
 
 # Why this is its own crate
 
@@ -59,6 +65,8 @@ which is what makes one request's lines findable; exporting it anywhere is a dec
 backend, a sampling rate and an egress path, and none of those has been made. Adding a
 dependency now to satisfy the word "observability" would be the shape of the thing without the
 thing.
+
+## `use None`
 
 ## `use None`
 
@@ -219,6 +227,64 @@ An alias for `tokio`'s owned permit rather than a newtype around it, because the
 contract is its `Drop`: the slot comes back when the value is dropped, and a wrapper would only
 add a way to get that wrong. Owned rather than borrowed so it can be moved into the blocking
 task, which is the whole point - see the module documentation.
+
+## Module `audit`
+
+The one implementor of `AuditSink` that needs nothing from anybody.
+
+A structured writer over the tracing subscriber this crate already composes. It is here rather
+than in a transport for the reason everything in this crate is here: the subscriber is
+process-global, and the sink is a use of it rather than a second installation.
+
+# Why this is the first implementor rather than a fake
+
+`AGENTS.md` says a port trait arrives with its first implementor, because a trait with no
+implementor is a guess at a signature. This is the sink a deployment that attaches nothing else
+gets: it writes into the log pipeline the deployment already runs, so there is no configuration,
+no credential and no second egress path to decide about. **Whether that pipeline keeps anything
+is the deployment's answer, not ours** - which is the limit `sutura_domain::audit` states, and
+this type is where it is most visible.
+
+# It replaces a log line rather than adding a channel beside one
+
+Before this existed, `sutura_http`'s query handler wrote one `tracing::info!` per outcome, and
+its own doc comment said there was no audit sink and nothing recorded a principal chain. The
+fields that line carried - the row count, the definition version, the refusal variant - are
+carried here, so an operator's existing filters keep working while the line gains the thing it
+was missing. What that line also carried, and this does not, is the HTTP status: the status is
+the transport's and the application cannot see it. Nothing is lost, because `tower_http`'s
+response line already carries it inside the same request span, configured at `info` in
+`sutura_http::router` - which is where a status belongs.
+
+### `struct TracingAuditSink`
+
+```rust
+pub struct TracingAuditSink
+```
+
+Writes each record as one structured event on the process subscriber.
+
+There is nothing to configure, and a `new` that took a level or a target would be two ways to
+write the same record. The subscriber decides where the event goes, which is the one decision a
+deployment already makes.
+
+A private marker field rather than a unit struct, for two reasons and the first is the honest
+one: `cargo xtask check-boundaries` reads a file line by line, and a unit `pub struct` leaves its
+scan waiting for a body - so the next braced block in the file is read as this struct's field
+list and a `pub fn` in it is reported as a `pub` field. That is a defect in the gate rather than
+in this type, and it is written down here rather than worked around silently. The second reason
+stands on its own: a field, even an empty one, means `Self::new` is the only way in from
+outside this crate, where a unit struct is its own literal.
+
+#### Methods
+
+```rust
+pub const fn new() -> Self
+```
+
+#### Implements
+
+`AuditSink`, `Clone`, `Copy`, `Debug`, `Default`
 
 ## Module `banner`
 

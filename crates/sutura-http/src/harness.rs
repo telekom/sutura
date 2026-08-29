@@ -25,7 +25,7 @@ use tower::ServiceExt as _;
 use crate::state::ServiceState;
 use crate::surface::LocalService;
 use crate::testing::{
-    FakeWarehouse, bundle, catalog_of, fake_warehouse, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
+    FakeWarehouse, bundle, catalog_of, fake_warehouse, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
     warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
@@ -50,7 +50,7 @@ fn app(settings: Settings) -> Router {
 /// cap, a bundle whose models sit on two data systems, and an adapter claiming to be somewhere else -
 /// and each is still driven through the REAL router, which is the point of this file.
 fn over(pinned: sutura_domain::pinned::PinnedDefinitions, warehouse: FakeWarehouse, settings: Settings) -> Router {
-    let service = LocalService::start(&catalog_of(pinned), warehouse).expect("the test bundle validates");
+    let service = LocalService::start(&catalog_of(pinned), warehouse, sink()).expect("the test bundle validates");
     crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
 }
 
@@ -430,7 +430,7 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     // than made slow, and armed only after `start`, because `start` re-executes every anchor.
     let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 1\n");
     let (engine, held) = warehouse_that_can_be_held();
-    let service = LocalService::start(&catalog_of(bundle()), engine).expect("the test bundle validates");
+    let service = LocalService::start(&catalog_of(bundle()), engine, sink()).expect("the test bundle validates");
     let app = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
     held.arm();
 
@@ -506,7 +506,7 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
     // existed because `GovernorLayer::new(Arc::new(config))` was the last anyone saw of the
     // configuration, so there was nothing left to sweep.
     let assembled = crate::assemble(&ServiceState::new(
-        Arc::new(LocalService::start(&catalog_of(bundle()), fake_warehouse()).expect("the test bundle validates")),
+        Arc::new(LocalService::start(&catalog_of(bundle()), fake_warehouse(), sink()).expect("the test bundle validates")),
         Arc::new(settings(
             Environment::Development,
             &format!("security:\n  access_token: \"{TOKEN}\"\nrate_limit:\n  enabled: true\n"),
@@ -757,6 +757,74 @@ fn is_a_correlation_id(raw: &str) -> bool {
 }
 
 #[test]
+fn a_body_that_states_its_own_subject_is_not_a_question() {
+    // **The confused deputy, at the wire.** A caller that states its own identity does not have one,
+    // so a body carrying a principal has to be refused rather than read - and the value it carried
+    // must not reach the log on the way out.
+    //
+    // **A REGRESSION GUARD, and it is GREEN against the unmodified code** - `deny_unknown_fields` on
+    // `QuestionBody` already refused an undeclared key, so this proves nothing about this change and
+    // everything about the next one. It is here for the same reason
+    // `a_filter_value_never_reaches_the_log` is: the property is now load-bearing in a way it was
+    // not, because a chain exists for a caller to try to state, and the shape of the mistake would
+    // be somebody adding the field to the wire type to be helpful.
+    //
+    // The other half - that the chain the sink receives is the one the transport established, with
+    // no parameter a request could reach - is `crate::surface::tests`'
+    // `a_chain_reaches_the_sink_through_no_field_a_caller_supplies`. It is there rather than here for
+    // a reason worth knowing: the record is written inside the blocking task, and a thread-scoped
+    // subscriber cannot see an event from a pool thread - `sutura_runtime::testing` records that,
+    // and `crates/sutura-runtime/tests/blocking_span.rs` is the integration test that exists because
+    // of it. So this file can assert what a caller is TOLD and not what was recorded.
+    const IMPERSONATED: &str = "victim@example.com";
+
+    let app = app(settings(Environment::Development, ""));
+
+    // ONE: a body that tries to name a principal is not a question. `deny_unknown_fields` makes it a
+    // parse error that NAMES the field, so the attempt is visible rather than ignored - and the
+    // domain types carry no `Deserialize` at all, so even a wire shape that accepted the key would
+    // have nothing to turn it into.
+    let claiming = format!(
+        r#"{{"metric":"revenue","grain":"month","range":{{"start":"2026-06-01","end":"2026-07-01"}},"subject":"{IMPERSONATED}"}}"#
+    );
+    let (status, body, rendered) = captured(
+        sutura_config::LogFormat::Bunyan,
+        &app,
+        request("POST", "/v1/query", None, Body::from(claiming)),
+    );
+    assert_eq!(
+        status,
+        StatusCode::BAD_REQUEST,
+        "a body naming a subject was accepted: {body}"
+    );
+    let problem: serde_json::Value = serde_json::from_str(&body).expect("a failure is JSON");
+    let detail = problem["detail"].as_str().unwrap_or_default();
+    assert!(
+        detail.contains("subject"),
+        "the refusal does not name the field that was rejected: {body}"
+    );
+
+    // And the value a caller invented does not reach the log on the way to being refused - the same
+    // property `a_filter_value_never_reaches_the_log` pins for a filter value, applied to the field
+    // that would be far worse to echo: an identifier a record could later be read as attributing a
+    // call to. The RESPONSE names the field, which is the point of `deny_unknown_fields`; the log is
+    // where the value must not land.
+    assert!(
+        !rendered.contains(IMPERSONATED),
+        "an identifier the caller invented reached the log: {rendered}"
+    );
+
+    // TWO: the same body without the extra field IS answered, so the assertion above is about the
+    // field rather than about the request being malformed some other way.
+    let (status, body, _) = captured(
+        sutura_config::LogFormat::Bunyan,
+        &app,
+        request("POST", "/v1/query", None, Body::from(QUESTION)),
+    );
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+#[test]
 fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     // **The property an operator actually uses.** Not "a span exists" but "these three lines are
     // the same request". RED before the fix twice over: there was no span at `info` for the
@@ -774,7 +842,13 @@ fn one_correlation_id_ties_the_span_the_question_and_the_answer_together() {
     assert_eq!(status, StatusCode::OK, "{body}");
 
     let lines = json_lines(&rendered);
-    for wanted in ["question received", "answered"] {
+    // `answered` was the second line here, and it is gone from this crate: the per-outcome line was
+    // replaced by the audit record `Surface::answer` writes, which is emitted from the blocking task
+    // and therefore invisible to the thread-scoped subscriber this helper installs - see
+    // `a_body_that_states_its_own_subject_is_not_a_question`. `finished processing request` is
+    // `tower_http`'s response line, carries the status, and is written on THIS thread, so it is what
+    // makes the assertion "these lines are the same request" rather than "a line exists".
+    for wanted in ["question received", "finished processing request"] {
         let line = lines
             .iter()
             .find(|line| line["msg"].as_str().is_some_and(|msg| msg.contains(wanted)))
@@ -830,8 +904,13 @@ fn a_filter_value_never_reaches_the_log() {
             !rendered.contains(SENTINEL),
             "a filter value reached the {format} log: {rendered}"
         );
-        // The line that says a refusal happened is still there, so the assertion above is not
-        // passing because nothing was logged.
-        assert!(rendered.contains("refused"), "{rendered}");
+        // A line about this request is still there, so the assertion above is not passing because
+        // nothing was logged. It used to be the handler's own `refused` line; that line was replaced
+        // by the audit record, which is written from the blocking task and cannot reach a
+        // thread-scoped subscriber. `tower_http`'s response line carries the status this refusal was
+        // given and is written on this thread, so it is the honest stand-in. Matched by its message
+        // rather than by the status field, because this loop runs both renderings and only one of
+        // them writes fields as JSON.
+        assert!(rendered.contains("finished processing request"), "{rendered}");
     }
 }

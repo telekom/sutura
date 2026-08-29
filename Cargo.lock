@@ -3555,6 +3555,7 @@ name = "sutura-runtime"
 version = "0.2.4"
 dependencies = [
  "sutura-config",
+ "sutura-domain",
  "thiserror 2.0.20",
  "tokio",
  "tracing",

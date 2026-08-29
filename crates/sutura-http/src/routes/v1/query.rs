@@ -79,7 +79,7 @@
 use axum::Json;
 use axum::extract::State;
 use axum::extract::rejection::JsonRejection;
-use sutura_domain::query::{Query, ToolOutcome};
+use sutura_domain::query::Query;
 use sutura_runtime::AtCapacity;
 
 use crate::problem::Failure;
@@ -211,13 +211,20 @@ pub(crate) async fn ask(
     let slot = state.admission().admit().await.map_err(|shed| refused(&shed))?;
 
     let surface = state.surface();
+    // Derived from what this transport established, and from nothing the caller sent. `established`
+    // takes no argument, which is what keeps a field of the body from ever contributing to it - see
+    // `crate::principal`.
+    let context = crate::principal::established();
     // `spawn_carrying_span` rather than `tokio::task::spawn_blocking`, and the bare call is now on
     // the `disallowed-methods` list in `clippy.toml`: the pool thread has no current span, so a
     // bare spawn writes every line the engine emits outside this request. The three lines that fix
     // it were correct here and nothing made the NEXT call site write them - see
     // `sutura_runtime::blocking`.
     let joined = sutura_runtime::spawn_carrying_span(move || {
-        let answered = surface.answer(&query);
+        // The audit record for this outcome is written INSIDE this call, before it returns - so it
+        // is written on the blocking thread, inside the span this helper carries across, and it is
+        // written whether or not the caller is still waiting for the response.
+        let answered = surface.answer(&context, &query);
         // Explicitly, and here rather than at the top of the closure: the slot is released when the
         // WORK finishes, which is what makes the bound a bound on execution. Dropping it earlier
         // would let a second question start on top of this one.
@@ -238,11 +245,22 @@ pub(crate) async fn ask(
             return Err(Failure::Internal);
         }
     };
-    // Converted before it is logged, so the line carries the status the caller was actually given
-    // rather than a status this function restated. One decision, one place: `wire::refusal`.
-    let response = Outcome::from(&outcome);
-    report(&outcome, response.status());
-    Ok(response)
+    // One decision, one place: `wire::refusal` chooses the status, and nothing here restates it.
+    //
+    // NO LOG LINE FOR THE OUTCOME, and the `tracing::info!` per outcome that used to be here was
+    // REPLACED rather than joined. `Surface::answer` writes one audit record per outcome, before it
+    // returns, carrying the row count, the definition version and the refusal variant - every field
+    // that line had except one - plus the principal chain, which is the thing that line's own doc
+    // comment said it could not carry. Two channels saying nearly the same thing is a second place
+    // for a field to be added to and forgotten.
+    //
+    // The one field that did not move is the HTTP STATUS, and it is not lost. The status is this
+    // crate's and `sutura-app` cannot see it, so it could not travel on the record - and it does not
+    // need to: `tower_http`'s response line already carries the status and the latency at `info`,
+    // inside the same request span, configured in `crate::router`. The argument for putting the
+    // status on the old line was that an operator correlating with an ingress log needs the number
+    // that was actually sent, and the response line is where that number is reported.
+    Ok(Outcome::from(&outcome))
 }
 
 /// Why the body did not become a `QuestionBody`.
@@ -309,40 +327,6 @@ fn failed(failure: &SurfaceFailure) -> Failure {
     }
 }
 
-/// One line per outcome, so a refusal is as visible in the log as an answer.
-///
-/// The status is a field on both lines and it comes from the response rather than from a second
-/// decision here: an operator correlating this log with an ingress log needs the two to agree, and
-/// the way to guarantee that is to log the number that was sent.
-///
-/// `AGENTS.md` records "every call is attributable, refusals included" as an invariant enforced by
-/// an audit sink, and there is no audit sink: nothing here records a principal chain, because there
-/// is no principal to record. This is a log line, and it is named for what it is.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
-)]
-fn report(outcome: &ToolOutcome, status: axum::http::StatusCode) {
-    match *outcome {
-        ToolOutcome::Answer {
-            ref provenance,
-            ref rows,
-        } => tracing::info!(
-            status = status.as_u16(),
-            rows = rows.rows().len(),
-            definition_version = %provenance.version(),
-            "answered"
-        ),
-        ToolOutcome::Refusal { ref reason } => tracing::info!(
-            status = status.as_u16(),
-            // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
-            // rejected filter value is not in it.
-            reason = ?reason,
-            "refused"
-        ),
-    }
-}
-
 /// An error and its causes, on one line, for a caller.
 ///
 /// `Display` on a `thiserror` enum prints the outermost message only, and for a malformed question
@@ -378,7 +362,7 @@ mod tests {
 
     use crate::state::ServiceState;
     use crate::surface::LocalService;
-    use crate::testing::{bundle, catalog_of, warehouse_that_can_be_held};
+    use crate::testing::{bundle, catalog_of, sink, warehouse_that_can_be_held};
 
     /// A well formed question the fake will answer.
     const QUESTION: &str = r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#;
@@ -388,7 +372,7 @@ mod tests {
         let settings =
             Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load");
         let (engine, held) = warehouse_that_can_be_held();
-        let service = LocalService::start(&catalog_of(bundle()), engine).expect("the test bundle validates");
+        let service = LocalService::start(&catalog_of(bundle()), engine, sink()).expect("the test bundle validates");
         let router = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
         (router, held)
     }
