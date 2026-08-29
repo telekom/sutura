@@ -208,8 +208,10 @@ invalidates every artifact in it.
 | CI | the same gates, plus test causality, the cross-built release binaries and the image |
 
 `hygiene` is one hook because `xtask` owns the list: `check-boundaries`, `max-lines`,
-`check-pins`, `unused-deps`, `line-endings`, `text-hygiene`, `check-skills`, `check-guidance`,
-`check-workflows`, `check-docs`, `check-crap`. `cargo xtask --help` prints them, marked.
+`check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`, `line-endings`, `text-hygiene`,
+`check-skills`, `check-scope`, `check-guidance`, `check-workflows`, `check-docs`, `check-crap`.
+`cargo xtask --help` prints them, marked - and that is the authority, because this sentence had
+gone stale on two of them before `check-scope` was added to it.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests that cover it, which is the
 combination neither a complexity limit nor a coverage percentage catches alone. It is in two
@@ -400,7 +402,10 @@ One reviewable idea per branch. If describing it needs an "and", split it.
 - **`--all-features` on every lint and test entry point.** No crate here declares a feature today,
   so the flag is a no-op - and it stays in every entry point for exactly that reason: the day an
   adapter goes behind one, coverage must not silently drop to nothing. A scoped
-  `cargo check -p sutura-domain --no-default-features` is the fast inner loop, never the gate.
+  `cargo check -p sutura-domain --no-default-features` is the fast inner loop, never the gate -
+  which is why `just check` prints the one package it compiled and points at the wider task, and
+  why `cargo xtask check-scope` fails if that sentence and those flags ever disagree.
+  `just check-changed` with no arguments compiles what your working tree touched.
 - **The domain crate acquires no framework dependency.** `cargo xtask check-boundaries` checks
   the whole transitive tree against an allowlist, so a framework reached through an innocuous
   crate fails it too.

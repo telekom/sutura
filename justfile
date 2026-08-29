@@ -63,8 +63,24 @@ update:
 # ---------------------------------------------------------------- inner loop ---
 
 # Fast check of the domain crate only. Should stay sub-second.
+#
+# IT SAYS SO ON THE WAY OUT, and that is the whole point of the three echo lines. Cargo's own
+# `Finished dev profile ... in 0.10s` says nothing about scope, so a green run here read as a green
+# tree - and a branch whose `sutura-config` had an unclosed delimiter was pushed on the strength of
+# it, with `just lint` finding it one step later. The narrowness is deliberate and AGENTS.md pins
+# it; what was missing was the sentence, not the coverage.
+#
+# ECHO RATHER THAN A GATE CALL, on a measurement: this loop is 0.17s warm here and
+# `cargo run -q -p xtask -- <anything>` is another 0.49s even fully built, which would triple the
+# thing whose whole value is being instant. `cargo xtask check-scope` is what keeps the sentence
+# honest instead - it reads this recipe, fails if a package named after `-p` is missing from the
+# output, and fails if the task cited below stops existing or stops covering the workspace. So the
+# claim cannot drift from the command above it without failing `just hygiene`.
 check:
     cargo check -p sutura-domain --no-default-features
+    @echo 'check: compiled sutura-domain only, default features off - NOT a workspace check.'
+    @echo '  `just check-changed` compiles the packages your working tree actually changes.'
+    @echo '  `just lint` is the workspace gate, and `just test` runs the suite.'
 
 # Format Rust, and normalise line endings and whitespace.
 #
@@ -106,8 +122,16 @@ test:
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
-# cargo check, narrowed to the packages owning the given paths.
-check-changed +paths:
+# `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on
+# the gate reads the working tree itself, so `just check-changed` answers "does what I have touched
+# compile" without anybody having to type a path list. The commit hook keeps passing filenames.
+#
+# It used to be `+paths`, which made the useful form unreachable from here and left
+# `cargo xtask check-changed` printing `no Rust files changed` on a dirty tree - a green line about
+# a diff nobody had read. See the doc comment on `run_check_changed`.
+
+# cargo check, narrowed to the packages that changed. No paths reads the working tree.
+check-changed *paths:
     cargo run -q -p xtask -- check-changed {{ paths }}
 
 # THE gate. Run this before saying a change is done; nothing else counts as verified.
