@@ -111,10 +111,13 @@ services:
   # is `percona/pg_oidc_validator` (Apache-2.0, C++23, module version 1.1.0; read on 2026-08-29). So
   # the fixture is a second, PROFILED postgres service on that image with
   # `oauth_validator_libraries=pg_oidc_validator` - one more image reference through the one variable.
-  # **Its maturity, stated where somebody would look:** its own vendor calls it not production-ready,
-  # and reading its `validate_token` confirms one gap that matters more than that label - it verifies
-  # the JWT signature against the issuer's JWKS and the `iss` claim, and it checks NO `aud` claim at
-  # all, so audience-scoping a token to the database buys nothing against it. Fine for a fixture.
+  # **Its maturity, stated where somebody would look:** its vendor's launch post says "It's not
+  # production-ready yet" - written 2025-10-22, before 1.0 and before the distribution shipped it, and
+  # not retracted since. Reading its `validate_token` finds a gap that matters more than that label:
+  # it verifies the JWT signature against the issuer's JWKS and the `iss` claim, and it checks NO
+  # `aud` claim at all, which no document anywhere says. Fine for a FIXTURE and a thing to test for
+  # in anything else - `docs/adr/0008` carries the finding and what it does to that record's own
+  # reasoning about audience-scoped tokens.
   #
   # **It belongs under the `identity` profile, and mechanically rather than for tidiness:** that
   # validator FETCHES the issuer's OIDC discovery document and its JWKS on every authentication, so

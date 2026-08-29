@@ -302,25 +302,49 @@ assumed.** *Verified:* upstream writes a validator - `src/test/modules/oauth_val
 it is a test double rather than a starting point: it authorizes every token, reads the answer out of two
 of its own settings, checks no signature, issuer, audience or expiry, and logs the bearer token at `LOG`.
 It also reaches no installed artifact, because `src/Makefile`'s `SUBDIRS` names `test/regress`,
-`test/isolation` and `test/perl` and never `test/modules`. Of the third-party modules, checked on
-2026-08-29: `percona/pg_oidc_validator` is the only one that publishes packages - Apache-2.0, C++23,
-module version 1.1.0, packaged as `percona-pg_oidc_validator18` and installed in Percona's PostgreSQL 18
-distribution image - while `cloudnative-pg/postgres-keycloak-oauth-validator` (Apache-2.0, marked
-EXPERIMENTAL, Keycloak-specific), `TantorLabs/oauth_validator` and `proddata/pg_oauth_validator` publish
-no release and no tag between them. **None presents itself as production-ready**, which is a persistent
-condition rather than a young-project one: the feature's own design puts every provider-specific decision
-in the module, so a batteries-included validator is not a thing upstream withheld.
+`test/isolation` and `test/perl` and never `test/modules`.
+
+*Verified, and it is why the gap should be read as persistent rather than as a young feature's:* the
+author of PostgreSQL's OAuth support says so himself, in
+[Developing OAuth](https://www.enterprisedb.com/blog/developing-oauth) (2025-09-25) - *"I was pretty
+disappointed that I couldn't provide a fully 'batteries included' experience for OAuth in v18"*, and
+*"I'm not sure that it'll really be possible until a bunch of popular providers agree on a large number
+of conventions for the tokens that they issue."* So a deployment supplies the module, and
+[the validator design chapter](https://www.postgresql.org/docs/18/oauth-validator-design.html) - which
+shipped with that same patch - is the specification it has to meet: *"Implementations must follow the
+provider's instructions to the letter, including any verification of issuer ("where is this token
+from?"), audience ("who is this token for?"), and validity period ("when can this token be used?")."*
+It also states, in the same voice this record uses for its own limits, that *"a malfunctioning validator
+is potentially worse than no authentication at all."*
+
+**Two modules matter and neither is both things at once**, checked on 2026-08-29.
+`percona/pg_oidc_validator` is the only one a vendor packages - Apache-2.0, C++23, module version 1.1.0,
+shipped as a listed component of Percona Distribution for PostgreSQL 18 and installed in its
+distribution image - and its own launch post (2025-10-22, before 1.0 and before that inclusion, with no
+retraction since) says *"It's not production-ready yet."* `proddata/pg_oauth_validator` is the only one
+written to the chapter's list, audience included - *"Audience has no safe universal default and must be
+configured explicitly"* - and it is the opposite trade: PostgreSQL License, C17, no tag, no release, no
+adoption, and its own README saying *"It remains under active security review and is not yet a tagged
+stable release."* `cloudnative-pg/postgres-keycloak-oauth-validator` is marked EXPERIMENTAL and is
+Keycloak-specific; `TantorLabs/oauth_validator` describes itself as performing *"minimal validation"*.
+**Nothing occupies the slot that is both packaged and audience-checking**, and which of those two
+properties a deployment gives up is its decision to make rather than ours to hide.
 
 ***Verified by reading `pg_oidc_validator` 1.1.0's `validate_token`, and it lands on this record rather
 than on that module:*** it fetches the issuer's OIDC discovery document and its JWKS on every
 authentication, verifies the token's signature and its `iss` claim against the `pg_hba.conf` `issuer=`,
 and requires the entry's `scope=` to be a subset of the token's `scp` and `scope` claims - **and it
-checks no `aud` claim at all.** The option B paragraph above reasons that "the validator is told to check
-audience" and infers RFC 8693 from that requirement; against this module the inference has nothing to
-rest on, and a token minted for any audience at the same issuer, carrying the right scope, authenticates.
-A second thing worth knowing before writing a fixture: `scope=""` does not merely skip the scope
-comparison, it sets the result to authorized unconditionally. **So "the validator checks audience" is a
-property to require of a chosen module and to test for, not one to assume from the mechanism.**
+checks no `aud` claim at all** - `jwt::verify().with_issuer(...)` with no `with_audience`, and the string
+`aud` appears in none of its non-vendored sources, its README, or the vendor's documentation. **So it is
+an undocumented gap rather than a documented caveat, which is the sharper problem**: there is no note for
+a reader to weigh. The option B paragraph above reasons that "the validator is told to check audience"
+and infers RFC 8693 from that requirement; against this module the inference has nothing to rest on, and
+a token minted for any audience at the same issuer, carrying the right scope, authenticates. A second
+thing worth knowing before writing a fixture: `scope=""` does not merely skip the scope comparison, it
+sets the result to authorized unconditionally. **So "the validator checks audience" is a property to
+require of a chosen module and to test for, not one to assume from the mechanism** - the chapter quoted
+above requires it and cannot enforce it, which is the same shape as every other row in this record whose
+limit had to be written down beside its claim.
 
 **The client half is the smaller half, and Rust is the ecosystem that has neither shipped it nor started
 it.** *Verified on 2026-08-29:* `libpq` has `OAUTHBEARER` compiled unconditionally, and `jackc/pgx`
