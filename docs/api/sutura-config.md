@@ -202,6 +202,38 @@ happened rather than implying the check was run.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -401,6 +433,370 @@ pub fn found(&self) -> &str
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+## Module `inbound`
+
+How the identity of a caller reaches this deployment - leg 1, and the one fact that decides it.
+
+`docs/adr/0014` decides two inbound modes and says plainly that **neither of them is a default**.
+A deployment either *is* the resource server and validates the caller's token itself, or it sits
+behind a component that already authenticated the caller and validates a short-lived **identity
+assertion that component signed**. Both defaults are wrong in opposite directions: defaulting to
+`InboundIdentity::Direct` makes a gateway deployment reject every caller, and defaulting to
+`InboundIdentity::BehindGateway` makes a directly exposed deployment accept an assertion anybody
+can mint.
+
+So the mode is a required key **inside** the declaration, and the declaration as a whole is
+optional. Those are two different absences and the difference matters:
+
+| Written | What it means |
+| --- | --- |
+| no `security.inbound` block at all | this is a single-player deployment. There is no per-caller identity to establish, the bearer token authenticates the deployment, and nothing here becomes required. `docs/adr/0008` part 5a calls that a first-class shape rather than a degraded one |
+| a block with no `mode` | a deployment that meant to establish identity and did not say how. It does not start |
+
+**What this does NOT deliver, and it must not be read as delivered:** leg 1 proves who is asking.
+It does *not* make a data source execute as that person - that is leg 2, and it needs a credential
+per leg plus a source that declares it can impersonate. A deployment with leg 1 and no leg 2 knows
+who is asking and still reads every row as one identity. `InboundIdentity::what_it_does_not_do`
+is that sentence as a value, printed at startup, for the same reason
+[`TlsTermination::cleartext_hop`](crate::security::TlsTermination::cleartext_hop) is one: a log
+line and this documentation read the same string, so neither can drift into claiming per-user
+access because there is authentication.
+
+# `BehindGateway` does not mean "trust a header", and the type is what stops it meaning that
+
+A component asserting an identity in a header is not authentication - anything that can reach the
+port can write that header, and the failure is invisible in a diff: a header named
+`x-authenticated-user` that means "authenticated" because of where it is *expected* to come from.
+
+What `TransitProof` carries is therefore not a header holding a name. It is a header holding a
+**signed token**, with an issuer, an audience, a key set and a pinned algorithm - the same four
+things `InboundIdentity::Direct` validates - and the subject is derived by us from the claims of
+a token whose signature checked out. There is no shape in this module that could hold "the name of
+the header the username is in".
+
+**The limits, stated next to the claim, and there are three.** Under `BehindGateway` this
+deployment trusts the component's *authentication of the caller*, because that is what the mode
+means; what it does not trust is a string. The signature says the claims came from the component,
+and nothing here can say the component authenticated correctly.
+
+And what a signed assertion proves is that **the component issued it**, not that *this request*
+carried it there first. Review found the wording overstating exactly that: a proof was replayable
+for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
+are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so the replay window
+is a number this deployment chose rather than one it was handed. **Binding an assertion to a
+particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
+body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
+proof that the request transited anything, and why the trusted transport boundary - the hop between
+the component and this process - is load-bearing rather than incidental.
+
+# One derived view, two named modes
+
+`docs/adr/0014` says the difference between the modes is "one fact rather than two code paths".
+`InboundIdentity::requirement` is that sentence made mechanical: the enum keeps the two names an
+operator writes and a reviewer reads, and the validator downstream consumes a single
+`TokenRequirement` borrowed out of whichever variant is configured. There is one validator, so
+there is one place algorithm pinning and the audience check can be got wrong.
+
+### `enum RequiredTokenType`
+
+```rust
+pub enum RequiredTokenType
+```
+
+Which class of token this deployment will accept, out of the `typ` header.
+
+**Two variants because the check has to be switchable and must not be switchable by silence.** The
+finding it answers is cross-JWT substitution: without it, any JWT the issuer signed with this
+audience verifies, an OIDC ID token included whenever the resource identifier equals the client id.
+So `Self::Exactly` is the default in the `direct` mode - RFC 9068's `at+jwt` - and turning it off
+is a value an operator writes, `any`, which the startup log prints at `WARN`.
+
+There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+value reads as "not configured yet" at every call site, and the one thing that has to be legible is
+whether a deployment decided to accept every class of token.
+
+#### Variants
+
+- `Exactly` - A token whose `typ` is this, compared after the signature verified.
+- `Any` - Any class of token the issuer signed for this audience.
+
+#### Methods
+
+```rust
+pub fn accepts(&self, presented: Option<&TokenType>) -> bool
+```
+
+Does a presented `typ` satisfy this?
+
+`None` is an ABSENT `typ` header, and it satisfies nothing but `Self::Any`: a token carrying no
+type is exactly the shape a class check exists to refuse, and treating absence as acceptable
+would make the check satisfiable by omission.
+
+```rust
+pub fn access_token() -> Self
+```
+
+RFC 9068's access-token type. The `direct` mode's default.
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+What is required, as a word for a log line and for a refusal message.
+
+```rust
+pub fn parse(key: &'static str, raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue>
+```
+
+Reads the configured word: `any`, or a media type.
+
+`any` is compared on the folded value, so `Any` and `ANY` are the same answer - and a deployment
+whose component really does emit a `typ` of `any` cannot express it. That collision is worth
+having: the word is checked before the media type precisely so that turning the check off cannot
+happen by accident.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `enum TokenLocation`
+
+```rust
+pub enum TokenLocation<'header>
+```
+
+Where the token being validated arrives.
+
+Two variants because the two modes put it in two places, and neither is a preference: an OAuth
+2.1 client puts its access token in `Authorization: Bearer` and has no option to do otherwise,
+while a fronting component sets a header of its own and would collide with the deployment bearer
+token if it used that one. `ProofHeader::parse` refuses `authorization` for exactly that reason.
+
+#### Variants
+
+- `AuthorizationBearer` - `Authorization: Bearer <token>`. Where RFC 6750 puts an access token.
+- `Header` - A named header whose whole value is the token. No scheme prefix: a component setting its own header has no reason to wrap the value, and a prefix nobody agreed on is a parse to get wrong.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `PartialEq`
+
+### `struct TransitProof`
+
+```rust
+pub struct TransitProof
+```
+
+What a fronting component has to prove on every request.
+
+Every field is a validation input, and that is the point of the type: there is no field here that
+holds an asserted identity. See this module's documentation for why.
+
+#### Methods
+
+```rust
+pub const fn header(&self) -> &ProofHeader
+```
+
+The header the proof arrives in.
+
+```rust
+pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: ResourceIdentifier, key_set: KeySetFile, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
+```
+
+Assembles a declaration from parts that have each already been parsed.
+
+Seven arguments, over `clippy.toml`'s threshold of five, and taken rather than grouped
+deliberately: a parts struct would need public fields, which `cargo xtask check-boundaries`
+refuses on a public struct in a library crate - for the reason it exists, that a public field is
+a second way to build a value without its invariant. Every one of these is already a parsed
+newtype, so the list is seven invariants rather than seven strings.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum InboundIdentity`
+
+```rust
+pub enum InboundIdentity
+```
+
+How the identity of a caller reaches this deployment. Printed at startup, per deployment.
+
+A closed enum with a required key, in the shape
+[`TlsTermination`](crate::security::TlsTermination) already uses here - and for the same reason
+`Environment` is a parsed enum rather than a string with a fallback: the value that decides a
+posture must not be satisfiable by silence.
+
+#### Variants
+
+- `Direct` - This deployment is the resource server. It validates the caller's token itself: signature, issuer, expiry, and an audience matching its own resource identifier.
+- `BehindGateway` - A fronting component authenticated the caller. This deployment validates a **signed identity assertion** the component issued, and derives the subject from that assertion's own claims rather than from a string somebody set.
+
+#### Methods
+
+```rust
+pub const fn accepts_any_token_class(&self) -> bool
+```
+
+Is the class check switched off?
+
+Read by the startup log to decide the level, so the answer is a value rather than a comparison
+somebody writes at the call site.
+
+```rust
+pub const fn mode(&self) -> &'static str
+```
+
+The mode, as a stable word for the startup log and for a record field.
+
+A `&'static str` from an exhaustive match rather than a `Display` of something structured,
+because it has to be a value a query over logs can group by.
+
+```rust
+pub const fn reads_the_authorization_header(&self) -> bool
+```
+
+Does this deployment read the deployment bearer token's own header?
+
+The one question a refusal needs answered, and it is asked of the *requirement* rather than of
+the variant, so a mode added later that also lands in `Authorization` cannot slip past it.
+
+```rust
+pub const fn requirement(&self) -> TokenRequirement<'_>
+```
+
+The one validation this deployment performs, whichever mode it is in.
+
+See this module's documentation: the two modes are one fact and not two code paths, so there
+is one validator and one place the audience check can be got wrong.
+
+```rust
+pub const fn type_check(&self) -> &'static str
+```
+
+What the `typ` check does on this deployment, as a sentence for the startup log.
+
+**A sentence rather than a boolean, because the interesting value is the one that reads as
+nothing.** A deployment that wrote `any` has switched off the check that stops an OIDC ID token
+from establishing a caller, and `type_check = "any"` on a log line does not say that. This does,
+and `crate::security::SecuritySettings` prints it at `WARN`.
+
+```rust
+pub const fn what_it_does_not_do() -> &'static str
+```
+
+The sentence that keeps leg 1 from being read as leg 2.
+
+The same for both modes, deliberately: `docs/adr/0014`'s table says the mode changes who
+authenticates the caller and changes **nothing** about who is responsible for the chain or for
+leg 2. A constant rather than a `match` would have said that less clearly than a function
+whose whole body is one string does.
+
+```rust
+pub const fn who_authenticated(&self) -> &'static str
+```
+
+Who authenticated the caller, as a sentence for the startup log.
+
+A function rather than a comment for the reason
+[`TlsTermination::cleartext_hop`](crate::security::TlsTermination::cleartext_hop) is one: the
+log, this documentation and the type read the same value, so none of them can drift into
+claiming more than the mode does.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct TokenRequirement`
+
+```rust
+pub struct TokenRequirement<'inbound>
+```
+
+The whole validation this deployment performs, borrowed out of whichever mode is configured.
+
+**A view and not a second configuration surface.** There is no constructor: the only way to one
+of these is `InboundIdentity::requirement`, so the validator cannot be handed a requirement
+that does not correspond to a declaration an operator wrote and this crate refused or accepted.
+
+#### Methods
+
+```rust
+pub const fn algorithms(&self) -> &'inbound PinnedAlgorithms
+```
+
+The algorithms this deployment will accept - never the one in the token's own header.
+
+```rust
+pub const fn audience(&self) -> &'inbound ResourceIdentifier
+```
+
+The value the `aud` claim must contain, byte for byte.
+
+**Unconditional, and that is the security decision in `docs/adr/0014`.** A client may send a
+resource indicator asking its authorization server for a narrower token; that is welcome and
+it is an optimisation. It is never what makes the token safe, and this check is not skippable
+when the indicator is absent.
+
+```rust
+pub const fn issuer(&self) -> &'inbound IssuerUrl
+```
+
+The issuer the `iss` claim must equal, byte for byte.
+
+```rust
+pub const fn key_set(&self) -> &'inbound KeySetFile
+```
+
+Where the signing keys are read from.
+
+```rust
+pub const fn location(&self) -> TokenLocation<'inbound>
+```
+
+Where the token arrives.
+
+```rust
+pub const fn max_lifetime(&self) -> Option<ProofLifetime>
+```
+
+The ceiling on `exp - iat`, where this deployment puts one. See the field.
+
+```rust
+pub const fn token_type(&self) -> &'inbound RequiredTokenType
+```
+
+Which class of token, out of the `typ` header, checked after the signature verified.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ## Module `limits`
 
@@ -1306,24 +1702,30 @@ kernel laid out differently, and the cheap one is a boot check that did not run 
 
 ## Module `security`
 
-The access control this service has, and the honest name for what it is not.
+The access control this service has, and the honest name for what each part of it is not.
 
-**There is no per-caller identity in sutura today, and nothing here invents one.** No request
-context reaches the query path, no credential is minted per request, and the `CredentialBroker`
-port that would do it is deliberately absent because a port arrives with its adapter.
-`examples/multi-player/README.md` is where that gap is written down for a reader.
+**Two controls that answer two different questions, and collapsing them is the mistake this
+module is arranged against:**
 
-So what an `AccessToken` does is narrower than authentication, and the narrowness is the
-point of this module documentation: a presented token proves the caller holds a secret the
-deployment was configured with. It proves nothing about *which* caller, it cannot be scoped,
-it cannot be revoked for one party without revoking it for all of them, and it does not reach
-the data system - every query still runs with whatever access the process already had.
+- the `AccessToken`: *may this caller reach this service at all*
+- `InboundIdentity`: *who is asking*
 
-It is worth having anyway, because the alternative on a non-loopback interface is an
-unauthenticated way to read whatever the process can read. It is not worth mistaking for
-identity, which is why `SecuritySettings::describes_identity` exists as an associated function
-that always answers the same thing: the startup log prints it, so an operator cannot deploy this
-believing otherwise.
+What an `AccessToken` does is narrower than authentication, and the narrowness is the point: a
+presented token proves the caller holds a secret the deployment was configured with. It proves
+nothing about *which* caller, it cannot be scoped, it cannot be revoked for one party without
+revoking it for all of them, and it does not reach the data system. It is worth having anyway,
+because the alternative on a non-loopback interface is an unauthenticated way to read whatever the
+process can read - and it is not worth mistaking for identity.
+
+`SecuritySettings::describes_identity` is what keeps that distinction printable. It used to be
+an associated function that always answered `false`; `crate::inbound` is what made it a value, and
+the startup log prints it on every boot so an operator cannot deploy either shape believing it is
+the other.
+
+**The limit that survives all of it:** a caller whose identity is established is still a caller
+whose questions run with whatever access this process already had.
+`InboundIdentity::what_it_does_not_do` is that sentence, and the startup log prints it beside the
+mode rather than leaving a reader to infer it.
 
 ### `struct AccessToken`
 
@@ -1502,6 +1904,11 @@ with nothing in front has answered only the first.
 about what protects the token in flight, so a wildcard bind with no terminator anywhere read
 exactly like one behind a gateway. A value naming the terminator cannot be satisfied by
 agreeing that off-host is intended.
+**Three fields now, and the third is the one that changes what the other two mean.**
+`Self::inbound` is how the identity of a *caller* reaches this deployment, and the whole reason
+it lives here rather than in a group of its own is `Self::describes_identity`: that function used
+to be a constant answering `false`, and a deployment that establishes a caller identity has to be
+able to make it answer otherwise from a value rather than from a rewrite.
 
 #### Methods
 
@@ -1512,19 +1919,53 @@ pub const fn access_token(&self) -> Option<&AccessToken>
 The configured token, if there is one.
 
 ```rust
-pub const fn describes_identity() -> bool
+pub const fn describes_identity(&self) -> bool
 ```
 
 Does anything here establish who the caller is?
 
-Always `false`, and it is a function rather than a comment so the startup log and the
-documentation read the same value. When a `CredentialBroker` and a request context exist,
-this stops being a constant and the log line changes with it; until then a deployment is
-told, on every boot, that the token authenticates the deployment and not the caller.
+**This stopped being a constant, which is the change `docs/adr/0014` predicted.** It was an
+associated function that always answered `false`, with a comment saying it would change when a
+request context and an inbound credential existed. They exist, so it reads a value: `true`
+exactly when an inbound declaration is configured, and `false` for the deployment token alone -
+which authenticates the deployment and not the caller, whatever else is set.
+
+It is still a function rather than a comment so the startup log and this documentation read
+the same value.
+
+**The limit, next to the claim:** `true` here says a caller's identity is *established*. It
+does not say a data source executes as that caller - see
+`InboundIdentity::what_it_does_not_do`, which the startup log prints beside this.
 
 ```rust
-pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination) -> Self
+pub const fn inbound(&self) -> Option<&InboundIdentity>
 ```
+
+How the identity of a caller reaches this deployment, if it does.
+
+`None` is the shape that ships today and the shape a single-player deployment keeps: the
+bearer token authenticates the deployment, and there is no per-request identity to establish.
+
+```rust
+pub const fn inbound_mode(&self) -> &'static str
+```
+
+Which mode establishes the caller's identity, as a word for the startup log.
+
+`"none"` rather than an `Option` because the caller is a log line, and a field that is
+sometimes absent reads as a field that is sometimes broken.
+
+```rust
+pub const fn new(access_token: Option<AccessToken>, tls_termination: TlsTermination, inbound: Option<InboundIdentity>) -> Self
+```
+
+Assembles the group from parts that have each already been parsed.
+
+The inbound declaration is an `Option` because its absence is a posture rather than a gap: a
+deployment that establishes no per-caller identity is a single-player deployment, which
+`docs/adr/0008` part 5a calls a first-class shape. What is *not* optional is saying which mode,
+once a block exists at all - and that refusal lives in `crate::settings::parse_inbound`,
+because the shape here cannot hold "a mode nobody named".
 
 ```rust
 pub const fn tls_termination(&self) -> TlsTermination

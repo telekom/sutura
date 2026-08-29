@@ -47,6 +47,61 @@ security:
   # One of: none, sidecar, ingress, in-process. See the note above - this is a declaration of where
   # TLS is terminated, not a control that terminates it.
   tls_termination: "none"
+  # `inbound` is deliberately ABSENT, and it is the one group in this file with no default at any
+  # depth. It is how the identity of a CALLER reaches this deployment - leg 1, `docs/adr/0014` - and
+  # the two absences it has are different facts:
+  #
+  #   * no `inbound` block at all, which is this file, means there is no per-caller identity. The
+  #     access token authenticates the DEPLOYMENT, every question runs with whatever access the
+  #     process has, and nothing about leg 1 becomes required. That is a single-player deployment and
+  #     `docs/adr/0008` part 5a calls it a first-class shape rather than a degraded one.
+  #   * an `inbound` block with no `mode` is a deployment that meant to establish identity and did not
+  #     say how. It REFUSES TO START, because both defaults are wrong in opposite directions: `direct`
+  #     makes a deployment behind a gateway reject every caller, and `behind-gateway` makes a directly
+  #     exposed one accept a proof anybody can forge.
+  #
+  # A deployment that wants it writes one of these two shapes, in its own file:
+  #
+  #   security:
+  #     inbound:
+  #       mode: "direct"                # this deployment IS the resource server
+  #       resource: "https://sutura.example.com"          # what `aud` must equal, byte for byte
+  #       authorization_server: "https://issuer.example.com"  # the `iss` VALUE, exactly
+  #       key_set_file: "/etc/sutura/keys/jwks.json"       # a JWK set. There is no URL source yet
+  #       algorithms: ["RS256"]         # pinned. `none` and every `HS*` are refused at startup
+  #       # token_type is OPTIONAL and defaults to RFC 9068's `at+jwt`. Leaving it out is the safe
+  #       # reading: without a class check, ANY JWT this issuer signed for this audience verifies -
+  #       # an OIDC ID token included, whenever the resource identifier is also a client id, which
+  #       # is the ordinary arrangement. Write `any` to switch the check off; the startup log then
+  #       # says so at WARN on every boot.
+  #       # token_type: "at+jwt"
+  #
+  #   security:
+  #     inbound:
+  #       mode: "behind-gateway"        # a fronting component authenticated the caller
+  #       transit_header: "x-transit-proof"   # where its SIGNED ASSERTION arrives - never a name
+  #       transit_issuer: "https://gateway.example.com"
+  #       transit_audience: "https://sutura.example.com"
+  #       key_set_file: "/etc/sutura/keys/gateway-jwks.json"
+  #       algorithms: ["ES256"]
+  #       # REQUIRED in this mode, because a component's `typ` is a fact only the deployment knows -
+  #       # there is nothing this crate could guess that does not either reject every request or
+  #       # check nothing. Write `any` if the component sets none.
+  #       transit_token_type: "at+jwt"
+  #       # Optional; 120 seconds by default, one hour at most. An assertion declaring a longer
+  #       # `exp - iat` than this is refused, and one with no `iat` at all is refused - so what
+  #       # "short-lived" means is a number this deployment chose rather than one the component
+  #       # handed it. Inside that window an intercepted assertion REPLAYS: nothing binds one to a
+  #       # request, so the hop between the component and this process is a trusted boundary.
+  #       transit_max_lifetime_seconds: 120
+  #
+  # `direct` and `access_token` together are a refusal to start: both are read from
+  # `authorization: Bearer`, and a request cannot carry two credentials in one header. `behind-gateway`
+  # reads a header of its own, so there both survive.
+  #
+  # NEITHER makes a data source execute as the asking subject. That is leg 2, it needs a credential per
+  # leg and a source that declares it can impersonate, and none of it is built - the startup log says
+  # so on every boot.
 
 rate_limit:
   # `enabled` is deliberately absent - see the note above. It follows the environment, and writing

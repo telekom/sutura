@@ -19,19 +19,24 @@
 //! for each status. The domain invariant is untouched: `ToolOutcome::Refusal` is still a result and
 //! not an `Err`.
 //!
-//! **There is no per-caller identity.** No credential is minted per request, and the
-//! `CredentialBroker` port that would do it is deliberately absent because a port arrives with its
-//! adapter. Where an access token is configured, presenting it proves the caller holds a secret an
-//! operator configured - it authenticates the *deployment*, not the caller, and every question is
-//! still answered with whatever access the process already had. That sentence is in the generated
-//! document, in the startup log and in `sutura_config::security`, because those are three different
-//! readers.
+//! **A caller's identity is established, and it is still not per-caller access.** Where a deployment
+//! declares `security.inbound`, [`inbound`] verifies the caller's own token - signature against a
+//! pinned asymmetric algorithm, issuer, expiry, and an audience matching this deployment's own
+//! resource identifier - and the request runs under a
+//! [`sutura_domain::identity::Subject::Verified`]. Where it declares none, the answer is
+//! [`sutura_domain::identity::Subject::TheDeploymentItself`] and an access token, if one is
+//! configured, proves only that the caller holds a secret an operator distributed.
 //!
-//! A [`sutura_domain::identity::RequestContext`] *does* now reach the query path, and it does not
-//! weaken that: what it carries is a principal chain naming
-//! [`sutura_domain::identity::Subject::TheDeploymentItself`], which is that same sentence expressed
-//! as a value instead of as prose. `crate::principal` is the one place it is constructed, and it
-//! takes no argument, so no field of a request can contribute to it.
+//! **What neither shape does is make a data system execute as the asking subject.** That is leg 2, it
+//! needs a credential per leg, and none of it is built - so every question is still answered with
+//! whatever access this process already had. `docs/adr/0014` says it in those words, the startup log
+//! prints it on every boot, and [`inbound`] lists the four things that record describes and this does
+//! not build.
+//!
+//! `crate::principal` is the one place a [`sutura_domain::identity::RequestContext`] is constructed,
+//! and there are exactly two ways in: one takes no argument, and the other takes a
+//! [`VerifiedCaller`], whose only constructor is a signature check and which implements no
+//! `Deserialize`. So no *field* of a request can contribute to a chain either way.
 //!
 //! **`/health` carries nothing.** It is the one path an unauthenticated caller can always reach, so
 //! every field it might have is a field handed to anybody who can route a packet. No version, no
@@ -81,6 +86,7 @@
 pub mod client_address;
 pub mod constants;
 pub mod correlation;
+pub mod inbound;
 pub mod middleware;
 pub mod openapi;
 pub(crate) mod principal;
@@ -102,6 +108,7 @@ mod harness;
 
 pub use crate::client_address::ClientAddress;
 pub use crate::correlation::{CorrelationId, NotACorrelationId};
+pub use crate::inbound::{InboundGate, InboundNotUsable, VerifiedCaller};
 pub use crate::problem::{Failure, ProblemBody};
 pub use crate::router::{Assembled, RouterNotBuilt, assemble, router};
 #[cfg(feature = "tls")]

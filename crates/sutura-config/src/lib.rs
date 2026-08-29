@@ -88,6 +88,7 @@
 pub mod api;
 pub mod catalog;
 pub mod environment;
+pub mod inbound;
 pub mod limits;
 pub mod prompt;
 pub mod proxy;
@@ -102,6 +103,11 @@ mod settings;
 pub use crate::api::ApiSettings;
 pub use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 pub use crate::environment::{Environment, UnknownEnvironment};
+pub use crate::inbound::{
+    InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
+    ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenRequirement, TokenType,
+    TransitProof,
+};
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
 pub use crate::proxy::{Cidr, ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};

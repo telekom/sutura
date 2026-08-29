@@ -7,21 +7,28 @@ into all four cross-compiled targets is a decision rather than a side effect.
 
 ## Read this part first
 
-**There is no per-caller identity.** No request context reaches the query path, no credential is
-minted per request, and the port that would do it is deliberately absent, because in this repository
-a port arrives with the adapter that implements it. `AGENTS.md` records "every query runs as the
-calling principal" as an aspiration that is *not mechanised*, and the multi-player example explains
-why single player makes it trivially true and worth nothing.
+**A caller's identity can now be established, and it is still not per-caller access.** Those are two
+different sentences and a deployment that reads them as one is the failure this section exists to
+prevent.
 
-So an HTTP endpoint that answers catalog questions is, today, a way to read whatever the process can
-read. Where an access token is configured, presenting it proves the caller holds a secret an
-operator wrote down - it authenticates the **deployment**, not the caller. It cannot be scoped to a
-subset of the catalog, it cannot be revoked for one party without revoking it for all of them, and it
-does not reach the data system. Every question is answered with whatever access the service process
-already had, whoever asked it.
+By default there is **no per-caller identity at all**: no `security.inbound` block means the bearer
+token is the whole story, and presenting it proves the caller holds a secret an operator wrote down -
+it authenticates the **deployment**, not the caller. It cannot be scoped to a subset of the catalog,
+it cannot be revoked for one party without revoking it for all of them, and it does not reach the data
+system. That is a single-player deployment, and it is a first-class shape rather than a degraded one.
 
-That sentence is printed at `WARN` on every boot and is in the generated interface description, so an
-operator and an integrator both meet it without reading this page.
+A deployment that declares `security.inbound` gets leg 1: every request carries a token this service
+verifies itself - signature against a pinned asymmetric algorithm, issuer, expiry, and an audience
+matching this deployment's own resource identifier - and the request runs under a verified subject
+that every audit record then names. See [who is asking](#who-is-asking) for the two modes and the keys.
+
+**Neither shape makes a data system execute as the asking subject.** That is leg 2: it needs a
+credential per leg and a source that declares it can impersonate, and none of it is built. So a
+deployment with leg 1 knows who asked and still reads every row as one identity. Believing otherwise -
+that authentication implies per-user access - is precisely the confusion the records warn about.
+
+Both sentences are printed at `WARN` on every boot, read out of the configuration types rather than
+written into the log by hand, so an operator meets them without reading this page.
 
 Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
 it, and the bucket it counts against is a network address rather than a principal.
@@ -36,7 +43,14 @@ them one at a time.
 | Configuration | Why it refuses |
 | --- | --- |
 | a bind address other hosts can reach, without `security.tls_termination` declared | with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in *every* environment, including a laptop. See [TLS](#tls) for the four answers |
-| no `security.access_token`, in production or on a non-loopback bind | the alternative is an unauthenticated way to read whatever the process can read |
+| no `security.access_token` **and** no `security.inbound`, in production or on a non-loopback bind | the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds |
+| a `security.inbound` block with no `mode` | both defaults are wrong in opposite directions - `direct` makes a deployment behind a gateway reject every caller, and `behind-gateway` makes a directly exposed one accept a proof anybody can forge. See [who is asking](#who-is-asking) |
+| `security.access_token` together with `security.inbound.mode: direct` | both are read from `authorization: Bearer`, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request |
+| `security.inbound.algorithms` naming `none`, an `HS*` algorithm, nothing, or two key families | `none` is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key |
+| a `security.inbound.key_set_file` that cannot be read or is not a usable JWK set | the alternative is a process that starts and answers `401` to everybody. A key with no `kid`, a symmetric (`oct`) key, and **two keys under one `kid`** are each refused rather than skipped - the last one because which key verifies would otherwise be decided by their order in the document |
+| a key set holding **no key of the kind `security.inbound.algorithms` needs** | an RSA key set under `algorithms: ["ES256"]` cannot verify anything, so the deployment would start and answer `401` to everybody with nothing in the log connecting the two |
+| `security.inbound.mode: behind-gateway` with no `security.inbound.transit_token_type` | a component's `typ` is a fact only the deployment knows, and a guess either rejects every request or checks nothing |
+| `security.inbound.transit_max_lifetime_seconds` outside 1..3600 | a zero refuses every assertion, and past an hour "short-lived" is not being used |
 | an explicit `rate_limit.enabled: false` in production | one question is an aggregate over up to ten years of history, so an unbounded caller is an unbounded load on the data system |
 | `server.port: 0` in production | that asks the kernel for an ephemeral port, so nothing can be configured to reach the service |
 | an unknown `SUTURA_ENVIRONMENT` | a typo would otherwise select the permissive branch of every decision above |
@@ -44,6 +58,105 @@ them one at a time.
 
 The checks read the **loaded** values, not any one file. The environment-variable layer is applied
 last, so a check against a file would be checking something the process is not running on.
+
+## Who is asking
+
+Leg 1, and it is **opt-in**: a deployment with no `security.inbound` block has no per-caller identity
+and is unaffected by everything in this section.
+
+A deployment that wants one picks a mode, and there is deliberately no default, because both would be
+wrong in opposite directions.
+
+**`direct` - this deployment is the resource server.** It validates the caller's own token itself. The
+token arrives in `authorization: Bearer`, which is where RFC 6750 puts an access token and where an
+OAuth 2.1 client has no option to put it - so `security.access_token` cannot also be set, and the pair
+is refused at startup.
+
+```yaml
+security:
+  inbound:
+    mode: "direct"
+    resource: "https://sutura.example.com"
+    authorization_server: "https://issuer.example.com"   # the `iss` value, exactly
+    key_set_file: "/etc/sutura/keys/jwks.json"
+    algorithms: ["RS256"]
+    # token_type defaults to RFC 9068's `at+jwt`. Leave it out unless your issuer uses another
+    # profile - and read the class check below before writing `any`.
+```
+
+**`behind-gateway` - a fronting component authenticated the caller.** This deployment validates a
+short-lived **identity assertion that component signed**, and derives the subject from that
+assertion's own claims. It arrives in a header of the component's own, so the deployment bearer token
+keeps `authorization` and both controls survive.
+
+```yaml
+security:
+  inbound:
+    mode: "behind-gateway"
+    transit_header: "x-transit-proof"
+    transit_issuer: "https://gateway.example.com"
+    transit_audience: "https://sutura.example.com"
+    key_set_file: "/etc/sutura/keys/gateway-jwks.json"
+    algorithms: ["ES256"]
+    transit_token_type: "at+jwt"            # required; `any` if the component sets no `typ`
+    transit_max_lifetime_seconds: 120       # the longest `exp - iat` this deployment accepts
+```
+
+**It is called an assertion and not a proof of transit, and the wording is the honest one.** A
+signature says the component *issued* the token. It does not say this particular request carried it
+there: nothing binds an assertion to a method, a path or a body, and there is no record of which
+assertions have been seen. What is bounded is the *window* - an `iat` is required and `exp - iat` is
+capped by `transit_max_lifetime_seconds` - so an intercepted assertion replays for at most that long.
+**The hop between the component and this process is therefore a trusted transport boundary**, and
+`security.tls_termination` is where you say how far it reaches.
+
+**`behind-gateway` does not mean "trust a header", and the configuration is what stops it meaning
+that.** There is no key here that names the header a *username* arrives in. A component asserting an
+identity in a header is not authentication: anything that can reach the port can write that header,
+and the failure is invisible in a diff - a header named `x-authenticated-user` that means
+"authenticated" because of where it is *expected* to come from. What this validates is a token, on
+every request, and the subject is derived by this service from claims whose signature checked out.
+**The limit:** in this mode the component's *authentication of the caller* is trusted, because that is
+what the mode means. What is not trusted is a string.
+
+What the checks are, in both modes:
+
+| Check | What it is, and what it is not |
+| --- | --- |
+| The signature | Against a key from `key_set_file`, selected by the token's `kid`. A token naming no key id is refused rather than tried against every key - otherwise an unknown key and a bad signature are indistinguishable and a rotation is invisible |
+| The algorithm | **Pinned from configuration and never read from the token.** `none` and every `HS*` cannot be configured at all, and a symmetric key in the key set is refused at load - both halves have to be closed, because a token signed `HS256` with the issuer's *public* key as the secret verifies against a validator that accepts either |
+| **`typ`, the token's class** | Checked **after** the signature, on a header the issuer signed. RFC 9068's `at+jwt` by default in `direct`. Without it, *any* JWT this issuer signed for this audience verifies - and where your resource identifier is also a client id, which is the ordinary arrangement, that includes an **OIDC ID token**: a document minted to describe a login, establishing a caller for an API call. `at+jwt`, `AT+JWT` and `application/at+jwt` are one value; a token with **no** `typ` is refused, so the check cannot be satisfied by omission |
+| `exp` and `nbf` | Both, with thirty seconds of leeway for clock skew. Not configurable: an operator who needs more has a clock problem that a wider window hides |
+| `iat`, in `behind-gateway` only | **Required**, and `exp - iat` is capped by `transit_max_lifetime_seconds`. Without an `iat` there is no lifetime to bound, and an assertion whose lifetime is the component's alone is not short-lived in any sense this deployment can enforce. An `iat` dated into the future past the leeway is refused too, or a component could buy a longer window by dating forward |
+| `iss` | Must equal the configured issuer, byte for byte. Not resolved as a URL - see the key table |
+| `aud` | Must contain **this deployment's own** resource identifier, byte for byte, and the claim is **required** - a token carrying no audience is refused rather than passing a check with nothing to compare. A client may also ask its authorization server for a narrowly scoped token; that is welcome and it is an optimisation, and it is never what makes the token safe |
+| `sub` | Required, and parsed: a control character or an invisible code point in it is a refusal, because the value is written into an audit record that is one line per call |
+| `act` | RFC 8693's actor claim, if present, becomes the ordered actor chain in the record - so a call by an agent for a person is a different event from a call by that person |
+| `scope` | Parsed, bounded, carried - and **read by nothing**. Scope-filtered advertisement and a per-caller ceiling are not built |
+
+A refused request in the `direct` mode gets `401` with a `WWW-Authenticate: Bearer
+realm="<your resource identifier>", error="invalid_token"`. It deliberately does **not** say which
+check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
+to fix. The log says, in the cause chain, where an operator can read it.
+
+**In `behind-gateway` there is no challenge**, and that is deliberate rather than missing: the caller
+holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
+a client that followed it would start putting credentials in a header this deployment refuses to read.
+
+**Rotation and revocation are two questions, and they have two answers.**
+
+| Question | What triggers a re-read | The bound |
+| --- | --- | --- |
+| has a key been **added** | a token naming a `kid` the cache does not hold | at most one read per thirty seconds, **however many requests arrive at once**: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set |
+| has a key been **removed** | age: the cached set is re-read once a minute | one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache *has*, so nothing else would ever trigger |
+
+The age re-read happens on a timer *and* on the first request past the horizon, so a deployment gets
+the bound whether or not it is serving traffic. A candidate that will not parse, or that holds no key
+of the pinned kind, is logged at `error` and **not** adopted: the previous keys keep verifying, because
+adopting a broken set turns a rotation mistake into a total outage.
+
+Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
+it, and the bucket it counts against is a network address rather than a principal.
 
 ## The endpoints
 
@@ -122,10 +235,11 @@ depends on why:
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 
-**The `403`s are not about your credential.** There is no per-caller identity here, so no token
-widens a metric's dimension set; a `403` is the catalog's answer to "may this be asked of this
-metric", and the sentence names the metric and the dimension so it cannot be mistaken for the other
-thing.
+**The `403`s are not about your credential.** No token and no scope widens a metric's dimension set;
+a `403` is the catalog's answer to "may this be asked of this metric", and the sentence names the
+metric and the dimension so it cannot be mistaken for the other thing. That stays true with leg 1
+configured: a verified caller is a caller whose identity is known, not a caller with more permissions -
+nothing anywhere reads a scope.
 
 **Two statuses are shared with something that is not a refusal**, and `code` is what separates them -
 as is the body shape, because only a refusal carries `outcome`:
@@ -222,9 +336,10 @@ Stated plainly, because each of these has been mistaken for the thing above.
   not have, and adding one is a change to every adapter.
 - **It does not bound how long one question takes.** One question that runs for an hour holds its
   slot for an hour.
-- **It is not a per-caller budget.** One caller can fill every slot and shed everybody else, and
-  nothing can tell two callers apart, because there is no per-caller identity - see the first
-  section. The limiter bounds an address's *rate*; this bounds the deployment's *concurrency*.
+- **It is not a per-caller budget.** One caller can fill every slot and shed everybody else. With leg 1
+  configured two callers *can* now be told apart - and nothing does: there is no budget port to key on
+  a principal, which is one of the four things [what is not built](#what-is-not-built) names. The
+  limiter bounds an address's *rate*; this bounds the deployment's *concurrency*.
 - **It does not reach inside the engine.** The in-process engine has its own blocking thread pool at
   the runtime default, which nothing here sizes.
 
@@ -279,8 +394,19 @@ selects which file is layered, so a file that could change it would be self-refe
 | `server.port` | `8080` | |
 | `server.request_timeout_seconds` | `30` | At most 300 |
 | `server.max_body_bytes` | `65536` | At most one mebibyte. A question is a few hundred bytes |
-| `security.access_token` | absent | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind |
+| `security.access_token` | absent | An RFC 6750 `b64token`, at least 32 characters. Required in production and on a non-loopback bind, **unless `security.inbound` is declared** |
 | `security.tls_termination` | `none` | One of `none`, `sidecar`, `ingress`, `in-process`. Must be declared for any bind other hosts can reach |
+| `security.inbound.mode` | absent, and **no default** | `direct` or `behind-gateway`. Absent means no per-caller identity; present-but-unset does not start. See [who is asking](#who-is-asking) |
+| `security.inbound.resource` | absent | `direct` only. This deployment's own resource identifier - an absolute `https` URI, no query, no fragment. What `aud` must equal, byte for byte |
+| `security.inbound.authorization_server` | absent | `direct` only. **The `iss` value, exactly** - it is compared byte for byte against the claim, not resolved as a URL. Copy it out of the issuer's own discovery document rather than typing the console URL: Entra's v1 and v2 endpoints publish *different* `iss` values for one tenant, and that is the classic way to configure this wrongly |
+| `security.inbound.transit_header` | absent | `behind-gateway` only. The header the component's **signed assertion** arrives in. Never a header holding a name. `authorization` is refused - it is the deployment token's |
+| `security.inbound.transit_issuer` | absent | `behind-gateway` only. Who must have signed the assertion, again as the `iss` value exactly |
+| `security.inbound.transit_audience` | absent | `behind-gateway` only. The audience the assertion must carry |
+| `security.inbound.key_set_file` | absent | Both modes. A JWK set on disk. **There is no URL source** - see [what is not built](#what-is-not-built). Re-read on a timer and when a token names an unknown key; it must hold at least one key of the pinned algorithms' kind, or the process refuses to start |
+| `security.inbound.algorithms` | absent, and **no default** | Both modes. One or more of `RS256`, `RS384`, `RS512`, `PS256`, `PS384`, `PS512`, `ES256`, `ES384`, `EdDSA`. `none` and every `HS*` are refused by name, and a list spanning two key kinds is refused because one token is verified by one key |
+| `security.inbound.token_type` | `at+jwt` | `direct` only. Which class of token, out of the `typ` header. `any` switches the check off and is printed at `WARN` on every boot. **Leaving it alone is the safe reading** - see [who is asking](#who-is-asking) |
+| `security.inbound.transit_token_type` | absent, and **required** | `behind-gateway` only. The class the component emits, or `any` if it sets none. Required because a component's `typ` is a fact only the deployment knows |
+| `security.inbound.transit_max_lifetime_seconds` | `120` | `behind-gateway` only. The longest `exp - iat` this deployment will call short-lived. Between 1 and 3600. An assertion with no `iat` is refused |
 | `server.tls_certificate` | absent | A PEM chain. Only with `tls_termination: in-process` |
 | `server.tls_key` | absent | The matching PEM private key. Both halves or neither |
 | `rate_limit.enabled` | follows the environment | Off in development and test, on in production. `false` in production is refused |
@@ -516,9 +642,29 @@ Named rather than implied, because an absence that reads as an oversight gets as
 - **No MCP surface.** The seam is there and nothing sits on it: the transport talks to the service
   through one small port, so a second transport consumes the same thing rather than growing its own
   copy of the wiring.
-- **No audit sink.** `AGENTS.md` records "every call is attributable, refusals included" as an
-  invariant enforced by one. There is none, and there would be no principal to record if there were.
-  Every question and every outcome reaches the log, and the log is named for what it is.
+- **No record STORE.** This bullet said "no audit sink" and that had already stopped being true: there
+  is an `AuditSink` port, `sutura-app` writes one record per outcome through it before the outcome
+  returns, and the writer a deployment gets for free puts that record on the log below. What does not
+  exist is retention - sutura keeps nothing, so what a record is worth is what the deployment's log
+  pipeline is worth. What has changed with leg 1 is that the record can now name a **person** rather
+  than only the deployment.
+- **No key-set endpoint.** `security.inbound.key_set_file` reads a JWK set off disk, and there is no
+  URL source: an outbound HTTP client is a supply-chain change with its own review, and it makes the
+  authorization server a hard runtime dependency whose outage has to stay distinguishable from a dead
+  data system. Everything a URL source would need is built - the cache, the refetch on an unknown key
+  id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
+  process with no egress rotates. **The limit a file has:** no cache header, so a key rotated *without*
+  its id changing is one this deployment keeps using.
+- **No protected-resource metadata.** A `401` carries an RFC 6750 challenge naming the realm and no
+  `resource_metadata` parameter, so a client learns which authorization server governs this resource
+  out of band rather than by reading a document here.
+- **No replay protection on a gateway assertion.** The *window* is bounded - an `iat` is required and
+  `exp - iat` is capped - and inside it an intercepted assertion replays. Closing that needs the
+  assertion bound to the request (a hash of the method, path and body the component computes) or a
+  store of what has been seen, and neither exists. That is why this page calls it an assertion rather
+  than a proof of transit, and why the hop from the component is a trusted boundary.
+- **No leg 2.** Leg 1 establishes who is asking; nothing makes a data system execute as that person.
+  See the first section - this is the single most important absence on this page.
 - **No request identifier.** It belongs in the failure body and there is nothing to put in it, and a
   field that is always absent is worse than no field.
 - **No readiness endpoint.** There is nothing it could report that is not already true of a process
@@ -577,9 +723,10 @@ resolves to a handler holds a credential.
 
 A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The `503` the others
-get is honest and the backlog is bounded, but the *sharing* is not fair and cannot be made fair here:
-fairness needs a per-caller identity to be fair between, and there is none. What exists is
-`rate_limit.api_per_second`, which bounds how fast one address can start questions.
+get is honest and the backlog is bounded, but the *sharing* is not fair and is not made fair here.
+With leg 1 there is now a principal to be fair *between* - and nothing keys anything on it: no budget
+port exists, so what bounds a caller is still `rate_limit.api_per_second`, which bounds how fast one
+address can start questions.
 
 The same caller can keep a question running after being answered `408`, because nothing cancels one.
 So the cost of a question is not bounded by anything the caller experiences - only the *number* of

@@ -146,6 +146,9 @@ mod tests {
             RefusalReason::DuplicateDimension { dimension: dimension() },
             RefusalReason::TooManyDimensions { requested: 5, limit: 4 },
             RefusalReason::ResultTooLarge { limit: 10_000 },
+            RefusalReason::ResourcesExhausted {
+                ceiling_bytes: 1024 * 1024 * 1024,
+            },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
             RefusalReason::PlanSpansTwoSources { sources: 2 },
             RefusalReason::SourceUnavailable {

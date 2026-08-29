@@ -268,6 +268,46 @@ tower_governor = { version = "0.8", default-features = false, features = ["axum"
 # networked adapter lands and needs it, is where that changes - see `docs/serving.md`.
 tokio-rustls = { version = "0.26", default-features = false, features = ["logging", "ring", "tls12"] }
 
+# JWT and JWKS verification, for leg 1 of the identity path - `docs/adr/0014`. The first inbound
+# dependency in this workspace that must VERIFY a signature rather than present one.
+#
+# **Hand-rolled here is not on the table**, and the asymmetry is the point of the record that decides
+# it: `docs/adr/0014` argues for hand-writing a metrics exposition format and against hand-writing
+# signature verification in the same breath. One is a text format; the other is cryptography, and
+# behind a `Direct` deployment a bug in it is the whole authentication story rather than a second line
+# of defence.
+#
+# **Why 9.3 and not 11.0, which is current.** 11.0 removed `ring` and has no default crypto backend:
+# the two on offer are `aws_lc_rs`, which needs cmake and a bindgen path in the build sandbox and
+# would have to cross-compile for two musl targets, and `rust_crypto`, which pulls the `rsa` crate -
+# carrying RUSTSEC-2023-0071, unpatched, which `cargo deny check advisories` fails on. So the newest
+# version that resolves is the newest usable one, which is what *Dependency Currency* asks for rather
+# than the highest number. RE-CHECK when either of those changes: an `rsa` release past 0.9 that
+# clears the advisory, or an `aws-lc-rs` that needs no cmake, makes 11.x reachable. Measured
+# 2026-08-29.
+#
+# **What it costs, counted rather than waved at:** ONE package in `Cargo.lock` - itself. `base64`,
+# `serde`, `serde_json` and `ring` are already resolved; `default-features = false` drops `use_pem`,
+# and with it `pem` and `simple_asn1`, because keys arrive here as JWK and never as PEM. What does
+# change is that `ring` moves from an optional edge - it arrives under the `tls` feature and under
+# `libduckdb-sys`'s `ureq` - into the DEFAULT graph of `sutura-http`, so a shipped binary now links
+# it. `deny.toml` already allows its "Apache-2.0 AND ISC" for exactly that stack, which was checked
+# rather than assumed, and `ring` ships its own assembly and cross-compiles with the musl `cc` the
+# Nix build already exports - which is why it was chosen over `aws-lc-rs` for rustls above too.
+#
+# Upstream calls itself passively maintained. That is a real cost and it is the smallest one
+# available: every alternative is either bigger (an HTTP client, an async runtime and an axum layer),
+# built on OpenSSL, or unmaintained outright.
+jsonwebtoken = { version = "9.3", default-features = false }
+
+# base64url, and TEST-ONLY: `sutura-http`'s leg 1 tests write a JWK, whose `x` and `y` are base64url
+# of a public point. Nothing in a shipped path encodes or decodes base64 first-party - `jsonwebtoken`
+# does its own inside the token - so this is a dev-dependency and adds nothing to the lock, where
+# 0.22.1 is already resolved under that crate. Written rather than hand-rolled for the reason `sha2`
+# and `subtle` are: ten lines of local bit-twiddling under an `indexing_slicing` ban, to reimplement
+# something audited, in a fixture whose correctness the test cannot observe.
+base64 = { version = "0.22", default-features = false, features = ["std"] }
+
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
 # environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.
