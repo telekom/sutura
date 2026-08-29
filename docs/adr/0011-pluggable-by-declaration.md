@@ -285,7 +285,7 @@ the ones that exist today are marked.
 | --- | --- |
 | Wren-style markdown and YAML | ships |
 | OKF-style markdown and YAML | target |
-| Datahub | target |
+| Datahub | target, and the one that has been **measured** rather than assumed - [what DataHub can carry](0016-what-datahub-can-carry.md) reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source |
 | OpenMetadata | target |
 | A custom data catalog over an RDBMS | target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt |
 | BPMN | target |
@@ -628,6 +628,15 @@ revenue is a sum of one column with two filters. A human owns that sentence, and
 structure is precisely the guessing this design exists to avoid: it would produce a certified number
 whose definition nobody wrote. So the split is: **structure and meaning can be harvested; the measure is
 declared.**
+
+**That claim has since been tested against a source that does carry a metric, and it survived for a
+better reason than the one given here.** [What DataHub can carry](0016-what-datahub-can-carry.md)
+measures a full metadata platform that has first-class metric and semantic-model entities, and finds
+that what it holds a measure as is a raw expression string tagged with a dialect, beside an
+independently authored aggregation name that nothing reconciles with it. So the argument is not only
+that a structural source cannot say what a measure is - it is that a source which *does* say it says it
+in a form that would have to be either translated or half-read, and both of those produce a certified
+number nobody here can vouch for. The split above is unchanged; the mechanism under it is stronger.
 
 What that buys, concretely: with a rich source present, a candidate definition can arrive with the model,
 the dimensions, their allowed values, the joins and their cardinality already filled, leaving a human to

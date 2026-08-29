@@ -176,7 +176,7 @@ can change, and it is not uniform - so here is the actual state rather than a ti
 | Runs on stable | Runs on the shell's cargo (nightly + cranelift) |
 | --- | --- |
 | every `just` task and devenv script that sources `nix/stable-env.sh` | the `rust-fmt`, `rust-check-changed` and `rust-doctests` commit hooks |
-| the `rust-clippy` commit hook | typing `cargo` yourself |
+| the `rust-clippy` commit hook and the `rust-clippy-push` push hook | typing `cargo` yourself |
 | the `rust-crap` hook, because coverage instrumentation is LLVM-only | |
 
 Anything that CODEGENS is faster on cranelift and its verdict does not depend on the channel, so
@@ -202,16 +202,47 @@ invalidates every artifact in it.
 
 | Stage | What runs |
 | --- | --- |
-| commit | `cargo fmt --check`; clippy over the workspace, `--all-targets --all-features`, `-D warnings`; `hygiene`, the cheap structural gates in one hook; `cargo check` narrowed to the changed packages; `cargo nextest` and doctests; the **CRAP score** when the scored crate or its policy changed; a staged secret scan; workflow static analysis when a workflow changed |
+| commit | `cargo fmt --check`; clippy over the workspace, `--all-targets --all-features`, `-D warnings`; `hygiene`, the cheap structural gates in one hook; `cargo check` narrowed to the changed packages; `cargo nextest` and doctests; the **CRAP score** when the scored crate or its policy changed; a staged secret scan; shellcheck over every `.sh` we ship; workflow static analysis when a workflow changed |
 | commit-msg | the conventional-commit subject check |
-| push | a secret scan over the whole tree rather than the staged diff, `cargo-deny`, formatting on stable as CI checks it, and shellcheck over every `.sh` we ship |
+| push | a secret scan over the whole tree rather than the staged diff, `cargo-deny`, formatting on stable as CI checks it, and **clippy again - the push stage compiles** |
 | CI | the same gates, plus test causality, the cross-built release binaries and the image |
 
 `hygiene` is one hook because `xtask` owns the list: `check-boundaries`, `max-lines`,
 `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`, `line-endings`, `text-hygiene`,
-`check-skills`, `check-scope`, `check-guidance`, `check-workflows`, `check-docs`, `check-crap`.
-`cargo xtask --help` prints them, marked - and that is the authority, because this sentence had
-gone stale on two of them before `check-scope` was added to it.
+`check-skills`, `check-scope`, `check-hook-tiers`, `check-guidance`, `check-workflows`,
+`check-docs`, `check-crap`. `cargo xtask --help` prints them, marked - and that is the authority,
+because this sentence had gone stale on two of them before `check-scope` was added to it.
+
+**Two rows of that table used to be wrong, and both are called out rather than quietly fixed** -
+one because closing it is what this section's push gate is for, the other because it is the same
+mistake in the other direction: a document describing a tier the hook did not have.
+
+**The push stage used to compile nothing.** Every compiling gate was a commit hook, and `git
+rebase` - `git rebase --continue` included - runs no commit hook at all. So a conflict resolution
+went to the remote with nothing having built it, which happened three times in one day: a
+hand-resolved merge whose `sutura-config` did not compile, a CLEAN merge where one branch changed
+`PinnedDefinitions::provenance` and the other added a call site for the old signature (git cannot
+see that as a conflict), and a branch red on CI's format step. `cargo xtask check-hook-tiers` is
+what keeps this row true: it fails when no `pre-push` hook compiles, and it fails when the
+push-stage invocation is not the commit stage's own.
+
+It is the SAME clippy run, and the file expresses that as a YAML anchor rather than a second copy,
+because a gate that makes `git push` slow gets bypassed with `--no-verify` and then guards nothing.
+cargo keys its fingerprints on the invocation, so an identical command reuses what the commit hook
+built. Measured on this tree: **1.0 s** for the push-stage clippy after a commit hook ran, **2-3 s**
+when a rebase changed a crate, and **76.6 s** for the same command into an empty target directory -
+which is the honest worst case, and is paid by the first commit in a fresh clone anyway, since
+`rust-clippy` is a commit hook too. `cargo check` was the other candidate and is worse on both
+counts: it shares no fingerprints with clippy for the workspace's own crates, so it is a second pass
+over them - 3.4 s measured right after a warm clippy - to report less. And one thing the push tier
+already caught before this hook, which is why it is not *"push compiled nothing"* without
+qualification: `fmt-parity` runs rustfmt, which cannot PARSE an unclosed delimiter, so a syntax
+error was refused there. What escaped was a tree that parses and does not type-check.
+
+**Shellcheck was never a push gate.** It declares no `stages:`, so it has always inherited
+`default_stages: [pre-commit]`; it sat under the push banner in `.pre-commit-config.yaml` and this
+table read the banner. The hook moved up into the commit block rather than being restaged - the
+tier it has always run at is the right one for it.
 
 **The CRAP gate** scores cyclomatic complexity weighted by the tests that cover it, which is the
 combination neither a complexity limit nor a coverage percentage catches alone. It is in two

@@ -421,6 +421,19 @@ skills-relock:
 hooks *args:
     pixi run --frozen prek run {{ args }}
 
+# Through pixi's ISOLATED `gcloud` environment, which holds a task and no packages: the Google
+# Cloud CLI is reached as a pinned container rather than as a conda dependency, because
+# conda-forge has no `win-64` build of it and this workspace declares that platform. pixi.toml
+# carries the argument and the two variables a developer can set.
+#
+# It is INTERACTIVE - `docker run -it` - so it needs a real terminal and cannot be part of any
+# gate. Nothing is written into this repository: both logins land in the developer's own gcloud
+# configuration directory, where a native `gcloud`, `bq` or a client library already looks.
+
+# Authenticate against Google Cloud, for the BigQuery work. Both logins, in a container.
+gcloud-login:
+    pixi run --frozen -e gcloud gl
+
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.
@@ -464,6 +477,12 @@ dev-up-identity:
 # Where this worktree's services are listening. The only way to learn it - there is no constant.
 dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
+
+# One service's host:port, on stdout and nothing else, so a shell can substitute it:
+# `PGPORT="${$(just dev-endpoint postgres)##*:}"`. Anyone following `examples/` uses this instead
+# of learning what a scope or an ephemeral port is. `just dev-endpoints` is the readable table.
+@dev-endpoint service:
+    cargo run -q -p xtask -- dev-endpoint {{ service }}
 
 # Remove this worktree's services, its network and its named volumes. Nothing else, ever.
 dev-down:

@@ -40,9 +40,16 @@ repos:
       #
       # `bash -c` because `language: system` runs the entry as a command rather than through a
       # shell, so there is nothing to source it otherwise.
+      #
+      # THE ANCHOR IS LOAD-BEARING, and not for tidiness. `rust-clippy-push` below aliases this
+      # exact scalar, so the two stages cannot invoke clippy differently - and cargo's fingerprints
+      # are keyed on the invocation, so a divergence of ONE flag would stop the push stage reusing
+      # what this hook just built and turn a one-second no-op into a full workspace check. One YAML
+      # node is the only form of "the same command" that cannot drift; `cargo xtask check-hook-tiers`
+      # is what fails if somebody replaces the alias with a copy.
       - id: rust-clippy
         name: cargo clippy (-D warnings, all features, on stable)
-        entry: bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'
+        entry: &clippy bash -c 'source nix/stable-env.sh; exec cargo clippy --workspace --all-targets --all-features -- -D warnings'
         language: system
         files: \.(rs|toml)$
         pass_filenames: false
@@ -120,7 +127,35 @@ repos:
         pass_filenames: false
         require_serial: true
 
-      # --- on push: what only makes sense against the whole tree --------------
+      # Every shell script we ship, and the glob IS the list.
+      #
+      # It was two hand-written lists - two files named in the justfile, one in ci.yml - under a
+      # comment claiming to be exhaustive, which it was of neither. `nix/run-gate.sh` was in
+      # neither, and that file decides whether the tests, the secret sweep, the supply-chain gate
+      # and now the CRAP score run AT ALL: a `set -eu` slip there turns four gates into silent
+      # no-ops at once. A `files:` glob cannot drift the way a transcribed list does.
+      #
+      # Through nix, the only pin for shellcheck - its version decides what it reports, so
+      # `cargo xtask check-pins` fails if it reappears in pixi.toml. Skipped with a notice where
+      # nix is absent, like the other nix-backed hooks here.
+      #
+      # IT IS A COMMIT HOOK, and it sat under the push banner below for its whole life while
+      # CONTRIBUTING.md listed it as a push gate. It declares no `stages:`, so it inherits
+      # `default_stages: [pre-commit]` - the banner was the only thing saying otherwise. Moved
+      # rather than restaged: the tier it has always RUN at is the right one, since a `.sh` edit is
+      # cheap to check and the finding is most useful before the commit claiming the script works.
+      - id: shellcheck
+        name: shell scripts
+        entry: >-
+          bash -c 'command -v nix >/dev/null 2>&1
+          && exec nix run .#shellcheck -- -x "$@"
+          || echo "shellcheck skipped - no nix on this host, CI enforces it"' --
+        language: system
+        files: \.sh$
+        pass_filenames: true
+
+      # --- on push: what only makes sense against the whole tree, or was never
+      # --- compiled at all because a rebase runs no commit hook ---------------
       # The whole tree, not just the diff. The commit-stage scan above is staged-only, so a
       # finding in a file committed long ago reaches CI unseen - which is exactly what happened.
       - id: secret-sweep
@@ -159,26 +194,42 @@ repos:
         pass_filenames: false
         stages: [pre-push]
 
-      # Every shell script we ship, and the glob IS the list.
+      # THE PUSH STAGE COMPILES. Until this hook it did not, and that was a hole rather than a
+      # tier: every compiling gate was on COMMIT, and a rebase runs no commit hook at all - so a
+      # conflict resolution went to the remote with nothing having compiled it. Measured, three
+      # times in one day: a hand-resolved merge whose `sutura-config` did not build; a CLEAN merge
+      # of two branches where one changed a signature and the other added a call site against the
+      # old one, which git cannot see as a conflict at all; and a branch red on CI's format step.
       #
-      # It was two hand-written lists - two files named in the justfile, one in ci.yml - under a
-      # comment claiming to be exhaustive, which it was of neither. `nix/run-gate.sh` was in
-      # neither, and that file decides whether the tests, the secret sweep, the supply-chain gate
-      # and now the CRAP score run AT ALL: a `set -eu` slip there turns four gates into silent
-      # no-ops at once. A `files:` glob cannot drift the way a transcribed list does.
+      # AN ALIAS OF THE COMMIT-STAGE ENTRY, and that is the whole reason this is affordable.
+      # cargo keys its fingerprints on the invocation, so the identical command reuses what the
+      # commit hook built: measured on this tree at 1.0 s for a push whose commits went through a
+      # commit hook, against 76.6 s for the same clippy into an empty target directory. A gate that
+      # makes `git push` slow gets bypassed with `--no-verify`, and then it guards nothing.
       #
-      # Through nix, the only pin for shellcheck - its version decides what it reports, so
-      # `cargo xtask check-pins` fails if it reappears in pixi.toml. Skipped with a notice where
-      # nix is absent, like the other nix-backed hooks here.
-      - id: shellcheck
-        name: shell scripts
-        entry: >-
-          bash -c 'command -v nix >/dev/null 2>&1
-          && exec nix run .#shellcheck -- -x "$@"
-          || echo "shellcheck skipped - no nix on this host, CI enforces it"' --
+      # `cargo check` was the other candidate and is strictly worse: clippy and check do not share
+      # fingerprints for the workspace's own crates, so `cargo check` here is a second pass over
+      # them - 3.5 s measured immediately after a warm clippy, against clippy's own 1.0 s - to
+      # learn less than clippy already reports. The DEPENDENCY closure is shared, which is why that
+      # figure is seconds rather than another 76; what pays twice is our own fifteen crates.
+      #
+      # LAST in the stage, because the three gates above are cheaper and one of them reads better:
+      # `fmt-parity` runs rustfmt, which cannot PARSE a file with an unclosed delimiter, so a
+      # syntax error is already reported there - verified. What only a compiler sees is a tree that
+      # parses and does not type-check, which is the merge case above.
+      #
+      # SCOPED by `files:`, which is the only honest narrowing available: at this stage prek passes
+      # the paths between the remote ref and the local one, so a docs-only push pays nothing.
+      # Whether the pushed commits ALREADY went through a commit hook is not detectable - a rebased
+      # commit is indistinguishable from a hooked one - so within a Rust-touching push it is
+      # unconditional, and the fingerprint reuse rather than a detector is what keeps it cheap.
+      - id: rust-clippy-push
+        name: cargo clippy (again, because a rebase ran no commit hook)
+        entry: *clippy
         language: system
-        files: \.sh$
-        pass_filenames: true
+        files: \.(rs|toml)$
+        pass_filenames: false
+        stages: [pre-push]
 
       # --- on commit-msg ------------------------------------------------------
       # `default_install_hook_types` above declares `commit-msg`, and AGENTS.md states the

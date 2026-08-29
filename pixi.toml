@@ -86,10 +86,87 @@ docs-list = "mike list"
 # `-b <branch>`. Any extra argument reaches mike, since a pixi task appends what follows.
 mike = "mike"
 
+# -------------------------------------------------------------------- gcloud ---
+# The Google Cloud CLI, for the BigQuery steps of the plan. Reached as a CONTAINER and declared as
+# a task rather than as a package, and that is a decision rather than an implementation detail.
+#
+# WHY NOT A DEPENDENCY. conda-forge's `google-cloud-sdk` has no `win-64` build - checked on
+# 2026-08-29, it resolves on `linux-64`, `linux-aarch64` and `osx-arm64` and the name does not
+# exist for `win-64` at all - and this workspace declares `win-64`. The rule at the top of the
+# platform list applies: tooling that cannot resolve on a platform we ship to is tooling nobody can
+# run there. The obvious repair is a package on three platforms and a container on the fourth,
+# which is two invocations to keep in step, and the one that drifts is the one nobody runs. One
+# container everywhere resolves wherever docker does, and the service tier already requires docker,
+# so this adds no prerequisite.
+#
+# ISOLATED like `docs`, and here that is nearly free: the feature declares no packages, so
+# `no-default-feature = true` keeps the hook runner and the maintenance interpreter out of a login
+# and there is nothing for either solve to perturb.
+#
+# NOTHING IS WRITTEN INTO THIS REPOSITORY. Authentication state belongs outside the tree, so the
+# developer's own gcloud configuration directory is bind-mounted in and both logins land there -
+# which is where a native `gcloud`, `bq` or any client library already looks for `credentials.db`
+# and for the application-default credentials. Authenticate once and everything on the host is
+# authenticated afterwards; there is no repo-local copy to leak and none to clean up.
+#
+# WHICH PROJECT is not this repository's business and is deliberately absent: a developer names a
+# project in their own environment. `.envrc` already sources a file under the user's config
+# directory for exactly this class of value, and `docs/enterprise-mirrors.md` is the generic form.
+
+[feature.gcloud.tasks.gl]
+# Both logins, in one task, because doing one and forgetting the other is the failure that looks
+# like a broken adapter: `gcloud auth login` authorizes the CLI and
+# `gcloud auth application-default login` is what a client library reads. `--no-launch-browser` on
+# both - verified against the pinned image's own `--help` on 2026-08-29 - because a container has
+# no browser to open, and `-it` because an interactive login needs a real foreground terminal.
+#
+# `${VAR:-default}` IS NOT AVAILABLE HERE, which is why the two defaults are command
+# substitutions. pixi runs a task in its own shell rather than in the system one, and that shell
+# does not implement default-value expansion - measured, not assumed: it passes the text through
+# verbatim, so a mount written that way would be a literal path. Task-level `env` cannot supply the
+# defaults either, because it OVERRIDES a variable the developer already exported, which is the
+# opposite of what both of these need.
+#
+# CLOUDSDK_CONFIG is gcloud's own variable, so honouring it means a developer who has moved their
+# configuration directory needs no second setting. The `$HOME/.config/gcloud` fallback is gcloud's
+# documented default on Linux and macOS. ON WINDOWS the directory is under `%APPDATA%\gcloud` and
+# there is no expansion that reaches it from here, so a Windows developer sets `CLOUDSDK_CONFIG`
+# to that path once - in their shell profile or in the file `.envrc` sources - and this task
+# follows it. Guessing a cross-shell expansion instead would work nowhere.
+#
+# THE IMAGE COMES THROUGH `SUTURA_IMAGE_REGISTRY`, the same variable every service in
+# `compose.services.yaml` is reached through, with the same public default. A network behind a
+# registry mirror has no route to the public registry and an unprefixed reference does not fall
+# back - it fails - so a bare image name is not a style choice, it is a login that cannot run
+# there. `xtask/src/compose.rs` checks that the default here and the one in the compose file agree,
+# because the two spellings cannot be compared by reading.
+#
+# The tag is pinned like the compose tier's, checked against the registry on 2026-08-29. Only
+# `amd64` is published for it - a single manifest, not a list - so an arm64 host runs it under
+# emulation and docker says so on every run. That is irrelevant for an interactive login and worth
+# knowing before it reads as a fault.
+#
+# ON A NATIVE LINUX DOCKER ENGINE the container writes as root, so files it creates in the mounted
+# directory are root-owned on the host and a later native `gcloud` cannot rewrite them; the repair
+# is one `chown` of that directory back to yourself. Docker Desktop maps ownership and does not
+# have the problem. Not worked around here because every way to do it needs a second, per-platform
+# invocation, which is the shape this whole feature exists to avoid.
+cmd = """
+export SUTURA_GCLOUD_CONFIG=$(test -n "$CLOUDSDK_CONFIG" && echo "$CLOUDSDK_CONFIG" || echo "$HOME/.config/gcloud")
+export SUTURA_GCLOUD_IMAGE=$(test -n "$SUTURA_IMAGE_REGISTRY" && echo "$SUTURA_IMAGE_REGISTRY" || echo docker.io)/google/cloud-sdk:582.0.0-slim
+echo "gl: signing in through $SUTURA_GCLOUD_IMAGE, writing to $SUTURA_GCLOUD_CONFIG" &&
+mkdir -p "$SUTURA_GCLOUD_CONFIG" &&
+docker run --rm -it -v "$SUTURA_GCLOUD_CONFIG:/root/.config/gcloud" "$SUTURA_GCLOUD_IMAGE" gcloud auth login --no-launch-browser &&
+docker run --rm -it -v "$SUTURA_GCLOUD_CONFIG:/root/.config/gcloud" "$SUTURA_GCLOUD_IMAGE" gcloud auth application-default login --no-launch-browser
+"""
+
 [environments]
 # The default environment stays small: the hook runner and the maintenance interpreter.
 # `docs` is its own, so neither can perturb the other's solve.
 docs = { features = ["docs"], no-default-feature = true }
+# `gcloud` holds a task and no packages, so it resolves on all four platforms above by having
+# nothing to resolve. What it needs at run time is docker, and no manifest can pin that.
+gcloud = { features = ["gcloud"], no-default-feature = true }
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched

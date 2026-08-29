@@ -18,6 +18,7 @@ mod crap;
 mod docs;
 mod fmt;
 mod guidance;
+mod hooks;
 mod line_endings;
 mod max_lines;
 mod pins;
@@ -157,6 +158,16 @@ const TASKS: &[Task] = &[
         run: tasks::run,
     },
     Task {
+        // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
+        // checked against the thing it claims, over a file no other gate reads. `check-scope`
+        // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
+        // decision lives and where deleting one block silently un-tiers it.
+        name: "check-hook-tiers",
+        description: "the push stage compiles, with the commit stage's own invocation",
+        kind: Kind::Hygiene,
+        run: hooks::run,
+    },
+    Task {
         name: "check-guidance",
         description: "docs and comments still describe this repo",
         kind: Kind::Hygiene,
@@ -277,6 +288,16 @@ const TASKS: &[Task] = &[
         description: "where this worktree's services are listening, from the discovery file",
         kind: Kind::Standalone,
         run: compose::run_endpoints,
+    },
+    Task {
+        // The SINGULAR one, and it is not a convenience duplicate of the plural: it prints
+        // `host:port` on stdout and nothing else, so it substitutes into a shell. That is what lets
+        // a reader following `examples/` reach a provisioned service without learning what a scope
+        // or an ephemeral port is.
+        name: "dev-endpoint",
+        description: "one service's host:port on stdout, for a shell to substitute; <service>",
+        kind: Kind::Standalone,
+        run: compose::run_endpoint,
     },
     Task {
         name: "test-causality",

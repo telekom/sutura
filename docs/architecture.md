@@ -52,10 +52,16 @@ reject.
 
 ## Metadata sources are behind a port
 
-Metrics, dimensions, the glossary and lineage come from a catalogue, and `SemanticCatalog` is the port
-they arrive through: one trait, implemented once per catalogue. A directory of documents in git and a
+Metrics, dimensions and the glossary come from a catalogue, and `SemanticCatalog` is the port they
+arrive through: one trait, implemented once per catalogue. A directory of documents in git and a
 metadata catalogue with an HTTP API are two adapters behind it, and swapping one for the other does
 not touch the query path.
+
+**This sentence used to say lineage arrives through that port too, and it does not.** There is no
+lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
+reads columns a model declares, and where a column came from upstream changes neither. It is real
+metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md) reads
+three lineage aspects out of one of them - and this port has no shape to put it in.
 
 The catalogue may be outside this repository or in it, and
 [the first-party models decision](adr/0001-first-party-semantic-models.md) is why both are allowed. What the port

@@ -736,7 +736,9 @@ is a habit rather than a gate.
   `packages = ` block and the `checks = {` block, because `xtask/src/pins.rs` and
   `xtask/src/workflows.rs` scan that file for them textually and both fail closed on finding
   none. A module holds what an app or a check *points at*, never the declaration.
-- `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push.
+- `.pre-commit-config.yaml` - what runs on commit (tests included), on commit-msg and on push
+  (where clippy runs a second time, because a rebase resolution used to reach the remote with
+  nothing having compiled it). `cargo xtask check-hook-tiers` is what keeps that true.
 - `clippy.toml` and the workspace lint table - the bans, each with its reason. The whole
   `restriction` category is on; the override list is where a specific ban gets disagreed with.
 - `deny.toml` - advisories, licence allowlist, duplicate versions.
@@ -749,7 +751,13 @@ is a habit rather than a gate.
   minute. `check-scope` is the one that reads the `justfile` rather than Rust: a recipe compiling
   PART of the workspace has to print which part, name a task that covers the whole of it, and cite
   nothing that has been renamed away - which is checkable where "did you read the scope in the
-  comment" is not.
+  comment" is not. `check-hook-tiers` is its sibling over `.pre-commit-config.yaml`: the push stage
+  has to run a hook that COMPILES, and that hook's entry has to be the commit stage's own - the
+  first because every compiling gate used to be a commit hook and a rebase runs none of them, the
+  second because cargo keys its fingerprints on the invocation, so a push-stage command differing
+  by one flag rebuilds the workspace instead of reusing what the commit hook built. Hook tiers are
+  bypassable with `--no-verify`, so neither is an invariant and neither is a row above; what the
+  gate holds is that the tiers `CONTRIBUTING.md` documents are the tiers the file declares.
 - `.github/workflows/` - `ci.yml` (every push and PR: lints, then tests, then the release
   build), `release.yml` (on a `v*` tag: cross-built binaries and the image), and
   `release-performance.yml` (manual dispatch only, typed confirmation, the release profile plus fat
