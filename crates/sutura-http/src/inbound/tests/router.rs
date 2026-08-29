@@ -45,11 +45,35 @@ const DIRECT_OVERLAY: &str = "security:\n  inbound:\n    mode: \"direct\"\n    \
                               authorization_server: \"https://issuer.example.com\"\n    \
                               key_set_file: \"/unread.json\"\n    algorithms: [\"ES256\"]\n";
 
+/// A token this issuer signed, carrying `scope`.
+///
+/// **Every router test that expects an answer now has to mint one**, and that is the behaviour change
+/// this branch makes rather than a test-fixture detail: a verified caller is permitted exactly the
+/// capabilities its scopes name, so a token with no `scope` claim reaches a handler for nothing.
+fn a_token_granting(pair: &rcgen::KeyPair, scope: &str) -> String {
+    let extra = serde_json::json!({ "scope": scope }).to_string();
+    signed(pair, KID, &claims("someone@example.com", RESOURCE, ISSUER, &extra))
+}
+
+/// A token granting every capability this surface has, space-delimited per RFC 6749.
+fn a_fully_granted_token(pair: &rcgen::KeyPair) -> String {
+    let scope = sutura_app::Capability::every()
+        .map(sutura_app::Capability::scope)
+        .collect::<Vec<&str>>()
+        .join(" ");
+    a_token_granting(pair, &scope)
+}
+
 /// One request through the real router, with a peer address the limiter can key on.
 async fn call(app: &axum::Router, token: Option<&str>) -> (StatusCode, Option<String>) {
+    ask(app, token, "POST", "/v1/query").await
+}
+
+/// The same, for any method and path, so the catalog route can be reached too.
+async fn ask(app: &axum::Router, token: Option<&str>, method: &str, uri: &str) -> (StatusCode, Option<String>) {
     let mut builder = axum::http::Request::builder()
-        .method("POST")
-        .uri("/v1/query")
+        .method(method)
+        .uri(uri)
         .header("content-type", "application/json");
     if let Some(token) = token {
         builder = builder.header("authorization", format!("Bearer {token}"));
@@ -93,7 +117,10 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
     // And what it must NOT say: which check failed. There is no `error_description`.
     assert!(!challenge.contains("error_description"), "{challenge}");
 
-    let (status, _) = call(&app, Some(&a_token(&pair))).await;
+    // **The token now has to carry the scope**, which is this branch's behaviour change and not a
+    // fixture detail: leg 1 says who is asking and the capability gate says what they may invoke.
+    // `a_token` - the same token, with no `scope` claim - is the 403 asserted two tests below.
+    let (status, _) = call(&app, Some(&a_fully_granted_token(&pair))).await;
     assert_eq!(status, StatusCode::OK, "a verified caller's question is answered");
 
     // A forged signature is the same 401 as no token at all, which is the point: nothing in the
@@ -104,15 +131,100 @@ async fn the_versioned_surface_needs_a_verified_caller_when_one_is_declared() {
     assert_eq!(status, StatusCode::UNAUTHORIZED);
 }
 
+/// **THE property of the capability gate, through the real router.**
+///
+/// A verified caller granted one capability reaches that route and is refused the other, with a `403`
+/// naming the scope it lacks. Both halves matter: without the second the gate is a control that is
+/// never exercised, and without the first it is a control that refuses everybody.
+#[tokio::test]
+async fn a_verified_caller_reaches_only_the_routes_its_scopes_name() {
+    let pair = key_pair();
+    let app = app(DIRECT_OVERLAY, Some(&jwks(KID, &pair)));
+    let catalog_only = a_token_granting(&pair, sutura_app::Capability::DescribeCatalog.scope());
+
+    let (status, _) = ask(&app, Some(&catalog_only), "GET", "/v1/catalog").await;
+    assert_eq!(status, StatusCode::OK, "the granted capability is reachable");
+
+    let (status, _) = call(&app, Some(&catalog_only)).await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "the capability this token does not name is refused"
+    );
+
+    // The other way round, so the pass above is about the grant rather than about the route.
+    let ask_only = a_token_granting(&pair, sutura_app::Capability::AskMetric.scope());
+    let (status, _) = call(&app, Some(&ask_only)).await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, _) = ask(&app, Some(&ask_only), "GET", "/v1/catalog").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+}
+
+/// Fail closed, and the refusal is what makes it survivable.
+///
+/// A token this deployment verified, carrying no capability scope, reaches nothing. That is the
+/// operational trap this branch introduces - switch `security.inbound` on before authoring scopes and
+/// every caller is switched off - so the response has to be diagnosable without a log: `403`,
+/// `insufficient_scope`, and the exact scope string named in the detail.
+#[tokio::test]
+async fn a_verified_caller_whose_token_names_no_capability_scope_reaches_nothing() {
+    let pair = key_pair();
+    let app = app(DIRECT_OVERLAY, Some(&jwks(KID, &pair)));
+    // `a_token` is the same token as everywhere else in this file, and it carries no `scope`.
+    let scopeless = a_token(&pair);
+    let (status, body) = answered(&app, &scopeless, "POST", "/v1/query").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.contains(r#""code":"insufficient_scope""#), "{body}");
+    assert!(body.contains(sutura_app::Capability::AskMetric.scope()), "{body}");
+    // And it is not a `401`: re-authenticating would hand back the same token forever.
+    assert_ne!(status, StatusCode::UNAUTHORIZED);
+
+    let (status, body) = answered(&app, &scopeless, "GET", "/v1/catalog").await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    assert!(body.contains(sutura_app::Capability::DescribeCatalog.scope()), "{body}");
+}
+
+/// One request, with the body read back, for the two tests that assert on `code` and on the scope.
+async fn answered(app: &axum::Router, token: &str, method: &str, uri: &str) -> (StatusCode, String) {
+    let mut request = axum::http::Request::builder()
+        .method(method)
+        .uri(uri)
+        .header("content-type", "application/json")
+        .header("authorization", format!("Bearer {token}"))
+        .body(Body::from(
+            r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"}}"#,
+        ))
+        .expect("the test request is well formed");
+    let peer: std::net::SocketAddr = "203.0.113.7:44444".parse().expect("a test peer address is an address");
+    let _previous_peer = request.extensions_mut().insert(axum::extract::ConnectInfo(peer));
+    let response = app
+        .clone()
+        .oneshot(request)
+        .await
+        .expect("the router is infallible as a service");
+    let status = response.status();
+    let bytes = axum::body::to_bytes(response.into_body(), 64 * 1024)
+        .await
+        .expect("the test response body is small");
+    (status, String::from_utf8_lossy(&bytes).into_owned())
+}
+
 #[tokio::test]
 async fn a_deployment_that_declares_no_inbound_identity_is_unaffected() {
     // The shape that ships today, and the assertion that leg 1 is opt-in: no declaration, no layer, and
     // a question is answered as `Subject::TheDeploymentItself` - which is every deployment that existed
     // before this change.
+    //
+    // **And it is the assertion that the capability gate is opt-in too**, which is the half worth
+    // pinning here: with no verified caller there is no claim to narrow by, so `Permitted` is every
+    // capability and both routes answer. A filter over an unverified claim would look like a control
+    // and be none.
     let app = app("", None);
     let (status, challenge) = call(&app, None).await;
     assert_eq!(status, StatusCode::OK);
     assert!(challenge.is_none(), "nothing challenges a caller here");
+    let (status, _) = ask(&app, None, "GET", "/v1/catalog").await;
+    assert_eq!(status, StatusCode::OK, "the catalog is not gated where nobody is identified");
 }
 
 #[test]

@@ -45,9 +45,11 @@
 //! 3. **Anything about client registration or client authentication.** Those are decisions for the
 //!    authorization server and for the client; this deployment is a resource server and validates what
 //!    arrives.
-//! 4. **A ceiling derived from a scope.** [`Scopes`] is parsed and carried and *nothing reads it* - see
-//!    [`caller`]. Scope-filtered advertisement is `feat/agent-surface-scope`, the raw tool's gate is
-//!    `docs/adr/0013`, and a per-caller budget has no port to live behind.
+//! 4. **A ceiling derived from a scope.** [`Scopes`] is now read by exactly one thing -
+//!    `crate::capability`, which decides which of this surface's *operations* a caller may invoke and
+//!    decides nothing about which rows an answer contains. A per-caller *budget* still has no port to
+//!    live behind, and `docs/adr/0013`'s raw tool is not built. See [`caller`] for the limit stated
+//!    beside the claim.
 //! 5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
 //!    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
 //!    deployment chose - and inside that window an intercepted assertion replays. There is no nonce

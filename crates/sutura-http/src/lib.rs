@@ -83,6 +83,7 @@
 //! # }
 //! ```
 
+pub mod capability;
 pub mod client_address;
 pub mod constants;
 pub mod correlation;
@@ -106,6 +107,7 @@ mod testing;
 #[cfg(test)]
 mod harness;
 
+pub use crate::capability::{capability_of, governed, permitted_for, require_capability};
 pub use crate::client_address::ClientAddress;
 pub use crate::correlation::{CorrelationId, NotACorrelationId};
 pub use crate::inbound::{InboundGate, InboundNotUsable, VerifiedCaller};

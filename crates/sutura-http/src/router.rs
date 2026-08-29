@@ -116,6 +116,23 @@ pub enum RouterNotBuilt {
          `InboundGate::from_declaration` and attaches it with `ServiceState::with_inbound_identity`"
     )]
     InboundIdentityNotAttached { mode: &'static str },
+    /// A route under the version prefix that `crate::capability::governed` names no capability for.
+    ///
+    /// **The mechanism that makes the capability gate unforgettable**, and it is deliberately a
+    /// refusal to assemble rather than a refusal at request time. The gate is a layer, so a handler
+    /// cannot forget to call it; what is left to forget is a row in the table, and a route with no row
+    /// would either be refused to every caller or - if the layer fell open - be reachable by every
+    /// caller. Neither is something to discover from a request.
+    ///
+    /// It reads the generated interface description, which is generated from the handlers' own
+    /// `#[utoipa::path]` attributes - so it is checked against the routes the router actually mounts
+    /// and not against a second list somebody kept in step.
+    #[error(
+        "`{method} {route}` is mounted under the version prefix and `sutura_http::capability::governed` \
+         names no capability for it, so nothing would decide whether a caller may invoke it. Add a row \
+         naming its `sutura_app::Capability`"
+    )]
+    RouteNotGoverned { method: String, route: String },
 }
 
 /// The router, and the limiter state something has to keep sweeping.
@@ -190,6 +207,14 @@ pub fn assemble(state: &ServiceState) -> Result<Assembled, RouterNotBuilt> {
     // Innermost of this subtree: the body bound. Inside the JSON extractor, which is what makes it
     // a limit on what is read rather than on what parses.
     .layer(DefaultBodyLimit::max(settings.server().max_body().bytes()));
+    // Then the capability gate: which of this surface's operations this caller may invoke. INSIDE leg
+    // 1, because `Router::layer` wraps what is already there - so by the time this runs the verified
+    // caller is in the extensions, which is the whole reason it is here and not one line later. It is
+    // a layer rather than a check per handler so that there is nothing for a handler to forget; what
+    // is left to forget is a row in `crate::capability::governed`, and `governed_routes` below refuses
+    // to assemble over one that is missing.
+    governed_routes()?;
+    let versioned = versioned.route_layer(axum::middleware::from_fn(crate::capability::require_capability));
     // Then leg 1, if this deployment has it: a verified caller, or a `401` with a challenge. INSIDE
     // the deployment token gate added below, because `Router::layer` wraps what is already there - so
     // the cheap comparison runs first and a signature verification is not work an unauthenticated
@@ -325,6 +350,57 @@ const fn limiter(cause: LimiterNotBuilt) -> RouterNotBuilt {
 /// that matched a route in this subtree, so a path under the version prefix that matches nothing falls
 /// through to the top-level `404` without a token check - which `crate::router`'s own documentation
 /// already states, along with why that is acceptable.
+/// Every route under the version prefix names a capability, or this router does not assemble.
+///
+/// **Reads the generated document rather than a list**, which is what makes it a check on the routes
+/// the router mounts: `utoipa_axum::routes!` derives the axum route and the documented path from one
+/// attribute, so a handler registered without a capability row shows up here.
+///
+/// The prefix is applied by [`assemble`]'s `nest`, so it is applied here too - and to the same
+/// fragment, from the same function - which is why the paths compared are the templates
+/// `axum::extract::MatchedPath` will hand the layer.
+fn governed_routes() -> Result<(), RouterNotBuilt> {
+    let fragment = OpenApiRouter::<ServiceState>::new()
+        .nest(API_V1_PREFIX, routes::v1::openapi_router())
+        .into_openapi();
+    every_route_governed(&fragment)
+}
+
+/// The check itself, over a document handed in.
+///
+/// Split from [`governed_routes`] for one reason: a test can hand it a document carrying a route
+/// nobody mapped, which is the only way to show the check is not vacuous. Asserting that today's
+/// document passes proves nothing about a document that should fail.
+fn every_route_governed(fragment: &utoipa::openapi::OpenApi) -> Result<(), RouterNotBuilt> {
+    for (route, item) in &fragment.paths.paths {
+        // `utoipa::openapi::PathItem` carries one `Option<Operation>` per HTTP method rather than a
+        // map, so this list is written out - all EIGHT it has, including the ones this service would
+        // never mount. That is the fail-closed direction: a route mounted under a method nobody
+        // expected still has to name a capability, and omitting a method here would be the way to
+        // mount an ungoverned route without failing this check. There is no ninth: the type has no
+        // `connect` field, so a CONNECT operation cannot be described and cannot reach this loop.
+        let mounted = [
+            (axum::http::Method::GET, item.get.is_some()),
+            (axum::http::Method::PUT, item.put.is_some()),
+            (axum::http::Method::POST, item.post.is_some()),
+            (axum::http::Method::DELETE, item.delete.is_some()),
+            (axum::http::Method::OPTIONS, item.options.is_some()),
+            (axum::http::Method::HEAD, item.head.is_some()),
+            (axum::http::Method::PATCH, item.patch.is_some()),
+            (axum::http::Method::TRACE, item.trace.is_some()),
+        ];
+        for (method, present) in mounted {
+            if present && crate::capability::capability_of(&method, route).is_none() {
+                return Err(RouterNotBuilt::RouteNotGoverned {
+                    method: String::from(method.as_str()),
+                    route: route.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 fn inbound_layered(
     versioned: Router,
     state: &ServiceState,
@@ -458,6 +534,62 @@ fn announce_keying(limits: &sutura_config::RateLimitSettings) {
             client_address = %limits.client_address(),
             "rate limit buckets are keyed on the peer address - behind a proxy that is ONE bucket \
              for every caller, and rate_limit.client_address is what changes it"
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{RouterNotBuilt, every_route_governed, governed_routes};
+
+    /// The check passes for the routes this crate actually mounts.
+    #[test]
+    fn every_route_this_crate_mounts_names_a_capability() {
+        assert!(governed_routes().is_ok(), "{:?}", governed_routes().err());
+    }
+
+    /// A document carrying one route under one method, for the two tests below.
+    fn document_with(route: &str, method: utoipa::openapi::HttpMethod) -> utoipa::openapi::OpenApi {
+        let mut document = utoipa::openapi::OpenApi::new(
+            utoipa::openapi::InfoBuilder::new().title("test").version("0").build(),
+            utoipa::openapi::Paths::new(),
+        );
+        drop(document.paths.paths.insert(
+            String::from(route),
+            utoipa::openapi::PathItem::new(method, utoipa::openapi::path::OperationBuilder::new().build()),
+        ));
+        document
+    }
+
+    /// **And the check is not vacuous.** A route nobody mapped is refused, and the error names it.
+    ///
+    /// This is the half that matters: the test above passes for a check that returns `Ok` without
+    /// looking at anything. Here a document carrying a route the table does not name has to fail, and
+    /// the failure has to name what was not governed - because the error is what tells whoever added
+    /// the route what to do about it.
+    #[test]
+    fn a_route_that_names_no_capability_assembles_no_router() {
+        let refused = every_route_governed(&document_with("/v1/rogue", utoipa::openapi::HttpMethod::Post))
+            .expect_err("an ungoverned route is refused");
+        let RouterNotBuilt::RouteNotGoverned { method, route } = refused else {
+            panic!("expected RouteNotGoverned, got {refused:?}");
+        };
+        assert_eq!(method, "POST");
+        assert_eq!(route, "/v1/rogue");
+    }
+
+    /// A method nobody expected on a route that IS governed is still refused.
+    ///
+    /// The fail-closed direction, and the reason the method list in [`every_route_governed`] is
+    /// written out in full: `crate::capability::governed` keys on method as well as path, so a
+    /// `DELETE` mounted by accident on the question route does not inherit its capability.
+    #[test]
+    fn a_governed_route_under_an_unexpected_method_is_refused_too() {
+        let refused = every_route_governed(&document_with("/v1/query", utoipa::openapi::HttpMethod::Delete))
+            .expect_err("an unexpected method is refused");
+        assert!(
+            matches!(refused, RouterNotBuilt::RouteNotGoverned { ref method, .. } if method == "DELETE"),
+            "{refused:?}"
         );
     }
 }
