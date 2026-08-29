@@ -5,9 +5,16 @@ description: Why a refused question now comes back with an explicit HTTP status 
 
 # A refusal carries a status
 
-Status: accepted. It changes what the HTTP transport says about a refusal. It supersedes nothing and
-changes no domain type: `ToolOutcome::Refusal` is still a *result* and not an `Err`, which is the
-invariant [the tool surface](../architecture.md) is built on and which this record does not touch.
+Status: **accepted, and amended once.** It changes what the HTTP transport says about a refusal. It
+supersedes nothing and changes no domain type: `ToolOutcome::Refusal` is still a *result* and not an
+`Err`, which is the invariant [the tool surface](../architecture.md) is built on and which this record
+does not touch.
+
+**Amended by [a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md).** One
+sentence below - *"the `403`s are not a statement about a credential"* - stopped being true when
+`RefusalReason::CredentialUnavailable` arrived with a `403` of its own. The amendment is written where
+that sentence is, and the status table below carries the new row. A review is what found this record
+unamended while the code that amended it had already merged.
 
 ## Context
 
@@ -81,6 +88,7 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.
 | `PlanSpansTwoSources` | `409` | Answerable in principle, and this deployment will not span two data systems: a second one is a second identity to satisfy. A conflict between what was asked and how the deployment is arranged, which is what no status about the request's own content would say |
 | `ResultTooLarge` | `413` | The answer did not fit the certifiable cap. Narrowing helps and repeating does not |
 | `SourceUnavailable` | `503` | The one refusal where retrying is reasonable |
+| `CredentialUnavailable` | `403` | **Added by [0008](0008-a-credential-per-leg-for-the-calling-subject.md), and it is the row that amends the note below.** The asking subject has no credential at the data system the plan reads, and this deployment will not read it under its own identity instead. `403` rather than `401`: re-authenticating to *this* service changes nothing, because the missing grant is at the data system. The sentence says so in as many words and a test asserts it does, precisely so a client cannot read the status as "authenticate harder" and retry forever |
 
 Three groupings are deliberate rather than a shortage of numbers. The status is what a monitor counts
 and the `code` is what a client branches on, so variants are grouped by **what the caller should do**:
@@ -91,6 +99,17 @@ already took the same position, where `unavailable` and `at_capacity` share `503
 token authenticates the deployment - so no token widens a metric's dimension set. `403` is used in its
 "understood the request, refuses to fulfil it" sense, and each sentence names the metric and the
 dimension so a caller cannot read it as "go and get a better token".
+
+> **Amended by [a credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md).** That
+> paragraph is now true of every `403` on this surface **except one**. `CredentialUnavailable` *is* a
+> statement about a credential - the asking subject's, at the data system, which is not the one they
+> presented here - and it exists because a question that cannot run as the subject is refused rather
+> than answered under the deployment's own identity. Both halves of the original reasoning survive in
+> the narrower form: no token presented to this service widens anything, and the sentence still must
+> not read as "go and get a better token", which is why the detail says the missing grant is at the
+> data system and that repeating the question returns the same refusal. What is no longer true is the
+> unqualified sentence, and the reason is written here rather than left for a reader to notice that
+> the table above grew a row the paragraph contradicts.
 
 ### Two statuses are shared with something that is not a refusal
 

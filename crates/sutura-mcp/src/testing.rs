@@ -24,7 +24,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
-use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet};
+use sutura_domain::identity::{
+    CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
@@ -146,7 +148,7 @@ impl Warehouse for FakeWarehouse {
         Ok(self.result.clone())
     }
 
-    fn verify_anchor(&self, _plan: &sutura_domain::plan::QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Ok(AnchorRows::of(self.result.clone()))
     }
 }
@@ -157,10 +159,25 @@ impl Warehouse for FakeWarehouse {
 /// fake over no data system has nowhere for a subject's own credential to arrive. This duplicates
 /// `sutura_http`'s fixture of the same shape, and it is the same duplication the module header
 /// explains - both `testing` modules are `cfg(test)`, and an adapter may not reach into another.
+///
+/// **Its own error type rather than `Unreachable`, and a review is why it is not a refusal.** The one
+/// thing minting can fail on here is `LegCredentials::minted` refusing a set that does not cover the
+/// sources it was asked about, and the map is built from those sources - so it is unreachable. It used
+/// to be answered as `Minted::Refused`, which is the ONE outcome the transport tests here assert on: a
+/// fixture that silently produced it would have made the `credential_unavailable` sentence pass for
+/// the wrong reason.
 pub(crate) struct GrantsTheSharedIdentity;
 
+/// The fixture broker's own defect, which nothing in this suite can provoke.
+#[derive(Debug, thiserror::Error)]
+#[error("the fixture broker minted a set that does not cover the plan")]
+pub(crate) struct FixtureBrokerDefect {
+    #[source]
+    cause: CredentialsDoNotCoverThePlan,
+}
+
 impl CredentialBroker for GrantsTheSharedIdentity {
-    type Error = Unreachable;
+    type Error = FixtureBrokerDefect;
 
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
         let mut presented = BTreeMap::new();
@@ -172,14 +189,13 @@ impl CredentialBroker for GrantsTheSharedIdentity {
                 },
             ));
         }
-        // `map_or_else` rather than a match, because `option_if_let_else` is denied here. The `Err`
-        // arm is unreachable: the map above is built from `sources`, so it covers them.
-        Ok(
-            LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented).map_or_else(
-                |_| Minted::Refused { source: source() },
-                |credentials| Minted::Granted { credentials },
-            ),
-        )
+        // The `Err` arm is unreachable: the map above is built from `sources`, so it covers them. It
+        // leaves as this fixture's OWN failure rather than as `Minted::Refused`, because the refusal
+        // is the one outcome the tests here assert on - a fixture that could fabricate it would let
+        // those assertions pass without the code under test deciding anything.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|cause| FixtureBrokerDefect { cause })
     }
 }
 

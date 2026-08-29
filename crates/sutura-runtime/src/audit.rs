@@ -97,6 +97,14 @@ impl AuditSink for TracingAuditSink {
     fn record(&self, record: &CallRecord<'_>) {
         let who = Attributed::of(record.chain());
         match *record.outcome() {
+            // `executed_as` is the field that answers the incident question this line exists for, and
+            // it was missing until a review asked it: a verified subject's question can be ANSWERED
+            // under the identity this deployment holds for the source, on a leg declared
+            // `shared-service-user`. That is honest and acknowledged and it is not the asker's access
+            // filtering the rows - so a record naming only the subject and the definition version
+            // cannot say afterwards whose access produced the answer. It is read off
+            // `CallRecord::executed_as`, which derives it from the provenance the outcome carried, so
+            // there is one place the value lives.
             RecordedOutcome::Answered { rows, provenance } => tracing::info!(
                 subject_established = who.established,
                 subject = who.subject,
@@ -105,6 +113,7 @@ impl AuditSink for TracingAuditSink {
                 task = who.task,
                 rows,
                 definition_version = %provenance.version(),
+                executed_as = executed_as(record),
                 "answered"
             ),
             // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
@@ -120,6 +129,25 @@ impl AuditSink for TracingAuditSink {
             ),
         }
     }
+}
+
+/// Which identity each leg of an answer ran as, one field, in source order.
+///
+/// **A rendering rather than a `Debug`**, so a collector reads a stable key-value list rather than a
+/// Rust type's formatting. It carries the source and the posture's own spelling - the one
+/// `SourcePosture::as_str` defines, so a startup line and an audit line cannot drift into two words
+/// for one posture - and it carries **no operator acknowledgement prose**, which is what the
+/// transports already refuse to send and is not a thing a log line needs either.
+///
+/// The empty string is unreachable for an answer: `ExecutedAs` has no empty form, and
+/// `CallRecord::executed_as` is `None` only for a refusal, which is the other arm.
+fn executed_as(record: &CallRecord<'_>) -> String {
+    record.executed_as().map_or_else(String::new, |ran| {
+        ran.legs()
+            .map(|(source, posture)| format!("{source}={}", posture.as_str()))
+            .collect::<Vec<String>>()
+            .join(",")
+    })
 }
 
 #[cfg(test)]
@@ -150,6 +178,87 @@ mod tests {
         crate::testing::capture(|| {
             TracingAuditSink::new().record(&CallRecord::of(chain, &outcome));
         })
+    }
+
+    /// One answer, on one source, under the identity this deployment holds for it.
+    ///
+    /// Assembled from empty definitions on purpose: what is under test is the identity half of the
+    /// record, and a bundle with metrics in it would be a fixture to keep in step for no assertion.
+    fn an_answer_on_a_shared_source() -> ToolOutcome {
+        use sutura_domain::catalog::Definitions;
+        use sutura_domain::knowledge::Knowledge;
+        use sutura_domain::model::SourceName;
+        use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+        use sutura_domain::source::{AcknowledgementReason, ExecutedAs, SharedIdentityDeclared, SourcePosture};
+        use sutura_domain::warehouse::{RowSet, Value};
+
+        let pinned = PinnedDefinitions::pin(
+            DefinitionVersion::parse("2026-08-29").expect("a test version is a version"),
+            Definitions::assemble(Vec::new(), Vec::new(), Vec::new()).expect("empty definitions are consistent"),
+            Knowledge::none(),
+        )
+        .expect("the test definitions hash");
+        let ran_as = ExecutedAs::of(
+            SourceName::parse("warehouse").expect("a test source is a source"),
+            SourcePosture::SharedServiceUser {
+                declared: SharedIdentityDeclared::of(
+                    AcknowledgementReason::parse("one connection, one identity").expect("a test reason is a reason"),
+                ),
+            },
+        );
+        ToolOutcome::Answer {
+            provenance: pinned.provenance(ran_as),
+            rows: RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(1)]])
+                .expect("one column and one cell is rectangular"),
+        }
+    }
+
+    #[test]
+    fn an_answer_records_which_identity_produced_it_and_not_only_who_asked() {
+        // THE INCIDENT QUESTION, and it is the one this branch created: a VERIFIED subject's question
+        // is answered under the identity this deployment holds for a source declared
+        // `shared-service-user`. That is honest and acknowledged and it is not the asker's own access
+        // filtering the rows - so a record naming the subject and the definition version and nothing
+        // else cannot answer, afterwards, whose access produced the answer. The record says both.
+        let outcome = an_answer_on_a_shared_source();
+        let chain = PrincipalChain::of(Subject::Verified {
+            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        });
+        let rendered = crate::testing::capture(|| {
+            TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome));
+        });
+        assert!(rendered.contains("answered"), "{rendered}");
+        assert!(
+            rendered.contains("someone@example.com"),
+            "the asker is on the line: {rendered}"
+        );
+        assert!(
+            rendered.contains("\"executed_as\":\"warehouse=shared-service-user\""),
+            "the line does not say which identity produced the rows: {rendered}"
+        );
+        // And the acknowledgement PROSE is not on the line, which is the position both transports
+        // already take about it: an operator's sentence is for a startup log, not for every call.
+        assert!(
+            !rendered.contains("one connection, one identity"),
+            "the operator's acknowledgement is not audit content: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_records_no_executing_identity_because_nothing_executed() {
+        // The other arm, and it is a case rather than an empty field: a refused question reached no
+        // data system, so there is no identity it ran as. Asserted so that the field's absence stays
+        // a decision rather than becoming something a reader has to interpret.
+        let chain = PrincipalChain::of(Subject::TheDeploymentItself);
+        let refusal = a_refusal();
+        assert!(CallRecord::of(&chain, &refusal).executed_as().is_none());
+        assert!(
+            CallRecord::of(&chain, &an_answer_on_a_shared_source())
+                .executed_as()
+                .is_some()
+        );
+        let rendered = written(&chain);
+        assert!(!rendered.contains("executed_as"), "{rendered}");
     }
 
     #[test]

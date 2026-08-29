@@ -110,7 +110,7 @@ impl Warehouse for FixedWarehouse {
         self.result.clone().ok_or(AdapterFailure::Statement { cause: DriverFailure })
     }
 
-    fn verify_anchor(&self, _plan: &sutura_domain::plan::QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         self.result
             .clone()
             .map(AnchorRows::of)
@@ -201,5 +201,44 @@ fn shared_leg() -> Presented {
 fn subject_leg() -> Presented {
     Presented::SubjectToken {
         material: Secret::new("an-exchanged-token"),
+    }
+}
+
+/// A broker that counts how many times it was asked, and grants the shared posture.
+///
+/// **For the one assertion a granting broker cannot make: that it was NOT called.** `mint` is on the
+/// request path, once per accepted question, and it is free only for the implementor that reads a
+/// settings tree - a broker that exchanges a token spends an authorization-server round trip. So what
+/// is worth pinning is that a question this deployment declines never gets that far, and a fake that
+/// only answers cannot say whether it was asked.
+///
+/// `Cell` rather than a lock: `answer` puts no `Sync` bound on the broker, this test writes from one
+/// thread, and the workspace bans `std::sync::Mutex`.
+#[derive(Debug, Default)]
+pub(crate) struct CountingBroker {
+    asked: std::cell::Cell<usize>,
+}
+
+impl CountingBroker {
+    /// How many questions reached the authorization server this stands in for.
+    pub(crate) fn asked(&self) -> usize {
+        self.asked.get()
+    }
+}
+
+impl CredentialBroker for CountingBroker {
+    type Error = BrokerUnreachable;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        self.asked.set(self.asked.get().saturating_add(1));
+        let mut presented = BTreeMap::new();
+        for name in sources.iter() {
+            drop(presented.insert(name.clone(), shared_leg()));
+        }
+        // The `map_err` arm is unreachable: the map is built from `sources`. Named rather than `_`,
+        // because `map_err_ignore` is denied and discarding a cause is what that lint is for.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|_uncoverable| BrokerUnreachable)
     }
 }

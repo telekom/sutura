@@ -213,7 +213,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             "source_unavailable",
             format!("`{source}` could not be reached as the calling subject"),
         ),
-        // 403, and this is the refusal that makes `docs/adr/0005`'s note - "the 403s are not a
+        // 403, and this is the refusal that AMENDED `docs/adr/0005`'s note - "the 403s are not a
         // statement about a credential" - stop being true. It is one, so the sentence must not send
         // the caller looking for a better token FOR THIS SERVICE: what is missing is a grant at the
         // data system, and presenting a different bearer here changes nothing. Retrying is pointless

@@ -430,6 +430,18 @@ pub enum NotExecutedReason {
     /// The result set was not the shape it reported.
     #[error("the result set was not the shape it reported")]
     ResultShapeMismatch,
+    /// The plan the boot path compiled is not this anchor's own, so nothing was allowed to execute it
+    /// with no credential.
+    ///
+    /// **A defect in the boot path rather than anything about the catalog**, which is why it is one
+    /// variant with the typed cause flattened into it rather than four: whoever reads a report needs
+    /// to know this anchor was not checked and why, and the four ways
+    /// `sutura_domain::plan::AnchorPlan::of` refuses a plan are all "the question compiled here was
+    /// not the anchor's". Nothing in this workspace can provoke it; it exists because a method that
+    /// takes no credential must be unable to take a question, and a check with no reportable outcome
+    /// would have to be a panic instead.
+    #[error("the plan compiled for this anchor is not the anchor's own: {}", flattened(.message, .chain))]
+    NotAnAnchor { message: String, chain: Vec<String> },
     /// The data system failed the statement. `message` is the adapter's own, `chain` is every cause
     /// beneath it - the driver error included, which is the part that names a table, a column or a
     /// file and the part a single string used to throw away.

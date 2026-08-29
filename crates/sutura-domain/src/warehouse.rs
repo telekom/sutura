@@ -19,7 +19,7 @@
 use crate::calendar::Date;
 use crate::identity::Presented;
 use crate::model::SourceName;
-use crate::plan::{Executable, QueryPlan};
+use crate::plan::{AnchorPlan, Executable};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
 /// A value bound to a placeholder.
@@ -364,6 +364,14 @@ impl AnchorRows {
 /// construct one. A method that takes NO credential has no parameter to pass one to, which is the
 /// property the record wanted, reached by removing the argument instead of by typing it.
 ///
+/// **And a method with no credential still has an INPUT, which is where this was wrong by one
+/// method until a review said so.** While `verify_anchor` took a bare [`QueryPlan`](crate::plan::QueryPlan)
+/// it would execute anything - a caller's question included - under whatever identity the deployment
+/// configured the adapter with, and what kept the request path off it was where the call sites
+/// happen to be. It takes an [`AnchorPlan`] now, which refuses a grouped plan, a plan carrying a
+/// requested predicate, a plan for another metric and a plan over another range. That type states
+/// its own limit: its constructor is `pub`, so it narrows the door rather than closing it.
+///
 /// # The two identity declarations, and why they are two
 ///
 /// [`Self::IMPERSONATION`] is a property of the **code**: whether this adapter has anywhere for a
@@ -384,7 +392,7 @@ impl AnchorRows {
 /// ```compile_fail
 /// use sutura_domain::identity::Presented;
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::{Executable, QueryPlan};
+/// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::SourcePosture;
 /// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
@@ -409,7 +417,7 @@ impl AnchorRows {
 ///         Err(core::fmt::Error)
 ///     }
 ///
-///     fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+///     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -421,7 +429,7 @@ impl AnchorRows {
 /// ```
 /// use sutura_domain::identity::Presented;
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::{Executable, QueryPlan};
+/// use sutura_domain::plan::{AnchorPlan, Executable};
 /// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 /// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
@@ -447,7 +455,7 @@ impl AnchorRows {
 ///         Err(core::fmt::Error)
 ///     }
 ///
-///     fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+///     fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -593,15 +601,17 @@ pub trait Warehouse {
     /// to pass `execute` - so the only default available is one that lies about having verified
     /// something, which is the shape [`PreFlight`] exists to avoid one level up.
     ///
-    /// It takes a [`QueryPlan`] rather than an [`Executable`]: an anchor is
-    /// asked with no dimensions and resolves to one model on one source, so there is no leg for it to
-    /// be. Returns [`AnchorRows`], which is what stops a boot result being handed back as an answer.
+    /// It takes an [`AnchorPlan`] rather than an [`Executable`]: an anchor is asked with no dimensions
+    /// and resolves to one model on one source, so there is no leg for it to be - and the plan is
+    /// PARSED as an anchor's rather than taken on trust, so the one method here that needs no
+    /// credential cannot be handed a question. Returns [`AnchorRows`], which is what stops a boot
+    /// result being handed back as an answer.
     ///
     /// **What an executed anchor proves, precisely:** that these statements reproduced the numbers
     /// their author certified *for the identity this adapter holds*. Under row-level security that is
     /// not necessarily any caller's - a per-subject anchor is a function rather than a number, and
     /// there is no subject at boot to evaluate it at.
-    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error>;
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
     ///

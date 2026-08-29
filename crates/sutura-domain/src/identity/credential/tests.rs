@@ -5,10 +5,12 @@
 
 use std::collections::BTreeMap;
 
-use super::{CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Presented, PrincipalName, SourceSet};
+use super::{
+    CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
+};
 use crate::identity::{InvalidPrincipalId, Secret, Subject, SubjectId};
 use crate::model::SourceName;
-use crate::source::{AcknowledgementReason, SharedIdentityDeclared};
+use crate::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 
 fn source(name: &str) -> SourceName {
     SourceName::parse(name).expect("a test source is a source")
@@ -172,10 +174,48 @@ fn nothing_expiring_is_a_case_a_reader_names_rather_than_a_sentinel_instant() {
         .unix_seconds(),
         Some(1_777_000_000)
     );
-    // Ordered, so whoever mints can take the earliest across what it minted. `NothingExpires` sorts
-    // first because it is declared first, which is why the comparison below is the one asserted: an
-    // ordering over these two is not a comparison of instants and nothing may read it as one.
     assert_ne!(Expiry::NothingExpires, Expiry::At { unix_seconds: 0 });
+}
+
+#[test]
+fn the_earliest_of_a_static_credential_and_an_expiring_token_is_the_token() {
+    // THE DEFECT THIS REPLACED, asserted in the direction that was wrong. `Expiry` derived `Ord`, a
+    // derived ordering on an enum is DECLARATION ORDER, and `NothingExpires` is declared first - so
+    // `.min()` over exactly this pair answered `NothingExpires`: no deadline at all, for a set holding
+    // a token that expires. The one operation this type tells a minter to perform, silently inverted.
+    //
+    // The previous test pinned that ordering and added a comment telling a reader not to read it as
+    // instants. A type should not need the comment, so the ordering is gone and the operation is a
+    // function.
+    let token = Expiry::At {
+        unix_seconds: 1_777_000_000,
+    };
+    assert_eq!(
+        Expiry::earliest([Expiry::NothingExpires, token]),
+        token,
+        "a set holding one thing that expires has a deadline"
+    );
+    assert_eq!(
+        Expiry::earliest([token, Expiry::NothingExpires]),
+        token,
+        "and the answer does not depend on the order the broker minted in"
+    );
+
+    // Two deadlines: the earlier one, which is the whole point of the fold.
+    let sooner = Expiry::At {
+        unix_seconds: 1_776_000_000,
+    };
+    assert_eq!(Expiry::earliest([token, sooner]), sooner);
+    assert_eq!(Expiry::earliest([sooner, token]), sooner);
+    assert_eq!(sooner.earlier_of(sooner), sooner, "and it is idempotent on one value");
+
+    // Nothing minted, and nothing minted that expires, are the same answer - which is what the
+    // static-credential broker that ships returns.
+    assert_eq!(Expiry::earliest(core::iter::empty()), Expiry::NothingExpires);
+    assert_eq!(
+        Expiry::earliest([Expiry::NothingExpires, Expiry::NothingExpires]),
+        Expiry::NothingExpires
+    );
 }
 
 #[test]
@@ -227,4 +267,60 @@ fn a_principal_name_that_could_forge_a_record_line_does_not_parse() {
     );
     assert_eq!(parsed.as_str(), "analyst_role");
     assert_eq!(parsed.to_string(), "analyst_role");
+}
+
+#[test]
+fn a_leg_is_checked_against_the_posture_and_not_only_against_its_own_shape() {
+    // The domain half of the check both adapters were missing. `agrees_with` is one exhaustive match
+    // over the PAIR, so the three ways a leg can disagree are named rather than falling through.
+    let at = source("local");
+    let mine = SourcePosture::SharedServiceUser {
+        declared: acknowledged(),
+    };
+
+    // The agreeing case first, so every refusal below is not passing against a function that refuses
+    // everything.
+    assert_eq!(shared().agrees_with(&mine, &at), Ok(()));
+    assert_eq!(
+        Presented::SubjectToken {
+            material: Secret::new("an-exchanged-token"),
+        }
+        .agrees_with(&SourcePosture::ImpersonationAtSource, &at),
+        Ok(())
+    );
+
+    // The witness case: right variant, wrong acknowledgement. This is the one a shape match cannot
+    // see, and the one the review's substance is about - provenance is read off the posture, so a leg
+    // accepted here would be recorded under an acknowledgement it did not carry.
+    let elsewhere_witness = Presented::SharedServiceUser {
+        declared: SharedIdentityDeclared::of(
+            AcknowledgementReason::parse("a witness no operator wrote for this source").expect("a test reason is a reason"),
+        ),
+    };
+    assert_eq!(elsewhere_witness.as_str(), shared().as_str(), "the shapes are equal");
+    assert_eq!(
+        elsewhere_witness.agrees_with(&mine, &at),
+        Err(PresentedDisagreesWithPosture::WitnessIsNotThisSources { at: at.clone() })
+    );
+
+    // And the two shape disagreements, in both directions.
+    assert_eq!(
+        shared().agrees_with(&SourcePosture::ImpersonationAtSource, &at),
+        Err(PresentedDisagreesWithPosture::ShapeIsNotThePosture {
+            at: at.clone(),
+            posture: "impersonation-at-source",
+            presented: "the deployment's own identity for this source",
+        })
+    );
+    assert_eq!(
+        Presented::SubjectPrincipal {
+            name: PrincipalName::parse("analyst_role").expect("a test name is a name"),
+        }
+        .agrees_with(&mine, &at),
+        Err(PresentedDisagreesWithPosture::ShapeIsNotThePosture {
+            at,
+            posture: "shared-service-user",
+            presented: "a principal to switch to as the asker",
+        })
+    );
 }

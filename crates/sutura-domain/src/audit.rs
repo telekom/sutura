@@ -28,21 +28,35 @@
 //! no audit trail on this side and nothing here can tell it so - which is why the sources' own logs,
 //! written under the asking subject, carry the part of the obligation that matters.
 //!
-//! # What the record does NOT carry yet, said here rather than implied
+//! # The incident question, and which half of it this record can answer
 //!
 //! `docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
-//! the posture each leg ran under, and the expiry the credentials carried.** The last two are absent
-//! from [`CallRecord`], and the reason is now narrower than "the types do not exist": they do -
-//! [`crate::source::ExecutedAs`] carries the per-leg posture and
-//! [`crate::identity::Expiry`] the deadline - and neither is REACHED from here, because a record is
-//! built from the chain and the [`ToolOutcome`], and the outcome carries provenance only on an answer.
-//! A refusal would have to carry them separately, which is a change to what a record is made of. A
-//! plan reads exactly one source today - [`crate::query::RefusalReason::PlanSpansTwoSources`] is
+//! the posture each leg ran under, and the expiry the credentials carried.**
+//!
+//! **The posture is reachable, and it was not named until a review asked the question it exists for.**
+//! A verified subject's question can be answered under the *deployment's* own identity on a source
+//! declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
+//! incident question is then "whose access filtered these rows". The answer is
+//! [`crate::source::ExecutedAs`], which rides on the [`Provenance`] an answer carries, and
+//! [`CallRecord::executed_as`] is the accessor: a sink writing an audit line does not have to know
+//! that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
+//!
+//! **`asked_by` is the chain, and it is deliberately not a second field.** `LegCredentials::asked_by`
+//! is the broker's copy of who asked and the chain is the transport's; they agree by construction,
+//! because `mint` reads the request context. A record carrying both would be a second place for them
+//! to disagree, which is the argument this whole port is built on - so who asked is
+//! [`CallRecord::chain`], once.
+//!
+//! **Still absent: the expiry.** [`crate::identity::Expiry`] is carried on the credentials and is not
+//! in the [`ToolOutcome`], so reaching it here is a change to what a record is made of rather than an
+//! accessor. Nothing that ships has a credential that expires, so there is no number to record yet.
+//! A plan reads exactly one source today - [`crate::query::RefusalReason::PlanSpansTwoSources`] is
 //! what makes that true - so the source set is one name a reader already has from the bundle.
 
 use crate::identity::PrincipalChain;
 use crate::pinned::Provenance;
 use crate::query::{RefusalReason, ToolOutcome};
+use crate::source::ExecutedAs;
 
 /// Where a record of one call goes.
 ///
@@ -130,6 +144,26 @@ impl<'a> CallRecord<'a> {
         Self {
             chain,
             outcome: recorded,
+        }
+    }
+
+    /// Which identity produced each leg, where anything executed.
+    ///
+    /// **The incident question's own accessor**, and it is derived rather than stored: the value is
+    /// the [`Provenance`]'s, which the [`ToolOutcome`] already carried, so there is one place it lives
+    /// and nothing here can describe a leg as impersonated that ran shared. `None` on a refusal, and
+    /// that is a case a reader names rather than an absence to interpret - a refused question reached
+    /// no data system, so there is no identity it ran as.
+    ///
+    /// **Recording is not a control**, the way `Provenance`'s own documentation says: this reaches a
+    /// sink after the rows were read. What it is for is being able to answer, afterwards, whether a
+    /// verified subject's question was filtered by that subject's own access or by the identity this
+    /// deployment holds for the source.
+    #[must_use]
+    pub const fn executed_as(&self) -> Option<&ExecutedAs> {
+        match self.outcome {
+            RecordedOutcome::Answered { provenance, .. } => Some(provenance.executed_as()),
+            RecordedOutcome::Refused { .. } => None,
         }
     }
 

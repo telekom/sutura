@@ -39,7 +39,7 @@ use std::collections::BTreeMap;
 use sutura_domain::identity::Presented;
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::{Executable, QueryPlan};
+use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 
@@ -180,8 +180,8 @@ impl Warehouse for RecordingWarehouse {
 
     // The anchor path runs the same body. It takes no credential, so what it says about identity is
     // what these fakes can honestly say: nothing reaches a data system here.
-    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -264,8 +264,8 @@ impl Warehouse for CertifiedNumbers {
 
     // The anchor path runs the same body, which is what makes this fake the one a bundle validates
     // against: `verify_and_validate` goes through here now rather than through `execute`.
-    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -338,8 +338,8 @@ impl Warehouse for WideResult {
         Ok(RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"))
     }
 
-    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
-        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan.plan()), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -399,7 +399,7 @@ impl Warehouse for ExhaustedEngine {
         Err(Exhausted)
     }
 
-    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(Exhausted)
     }
 
@@ -443,7 +443,7 @@ impl Warehouse for BrokenEngine {
         Err(Exhausted)
     }
 
-    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(Exhausted)
     }
 

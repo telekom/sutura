@@ -15,14 +15,16 @@ use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
-use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet};
+use sutura_domain::identity::{
+    CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::{Executable, QueryPlan};
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
@@ -272,7 +274,7 @@ impl Warehouse for FailingWarehouse {
         })
     }
 
-    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -311,7 +313,7 @@ impl Warehouse for FakeWarehouse {
     ///
     /// `Held` is armed only after `start`, and this is the method `start` goes through: a held anchor
     /// would hold startup rather than the request the test is about.
-    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Ok(AnchorRows::of(self.result.clone()))
     }
 
@@ -374,11 +376,24 @@ fn shared_posture() -> SourcePosture {
 /// that handed out subject material would provoke the adapter's wiring-defect error on every request
 /// and prove nothing about the transport.
 ///
-/// It cannot fail, so its error type is one nothing constructs.
+/// **Its own error type, and a review is why it is not a refusal.** The one thing minting can fail on
+/// here is `LegCredentials::minted` refusing a set that does not cover the sources it was asked about,
+/// and the map is built from those sources - so it is unreachable. It used to be answered as
+/// `Minted::Refused`, which is the ONE outcome the transport tests here assert on: a fixture that
+/// silently produced it would have made `403 credential_unavailable` pass for the wrong reason. It
+/// leaves as the broker's own failure instead, which is a `503` with a different code.
 pub(crate) struct GrantsTheSharedIdentity;
 
+/// The fixture broker's own defect, which nothing in this suite can provoke.
+#[derive(Debug, thiserror::Error)]
+#[error("the fixture broker minted a set that does not cover the plan")]
+pub(crate) struct FixtureBrokerDefect {
+    #[source]
+    cause: CredentialsDoNotCoverThePlan,
+}
+
 impl CredentialBroker for GrantsTheSharedIdentity {
-    type Error = ConnectionRefused;
+    type Error = FixtureBrokerDefect;
 
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
         let mut presented = BTreeMap::new();
@@ -390,15 +405,13 @@ impl CredentialBroker for GrantsTheSharedIdentity {
                 },
             ));
         }
-        // `map_or_else` rather than a match, because `option_if_let_else` is denied. The `Err` arm is
-        // unreachable - the map above is built from `sources` - and it is answered rather than
-        // unwrapped, because `expect_used` is denied outside a test body and this is a fixture.
-        Ok(
-            LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented).map_or_else(
-                |_| Minted::Refused { source: source() },
-                |credentials| Minted::Granted { credentials },
-            ),
-        )
+        // The `Err` arm is unreachable - the map above is built from `sources` - and it leaves as
+        // this fixture's OWN failure rather than as `Minted::Refused`. That matters: the refusal is
+        // the one outcome the tests here assert on, so a fixture that could fabricate it would let
+        // those assertions pass without the code under test ever deciding anything.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|cause| FixtureBrokerDefect { cause })
     }
 }
 

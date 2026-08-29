@@ -47,6 +47,7 @@ Why this data system could not answer.
 - `Attach`
 - `LegWithoutCombiner` - One leg of a federated answer, which nothing here can assemble above.
 - `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+- `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
 
 ### Implements
 

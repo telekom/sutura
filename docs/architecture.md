@@ -210,10 +210,21 @@ that holds only for human callers is decorative.
 
 *Built:* the mechanism that removes the downgrade. A request context reaches the query path, a
 credential broker mints once per answer for every source the plan reads, and `Warehouse::execute` has
-no signature that omits the result - so there is no code path that runs as this process, and a subject
-with no credential at a source is refused as `credential_unavailable`. Each adapter matches
-exhaustively on what it was handed and refuses credential material it cannot use as an error rather
-than ignoring it.
+no signature that omits the result - so **no question executes as this process**, and a subject with
+no credential at a source is refused as `credential_unavailable`. Each adapter matches exhaustively on
+what it was handed, refuses credential material it cannot use as an error rather than ignoring it, and
+compares the leg against the posture it was opened with - so a shared leg carrying somebody else's
+operator acknowledgement is refused too, rather than executed and then recorded under the adapter's
+own declaration.
+
+*The one path that runs with no credential, said here because the sentence above is only true with
+it:* the boot path re-executes every anchor before a listener is bound, and there is no caller then, so
+`Warehouse::verify_anchor` takes no credential at all. What bounds it is its INPUT rather than its
+identity: it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and refuses a
+grouped plan, a plan carrying a predicate a question asked for, a plan for another metric and a plan
+over another range. **Its constructor is `pub`, so that narrows the door rather than closing it** - a
+caller holding the bundle can still construct the plan of an anchor the catalog publishes, and what
+that returns is the number the catalog already certifies. What it cannot be handed is a question.
 
 *Not built:* an adapter that can carry a per-subject credential. Both in this build declare that they
 have nowhere for one to arrive, and the broker that ships mints from configuration. So the identity a

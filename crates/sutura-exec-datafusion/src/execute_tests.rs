@@ -497,3 +497,52 @@ fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_buil
         .expect_err("the table is not attached");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
 }
+
+#[test]
+fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_executed() {
+    // THE CHECK THE SHAPE MATCH DOES NOT MAKE, and a review is what found it missing. The match on
+    // `Presented` above compares what arrived against what this CODE can carry, and never reads the
+    // posture the composition root handed this adapter - so a leg whose variant is right and whose
+    // operator acknowledgement is somebody else's got past it and executed. Provenance is read off
+    // `posture`, so the answer would then have recorded this adapter's own declaration rather than
+    // the acknowledgement the broker presented: the record would describe a leg that did not happen.
+    //
+    // Both values are real and independent. The broker reads the settings tree; the adapter holds what
+    // the root handed it. Comparing them is a comparison; reading one of them twice is not.
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
+    let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+
+    let fabricated = sutura_domain::identity::Presented::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(
+            sutura_domain::source::AcknowledgementReason::parse("a witness no operator wrote for this source")
+                .expect("a test reason is a reason"),
+        ),
+    };
+    // It matches the variant this adapter accepts, which is exactly why the shape check cannot see it.
+    assert_eq!(fabricated.as_str(), crate::test_leg().as_str());
+
+    let error = adapter
+        .execute(Executable::Query(&query), &fabricated)
+        .expect_err("a witness that is not this source's is not this source's");
+    let DataFusionError::PresentedDisagreesWithPosture { ref cause } = error else {
+        panic!("the adapter names the disagreement rather than executing: {error:?}");
+    };
+    assert_eq!(
+        *cause,
+        sutura_domain::identity::PresentedDisagreesWithPosture::WitnessIsNotThisSources {
+            at: SourceName::parse("local").expect("a test source is a source"),
+        }
+    );
+
+    // And the source's OWN witness still reaches the engine, so the assertion above is not passing
+    // against an adapter that refuses every shared leg: the same plan then fails at resolution.
+    let error = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect_err("the table is not attached");
+    assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
+}

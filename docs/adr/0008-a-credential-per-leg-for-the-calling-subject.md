@@ -5,10 +5,18 @@ description: What end-to-end impersonation concretely requires of BigQuery, Post
 
 # A credential per leg, for the calling subject
 
-Status: **accepted, and the port is built - along with four corrections to this record's own
-signature.** *What is built, and the four places this record was wrong about its own signature*, at
-the foot, is the authority on the state: every "not built" above it is older than the code. The line
-that used to be here - *"nothing in it is built"* - was true when it was written.
+Status: **accepted, and the port is built - along with four corrections to this record's own signature
+and, after a review of the code that landed, four amendments to those.** *What is built, and the four
+places this record was wrong about its own signature*, at the foot, is the authority on the state:
+every "not built" above it is older than the code, and each `> **Amended.**` block inside it is newer
+still. The line that used to be here - *"nothing in it is built"* - was true when it was written.
+
+**What the review changed, in one place so it can be found:** the boot path's method takes an
+`AnchorPlan` rather than a bare plan, so the one signature with no credential cannot be handed a
+question (correction 2); each adapter compares the leg against its DECLARED posture and not only
+against its own capability, which is a hole this record's own *not built* list described as already
+closed (not-built item 4); and `Expiry` lost a derived ordering that made "the earliest" answer
+"nothing expires" (correction 4).
 
 It decides the shape of the identity path before the first adapter that needs one, because both
 halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
@@ -1839,7 +1847,8 @@ below and still true for the rest.
 | Decision | Where | The mechanism, not the intent |
 | --- | --- | --- |
 | The port | `sutura_domain::identity::CredentialBroker` | One method, `mint`, taking the whole source set in one call, synchronous, with a per-adapter error type. `Minted` is two outcomes so a refusal comes back in the `Ok` |
-| No signature runs as the process | `sutura_domain::warehouse::Warehouse::execute` | It takes a `&Presented` and has **no default**, so there is no code path into a data system that runs as whatever the process is. A `compile_fail` doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included |
+| No signature runs a QUESTION as the process | `sutura_domain::warehouse::Warehouse::execute`, and `Warehouse::verify_anchor`'s input | `execute` takes a `&Presented` and has **no default**, so there is no code path into a data system that answers a question as whatever the process is. A `compile_fail` doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included. **The word QUESTION is a review's correction to this row, and the mechanism arrived with it:** `verify_anchor` deliberately takes no credential, so while its input was a bare `QueryPlan` it would execute anything - a caller's plan included - under the identity the deployment configured the adapter with, and the row was false by one method. It takes an `AnchorPlan` now, which parses a plan as a declared anchor's own: no keys, no predicate a question asked for, the anchor's metric, the anchor's range. `AnchorPlan::of` is `pub`, so it narrows the door rather than closing it - the type says so, and what a conforming plan returns is the number the bundle already certifies |
+| A leg is checked against the DECLARED posture, not only against the adapter's capability | `sutura_domain::identity::Presented::agrees_with`, called by both adapters | One exhaustive match over the pair (`Presented`, `SourcePosture`) with no wildcard arm. **Also a review's correction, and it is the one that closed a real hole:** each adapter matched the variant it was handed against `Warehouse::IMPERSONATION` - "can this code carry a subject at all" - and read `posture` not at all, so a `SharedServiceUser` leg carrying a *different* operator acknowledgement was accepted and then reported under the adapter's own declaration, because provenance is read off `posture`. The two values compared are independent: a broker reads the settings tree and an adapter holds what the composition root handed it. **The limit:** the witness is prose, so equality is the comparison available and a fabricated witness identical to this source's is indistinguishable from it |
 | A pre-flight cannot claim what it did not ask | `PreFlight` | Two variants, `NotAsked` and `Accepted`, and the DEFAULT is `NotAsked`. `dry_run` takes the credential too, because a pre-flight asked as the wrong identity answers a different question |
 | Three postures, and the third carries no credential material | `Presented` | Three variants. A test asserts the shared one's `Debug` carries the operator's acknowledgement and no `Secret` at all, and that the other two do carry material - so the assertion is not passing because nothing anywhere holds any |
 | One asker and one deadline for N legs | `LegCredentials` | One `asked_by`, one `not_after`, a private `by_source` with no `insert`, and `minted` as the only constructor - which also **refuses a set that does not cover the sources it was minted for**, in both directions. A `compile_fail` doctest for adding a leg with a second asker, with an out-of-crate compiling twin that pins `minted` as `pub` |
@@ -1875,6 +1884,20 @@ below and still true for the rest.
    without a named conversion. That is the property the record wanted, reached by removing the argument
    rather than by typing it.
 
+   > **Amended.** "There is no parameter to pass one to" was true of the credential and it was not the
+   > whole property. A method with no credential still has an INPUT, and while that input was a bare
+   > `QueryPlan` this method would execute *any* plan under the identity the deployment configured the
+   > adapter with - a plan compiled from a caller's question included - and what kept the request path
+   > off it was where the call sites happen to be. A review said so. `verify_anchor` takes an
+   > `AnchorPlan` now: `AnchorPlan::of` parses a plan as a declared anchor's own, refusing a plan with
+   > keys, a plan carrying a predicate a question asked for, a plan for another metric and a plan over
+   > another range. **And it repeats this correction's own lesson rather than escaping it:**
+   > `AnchorPlan::of` is `pub`, because the boot path lives in `sutura-app` and the type in
+   > `sutura-domain`, so this is a NARROWING and not a closure - the type's documentation says so, and
+   > what a conforming plan returns is the number the bundle certifies in its own catalog document.
+   > A genuinely closed constructor would need the domain to compile the plan itself, which is
+   > `sutura-semantic`'s job and not a dependency the domain may take.
+
    **What that costs, stated plainly:** an anchor runs under whatever identity the deployment
    configured that adapter with, and nothing passes the declared `verification_identity` to the port.
    The boot refusal for an anchor on a source with no declared identity already exists and is
@@ -1890,6 +1913,15 @@ below and still true for the rest.
    were an `Option`, where every reader decides what an absence permits, and a sentinel instant that
    reads as a deadline and compares as one. `NothingExpires` is a case a reader has to name. Nothing in
    the domain compares it to a clock, exactly as part 6 says.
+
+   > **Amended.** The first version of that enum also derived `PartialOrd` and `Ord`, and a review
+   > caught what that meant: a derived ordering on an enum is DECLARATION ORDER, so `NothingExpires`
+   > was the minimum and `.min()` over a set holding one static credential and one expiring token
+   > answered "nothing expires". The wrong direction, silently, in the one operation part 4 tells a
+   > minter to perform - and the test that existed pinned the inverted order and added a comment
+   > warning a reader not to read it as instants. The derive is gone. `Expiry::earlier_of` and
+   > `Expiry::earliest` are the operation, written out, with `NothingExpires` as the fold's identity;
+   > there is no comparison operator left for a call site to reach for instead.
 
 ### Not built, and named rather than left to be discovered
 
@@ -1907,8 +1939,17 @@ below and still true for the rest.
    second one: there is no splitter and no combiner, and both `Warehouse` implementors answer a leg
    with a typed error.
 4. **Provenance is still read off `Warehouse::posture`** rather than off `Presented::executed_as`, which
-   the table at the foot of this record wants. The two agree today by construction - each adapter
-   refuses material that disagrees with its own posture - and the reason not to move it is that the
-   posture on the adapter is what the composition root built, while the credential comes from a broker
-   that read the settings tree. Moving it is a one-line change and a change to an invariant row, so it
-   belongs with the adapter that makes the two able to disagree.
+   the table at the foot of this record wants. The reason not to move it is that the posture on the
+   adapter is what the composition root built, while the credential comes from a broker that read the
+   settings tree. Moving it is a one-line change and a change to an invariant row, so it belongs with
+   the adapter that makes the two able to disagree.
+
+   > **Amended.** "The two agree today by construction - each adapter refuses material that disagrees
+   > with its own posture" was **not true when it was written**, and a review is what found it: each
+   > adapter matched the variant it was handed against `Warehouse::IMPERSONATION`, which is a property
+   > of the code, and never read `posture` at all. So a `SharedServiceUser` leg carrying a different
+   > operator acknowledgement executed, and provenance then reported the adapter's declaration rather
+   > than what the broker presented. `Presented::agrees_with` is the comparison, both adapters call it
+   > beside their capability check, and each has a regression test that a fabricated witness is
+   > refused and the source's own is not. The sentence is now true because there is a mechanism, which
+   > is the only way this repository lets a sentence like it be written.

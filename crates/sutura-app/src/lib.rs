@@ -31,7 +31,7 @@ use sutura_domain::catalog::Anchor;
 use sutura_domain::identity::{CredentialBroker, Minted, RequestContext, SourceSet};
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
@@ -515,13 +515,27 @@ where
             plan: plan.source().clone(),
         });
     };
+    // The plan, parsed as this anchor's before anything with no credential is allowed to execute it.
+    // `AnchorPlan::of` refuses a grouped plan, a plan carrying a predicate a question asked for, a
+    // plan for another metric and a plan over another range - which is what makes `verify_anchor`
+    // unable to take a caller's question. Reaching the `Err` arm means this function compiled
+    // something other than the anchor's own question, so it is a defect here rather than a governance
+    // outcome, and it is reported as one: `NotExecutedReason::NotAnAnchor` names the metric's report
+    // entry rather than failing the boot for every other anchor in the bundle.
+    let anchor_plan = match AnchorPlan::of(&plan, metric, anchor) {
+        Ok(anchor_plan) => anchor_plan,
+        Err(cause) => {
+            let (message, chain) = flatten(&cause);
+            return not_executed(NotExecutedReason::NotAnAnchor { message, chain });
+        }
+    };
     // `verify_anchor` and not `execute`, and the difference is the identity rather than the method
     // name. There is no caller at boot, so there is no credential in scope and nothing here could
     // pass one - which is what stops this path from being the door the service-identity fallback
     // comes back through. What it runs as is whatever the deployment configured this adapter with,
     // and `docs/adr/0008` part 1 is why that is the only honest answer available: under row-level
     // security a per-subject anchor is a function rather than a number.
-    let rows = match warehouse.verify_anchor(&plan) {
+    let rows = match warehouse.verify_anchor(anchor_plan) {
         Ok(rows) => rows,
         Err(cause) => {
             let (message, chain) = flatten(&cause);

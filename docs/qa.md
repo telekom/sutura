@@ -25,8 +25,12 @@ port has no signature that runs without the result - so a subject with no creden
 refused rather than answered as this process. What is absent is a data system that evaluates the
 asking subject: no adapter in this build can carry a per-subject credential. Against a local file the
 property is trivially true and worth nothing, because a file has no login. Against a warehouse it is
-still a target - what changed is that there is no longer a code path for a warehouse to be read as
-this process through.
+still a target - what changed is that no QUESTION has a code path for a warehouse to be read as this
+process through. The boot path does, by design: it re-executes every anchor before a listener is
+bound, there is no caller then, and `Warehouse::verify_anchor` takes no credential. What bounds that
+path is its input - it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and
+refuses a grouped one, a filtered one, another metric's or another range's - so the method with no
+credential cannot be handed a question.
 
 ## Why is a refusal not an error?
 

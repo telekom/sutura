@@ -18,7 +18,7 @@ use sutura_domain::warehouse::Value;
 
 use sutura_domain::identity::{PrincipalChain, RequestContext, Subject, SubjectId};
 
-use super::tests_support::{AdapterFailure, FixedBroker, FixedWarehouse};
+use super::tests_support::{AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse};
 use super::{
     AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, answer, exceeds_row_cap,
     verify_anchors, verify_and_validate,
@@ -429,4 +429,51 @@ fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversi
     // The other end, so the comparison is not narrowing by accident: a cap no result could reach
     // admits an ordinary result.
     assert!(!exceeds_row_cap(1, u32::MAX), "one row is not over four billion");
+}
+
+#[test]
+fn a_refused_question_never_reaches_the_broker() {
+    // **`mint` is on the request path with no bound of its own**, so what it costs matters. It is
+    // free for the implementor that ships - it reads a settings tree - and one authorization-server
+    // round trip per question for the first broker that exchanges a token. This pins the one
+    // structural property that keeps that bill honest: a question this deployment declines is
+    // declined BEFORE anything is asked of the broker.
+    //
+    // **The limit, and it is the whole precision of the claim:** what holds is that the refusals
+    // decided by COMPILATION and by the source lookup come first - an unknown metric, a grain the
+    // metric does not declare, a range over the cap, a dimension outside the allowlist, a plan
+    // spanning two sources, a source nobody opened. `ResultTooLarge`, `ResourcesExhausted` and
+    // `CredentialUnavailable` are decided after minting and could not be otherwise: the first two
+    // need a result, and the third IS the broker's answer.
+    let (validated, registry, question) = ready();
+    let broker = CountingBroker::default();
+
+    let unknown = Query::new(
+        MetricName::parse("no_such_metric").expect("a test metric name is a name"),
+        Grain::Month,
+        june(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let outcome = answer(&validated, &unknown, &asked_by_a_person(), &broker, &registry).expect("a refusal is an Ok");
+    assert!(
+        matches!(
+            outcome,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::MetricUnknown { .. }
+            }
+        ),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        broker.asked(),
+        0,
+        "a question this deployment declines cost an authorization-server round trip"
+    );
+
+    // And the count moves for a question that IS accepted, so the assertion above is not passing
+    // against a broker nothing calls: one mint per answer, over the whole source set at once.
+    let outcome = answer(&validated, &question, &asked_by_a_person(), &broker, &registry).expect("the fake answers");
+    assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
+    assert_eq!(broker.asked(), 1, "one mint per accepted question, and not one per leg");
 }

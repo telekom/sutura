@@ -45,7 +45,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::identity::principal::{RequestContext, Subject, parse_principal_id};
 use crate::identity::{InvalidPrincipalId, Secret};
 use crate::model::SourceName;
-use crate::source::SharedIdentityDeclared;
+use crate::source::{SharedIdentityDeclared, SourcePosture};
 
 /// A name a data system knows a principal by, for the posture where a session is switched to it.
 ///
@@ -105,7 +105,15 @@ impl core::fmt::Display for PrincipalName {
 /// timeout, and part 4 puts the same check before each leg for the same reason. What this value is
 /// for HERE is the audit record: a record that cannot say how long the credential it used was good
 /// for cannot answer the question an incident asks first.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// **No `Ord`, and its absence is the fix for a defect a review found.** This used to derive
+/// `PartialOrd` and `Ord`, and a derived ordering on an enum is DECLARATION ORDER - so
+/// [`Self::NothingExpires`] was the minimum, and `.min()` over a set holding one static credential
+/// and one expiring token answered "nothing expires". That is the wrong direction, silently, in the
+/// one operation this type's own documentation tells a minter to perform. The test that existed
+/// pinned the inverted order and warned a reader not to read it as instants; a type should not need
+/// the warning. [`Self::earliest`] is the operation, written out, and there is no comparison operator
+/// left for a call site to reach for instead.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Expiry {
     /// Nothing in this set expires. The honest answer for credentials that came from configuration.
     NothingExpires,
@@ -118,6 +126,33 @@ pub enum Expiry {
 }
 
 impl Expiry {
+    /// The earlier of two deadlines, where "nothing expires" is later than every instant.
+    ///
+    /// **Written out rather than derived, because the derive got it backwards.** An ordering over
+    /// these two variants is not a comparison of instants: one of them is not an instant. So the
+    /// question a minter asks - which of these stops being usable first - is answered by a function
+    /// that names both cases, and `NothingExpires` is the one that loses to every deadline.
+    #[must_use]
+    pub const fn earlier_of(self, other: Self) -> Self {
+        match (self, other) {
+            (Self::NothingExpires, later) | (later, Self::NothingExpires) => later,
+            (Self::At { unix_seconds: left }, Self::At { unix_seconds: right }) => Self::At {
+                unix_seconds: if left <= right { left } else { right },
+            },
+        }
+    }
+
+    /// The earliest across everything a broker minted.
+    ///
+    /// **The operation [`Self`]'s own documentation asks a minter to perform**, so it lives here once
+    /// rather than as a fold each broker writes. [`Self::NothingExpires`] is the fold's identity, and
+    /// that is the honest answer for an empty set as well: a broker that minted nothing that expires
+    /// has no deadline, which is what the static-credential broker that ships returns.
+    #[must_use]
+    pub fn earliest(deadlines: impl IntoIterator<Item = Self>) -> Self {
+        deadlines.into_iter().fold(Self::NothingExpires, Self::earlier_of)
+    }
+
     /// The instant, for a reader that has a clock. `None` where nothing expires.
     ///
     /// An `Option` rather than a number, so a caller with a clock has to name the case where there
@@ -183,6 +218,76 @@ impl Presented {
             Self::SharedServiceUser { .. } => "the deployment's own identity for this source",
         }
     }
+
+    /// Does this leg agree with how the source it is for was declared?
+    ///
+    /// **The check the adapters used to look like they were making and were not.** Each matched the
+    /// variant it was handed against its own
+    /// [`ImpersonationCapability`](crate::source::ImpersonationCapability), which answers "can this
+    /// code carry a subject at all", and never read the posture the composition root handed it. So a
+    /// shared leg carrying a *different* acknowledgement was accepted, and the answer's provenance
+    /// then reported the adapter's own declaration rather than what the broker presented.
+    ///
+    /// **Two independent values compared, which is what makes this pair worth having.** The broker
+    /// reads the settings tree and the adapter holds what the root handed it - `sutura_config`'s own
+    /// documentation says the two are only an independent pair because they read different things -
+    /// so a comparison here is a comparison and not a value against itself.
+    ///
+    /// **The limit, stated with the claim.** The witness is not a secret and equality of it is the
+    /// only comparison available: a fabricated witness whose prose is byte-for-byte this source's is
+    /// indistinguishable from this source's, and nothing here can tell them apart. What it catches is
+    /// a witness that is *another* source's, one an unrelated component invented, and every mismatch
+    /// of shape. It is also not a check on the credential MATERIAL in either subject variant - that
+    /// is the broker's contract and, for a source that authenticates the asker, the source's.
+    ///
+    /// One exhaustive match over the PAIR with no wildcard arm, so a third posture or a fourth
+    /// presented shape is a compile error here rather than a case that falls through to `Ok`.
+    pub fn agrees_with(&self, posture: &SourcePosture, at: &SourceName) -> Result<(), PresentedDisagreesWithPosture> {
+        match (self, posture) {
+            (Self::SubjectToken { .. } | Self::SubjectPrincipal { .. }, SourcePosture::ImpersonationAtSource) => Ok(()),
+            (Self::SharedServiceUser { declared }, SourcePosture::SharedServiceUser { declared: mine }) => {
+                if declared == mine {
+                    Ok(())
+                } else {
+                    Err(PresentedDisagreesWithPosture::WitnessIsNotThisSources { at: at.clone() })
+                }
+            }
+            (Self::SubjectToken { .. } | Self::SubjectPrincipal { .. }, SourcePosture::SharedServiceUser { .. })
+            | (Self::SharedServiceUser { .. }, SourcePosture::ImpersonationAtSource) => {
+                Err(PresentedDisagreesWithPosture::ShapeIsNotThePosture {
+                    at: at.clone(),
+                    posture: posture.as_str(),
+                    presented: self.as_str(),
+                })
+            }
+        }
+    }
+}
+
+/// What a broker presented does not agree with how the source it is for was declared.
+///
+/// **An `Err` on the adapter that found it and never a refusal**, for the reason a wiring defect
+/// always is one here: nothing about the question was wrong, and offering it as a refusal would
+/// invite a client to retry a deployment bug until something works.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum PresentedDisagreesWithPosture {
+    /// The leg's shape is not the shape the posture asks for - a subject's credential for a source
+    /// declared shared, or the deployment's own identity for a source declared impersonating.
+    #[error("source `{at}` is declared `{posture}` and was handed {presented}")]
+    ShapeIsNotThePosture {
+        at: SourceName,
+        posture: &'static str,
+        presented: &'static str,
+    },
+    /// Both say shared, and the acknowledgement witness on the leg is not this source's.
+    ///
+    /// **The case the shape check misses, and the one worth a variant of its own.** A leg carrying
+    /// *some* acknowledgement matches the variant an adapter is configured for; it may still be
+    /// another source's witness, or one a caller-side defect invented - both constructors on
+    /// [`SharedIdentityDeclared`] are `pub`. Provenance is read off the adapter's own posture, so a
+    /// leg accepted here would be recorded as running under an acknowledgement it did not carry.
+    #[error("source `{at}` is declared shared under one operator acknowledgement and was handed a leg carrying another")]
+    WitnessIsNotThisSources { at: SourceName },
 }
 
 /// The sources one answer reads. Non-empty by construction.
@@ -271,13 +376,25 @@ impl SourceSet {
 /// so the attempt does not compile:
 ///
 /// ```compile_fail
-/// use sutura_domain::identity::{LegCredentials, Presented, Subject};
+/// use std::collections::BTreeMap;
+/// use sutura_domain::identity::{Expiry, LegCredentials, Presented, Subject};
 /// use sutura_domain::model::SourceName;
 ///
-/// fn _two_askers(credentials: LegCredentials, second: Presented, source: SourceName) -> LegCredentials {
-///     credentials.and(source, second, Subject::TheDeploymentItself)
+/// fn _two_askers(second: Presented, source: SourceName) -> LegCredentials {
+///     LegCredentials {
+///         asked_by: Subject::TheDeploymentItself,
+///         not_after: Expiry::NothingExpires,
+///         by_source: BTreeMap::from([(source, second)]),
+///     }
 /// }
 /// ```
+///
+/// **A struct literal rather than a method call, and a review is why.** The block used to write
+/// `credentials.and(source, second, Subject::TheDeploymentItself)`, which fails because no method
+/// named `and` exists on this type - so what it proved was the absence of one name, and adding an
+/// `and` for any purpose would have made it pass while the property it is named for stayed broken.
+/// The literal above fails on the three private fields, which is the property: `minted` is the only
+/// way to a value of this type, and it takes one [`Subject`].
 ///
 /// The compiling twin, so a rename cannot make the block above pass vacuously - and it is out of
 /// crate, which is what pins [`Self::minted`] as `pub`: a broker adapter lives in another crate and
@@ -437,6 +554,28 @@ pub trait CredentialBroker {
     type Error: core::error::Error + 'static;
 
     /// One call per answer, for every source the plan reads.
+    ///
+    /// # What this costs, on the request path
+    ///
+    /// **It is called once per ACCEPTED question, synchronously, and it has no bound of its own.**
+    /// There is no cache, no pool, no per-subject reuse and no deadline enforced here: the only
+    /// ceiling is the transport's own request timeout, and nothing in the domain can see one. For the
+    /// implementor that ships this is free, because the identity provider it talks to *is* the
+    /// settings tree. For the first broker that exchanges a token it is **one authorization-server
+    /// round trip per question**, and N audience-restricted exchanges inside it for a plan reading N
+    /// sources - which is the reason the port takes the whole [`SourceSet`] in one call rather than
+    /// one call per leg.
+    ///
+    /// Two things follow, and they are stated here rather than left to be discovered by whoever
+    /// deploys the first exchanging broker. **One:** a question this deployment declines does not
+    /// reach here - compilation and the source lookup run first, so an unknown metric or a dimension
+    /// outside the allowlist costs nothing. `sutura_app`'s
+    /// `a_refused_question_never_reaches_the_broker` is what pins the ordering, and it states the
+    /// narrowness: the refusals decided AFTER minting - a result over the cap, an exhausted working
+    /// set, and this port's own refusal - could not be decided before it. **Two:** caching what a
+    /// broker minted is an architecture decision and not an optimisation, for the reason there is no
+    /// result cache: a cache keyed on anything but the subject is a cross-subject leak, and a
+    /// credential cache also has to be keyed on the deadline it is holding.
     ///
     /// Takes the [`RequestContext`] rather than a subject identifier, because who is asking is
     /// something the transport ESTABLISHED and a caller cannot state - none of the types in

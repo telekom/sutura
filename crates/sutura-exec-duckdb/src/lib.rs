@@ -20,7 +20,7 @@ use std::path::Path;
 
 use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
-use sutura_domain::identity::Presented;
+use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
@@ -153,6 +153,24 @@ pub enum DuckDbError {
          a wiring defect between the credential broker and the source declaration"
     )]
     NoPlaceForASubject { at: String, presented: &'static str },
+    /// The broker presented a leg that does not agree with how this source was DECLARED.
+    ///
+    /// **A different question from the variant above, and a review found that only the first was
+    /// being asked.** `NoPlaceForASubject` compares what arrived against what this CODE can carry -
+    /// the [`Warehouse::IMPERSONATION`] constant - and reads `posture` not at all. So a shared leg
+    /// carrying a *different* operator acknowledgement matched the variant this adapter accepts and
+    /// was executed, while provenance, which is read off `posture`, reported this adapter's own
+    /// declaration instead.
+    ///
+    /// The two values compared are genuinely independent: the broker reads the settings tree and this
+    /// adapter holds what the composition root handed it. An `Err` rather than a refusal, for the
+    /// reason the variant above is one. The same variant exists on the engine adapter, because neither
+    /// implementor of this port may reach into the other for a shared check.
+    #[error("the credential broker presented a leg that disagrees with how this source is declared")]
+    PresentedDisagreesWithPosture {
+        #[source]
+        cause: PresentedDisagreesWithPosture,
+    },
 }
 
 /// A `DuckDB` database, behind the [`Warehouse`] port.
@@ -263,12 +281,22 @@ impl DuckDbWarehouse {
     /// identity resolves against tables the asker may not be able to see.
     fn deliverable(&self, presented: &Presented) -> Result<(), DuckDbError> {
         match *presented {
-            Presented::SharedServiceUser { .. } => Ok(()),
-            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => Err(DuckDbError::NoPlaceForASubject {
-                at: String::from(self.source.as_str()),
-                presented: presented.as_str(),
-            }),
+            Presented::SharedServiceUser { .. } => {}
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+                return Err(DuckDbError::NoPlaceForASubject {
+                    at: String::from(self.source.as_str()),
+                    presented: presented.as_str(),
+                });
+            }
         }
+        // The second half, and it is a different question. The match above compares what arrived
+        // against what this CODE can carry; this compares it against what this DEPLOYMENT declared
+        // for the source. The capability check goes first because its message is the one that names
+        // what a broker did wrong, and after it the only shape left is the shared one - so what this
+        // call actually decides is whether the acknowledgement witness on the leg is this source's.
+        presented
+            .agrees_with(&self.posture, &self.source)
+            .map_err(|cause| DuckDbError::PresentedDisagreesWithPosture { cause })
     }
 
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {
@@ -462,10 +490,12 @@ impl Warehouse for DuckDbWarehouse {
 
     /// Re-runs an anchor's plan, under the one identity this connection was opened with.
     ///
-    /// It takes no credential because there is no caller at boot, and [`AnchorRows`] is what keeps
-    /// the result from being handed back to one as an answer.
-    fn verify_anchor(&self, plan: &sutura_domain::plan::QueryPlan) -> Result<AnchorRows, Self::Error> {
-        let query = generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
+    /// It takes no credential because there is no caller at boot, and it takes an
+    /// [`AnchorPlan`](sutura_domain::plan::AnchorPlan) rather than a bare plan, so that the one
+    /// method here needing no credential cannot be handed a caller's question either.
+    /// [`AnchorRows`] is what keeps the result from being handed back to one as an answer.
+    fn verify_anchor(&self, plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        let query = generate(plan.plan(), Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
         self.run(&query).map(AnchorRows::of)
     }
 }
@@ -719,6 +749,43 @@ mod tests {
         warehouse
             .deliverable(&shared_leg())
             .expect("the deployment's own identity for this source is what this adapter can execute with");
+    }
+
+    #[test]
+    fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_prepared() {
+        // THE CHECK THE SHAPE MATCH DOES NOT MAKE. The match above compares what arrived against what
+        // this CODE can carry - `IMPERSONATION` - and reads `posture` not at all, so a leg whose
+        // variant is right and whose operator acknowledgement is another source's got past it and
+        // executed. Provenance is read off `posture`, so the answer would then have recorded this
+        // adapter's declaration rather than what the broker presented: a record of a leg that did not
+        // happen. A review found this, and the two values compared here are genuinely independent -
+        // the broker reads the settings tree and the adapter holds what the composition root handed it.
+        let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture()).expect("an in-memory database opens");
+        let fabricated = Presented::SharedServiceUser {
+            declared: sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse("a witness no operator wrote for this source")
+                    .expect("a test reason is a reason"),
+            ),
+        };
+        // It matches the variant this adapter accepts, which is why the shape check cannot see it.
+        assert_eq!(fabricated.as_str(), shared_leg().as_str());
+
+        let error = warehouse
+            .deliverable(&fabricated)
+            .expect_err("a witness that is not this source's is not this source's");
+        let DuckDbError::PresentedDisagreesWithPosture { ref cause } = error else {
+            panic!("the adapter names the disagreement rather than preparing anything: {error:?}");
+        };
+        assert_eq!(
+            *cause,
+            sutura_domain::identity::PresentedDisagreesWithPosture::WitnessIsNotThisSources { at: source() }
+        );
+
+        // And this source's OWN witness is still accepted, so the assertion above is not passing
+        // against an adapter that refuses every shared leg.
+        warehouse
+            .deliverable(&shared_leg())
+            .expect("this source's own acknowledgement is what this adapter executes with");
     }
 
     #[test]
