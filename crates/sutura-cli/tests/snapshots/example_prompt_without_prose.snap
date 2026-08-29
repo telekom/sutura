@@ -88,6 +88,11 @@ Every reason you can be given, and what to do about each:
 - **TimeRangeTooLong** - the period asked about is longer than one question may span.
   Split it into consecutive shorter periods and ask about each. The refusal carries both day counts,
   so the split can be computed rather than guessed.
+- **ResourcesExhausted** - answering would have needed more working memory than this deployment
+  allows, so it was refused rather than allowed to exhaust the process.
+  Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
+  returns the same refusal: the ceiling is a configured number, not a passing condition, so this is
+  not an outage to wait out.
 - **PlanSpansTwoSources** - answering would need to read from two data systems, and a question is
   answered from one.
   Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not

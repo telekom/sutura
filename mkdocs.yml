@@ -181,6 +181,7 @@ nav:
       - sutura-config: api/sutura-config.md
       - sutura-runtime: api/sutura-runtime.md
       - sutura-http: api/sutura-http.md
+      - sutura-mcp: api/sutura-mcp.md
       # Dev tooling rather than shipped surface, and last for that reason. It is here because it
       # IS a library now - `xtask`'s compose tier depends on its `Scope`, so that is a real contract
       # and a change to it belongs in a reviewable diff. Narrowing the gate instead was considered

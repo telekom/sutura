@@ -5,11 +5,31 @@
 //! the principal chain, the request context or the `CredentialBroker` port that belong beside
 //! it, and every one of those would have arrived somewhere else.
 //!
+//! Two of those three are here now, in [`principal`]: the chain a call is attributed to, and the
+//! request context that carries it. `CredentialBroker` is still absent for the reason it always was
+//! - nothing implements it yet, and a port trait arrives with its first implementor.
+//!
+//! **Nothing in [`principal`] is `Serialize` or `Deserialize`, and [`Secret`] is neither either.**
+//! That is one property rather than two coincidences: an identity is derived from what a transport
+//! established, and a type that could be read off the wire is a caller stating its own. The
+//! credential material and the chain are the two things in this workspace where being unable to
+//! parse the value from a request body is the control.
+//!
 //! The redaction is the point of [`Secret`], so it has a test. A secret that reaches a log
 //! through `{:?}` is not recoverable once shipped, and every structured-logging call site is
 //! a chance for it - so the type, not the call site, is where this is fixed.
 
 use std::fmt;
+
+// Private, with the types re-exported below, so there is exactly ONE public path to each of them.
+// `pub mod` would have given two - `identity::principal::PrincipalChain` and
+// `identity::PrincipalChain` - and a second path to a type is a second name for it in every doc
+// comment that mentions it.
+mod principal;
+
+pub use crate::identity::principal::{
+    Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId,
+};
 
 /// An opaque secret. `Debug` prints a placeholder; the value is reachable only by an
 /// explicit, greppable call to [`Secret::expose`].

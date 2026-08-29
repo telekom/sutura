@@ -592,7 +592,9 @@ now and impossible to retrofit, and they are marked.
       sutura cannot vouch for a sink it does not retain. A deployment that attaches a sink which drops
       records, or attaches none, has no audit trail on this side and nothing here can tell it so -
       which is precisely why the sources' own logs, written under the asking subject, carry the part of
-      the obligation that matters. No `AuditSink` type exists anywhere in the workspace today.
+      the obligation that matters. **`AuditSink` now exists** - shipped by `feat/principal-chain` with
+      `TracingAuditSink` as its first implementor - so the split this bullet argues for is built rather
+      than proposed: sutura writes before the outcome returns and retains nothing.
   What a record is worth beyond attribution: refusals are the demand signal for which questions have no
   certified answer, and the ungoverned-share number
   [a raw SQL tool, off by default](0013-a-raw-sql-tool-off-by-default.md) reports is computed over the

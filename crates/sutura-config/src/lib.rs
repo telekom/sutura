@@ -73,6 +73,17 @@
 //! The checks read the *loaded* values, not any one file, because the variable layer is applied
 //! last: a check against `production.yaml` would be checking something the process is not running
 //! on.
+//!
+//! **A value out of range is a different refusal, through a different type, and one of them reads the
+//! machine.** [`NotFitToServe`] is about a *combination* of settings that are each individually legal;
+//! a single value the type will not accept is a [`SettingsError`] out of [`Settings::load`], so it
+//! refuses to start too and is not in that list. The one worth naming here is
+//! `runtime.working_set_max_bytes`: it is checked against the memory this process can actually reach -
+//! a cgroup limit, or the machine - and refuses above it, because shipped profiles compile
+//! `panic = "abort"` and a ceiling over what is reachable is the unbounded case with a number written
+//! next to it. **On a platform that will not report that number, notably macOS, no check is made**,
+//! and [`WorkingSetCeiling::checked_against`] is what lets the startup log say which of the two
+//! happened rather than implying the check was run.
 
 pub mod api;
 pub mod catalog;
@@ -94,7 +105,9 @@ pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
 pub use crate::proxy::{Cidr, ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
-pub use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace};
+pub use crate::runtime::{
+    AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling, available_memory_bytes,
+};
 pub use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
 pub use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings, TlsMaterial,

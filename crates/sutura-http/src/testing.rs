@@ -136,6 +136,58 @@ pub(crate) fn catalog_of(bundle: PinnedDefinitions) -> FixedCatalog {
     FixedCatalog { bundle }
 }
 
+/// The audit sink every fixture here starts a service with: the real writer.
+///
+/// **The real one and not a fake, on purpose.** `LocalService::start` requires a sink, so every
+/// fixture has to name one, and naming the shipped writer means the assertions in `crate::harness`
+/// that read the log are reading what a deployment would actually get. A fake here would have made
+/// those tests pass against a channel nothing ships.
+pub(crate) fn sink() -> sutura_runtime::TracingAuditSink {
+    sutura_runtime::TracingAuditSink::new()
+}
+
+/// Everything one sink was handed, in the order it arrived, as text.
+///
+/// For the two properties the real writer cannot be asked about: that a record exists **by the time
+/// `answer` returns**, and what chain it carried. Both are about the call rather than about the
+/// bytes, and reading them back out of a rendered log would be asserting on a rendering.
+#[expect(
+    clippy::disallowed_types,
+    reason = "a synchronous test collector: the guard is taken and dropped inside one statement and no runtime is involved, which is the same argument sutura_runtime::testing::Capture records"
+)]
+#[derive(Debug, Default)]
+pub(crate) struct RecordingSink {
+    lines: std::sync::Mutex<Vec<String>>,
+}
+
+impl RecordingSink {
+    /// What was recorded, oldest first.
+    pub(crate) fn lines(&self) -> Vec<String> {
+        self.lines.lock().map_or_else(|_poisoned| Vec::new(), |lines| lines.clone())
+    }
+}
+
+impl sutura_domain::audit::AuditSink for RecordingSink {
+    fn record(&self, record: &sutura_domain::audit::CallRecord<'_>) {
+        use sutura_domain::audit::RecordedOutcome;
+        use sutura_domain::identity::Attribution;
+
+        let chain = record.chain();
+        let who = match chain.attribution() {
+            Attribution::BareSubject { subject } => format!("subject={}", subject.established()),
+            Attribution::ActingFor { subject, actors } => format!("subject={} acting={actors}", subject.established()),
+        };
+        let named = chain.subject().id().map_or_else(String::new, |id| format!(" id={id}"));
+        let how = match *record.outcome() {
+            RecordedOutcome::Answered { rows, .. } => format!("answered rows={rows}"),
+            RecordedOutcome::Refused { reason } => format!("refused reason={reason:?}"),
+        };
+        if let Ok(mut lines) = self.lines.lock() {
+            lines.push(format!("{who}{named} {how}"));
+        }
+    }
+}
+
 /// The driver's own complaint, one level below the adapter's.
 #[derive(Debug, thiserror::Error)]
 #[error("no such file: catalog/")]

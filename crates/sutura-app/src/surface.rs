@@ -8,7 +8,8 @@
 //! handler cannot be generic over the warehouse without the whole router becoming generic in it,
 //! and the generated document becoming generic in it too.
 //!
-//! [`Surface`] is the seam: this crate's two operations, with `W` gone.
+//! [`Surface`] is the seam: this crate's two operations, with `W` gone - and with the audit sink's
+//! own parameter gone for the same reason, since [`LocalService`] is generic in that too.
 //!
 //! # Why it is HERE and not in the transport that uses it
 //!
@@ -78,6 +79,8 @@
 //! so `sutura_domain::warehouse::Warehouse` is unchanged, and it is a `std` marker rather than a
 //! framework type - a requirement a transport states, satisfied here.
 
+use sutura_domain::audit::{AuditSink, CallRecord};
+use sutura_domain::identity::RequestContext;
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
@@ -101,7 +104,21 @@ pub trait Surface: Send + Sync + 'static {
     /// A refusal comes back inside the `Ok` as [`ToolOutcome::Refusal`], never as an `Err`. That is
     /// the domain's invariant and this signature is where a transport inherits it: a caller cannot
     /// mistake "you may not ask that" for a transport hiccup and retry until something works.
-    fn answer(&self, query: &Query) -> Result<ToolOutcome, SurfaceFailure>;
+    ///
+    /// # The context, and why it is a second parameter rather than a field on the question
+    ///
+    /// `context` carries the principal chain the call is attributed to. It is separate from `query`
+    /// because they come from different places and are trusted differently: the question is what the
+    /// caller asked, and the chain is what the transport *established*. A caller that could state
+    /// its own chain would be stating its own identity, so the two never share a shape - and
+    /// `RequestContext` implements no `Deserialize`, which is what makes that structural rather than
+    /// a rule somebody follows.
+    ///
+    /// The implementation writes one record per outcome, answer and refusal alike, **before this
+    /// returns**. That ordering is the requirement rather than an optimisation: a record written
+    /// after the response is the record a crash loses, and the call worth having a record of is the
+    /// one that went wrong.
+    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure>;
 }
 
 /// A typed error, owned, with its type erased and its `#[source]` chain intact.
@@ -118,6 +135,14 @@ pub type ErasedCause = Box<dyn core::error::Error + Send + Sync + 'static>;
 ///
 /// The variants are exhaustive and stay exhaustive - a transport chooses its status code from the
 /// split - and each one carries the cause it was built from rather than a rendering of it.
+///
+/// **No audit record is written for either, and that is the limit on "every call is recorded".**
+/// `sutura_domain::audit` records an *outcome* - an answer or a refusal - and neither of these is
+/// one: a bundle that will not compile and a data system that did not answer are our own faults
+/// rather than answers to a question. A transport logs them, with the cause chain, which is what
+/// [`cause_chain`] is for. Widening the record to cover a failure means giving
+/// `sutura_domain::audit::RecordedOutcome` a third variant, and that is a change to what a record
+/// means rather than a field added to one.
 #[derive(Debug, thiserror::Error)]
 pub enum SurfaceFailure {
     #[error("the question could not be compiled against the pinned bundle")]
@@ -173,30 +198,38 @@ pub enum ServiceNotStarted {
     },
 }
 
-/// The one implementation: a validated bundle and one data system, behind the ports.
+/// The one implementation: a validated bundle, one data system and one audit sink, behind the ports.
 ///
 /// Holds the bundle as [`Validated`], which has no constructor other than one that executes every
 /// anchor against a warehouse - so a [`LocalService`] that exists is one whose anchors held. That
 /// is not a check this type performs; it is a type it could not otherwise have been built from.
-pub struct LocalService<W> {
+///
+/// **The sink is a constructor argument and not an `Option`.** A service cannot be started without
+/// one, so "this deployment forgot to attach a sink" is not a state that exists - which is the
+/// difference between a record that is always written and a record that is usually written. What the
+/// sink then *does* with a record is the deployment's, and `sutura_domain::audit` states that limit
+/// where the port is declared.
+pub struct LocalService<W, S> {
     definitions: Validated<PinnedDefinitions>,
     warehouse: W,
+    sink: S,
 }
 
-impl<W> LocalService<W>
+impl<W, S> LocalService<W, S>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
+    S: AuditSink + Send + Sync + 'static,
 {
     /// Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
     /// service only if all of them held.
     ///
-    /// Both ports are consumed here, which is what lets a transport be transport-only: it never
-    /// reads a catalog directory and never opens a data system.
+    /// Every port is consumed here, which is what lets a transport be transport-only: it never
+    /// reads a catalog directory, never opens a data system and never decides where a record goes.
     ///
     /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
     /// startup failure is reported from wherever the composition root happens to be.
-    pub fn start<C>(catalog: &C, warehouse: W) -> Result<Self, ServiceNotStarted>
+    pub fn start<C>(catalog: &C, warehouse: W, sink: S) -> Result<Self, ServiceNotStarted>
     where
         C: SemanticCatalog,
         C::Error: Send + Sync,
@@ -205,30 +238,43 @@ where
             .load()
             .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
         let definitions = verify_and_validate(pinned, &warehouse).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
-        Ok(Self { definitions, warehouse })
+        Ok(Self {
+            definitions,
+            warehouse,
+            sink,
+        })
     }
 }
 
-impl<W> Surface for LocalService<W>
+impl<W, S> Surface for LocalService<W, S>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
+    S: AuditSink + Send + Sync + 'static,
 {
     fn definitions(&self) -> &PinnedDefinitions {
         self.definitions.get()
     }
 
-    fn answer(&self, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
-        crate::answer(&self.definitions, query, &self.warehouse).map_err(|error| match error {
+    fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+        let outcome = crate::answer(&self.definitions, query, &self.warehouse).map_err(|error| match error {
             // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
             // `#[source]` chain under it.
             ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
             ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-        })
+        })?;
+        // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
+        // that exists only for the transports that remember to write one, and this is the one line
+        // in the workspace where "before the outcome returns" is a property somebody can point at.
+        //
+        // Both outcomes reach it, because the `?` above is the only path that skips it - see the
+        // limit stated on `SurfaceFailure` below.
+        self.sink.record(&CallRecord::of(context.chain(), &outcome));
+        Ok(outcome)
     }
 }
 
-impl<W> core::fmt::Debug for LocalService<W> {
+impl<W, S> core::fmt::Debug for LocalService<W, S> {
     /// Hand-written because a warehouse adapter need not be `Debug`, and because printing a bundle
     /// into a log is a page of definitions for no benefit. The digest identifies it.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

@@ -165,7 +165,14 @@ impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
     const NAME: &'static str = "datafusion";
 
     fn open(pinned: &PinnedDefinitions) -> Self {
-        let engine = Self::new(source()).expect("an in-process engine starts");
+        // A gibibyte, which is `sutura_config::WorkingSetCeiling::DEFAULT_BYTES` - written as a
+        // literal rather than read from that crate, because this suite must not give `sutura-app` a
+        // dependency on the settings tree to obtain one number. The corpus is a few hundred rows, so
+        // no question in it comes near the bound; what this passes on is the shape a deployment gets,
+        // and the bound's own assertions live in the adapter's `pool.rs`.
+        let ceiling = core::num::NonZeroUsize::new(1024 * 1024 * 1024).expect("a gibibyte is positive");
+        let engine =
+            Self::new(source(), sutura_exec_datafusion::WorkingSet::of_bytes(ceiling)).expect("an in-process engine starts");
         for (table, csv) in fixture_tables(pinned) {
             engine
                 .attach_csv(&table, &csv)

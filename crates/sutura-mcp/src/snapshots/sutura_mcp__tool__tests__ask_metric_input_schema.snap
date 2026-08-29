@@ -1,0 +1,85 @@
+---
+source: crates/sutura-mcp/src/tool.rs
+expression: "canonical(&serde_json::Value::Object(input_schema()), 0)"
+---
+{
+  "$defs": {
+    "FilterArgs": {
+      "additionalProperties": false,
+      "description": "One equality filter.",
+      "properties": {
+        "dimension": {
+          "description": "The dimension to filter on, by the name the metric declares it under.",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value it must equal. Where the catalog declares an allowlist, only a declared value is\naccepted.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "dimension",
+        "value"
+      ],
+      "type": "object"
+    },
+    "RangeArgs": {
+      "additionalProperties": false,
+      "description": "A half-open period: `start` is included, `end` is not.\n\nHalf-open at every grain, which is what makes a month `[2026-06-01, 2026-07-01)` rather than a\nlast day that differs per month. Both dates are ISO `YYYY-MM-DD`.",
+      "properties": {
+        "end": {
+          "description": "The first day NOT included, as `YYYY-MM-DD` - for example `2026-07-01`.",
+          "type": "string"
+        },
+        "start": {
+          "description": "The first day included, as `YYYY-MM-DD` - for example `2026-06-01`.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "type": "object"
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "One governed question, as a tool call carries it.\n\nThe five fields are the whole input surface of this deployment. There is no field for SQL, a\ntable, a filter expression or a row-id list, and an argument naming one is a parse error rather\nthan a key that gets ignored.",
+  "properties": {
+    "dimensions": {
+      "default": [],
+      "description": "What to group the answer by. At most four, and each must be a dimension the metric declares.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "filters": {
+      "description": "Equality filters, each on a dimension the metric declares as filterable.",
+      "items": {
+        "$ref": "#/$defs/FilterArgs"
+      },
+      "type": "array"
+    },
+    "grain": {
+      "description": "The time resolution to aggregate to: one of `day`, `week`, `month`, `quarter` or `year`, and\nonly those the metric declares.",
+      "type": "string"
+    },
+    "metric": {
+      "description": "The metric to measure, by the name this catalog defines it under - for example `revenue`.",
+      "type": "string"
+    },
+    "range": {
+      "$ref": "#/$defs/RangeArgs",
+      "description": "The half-open period to ask about."
+    }
+  },
+  "required": [
+    "metric",
+    "grain",
+    "range"
+  ],
+  "title": "AskArgs",
+  "type": "object"
+}

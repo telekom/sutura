@@ -17,12 +17,13 @@ is worth more as a check than as a sentence in a design document. The allowlist 
 digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
 and no SQL parser anywhere in this crate, `expression` included.
 
-**Two ports live here now, and each arrived with the adapter that implements it.** A port exists
+**Three ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 guess at a signature that only the first real adapter can settle, and in a library crate `pub`
 hides such a guess from `dead_code`. `pinned::SemanticCatalog` arrived with the local catalog
-adapter and `warehouse::Warehouse` with the `DuckDB` one. `CredentialBroker` is still absent for
-the same reason it always was: nothing implements it yet.
+adapter, `warehouse::Warehouse` with the `DuckDB` one, and `audit::AuditSink` with the
+structured writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets.
+`CredentialBroker` is still absent for the same reason it always was: nothing implements it yet.
 
 The modules are grouped by concept rather than named after traits, so a port sits next to the
 types it speaks in:
@@ -35,6 +36,10 @@ types it speaks in:
   `expression::Computation` is what makes "this metric is authored SQL" a word rather than an
   absence.
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
+- `federation` is how a measure survives being computed in pieces: which aggregates descend
+  into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
+  it yet - there is no splitter and no combiner - so it is a classification with no production
+  caller, and its own header says so.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a `catalog` and read
@@ -45,12 +50,149 @@ types it speaks in:
 - `query` is the tool surface, defined mostly by what it has no field for.
 - `warehouse` is the execution port. It speaks in plans, so an adapter that executes without
   generating any SQL is a first-class implementation of it rather than a special case.
-- `definitions` and `identity` hold the digest and the credential-shaped newtypes.
+- `definitions` and `identity` hold the digest and the credential-shaped newtypes. The
+  principal chain a call is attributed to lives in `identity` as well, beside the redaction,
+  because both are properties of who is asking rather than of what was asked.
+- `audit` is the record one call is written to, and the port it goes through. It is not a
+  store: sutura writes a record before the outcome returns and retains nothing, so what the
+  sink does with it is the deployment's.
 
 One module is private, and it is the only one: `text` holds the set of invisible and
 direction-changing code points that a phrase, a note body, a version label and an authored SQL
 fragment all refuse. It exists because that set was written down twice, in two files, and the two
 had already drifted.
+
+## Module `audit`
+
+The record one call is written to, and the port it is written through.
+
+# Why this is sutura's job and cannot be delegated downstream
+
+`docs/adr/0008` walks every identity model a data system offers and finds that only one of them
+can express "an agent acting for a human" in the session itself. The token exchange this design
+uses issues an *impersonation* token rather than a *delegation* one - there is no `act` claim to
+carry - so the source's own audit log says "this person" and cannot say "sutura, for this
+person". The principal chain therefore exists nowhere downstream, and a record of it has to be
+written here or nowhere.
+
+# Written before the outcome returns, and retained not at all
+
+Two claims, and they answer different questions.
+
+**Written.** One record per call, refusals included, before the outcome goes back to the caller.
+Before rather than after, because a record written after the response is the record a crash
+loses, and the call worth having a record of is the one that went wrong. It is a different
+channel from `crate::pinned::Provenance`: provenance rides on the result and a client is free
+to drop it, and a record only the caller holds is not a record.
+
+**Retained nothing.** No archive, no rotation, no retention window, no query interface over past
+calls, and no obligation inherited from any of those. Everything after the write belongs to the
+deployment: where the records go, how long they are kept, who may read them.
+
+**The limit, next to the claim.** An emitted record is worth what the sink behind it is worth,
+and sutura cannot vouch for a sink it does not retain. A deployment whose sink drops records has
+no audit trail on this side and nothing here can tell it so - which is why the sources' own logs,
+written under the asking subject, carry the part of the obligation that matters.
+
+# What the record does NOT carry yet, said here rather than implied
+
+`docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
+the posture each leg ran under, and the expiry the credentials carried.** The last two are absent
+from `CallRecord`, and not by oversight: there is no credential broker, no per-leg posture and
+no expiry type in this workspace, so a field for either would be a field nothing could fill. A
+plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
+what makes that true - so the source set is one name a reader already has from the bundle. Each
+is a field this record gains when the type it would carry exists.
+
+### `trait AuditSink`
+
+```rust
+pub trait AuditSink
+```
+
+Where a record of one call goes.
+
+# Returns nothing a caller can branch on
+
+Deliberately. A sink that could refuse would make writing the record a step the query path has
+to decide about - continue without a record, or refuse the question - and both answers are worse
+than the question. Continuing silently is the failure this port exists to prevent; refusing a
+question because a log pipeline is unwell is an availability decision nobody asked for. So the
+port takes the record and owns everything that happens to it, including failing, which is the
+deployment's half of the bargain the module header states.
+
+`&self` rather than `&mut self`, so one sink is shared by every request without a lock in the
+port's signature. Synchronous, because the ports either side of it are: the interior names no
+framework, and a transport that answers on a blocking pool is already off the reactor.
+
+# Its first implementor
+
+`sutura_runtime::TracingAuditSink`, a structured writer over the tracing subscriber this
+repository already composes. It needs nothing from anybody, which is what makes it the sink a
+deployment that attaches nothing else gets - and what keeps this trait from being a guess at a
+signature.
+
+### `struct CallRecord`
+
+```rust
+pub struct CallRecord<'a>
+```
+
+What one call is recorded as.
+
+Borrows rather than owns: it is built at the call site, handed to the sink, and dropped. A sink
+that needs to keep something copies what it needs, which is the sink's decision rather than a
+cost this type imposes on every call.
+
+#### Methods
+
+```rust
+pub const fn chain(&self) -> &PrincipalChain
+```
+
+Who the call is attributable to.
+
+```rust
+pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome) -> Self
+```
+
+The only constructor, and it derives the outcome half from the outcome itself.
+
+There is no way to build a record that describes an answer as a refusal or the other way
+round: the match is here, once, rather than at every call site that would otherwise be
+trusted to get it right. That is the same reason `crate::pinned::PinnedDefinitions::pin`
+takes no digest parameter.
+
+```rust
+pub const fn outcome(&self) -> &RecordedOutcome<'a>
+```
+
+How it ended.
+
+#### Implements
+
+`Debug`
+
+### `enum RecordedOutcome`
+
+```rust
+pub enum RecordedOutcome<'a>
+```
+
+How the call ended, as the two outcomes a question has.
+
+**A refusal is a variant here for the same reason it is one in `ToolOutcome`**, and it is the
+half a log line gets wrong by omission: refusals are the demand signal for which questions have
+no certified answer, and a channel that records only answers cannot report it.
+
+#### Variants
+
+- `Answered` - The question was answered. The row count sizes it; the provenance says which definitions produced it, so a record can be matched against the bundle that was serving.
+- `Refused` - The question was declined. The variant is what a reader needs - not a sentence - because it is what an aggregate over records can group by.
+
+#### Implements
+
+`Debug`
 
 ## Module `calendar`
 
@@ -1168,6 +1310,328 @@ at load, and an unbounded string out of a file is an unbounded amount of work an
 Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
 derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
 
+## Module `federation`
+
+How a measure federates: what descends into a leg, and the one computation that happens above
+them.
+
+**This module is a classification and a rule, and nothing executes it.** There is no leg plan
+type, no splitter and no combiner in this workspace yet, so nothing here has a production
+caller: the same shape `AGENTS.md`'s *Built And Not Wired* section describes for the
+authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
+classification that looks wired is worse than one that says it is not.
+
+**The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
+than the answer, so a combine above the legs has to aggregate again - and whether that is correct
+depends entirely on the aggregate. `AVG` of `AVG`s is not the average, and two exact distinct
+counts added together over-count every key the two legs share. Neither of those raises an error
+anywhere: they are wrong numbers under a certified metric name, which is the failure mode this
+repository exists to prevent.
+`docs/adr/0007-federating-across-different-data-systems.md` is the finding and
+`docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 is the decision.
+
+**A measure that does not descend is not a refusal.** Decision 2 is explicit: where an aggregate
+cannot be computed per leg and re-aggregated, the leg carries finer-grained rows and the
+aggregate happens above, paying the processing cost. So there is no error type in this module and
+no [`RefusalReason`](crate::query::RefusalReason) variant behind it - `Descent` is total over
+the vocabulary, and its third variant is a plan rather than a decline.
+
+**Three exhaustive matches, and each of them is the mechanism.** `Descent::of` matches
+`Aggregate`, so a seventh aggregate cannot compile without stating which of the three classes
+it is in; `descend` matches `Term`, so a third term has to say the same thing; and
+`Federation::of` matches `Measure`, so a third shape does too. A `match` that has to gain an
+arm is the whole content of this branch.
+
+**The division cannot happen in a leg, and that is a shape rather than a check.** The vocabulary
+already splits into a `Term` - one number - and a `Measure` - one term or a ratio of two.
+What a leg carries is a `Carried`, and a `Carried` is built out of the *term* level: it has no
+variant that divides and no field a `ZeroDenominator` fits in, at any depth. The only
+`ZeroDenominator` in this module is on `Above::Quotient`, which is the node above every leg.
+The bug that closes is specific: `ZeroDenominator::Null` renders as `NULLIF(d, 0)`, so applied
+*inside* a leg a subgroup with a zero denominator becomes null, the `SUM` above skips nulls, and
+that subgroup's numerator is silently dropped from the answer instead of nulling it.
+
+What is deliberately NOT here: the join kind. Decision 2's other half - INNER for a remote
+dimension carrying a filter, LEFT for one that does not - is a function of where the filters
+went, which only a splitter can know. It belongs to the branch that builds one.
+
+### `struct Pushed`
+
+```rust
+pub struct Pushed
+```
+
+An aggregate that descends as written, paired with the function that re-aggregates it above.
+
+**Two aggregates rather than one, because they are not always the same one.** A `Count` pushed
+into a leg is re-aggregated above with a `Sum`: adding the leg counts is the count, and counting
+them again counts legs. That is the single most repeated arithmetic mistake in a hand-written
+combine, and recording both halves is what stops it being restated at each call site.
+
+**The fields are private and there is no public constructor**, so the only values of this type
+are the ones `Descent::of` returns. That is what makes `Carried::Aggregated` unable to *name*
+an aggregate the classification did not call pushable: `Avg` and `CountDistinct` have no
+`Pushed` anywhere, so no caller can write one. **The limit, stated with the claim:** the
+guarantee is module-scoped, since code in this file can write the struct literal - which is
+exactly where the classification lives, and nowhere else.
+
+#### Methods
+
+```rust
+pub const fn combine(self) -> Aggregate
+```
+
+The aggregate that re-aggregates the leg's column above.
+
+```rust
+pub const fn push(self) -> Aggregate
+```
+
+The aggregate the leg computes.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct Pulled`
+
+```rust
+pub struct Pulled
+```
+
+An aggregate that does not descend at all, and runs above the legs on the rows they carried.
+
+Private field and no public constructor, for `Pushed`'s reason: a `Carried::Keys` can only
+name an aggregate `Descent::of` classified as non-descending, and it carries *which* one rather
+than assuming `CountDistinct` is the only one it will ever be.
+
+#### Methods
+
+```rust
+pub const fn above(self) -> Aggregate
+```
+
+The aggregate the combine applies to the pulled-up rows.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Descent`
+
+```rust
+pub enum Descent
+```
+
+How one aggregate of the closed vocabulary descends into a leg.
+
+**Three variants, because there are three answers and not two.** An earlier version of the plan
+named `combine_with() -> Option<Aggregate>`, and `Option` cannot say the third one: descends as
+itself, descends as two columns, does not descend and travels as a grouping key. The compile
+error a seventh aggregate produces is therefore *you have not said which of the three you are*
+rather than *you have not said whether you can*.
+
+#### Variants
+
+- `AsWritten` - Pushable as written: one column in the leg, one function above it.
+- `Decomposed` - Pushable decomposed: two columns in the leg, divided once above.
+- `AsGroupingKey` - Not pushable. The column travels as a grouping key and the aggregate runs above.
+
+#### Methods
+
+```rust
+pub const fn of(aggregate: Aggregate) -> Self
+```
+
+The total function from an aggregate to how it federates.
+
+Exhaustive over `Aggregate` by construction: this `match` is the mechanism the whole
+branch exists for, and a new variant of that closed enum does not compile until it appears
+here.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Carried`
+
+```rust
+pub enum Carried
+```
+
+What one leg carries for one number the answer needs.
+
+**The type that cannot divide.** There is no `Quotient` variant here and no `ZeroDenominator`
+reachable from one: a `Carried` is a `Pushed` or a `Pulled` over a `ColumnName`, and none
+of those three can hold one. That is the ratio rule as a shape rather than as a rule somebody
+remembers - see this module's header for the wrong number it prevents.
+
+The division that a leg cannot express does not compile:
+
+```compile_fail
+use sutura_domain::federation::Carried;
+use sutura_domain::measure::ZeroDenominator;
+
+// There is no variant of `Carried` that divides, so this names nothing.
+fn _per_leg(numerator: Carried, denominator: Carried, zero_denominator: ZeroDenominator) -> Carried {
+    Carried::Quotient { numerator, denominator, zero_denominator }
+}
+```
+
+Nor does the zero guard, which is the half that silently drops a subgroup when it is applied
+inside a leg:
+
+```compile_fail
+use sutura_domain::federation::{Carried, Pushed};
+use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::model::ColumnName;
+
+fn _guarded(pushed: Pushed, column: ColumnName, zero_denominator: ZeroDenominator) -> Carried {
+    Carried::Aggregated { pushed, column, zero_denominator }
+}
+```
+
+And the twin, so a rename cannot make either block pass vacuously: the division exists, one level
+up, where every leg is already below it.
+
+```
+use sutura_domain::federation::{Above, Carried};
+use sutura_domain::measure::ZeroDenominator;
+
+fn _above(numerator: Carried, denominator: Carried, zero_denominator: ZeroDenominator) -> Above {
+    Above::Quotient {
+        numerator: Box::new(Above::Total(numerator)),
+        denominator: Box::new(Above::Total(denominator)),
+        zero_denominator,
+    }
+}
+```
+
+#### Variants
+
+- `Aggregated` - One aggregate the leg computes and hands up as one column.
+- `CountIf` - A conditional count the leg computes and hands up as one column.
+- `Keys` - No aggregate in the leg at all: the column travels as a grouping key, and the aggregate `Pulled` names runs above the rows it carried.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+The column this leg reads.
+
+```rust
+pub const fn combine(&self) -> Aggregate
+```
+
+The aggregate the combine applies to what this leg carried.
+
+One place, so no combiner has to restate it - and so `Count` pushed down, `Sum` above stays
+one decision rather than one per call site.
+
+```rust
+pub const fn is_pulled_up(&self) -> bool
+```
+
+Does this leg carry rows at the fact grain rather than one row per group?
+
+The price of the pull-up, and the quantity worth logging: it is the difference between a leg
+returning one row per group and one row per distinct key.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Above`
+
+```rust
+pub enum Above
+```
+
+The one computation above the legs.
+
+**A tree rather than a pair, and the reason is a nested case that is representable today**:
+`ratio(avg(x), count(y))` has an `Avg` numerator, and an `Avg` is itself a division, so the
+above-step nests. Depth is bounded at two by the vocabulary - a `Measure` is at most a ratio of
+terms, and a term contributes at most one division - so the `Box` is indirection for a
+recursive type rather than an unbounded structure.
+
+Every division in this workspace's federated path is one of these nodes. That is the property:
+the numbers a leg produces are re-aggregated, and only then divided.
+
+#### Variants
+
+- `Total` - One column the legs carried, re-aggregated by `Carried::combine`.
+- `Quotient` - Two of those, divided once - above every leg, with the zero handling the definition asked for applied to the final denominator rather than to a leg's.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct Federation`
+
+```rust
+pub struct Federation
+```
+
+How a measure federates: the whole answer for one measure.
+
+Produced by `Federation::of`, which is total: every measure the closed vocabulary can express
+federates, and the ones that cannot descend pull rows up instead of being declined.
+
+#### Methods
+
+```rust
+pub const fn above(&self) -> &Above
+```
+
+What happens once, above the legs.
+
+```rust
+pub fn carried(&self) -> Vec<&Carried>
+```
+
+What every leg carries, in the order a reader would say the measure.
+
+The leaves of `Above`, collected rather than stored twice: a second copy is a second thing
+to keep in step with the tree.
+
+```rust
+pub fn of(measure: &Measure) -> Self
+```
+
+Classifies one measure.
+
+Exhaustive over `Measure`'s shapes, and over `Term`'s terms through `descend`. A ratio
+becomes an `Above::Quotient` whose halves are pushed separately, which is the rule stated
+as the only tree this function can build.
+
+```rust
+pub fn pulls_up_rows(&self) -> bool
+```
+
+Does answering this measure need rows at the fact grain?
+
+True for anything reaching a `Descent::AsGroupingKey`, which is `CountDistinct` today. This
+is the cost Decision 2 accepts rather than refuses, so it is a quantity to report and not a
+condition to fail on.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `fn descend`
+
+```rust
+pub fn descend(term: &crate::measure::Term) -> Above
+```
+
+How one term descends.
+
+Exhaustive over `Term`, which is the second of this module's three matches: a third term has to
+say how it federates before this compiles.
+
 ## Module `identity`
 
 Who a request runs as, and the credential material that proves it.
@@ -1176,6 +1640,16 @@ Named for the concept rather than for the mechanism it currently uses. `redact` 
 earlier name, and it described one property of one type - so the module could not hold
 the principal chain, the request context or the `CredentialBroker` port that belong beside
 it, and every one of those would have arrived somewhere else.
+
+Two of those three are here now, in `principal`: the chain a call is attributed to, and the
+request context that carries it. `CredentialBroker` is still absent for the reason it always was
+- nothing implements it yet, and a port trait arrives with its first implementor.
+
+**Nothing in `principal` is `Serialize` or `Deserialize`, and `Secret` is neither either.**
+That is one property rather than two coincidences: an identity is derived from what a transport
+established, and a type that could be read off the wire is a caller stating its own. The
+credential material and the chain are the two things in this workspace where being unable to
+parse the value from a request body is the control.
 
 The redaction is the point of `Secret`, so it has a test. A secret that reaches a log
 through `{:?}` is not recoverable once shipped, and every structured-logging call site is
@@ -1215,6 +1689,26 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ## Module `knowledge`
 
@@ -3387,6 +3881,7 @@ somebody else's input.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
 - `SourceUnavailable` - The plan named a data system this process did not open.
+- `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 
 #### Implements
 

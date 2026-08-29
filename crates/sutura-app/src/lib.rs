@@ -216,7 +216,30 @@ where
     // passes per question. `Warehouse::dry_run` is defaulted for that reason: an adapter that cannot
     // make checking cheaper answers this by doing nothing, and says so by not implementing it.
     warehouse.dry_run(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
-    let rows = warehouse.execute(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
+    // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
+    // governance outcome - the question is well formed and this deployment will not spend more than
+    // a configured number of bytes on it - and it used to leave here as `ServiceError::Warehouse`,
+    // which the transport answers `503`. That is what a data system being down looks like, so a
+    // caller was told to retry against a bound that fires again in the same place.
+    //
+    // The adapter is asked rather than inspected: `Self::Error` is its own type and nothing here can
+    // read it, which is why `working_set_exhausted` is on the port. An adapter with no bounded pool
+    // answers `None` by default and this arm never runs for it.
+    //
+    // `dry_run` above is deliberately not given the same treatment: the port's contract is that a
+    // check reads no data, so there is no reservation for a ceiling to refuse.
+    let rows = match warehouse.execute(&plan) {
+        Ok(rows) => rows,
+        Err(cause) => {
+            if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
+                return Ok(ToolOutcome::Refusal {
+                    reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                });
+            }
+            // Anything else is a failure rather than a refusal, and the typed cause travels with it.
+            return Err(ServiceError::Warehouse { cause });
+        }
+    };
     // The row cap, enforced rather than merely requested. The plan asked for one row more than
     // `plan.max_rows()`, so more than that many coming back means the result was cut short - and a
     // truncated result is a wrong total under a certified name, with provenance attached and nothing

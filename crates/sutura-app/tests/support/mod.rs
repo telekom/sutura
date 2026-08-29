@@ -240,6 +240,91 @@ impl Warehouse for WideResult {
     }
 }
 
+// ------------------------------------------------------- the exhausted-engine fake ---
+
+/// Why an engine that ran out of working memory could not answer.
+///
+/// A type of its own rather than [`Never`], because the whole point of the fake below is a failure -
+/// and a fake whose error type cannot be constructed cannot express one.
+#[derive(Debug, thiserror::Error)]
+#[error("the working-set ceiling refused a reservation")]
+pub(crate) struct Exhausted;
+
+/// A data system whose engine hit its working-set ceiling.
+///
+/// **The instrument for the one thing the real adapter's suite cannot assert:** that
+/// `sutura_app::answer` turns an exhausted engine into a `ToolOutcome::Refusal` rather than a
+/// `ServiceError`. That decision lives above the port, so the honest stand-in is a type implementing
+/// it - and it has to be a fake rather than the engine, because what is asserted is the branch taken
+/// on the way out, not that an engine can be made to run out of memory. `pool/ceiling_tests.rs` in
+/// `sutura-exec-datafusion` asserts the other half against a real one.
+pub(crate) struct ExhaustedEngine {
+    source: SourceName,
+    ceiling_bytes: u64,
+}
+
+impl ExhaustedEngine {
+    /// A data system that refuses every question against `ceiling_bytes`.
+    pub(crate) fn at(ceiling_bytes: u64) -> Self {
+        Self {
+            source: source(),
+            ceiling_bytes,
+        }
+    }
+}
+
+impl Warehouse for ExhaustedEngine {
+    type Error = Exhausted;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    // No `dry_run`: the port defaults it, and the contract is that a check reads no data - so there
+    // is no reservation for a ceiling to refuse there, which is why `answer` does not treat its
+    // failure as exhaustion either.
+
+    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
+        Some(self.ceiling_bytes)
+    }
+}
+
+/// A data system that fails for some other reason.
+///
+/// The control for the fake above: the same shape, the same error type, and the port's default answer
+/// to "was that the ceiling" - so a failure that is not exhaustion must still leave as an `Err`. Two
+/// fakes rather than one with a flag, because a flag would let a test assert both branches while
+/// exercising one code path in this file.
+pub(crate) struct BrokenEngine {
+    source: SourceName,
+}
+
+impl BrokenEngine {
+    pub(crate) fn new() -> Self {
+        Self { source: source() }
+    }
+}
+
+impl Warehouse for BrokenEngine {
+    type Error = Exhausted;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    // `working_set_exhausted` is deliberately NOT overridden. The port defaults it to `None`, which
+    // is the answer an adapter with no bounded pool gives, and taking the default is how this fake
+    // says it has none.
+}
+
 /// The corpus bundle, validated the only way there is: by running its anchors.
 ///
 /// For the tests that need a servable bundle and are about something else - a refusal, a source

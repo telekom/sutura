@@ -85,6 +85,25 @@ runtime:
   # a slot is better served by a `503` they can retry than by a `408` much later saying the same
   # thing less clearly.
   admission_timeout_seconds: 5
+  # How many bytes the engine's operators may reserve at once - a hash-join build side, aggregate
+  # state, a sort. One gibibyte, and PROVISIONAL: nobody has measured it, so it is a starting point
+  # recorded as one rather than a finding. `WorkingSetCeiling::DEFAULT_BYTES` is the same number and a
+  # test asserts the two agree, so this line cannot drift on its own.
+  #
+  # It is what makes an oversized join a refusal instead of process death. Without it the engine
+  # installs an unbounded pool, and shipped profiles compile `panic = "abort"` - so an allocation
+  # failure ends the process for every caller in flight rather than refusing the one who asked.
+  #
+  # It is checked at boot against the memory the process can actually reach - a cgroup limit, or the
+  # machine - and refuses to start above it, because a ceiling over that is the unbounded case with a
+  # number written next to it. On a platform that will not say, notably macOS, no check is made and
+  # the startup log says so.
+  #
+  # QUERY-WIDE, with no per-source override, and a source declaration carrying one is an unknown-key
+  # error rather than a setting that quietly does nothing. There is one working set, so a per-source
+  # ceiling would be a number with nothing to bound. Nothing here sizes a spill directory either:
+  # exhaustion refuses, and never writes the asking subject's rows to local disk.
+  working_set_max_bytes: 1073741824
   # `engine_worker_threads` is deliberately absent, which means "as many threads as this machine can
   # run", resolved to a number at load time so the startup log prints what is in effect. A container
   # with a CPU quota should set it: `available_parallelism` reports what the kernel exposes, which on

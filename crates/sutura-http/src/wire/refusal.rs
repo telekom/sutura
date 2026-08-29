@@ -162,6 +162,31 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  narrow the period or group by fewer dimensions and ask again"
             ),
         ),
+        // 422, and choosing it is the whole point of this variant existing. Exhaustion used to reach
+        // a caller as `503 unavailable` out of `ServiceError::Warehouse` - the same status a data
+        // system that is down produces - so a caller was told to retry against a configured bound
+        // that fires again in exactly the same place. 422 is the status whose own definition says
+        // otherwise: "Clients that receive a 422 response should expect that repeating the request
+        // without modification will fail with the same error", which is precisely true here.
+        //
+        // Not 503: the service is well, and the number that refused is one an operator wrote down.
+        // Not 413, which this route already uses for a body over the limit and for `result_too_large`
+        // - and what was too large here is neither the request nor the answer, it is the memory the
+        // engine would have had to reserve on the way to one. Not 507 `Insufficient Storage`, which
+        // is a 5xx and reads as the server's fault to every client that branches on the class.
+        //
+        // The sentence names the ceiling because that is a configured number and safe to hand back,
+        // and names nothing about what the question demanded - see the domain variant for why.
+        RefusalReason::ResourcesExhausted { ceiling_bytes } => (
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "resources_exhausted",
+            format!(
+                "answering this needed more working memory than this deployment's ceiling of \
+                 {ceiling_bytes} bytes, and it was refused rather than allowed to exhaust the \
+                 process; narrow the period, group by fewer dimensions or add a filter and ask \
+                 again. Retrying it unchanged returns this same refusal"
+            ),
+        ),
         // 409. The question is answerable in principle and this deployment will not answer it: a
         // second data system is a second identity to satisfy, and a plan that runs partly as
         // somebody else is the failure the whole design is arranged against. That is a conflict
@@ -286,6 +311,13 @@ mod tests {
                 "result_too_large",
             ),
             (
+                RefusalReason::ResourcesExhausted {
+                    ceiling_bytes: 1024 * 1024 * 1024,
+                },
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "resources_exhausted",
+            ),
+            (
                 RefusalReason::PlanSpansTwoSources { sources: 2 },
                 StatusCode::CONFLICT,
                 "plan_spans_two_sources",
@@ -354,6 +386,30 @@ mod tests {
         assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
         assert!(detail.contains("NOT truncated"), "{detail}");
         assert!(detail.contains("narrow"), "{detail}");
+    }
+
+    #[test]
+    fn exhaustion_is_not_the_status_a_dead_data_system_comes_back_as() {
+        // The defect the variant was added for. Before it existed, an engine operator that could not
+        // reserve memory arrived as `DataFusionError::Execute` and left as `503 unavailable` - which
+        // is what `source_unavailable` is, the one refusal on this surface where retrying is
+        // reasonable. So the caller was told to retry against a configured bound that fires again in
+        // the same place. Both halves are asserted, because either alone would pass on the wrong
+        // grouping: the status is not 503, and the code is not the retryable one.
+        let (status, body) = refused(&RefusalReason::ResourcesExhausted {
+            ceiling_bytes: 1024 * 1024 * 1024,
+        });
+        assert_ne!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(body.code(), "resources_exhausted");
+        // The ceiling is a configured number, so the sentence may carry it - and an operator reading
+        // a log needs it to know which key to change.
+        let detail = body.detail();
+        assert!(
+            detail.contains("1073741824"),
+            "the sentence does not name the ceiling: {detail}"
+        );
+        assert!(detail.contains("unchanged"), "{detail}");
     }
 
     #[test]

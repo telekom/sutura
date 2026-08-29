@@ -334,6 +334,11 @@ fn every_refusal() -> Vec<RefusalReason> {
             days: 99_999,
             limit: MAX_RANGE_DAYS,
         },
+        // A gibibyte, which is the provisional default `sutura-config` writes. Any number would
+        // exercise the guide; this one is the one an operator will actually read in a log.
+        RefusalReason::ResourcesExhausted {
+            ceiling_bytes: 1024 * 1024 * 1024,
+        },
         RefusalReason::PlanSpansTwoSources { sources: 2 },
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),

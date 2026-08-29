@@ -971,10 +971,13 @@ read is the party that logs it. And it is a different channel from provenance fo
 stating: provenance rides on the result and a client may drop it, while this record is written whether
 the caller reads the answer or not.
 
-**Which makes a port necessary, and it does not exist.** `grep -rn "AuditSink" docs/ AGENTS.md`
-returns nothing today and no stack row builds one, so this names the shape and stops there.
-`AGENTS.md`'s rule is that a port trait arrives with its first implementor, and the first implementor
-here is a transport concern nobody has written. What it would take: the principal chain, the outcome -
+**Which makes a port necessary - and it now EXISTS.** When this record was written, `AuditSink`
+appeared nowhere and no stack row built one, so it named the shape and stopped. `feat/principal-chain`
+then shipped it: the port in `sutura_domain::audit`, and `sutura_runtime::TracingAuditSink` as its first
+implementor, because `AGENTS.md`'s rule is that a port arrives with one. The retention half is settled
+too, and against this record's own instinct rather than for it - sutura WRITES a record before the
+outcome returns and RETAINS nothing, because under impersonation the sources audit under the asking
+subject. What it took, for the record, since this paragraph guessed: What it would take: the principal chain, the outcome -
 answer or refusal, with the refusal's variant - the sources the plan read and the posture each leg ran
 under, and the `not_after` the credentials carried. **State the limit next to the claim:** an emitted
 record is worth what the sink behind it is worth, and sutura cannot vouch for a sink it does not
