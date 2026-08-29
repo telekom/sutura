@@ -2530,8 +2530,10 @@ invalidates every artifact in it.</p>
 </tbody>
 </table>
 <p><code>hygiene</code> is one hook because <code>xtask</code> owns the list: <code>check-boundaries</code>, <code>max-lines</code>,
-<code>check-pins</code>, <code>unused-deps</code>, <code>line-endings</code>, <code>text-hygiene</code>, <code>check-skills</code>, <code>check-guidance</code>,
-<code>check-workflows</code>, <code>check-docs</code>, <code>check-crap</code>. <code>cargo xtask --help</code> prints them, marked.</p>
+<code>check-pins</code>, <code>check-warm-start</code>, <code>unused-deps</code>, <code>check-arrow</code>, <code>line-endings</code>, <code>text-hygiene</code>,
+<code>check-skills</code>, <code>check-scope</code>, <code>check-guidance</code>, <code>check-workflows</code>, <code>check-docs</code>, <code>check-crap</code>.
+<code>cargo xtask --help</code> prints them, marked - and that is the authority, because this sentence had
+gone stale on two of them before <code>check-scope</code> was added to it.</p>
 <p><strong>The CRAP gate</strong> scores cyclomatic complexity weighted by the tests that cover it, which is the
 combination neither a complexity limit nor a coverage percentage catches alone. It is in two
 halves by cost: <code>check-crap</code> reads the policy and compiles nothing, so it is in the sweep above;
@@ -2683,7 +2685,10 @@ seconds decide how they spend the rest, and it asks for:</p>
 <li><strong><code>--all-features</code> on every lint and test entry point.</strong> No crate here declares a feature today,
   so the flag is a no-op - and it stays in every entry point for exactly that reason: the day an
   adapter goes behind one, coverage must not silently drop to nothing. A scoped
-  <code>cargo check -p sutura-domain --no-default-features</code> is the fast inner loop, never the gate.</li>
+  <code>cargo check -p sutura-domain --no-default-features</code> is the fast inner loop, never the gate -
+  which is why <code>just check</code> prints the one package it compiled and points at the wider task, and
+  why <code>cargo xtask check-scope</code> fails if that sentence and those flags ever disagree.
+  <code>just check-changed</code> with no arguments compiles what your working tree touched.</li>
 <li><strong>The domain crate acquires no framework dependency.</strong> <code>cargo xtask check-boundaries</code> checks
   the whole transitive tree against an allowlist, so a framework reached through an innocuous
   crate fails it too.</li>
