@@ -44,6 +44,8 @@ mod teardown;
 use std::path::Path;
 
 use sutura_dev::discovery::{self, Endpoints};
+use sutura_dev::provisioned;
+use sutura_dev::requirement::{FORCE, Requirement};
 use sutura_dev::scope::{SERVICES, Scope};
 
 use crate::Verdict;
@@ -56,51 +58,6 @@ const READY_TIMEOUT_SECS: u64 = 180;
 /// often it is read. A fixed sleep instead of a gate is what produces a connection refused inside a
 /// test, attributed to whatever the test happened to be doing.
 const POLL_INTERVAL_MILLIS: u64 = 500;
-
-/// Whether a missing docker is fatal.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Requirement {
-    /// A missing docker FAILS. In CI this tier is the only thing standing behind a network adapter,
-    /// and a green run that quietly tested nothing is the failure the whole tier exists to prevent.
-    Required,
-    /// A missing docker SKIPS, loudly, naming what did not run. Docker is a host dependency this
-    /// repository deliberately does not pin with nix, and a contributor without it has to be able to
-    /// work on everything else.
-    Optional,
-}
-
-/// Which way the docker-absent decision points, and it points differently on the two machine
-/// classes - so both directions are read from one flag, in one function, with the reason here.
-///
-/// **Neither direction is the default.** What a wrong answer costs decides it: locally, a false
-/// failure blocks a contributor who is not touching services; in CI, a false pass certifies an
-/// adapter nothing exercised.
-pub(crate) fn requirement(ci: Option<&str>, forced: Option<&str>) -> Requirement {
-    if let Some(value) = forced {
-        return if truthy(value) {
-            Requirement::Required
-        } else {
-            Requirement::Optional
-        };
-    }
-    if ci.is_some_and(truthy) {
-        return Requirement::Required;
-    }
-    Requirement::Optional
-}
-
-/// GitHub Actions sets `CI=true`; a developer who exports `CI=0` means it.
-fn truthy(value: &str) -> bool {
-    !matches!(value.trim().to_lowercase().as_str(), "" | "0" | "false" | "no")
-}
-
-/// The requirement this process is running under.
-fn requirement_from_env() -> Requirement {
-    requirement(
-        std::env::var("CI").ok().as_deref(),
-        std::env::var("SUTURA_DEV_REQUIRE_DOCKER").ok().as_deref(),
-    )
-}
 
 /// What a service reported as its published address, per service name.
 type Published = Vec<(&'static str, String)>;
@@ -170,11 +127,15 @@ fn scope_here() -> Result<Scope, Verdict> {
 fn require_docker(task: &str) -> Result<(), Verdict> {
     match docker::presence() {
         Ok(()) => Ok(()),
-        Err(missing) => Err(absent(task, missing, requirement_from_env())),
+        Err(missing) => Err(absent(task, missing, Requirement::from_env())),
     }
 }
 
 /// Report an absent runtime, in whichever direction this machine class points.
+///
+/// The DIRECTION is not decided here: `sutura_dev::requirement` owns it, because the harness that
+/// reads the discovery file has to make the same decision and two copies of it would drift. What is
+/// decided here is the wording, which is about docker and belongs beside the docker gate.
 fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Verdict {
     match requirement {
         Requirement::Optional => {
@@ -182,7 +143,7 @@ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Ver
             println!("  {}", missing.remedy());
             println!("  Nothing ran. Docker is a host dependency and nix deliberately does not pin");
             println!("  it, so this skips on a developer machine and FAILS in CI - set");
-            println!("  SUTURA_DEV_REQUIRE_DOCKER=1 to get the CI direction here.");
+            println!("  {FORCE}=1 to get the CI direction here.");
             Verdict::Pass
         }
         Requirement::Required => {
@@ -190,7 +151,7 @@ fn absent(task: &str, missing: docker::Missing, requirement: Requirement) -> Ver
             eprintln!("  {}", missing.remedy());
             eprintln!("  This tier is the only thing standing behind a network adapter. A run that");
             eprintln!("  skipped it would report green having tested nothing, which is the exact");
-            eprintln!("  failure the tier exists to prevent. Set SUTURA_DEV_REQUIRE_DOCKER=0 to");
+            eprintln!("  failure the tier exists to prevent. Set {FORCE}=0 to");
             eprintln!("  skip instead, and mean it.");
             Verdict::Fail
         }
@@ -478,6 +439,46 @@ pub(crate) fn run_endpoints(_args: &[String]) -> Verdict {
     }
 }
 
+/// `dev-endpoint <service>`: one endpoint, on stdout, and nothing else on stdout.
+///
+/// **The output shape is the feature.** `just dev-endpoints` prints a table for a person to read;
+/// this prints `host:port` and a newline, so it substitutes into a shell - which is what lets
+/// somebody following `examples/` reach a provisioned service without knowing that scopes, compose
+/// projects or ephemeral ports exist. Every diagnostic goes to stderr for the same reason: a
+/// `$(..)` that captured an explanation would produce a connection string made of prose.
+///
+/// A person asking for a value gets a FAILURE when there is none, never a skip. The skip direction
+/// belongs to a test run that has other work to do; here the value was the whole request.
+pub(crate) fn run_endpoint(args: &[String]) -> Verdict {
+    let Some(service) = args.first() else {
+        eprintln!("xtask dev-endpoint: needs a service name - this tier declares {}", declared());
+        return Verdict::Usage;
+    };
+    let Ok(scope) = scope_here() else {
+        return Verdict::Fail;
+    };
+    match provisioned::in_worktree(scope.root(), service) {
+        Ok(endpoint) => {
+            println!("{endpoint}");
+            Verdict::Pass
+        }
+        Err(problem) => {
+            eprintln!("xtask dev-endpoint: {problem}");
+            Verdict::Fail
+        }
+    }
+}
+
+/// The service names this tier declares, for a usage line. NOT their ports: there is no such thing
+/// until docker has bound one, and printing a placeholder is how a constant gets copied.
+fn declared() -> String {
+    SERVICES
+        .iter()
+        .map(sutura_dev::scope::Service::name)
+        .collect::<Vec<&str>>()
+        .join(", ")
+}
+
 /// Print the endpoints just published, through the reader's door.
 ///
 /// Deliberately re-read rather than printed from what was written: if the file and the values
@@ -495,17 +496,17 @@ fn report_endpoints(scope: &Scope) {
 
 #[cfg(test)]
 mod tests {
-    use super::{Requirement, absent, requirement, truthy};
+    use sutura_dev::requirement::Requirement;
+
+    use super::absent;
     use crate::Verdict;
 
     #[test]
     fn absent_docker_skips_locally_and_fails_in_ci() {
-        // Both directions of the one flag, because a fail-open / fail-closed decision with only one
-        // side tested is half a decision.
-        assert_eq!(requirement(None, None), Requirement::Optional);
-        assert_eq!(requirement(Some("true"), None), Requirement::Required);
-        assert_eq!(requirement(Some("1"), None), Requirement::Required);
-
+        // The DIRECTION now lives in `sutura_dev::requirement`, with its own tests, because the
+        // harness that reads the discovery file has to make the same decision - so what is asserted
+        // here is the half this module owns: which verdict each direction produces for a missing
+        // container runtime.
         assert_eq!(
             absent("dev-up", crate::compose::docker::Missing::Cli, Requirement::Optional),
             Verdict::Pass,
@@ -516,27 +517,6 @@ mod tests {
             Verdict::Fail,
             "a CI run that skipped this would report green having tested nothing"
         );
-    }
-
-    #[test]
-    fn the_flag_overrides_the_machine_class_in_both_directions() {
-        // Needed in both: a developer reproducing a CI failure, and a CI job on a runner class
-        // that deliberately has no docker.
-        assert_eq!(requirement(None, Some("1")), Requirement::Required);
-        assert_eq!(requirement(Some("true"), Some("0")), Requirement::Optional);
-        assert_eq!(requirement(Some("true"), Some("false")), Requirement::Optional);
-    }
-
-    #[test]
-    fn an_empty_or_negative_ci_variable_is_not_ci() {
-        // `CI=` and `CI=0` are both things people export, and reading either as "in CI" would fail a
-        // developer's run for a reason they did not choose.
-        for value in ["", "0", "false", "no", " FALSE "] {
-            assert!(!truthy(value), "{value:?} read as truthy");
-        }
-        for value in ["1", "true", "TRUE", "yes"] {
-            assert!(truthy(value), "{value:?} read as falsy");
-        }
     }
 
     #[test]

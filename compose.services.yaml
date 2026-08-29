@@ -146,7 +146,19 @@ services:
     ports:
       - 5432
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      # `/var/lib/postgresql`, NOT `/var/lib/postgresql/data`, and this is a fix rather than a
+      # preference. The 18+ images store data in a major-version-specific subdirectory so
+      # `pg_upgrade --link` can work without crossing a mount boundary; a mount at `.../data` is
+      # therefore an "unused mount/volume" as far as the entrypoint is concerned, and it **exits
+      # rather than starting** - `Error: in 18+, these Docker images are configured to store
+      # database data in a format which is compatible with "pg_ctlcluster"`. Measured on
+      # 2026-08-29: `postgres: exited`, and `docker compose logs` carried that text.
+      #
+      # It went unnoticed because nothing consumed this tier: the file was written against
+      # Postgres 18 with a 17-shaped mount, and the first thing to actually bring it up was the
+      # harness test that reads the discovery file. Which is the argument for the consumption half
+      # existing at all, so it is recorded here rather than in a commit message.
+      - postgres-data:/var/lib/postgresql
     healthcheck:
       # Reads the variables the image was given, so the probe cannot drift from the credential above.
       test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]

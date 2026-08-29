@@ -1,0 +1,29 @@
+# nextest, and the one thing this repository needs from it: a SKIP that a reader can see.
+#
+# The problem is structural rather than a setting anybody forgot. libtest has three outcomes - pass,
+# fail, ignored - and `#[ignore]` is decided at compile time, so a test that discovers at RUNTIME
+# that there is nothing to test against has no honest result to return. It returns a pass. nextest
+# captures the output of a passing test by default, so the notice explaining what did NOT run goes
+# nowhere, and a run that connected to no service reads exactly like one that connected to all of
+# them.
+#
+# `AGENTS.md` is unambiguous that a false pass is the worst outcome a check has, so the override
+# below shows the output of the tests that can decline. It is scoped rather than global: turning
+# `success-output` on for the whole suite would print every passing test's stdout and the notice
+# would be lost in it, which is the same failure with more scrolling.
+#
+# The other half of the honesty lives in the code, not here: `sutura_dev::provisioned` writes the
+# notice with SKIPPED in the first column - the same word `xtask dev-up` prints when it declines -
+# and `sutura_dev::requirement` decides whether declining is allowed at all. Where the tier is
+# required, the test fails instead, and a failure needs no configuration to be visible.
+#
+# This is the only nextest configuration in the repository. `checks.nextest` in `flake.nix` reads the
+# whole tree, so it picks this up too, which is deliberate: the nix sandbox has no docker socket, so
+# those tests skip there and the log should say so.
+
+[[profile.default.overrides]]
+# The compose tier's own integration test, which is the only target that can decline. Matched by
+# binary rather than by test name, so a test added to that file is covered without a second edit -
+# and nothing else in the workspace becomes noisy.
+filter = 'binary(provisioned)'
+success-output = "immediate"

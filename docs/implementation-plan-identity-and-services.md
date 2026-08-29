@@ -228,9 +228,43 @@ checkout and no sibling worktrees, but several jobs per commit can land on the s
 an ephemeral port is correct there for the same reason it is correct locally - nothing has to reason
 about what else is running.
 
+### The consumption half, which is a second door rather than the same one
+
+Publishing the file is not the same job as reading it, and building only the first half is how a
+mechanism ends up with no consumers: the file existed, `xtask` was its only reader, and a developer
+still had no supported way to learn a port. So consumption has its own door -
+`sutura_dev::provisioned` - and it carries the two things no caller should have to write twice.
+
+**The diagnostic is most of the value.** A harness that reached the discovery file directly and found
+nothing would fall through to a connection attempt, and the symptom is a connection refused thirty
+seconds into somebody's test, attributed to the adapter under test. `Absent` is returned instead: it
+names the worktree, the file, what the file said, and which task to run - and the advice is chosen
+from a typed reason rather than printed unconditionally, because "run `just dev-up`" is the wrong
+thing to tell somebody whose tier is already up and whose service is behind a profile.
+
+**The skip-or-fail direction is decided in one place for both halves.** It used to live in `xtask`
+alone, which was correct while provisioning was the only caller; a second copy in the harness would
+be a fail-open/fail-closed decision made twice and edited months apart. `sutura_dev::requirement` is
+that place now, and `xtask` reads it. **The limit worth stating:** "CI" is an environment variable, so
+a nix check is not in CI by this definition - and it has neither a network nor a docker socket, so
+the docker-gated tests skip there rather than failing.
+
+**And a skip has to be visible, which libtest cannot express.** There are three outcomes - pass, fail,
+ignored - and `#[ignore]` is a compile-time decision, so a test that discovers at runtime that there
+is nothing to test against returns a pass, whose output nextest captures by default. The notice is
+written with SKIPPED in the first column, the same word `xtask dev-up` prints when it declines, and
+`.config/nextest.toml` turns `success-output` on for that one test binary so it reaches the log. A
+global setting would print every passing test's output and bury it, which is the same failure with
+more scrolling.
+
+**For a reader rather than a harness**, `just dev-endpoint <service>` prints `host:port` on stdout and
+nothing else, so it substitutes into a shell. That is what lets `examples/README.md` document the
+service tier without a port in it: someone following an example never has to learn what a worktree
+scope or an ephemeral port is.
+
 **Adds.** Ephemeral publishing and read-back, the per-worktree compose project name, the discovery
-file, readiness as a health gate rather than a sleep, teardown scoped so it cannot kill a neighbour,
-and the docker-absent behaviour below.
+file, the consumption door above, readiness as a health gate rather than a sleep, teardown scoped so
+it cannot kill a neighbour, and the docker-absent behaviour below.
 
 **Absent docker SKIPS locally and FAILS in CI, and an earlier version of this section had those
 confused.** It said the tier prints SKIPPED and exits 0, and said in the same breath that a missing

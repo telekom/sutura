@@ -40,6 +40,13 @@ because a trait with no implementor is a guess at a signature. Nothing mints per
 credentials yet, so there is nothing for the trait to be shaped by, and no example here
 could do more than describe an intention.
 
+**What is no longer missing is the plumbing**, and it is worth saying so here because it is the
+part somebody writing this example would otherwise build again. The two databases this example
+needs are one command away - `just dev-up` - one independent instance per worktree, and a harness
+reaches them through `sutura_dev::provisioned` rather than through a port anybody wrote down. So
+the work left is the port and the two identities, not the fixtures: `examples/README.md` has the
+three commands under *Reaching a data system, when an example needs one*.
+
 It arrives with the first data system that has identities to run under. `docs/architecture.md`
 is the design: the security section says why the shape is what it is, and "What exists
 today" is the honest inventory of which parts are built. No date is offered here, because a
