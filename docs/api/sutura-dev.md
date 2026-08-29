@@ -279,10 +279,22 @@ The port INSIDE the container. Provisioning publishes it ephemerally and reads b
 host port docker chose.
 
 ```rust
+pub const fn is_default(&self) -> bool
+```
+
+Is this service started when no profile was asked for?
+
+```rust
 pub const fn name(&self) -> &'static str
 ```
 
 Name used in the compose file, in the discovery file and in output.
+
+```rust
+pub const fn profile(&self) -> Option<&'static str>
+```
+
+The compose profile that turns this service on, or `None` for one always started.
 
 #### Implements
 
@@ -362,6 +374,20 @@ Where provisioning keeps this worktree's state. Under the worktree, never shared
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `fn profiles`
+
+```rust
+pub fn profiles() -> Vec<&'static str>
+```
+
+Every profile any service declares, in declaration order and without repeats.
+
+Teardown enables all of them, and that is the reason this exists: `docker compose down` only
+considers services in ACTIVE profiles, so a destroy that forgot one would leave that service's
+container and named volume behind **while reporting success** - the same silent-success failure
+the teardown contract below is about. Derived rather than listed, so adding a profile does not
+need a second edit somewhere else to stay correct.
 
 ### `constant SERVICES`
 
