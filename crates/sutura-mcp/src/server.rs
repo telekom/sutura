@@ -335,6 +335,15 @@ fn could_not_answer(failure: &SurfaceFailure) -> CallToolResult {
     failed(match *failure {
         SurfaceFailure::Compile { .. } => "this deployment could not compile the question against its own bundle",
         SurfaceFailure::Warehouse { .. } => "the data system did not answer",
+        // Written for an agent: what it needs is whether waiting helps. It does here, and it does
+        // not for the arm below - which is why the two are separate sentences rather than one about
+        // credentials.
+        SurfaceFailure::Broker { .. } => {
+            "the identity provider this deployment depends on did not answer; this may work if you try again shortly"
+        }
+        SurfaceFailure::Miswired { .. } => {
+            "this deployment is misconfigured: what it holds for the data system does not match the question's. Nothing you can change - report it"
+        }
     })
 }
 

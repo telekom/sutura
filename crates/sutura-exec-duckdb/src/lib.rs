@@ -20,9 +20,10 @@ use std::path::Path;
 
 use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
+use sutura_domain::identity::Presented;
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
-use sutura_domain::warehouse::{MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
@@ -135,6 +136,23 @@ pub enum DuckDbError {
     /// this needs and the message may be reworded.
     #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
+    /// The credential broker handed this adapter subject material it has nowhere to put.
+    ///
+    /// **An `Err` and never a refusal.** Nothing about the question was wrong: it is a wiring defect
+    /// between the broker and the source declaration, and a refusal would invite a client to retry a
+    /// deployment bug. `docs/adr/0008` part 4 is the decision, and the same variant exists on the
+    /// engine adapter for the same reason - two implementors of one port, each answering for what it
+    /// was handed, because neither may reach into the other for a shared check.
+    ///
+    /// One process holding one connection under one operating-system identity, which is what
+    /// [`Warehouse::IMPERSONATION`] declares here, so the only shape this can be handed is the
+    /// deployment's own identity for that source.
+    #[error(
+        "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
+         credential to arrive: it is one process holding one connection under one identity. This is \
+         a wiring defect between the credential broker and the source declaration"
+    )]
+    NoPlaceForASubject { at: String, presented: &'static str },
 }
 
 /// A `DuckDB` database, behind the [`Warehouse`] port.
@@ -237,6 +255,22 @@ impl DuckDbWarehouse {
     /// imply the rendering depends on which connection is open, which it must not.
     /// One exhaustive match, so a third plan shape cannot be answered by accident. The leg arm
     /// refuses rather than renders, and [`DuckDbError::LegWithoutCombiner`] says why.
+    /// Refuses credential material this adapter has nowhere to put.
+    ///
+    /// **One exhaustive match, called by both port methods that take a credential.** A copy per
+    /// method is two places for the arms to disagree, and the pre-flight is exactly the call where a
+    /// missing check would matter least and be noticed least - a statement prepared as the wrong
+    /// identity resolves against tables the asker may not be able to see.
+    fn deliverable(&self, presented: &Presented) -> Result<(), DuckDbError> {
+        match *presented {
+            Presented::SharedServiceUser { .. } => Ok(()),
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => Err(DuckDbError::NoPlaceForASubject {
+                at: String::from(self.source.as_str()),
+                presented: presented.as_str(),
+            }),
+        }
+    }
+
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
@@ -403,19 +437,36 @@ impl Warehouse for DuckDbWarehouse {
     /// A real check rather than a stub: preparing resolves every table and column name and validates
     /// the syntax, so a statement that would fail at the data system fails here, before anything is
     /// read.
-    fn dry_run(&self, executable: Executable<'_>) -> Result<(), Self::Error> {
+    /// Prepares the statement without running it, as the identity this leg presents.
+    ///
+    /// Answers [`PreFlight::Accepted`] because it really asked: preparing resolves every table and
+    /// column name and validates the syntax. That is the value the port's default cannot honestly
+    /// return - see [`PreFlight`], where the two variants keep "the data system accepted this" apart
+    /// from "nobody looked".
+    fn dry_run(&self, executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
+        self.deliverable(presented)?;
         let query = Self::render(executable)?;
         drop(
             self.connection
                 .prepare(query.sql())
                 .map_err(|cause| DuckDbError::Prepare { cause })?,
         );
-        Ok(())
+        Ok(PreFlight::Accepted)
     }
 
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+        self.deliverable(presented)?;
         let query = Self::render(executable)?;
         self.run(&query)
+    }
+
+    /// Re-runs an anchor's plan, under the one identity this connection was opened with.
+    ///
+    /// It takes no credential because there is no caller at boot, and [`AnchorRows`] is what keeps
+    /// the result from being handed back to one as an answer.
+    fn verify_anchor(&self, plan: &sutura_domain::plan::QueryPlan) -> Result<AnchorRows, Self::Error> {
+        let query = generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })?;
+        self.run(&query).map(AnchorRows::of)
     }
 }
 
@@ -437,7 +488,7 @@ impl Warehouse for DuckDbWarehouse {
 /// it reaches the widths a Parquet file has and a CSV never will.
 #[cfg(test)]
 mod tests {
-    use super::{DuckDbError, DuckDbWarehouse, Real};
+    use super::{DuckDbError, DuckDbWarehouse, Presented, Real};
     use duckdb::types::{Decimal, TimeUnit, Value as DuckValue};
     use sutura_domain::calendar::Date;
     use sutura_domain::model::SourceName;
@@ -473,6 +524,17 @@ mod tests {
                 sutura_domain::source::AcknowledgementReason::parse("one process, one connection, one operating-system identity")
                     .expect("a fixture reason is a reason"),
             ),
+        }
+    }
+
+    /// What this adapter can execute a leg as: the deployment's own identity for the source, carrying
+    /// the same acknowledgement [`shared_posture`] declares.
+    fn shared_leg() -> Presented {
+        match shared_posture() {
+            sutura_domain::source::SourcePosture::SharedServiceUser { declared } => Presented::SharedServiceUser { declared },
+            sutura_domain::source::SourcePosture::ImpersonationAtSource => {
+                panic!("the fixture posture is shared, one function above")
+            }
         }
     }
 
@@ -621,6 +683,42 @@ mod tests {
         let rows = warehouse.run(&query).expect("a literal select answers");
         assert_eq!(rows.columns(), ["period", "region"]);
         assert_eq!(rows.rows().len(), 1);
+    }
+
+    #[test]
+    fn credential_material_this_adapter_cannot_use_is_refused_before_anything_is_prepared() {
+        // The wiring defect between a credential broker and a source declaration, at the adapter that
+        // has to answer for it. This one holds a connection under one operating-system identity -
+        // which is what `IMPERSONATION` declares - so a subject's own token has nowhere to go, and
+        // accepting it would report a leg as impersonated that ran as this process.
+        //
+        // Both port methods that take a credential are asserted, because the pre-flight is the one
+        // where a missing check would be least visible: a statement PREPARED as the wrong identity
+        // resolves against tables the asker may not be able to see.
+        let warehouse = DuckDbWarehouse::in_memory(source(), shared_posture()).expect("an in-memory database opens");
+        for handed in [
+            Presented::SubjectToken {
+                material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+            },
+            Presented::SubjectPrincipal {
+                name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
+            },
+        ] {
+            let expected = handed.as_str();
+            let error = warehouse
+                .deliverable(&handed)
+                .expect_err("this adapter cannot carry a subject");
+            let DuckDbError::NoPlaceForASubject { ref at, presented } = error else {
+                panic!("the adapter names what it was handed: {error:?}");
+            };
+            assert_eq!(at, "local");
+            assert_eq!(presented, expected);
+        }
+        // And the shape it CAN execute with is accepted, so the assertion above is not passing against
+        // an adapter that refuses everything.
+        warehouse
+            .deliverable(&shared_leg())
+            .expect("the deployment's own identity for this source is what this adapter can execute with");
     }
 
     #[test]

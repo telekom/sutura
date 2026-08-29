@@ -32,8 +32,13 @@ mod tests {
         // The reason the cause is boxed rather than rendered. Erasing the adapter's error TYPE must
         // not erase the error: an operator reading a failed boot needs the driver's own complaint,
         // and code responding to one needs to be able to ask what it was.
-        let error = LocalService::start(&FailingCatalog, FailingWarehouse::new(source()), sink())
-            .expect_err("a catalog that fails every read starts no service");
+        let error = LocalService::start(
+            &FailingCatalog,
+            FailingWarehouse::new(source()),
+            sink(),
+            crate::testing::broker(),
+        )
+        .expect_err("a catalog that fails every read starts no service");
         let ServiceNotStarted::Catalog { ref cause } = error else {
             panic!("expected a catalog failure, got {error:?}");
         };
@@ -61,8 +66,13 @@ mod tests {
     fn a_bundle_whose_anchors_cannot_run_starts_no_service() {
         // The readiness gate, at the only place it can be enforced: `Validated` has no other
         // constructor, so this is not a check that could be skipped by a caller who forgot it.
-        let error = LocalService::start(&catalog_of(bundle()), FailingWarehouse::new(source()), sink())
-            .expect_err("a data system that answers nothing validates no bundle");
+        let error = LocalService::start(
+            &catalog_of(bundle()),
+            FailingWarehouse::new(source()),
+            sink(),
+            crate::testing::broker(),
+        )
+        .expect_err("a data system that answers nothing validates no bundle");
         assert!(matches!(error, ServiceNotStarted::NotValidated { .. }), "{error:?}");
     }
 
@@ -75,8 +85,13 @@ mod tests {
         use super::SurfaceFailure;
         use crate::testing::{StatementRejected, a_question, unanchored_bundle};
 
-        let service = LocalService::start(&catalog_of(unanchored_bundle()), FailingWarehouse::new(source()), sink())
-            .expect("a bundle with no anchor validates against a warehouse that answers nothing");
+        let service = LocalService::start(
+            &catalog_of(unanchored_bundle()),
+            FailingWarehouse::new(source()),
+            sink(),
+            crate::testing::broker(),
+        )
+        .expect("a bundle with no anchor validates against a warehouse that answers nothing");
         let failure = service
             .answer(&crate::principal::established(), &a_question())
             .expect_err("a warehouse that rejects every statement answers nothing");
@@ -110,8 +125,13 @@ mod tests {
 
         let mut ordering: Vec<String> = Vec::new();
         let sink = std::sync::Arc::new(RecordingSink::default());
-        let service = LocalService::start(&catalog_of(bundle()), fake_warehouse(), std::sync::Arc::clone(&sink))
-            .expect("an anchored bundle over a warehouse that answers validates");
+        let service = LocalService::start(
+            &catalog_of(bundle()),
+            fake_warehouse(),
+            std::sync::Arc::clone(&sink),
+            crate::testing::broker(),
+        )
+        .expect("an anchored bundle over a warehouse that answers validates");
 
         let outcome = service
             .answer(&crate::principal::established(), &a_question())
@@ -148,6 +168,7 @@ mod tests {
             &catalog_of(unanchored_bundle()),
             warehouse_that_answers_past_the_row_cap(),
             std::sync::Arc::clone(&sink),
+            crate::testing::broker(),
         )
         .expect("a bundle with no anchor validates against any warehouse");
 
@@ -178,8 +199,13 @@ mod tests {
         use crate::testing::{RecordingSink, a_question, fake_warehouse};
 
         let sink = std::sync::Arc::new(RecordingSink::default());
-        let service = LocalService::start(&catalog_of(bundle()), fake_warehouse(), std::sync::Arc::clone(&sink))
-            .expect("an anchored bundle over a warehouse that answers validates");
+        let service = LocalService::start(
+            &catalog_of(bundle()),
+            fake_warehouse(),
+            std::sync::Arc::clone(&sink),
+            crate::testing::broker(),
+        )
+        .expect("an anchored bundle over a warehouse that answers validates");
         drop(
             service
                 .answer(&crate::principal::established(), &a_question())
@@ -199,8 +225,13 @@ mod tests {
     fn a_service_that_started_serves_the_bundle_it_validated() {
         // The positive case, without which every assertion above is satisfied by refusing
         // everything.
-        let service = LocalService::start(&catalog_of(bundle()), crate::testing::fake_warehouse(), sink())
-            .expect("an anchored bundle over a warehouse that answers validates");
+        let service = LocalService::start(
+            &catalog_of(bundle()),
+            crate::testing::fake_warehouse(),
+            sink(),
+            crate::testing::broker(),
+        )
+        .expect("an anchored bundle over a warehouse that answers validates");
         assert_eq!(service.definitions().version().as_str(), "test-1");
         // The `Debug` impl names the bundle rather than printing it.
         let rendered = format!("{service:?}");

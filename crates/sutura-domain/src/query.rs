@@ -302,6 +302,30 @@ pub enum RefusalReason {
     /// results are converted. So a question large enough to end the process on one of those paths
     /// still ends it, and this refusal is not the control that reaches them.
     ResourcesExhausted { ceiling_bytes: u64 },
+    /// The asking subject has no credential at that data system.
+    ///
+    /// **Understood, and refused.** Asking differently does not help: what is missing is a grant at
+    /// the data system, or a different subject. The plan is fine, the metric permits the question,
+    /// and this deployment will not answer it as somebody else - which is the whole of what the
+    /// credential port bought, because the alternative was a leg that ran as the process and came
+    /// back with rows the asker may not see, under a certified metric name and valid provenance.
+    ///
+    /// **It is the one refusal `docs/adr/0008` adds, and the record deletes the other one it
+    /// proposed.** A `SourceCannotImpersonate` was on that list at `409`, and part 6 walks every
+    /// configuration that was supposed to reach it: each turns out to be a boot refusal, an `Err` for
+    /// a wiring defect between the broker and the source declaration, this variant, or the decided
+    /// permitted behaviour - a shared source in a multi-user deployment answers and records the
+    /// posture it ran under. A variant no test can provoke is one this enum refuses to carry.
+    ///
+    /// **It amends `docs/adr/0005`**, which says the `403`s "are not a statement about a credential"
+    /// because at the time no token widened anything. This one is, so a transport's detail for it must
+    /// not send a caller looking for a better deployment token: the deployment's own credential is
+    /// not what is missing.
+    ///
+    /// Carries the source and nothing about the credential. Which grant a subject lacks is the data
+    /// system's to say, and guessing it here would be this deployment holding a second opinion about
+    /// somebody else's authorization.
+    CredentialUnavailable { source: SourceName },
 }
 
 /// What a tool call produced.

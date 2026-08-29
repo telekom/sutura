@@ -111,6 +111,79 @@ pub(crate) fn posture() -> sutura_domain::source::SourcePosture {
     }
 }
 
+/// What one leg of an answer in this matrix executes as.
+///
+/// Read off [`posture`] rather than written again, so the credential a leg presents and the posture
+/// the adapter was opened with cannot drift apart - which is exactly the disagreement each adapter's
+/// exhaustive match on what it received exists to catch.
+pub(crate) fn presented() -> sutura_domain::identity::Presented {
+    match posture() {
+        sutura_domain::source::SourcePosture::SharedServiceUser { declared } => {
+            sutura_domain::identity::Presented::SharedServiceUser { declared }
+        }
+        sutura_domain::source::SourcePosture::ImpersonationAtSource => {
+            panic!("every adapter in this matrix is opened shared, one function above")
+        }
+    }
+}
+
+/// Never returned: this broker mints from a constant.
+#[derive(Debug, thiserror::Error)]
+#[error("the matrix's credential broker cannot fail")]
+pub(crate) struct BrokerCannotFail;
+
+/// The credential broker every question in this matrix is answered with.
+///
+/// **Part of the registration, for the reason [`posture`] is:** which credential a leg presents is
+/// configuration, and this file is the matrix's configuration. It grants what [`presented`] says,
+/// which is what both registered adapters can execute with - and when an adapter that CAN
+/// impersonate is registered, this and `posture` are the two lines that grow a second value.
+pub(crate) struct GrantsWhatTheMatrixDeclares;
+
+impl sutura_domain::identity::CredentialBroker for GrantsWhatTheMatrixDeclares {
+    type Error = BrokerCannotFail;
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "the map is built from the same source set it is checked against, so a failure there \
+                  is a broken fixture rather than an input to handle"
+    )]
+    fn mint(
+        &self,
+        context: &sutura_domain::identity::RequestContext,
+        sources: &sutura_domain::identity::SourceSet,
+    ) -> Result<sutura_domain::identity::Minted, Self::Error> {
+        let mut presented_by_source = std::collections::BTreeMap::new();
+        for name in sources.iter() {
+            drop(presented_by_source.insert(name.clone(), presented()));
+        }
+        let credentials = sutura_domain::identity::LegCredentials::minted(
+            context.chain().subject().clone(),
+            sutura_domain::identity::Expiry::NothingExpires,
+            sources,
+            presented_by_source,
+        )
+        .expect("the map is built from the same source set, so it covers it");
+        Ok(sutura_domain::identity::Minted::Granted { credentials })
+    }
+}
+
+/// The broker every call to `sutura_app::answer` in this suite passes.
+pub(crate) const fn shared_credential() -> GrantsWhatTheMatrixDeclares {
+    GrantsWhatTheMatrixDeclares
+}
+
+/// The request context every call to `sutura_app::answer` in this suite passes.
+///
+/// `Subject::TheDeploymentItself`, which is the honest value: this suite has no transport, so nothing
+/// established a caller. What the credential port changed for this corpus is that the CREDENTIAL is
+/// explicit - not who asked.
+pub(crate) fn a_caller() -> sutura_domain::identity::RequestContext {
+    sutura_domain::identity::RequestContext::of(sutura_domain::identity::PrincipalChain::of(
+        sutura_domain::identity::Subject::TheDeploymentItself,
+    ))
+}
+
 pub(crate) fn version() -> DefinitionVersion {
     DefinitionVersion::parse(VERSION).expect("the pinned version is a version")
 }

@@ -34,13 +34,24 @@ demonstrate:
 
 ## What is missing
 
-The port. `CredentialBroker` does not exist, and its absence is deliberate rather than
-pending: in this repository a port trait arrives with the adapter that implements it,
-because a trait with no implementor is a guess at a signature. Nothing mints per-request
-credentials yet, so there is nothing for the trait to be shaped by, and no example here
-could do more than describe an intention.
+**The port now exists**, and it arrived the way this repository requires - with an adapter
+that implements it rather than as a guess at a signature.
+`sutura_domain::identity::CredentialBroker` mints once per answer for every source a plan
+reads, `Warehouse::execute` cannot be called without the result, and
+`sutura_config::StaticCredentialBroker` is the implementor: credentials as configuration,
+one user, one host, which is the single-player deployment mode rather than test scaffolding.
 
-It arrives with the first data system that has identities to run under. `docs/architecture.md`
-is the design: the security section says why the shape is what it is, and "What exists
-today" is the honest inventory of which parts are built. No date is offered here, because a
-date in a README is not a commitment anything enforces.
+**What is missing is the other half, and it is the half this example is about: a data system
+with identities to run under.** Both adapters in this build declare that they have nowhere
+for a subject's own credential to arrive - one process reading local files, one process
+holding one connection - so what a broker can mint here is the deployment's own identity for
+a source, acknowledged by an operator. A source declared `impersonation-at-source` gets no
+credential from the shipped broker and its questions are refused as `credential_unavailable`,
+which is the *refusal instead of a downgrade* above, arriving before the impersonation does.
+
+So the two bullets this example turns on are still unrunnable: **two callers, two answers**
+needs a data system that evaluates two principals differently, and nothing here can present
+one to it. `docs/architecture.md` is the design and
+`docs/adr/0008-a-credential-per-leg-for-the-calling-subject.md`'s *What is built* is the
+inventory. No date is offered here, because a date in a README is not a commitment anything
+enforces.

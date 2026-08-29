@@ -80,7 +80,7 @@
 //! framework type - a requirement a transport states, satisfied here.
 
 use sutura_domain::audit::{AuditSink, CallRecord};
-use sutura_domain::identity::RequestContext;
+use sutura_domain::identity::{CredentialBroker, RequestContext};
 use sutura_domain::pinned::{NotValidated, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::Warehouse;
@@ -156,6 +156,27 @@ pub enum SurfaceFailure {
         #[source]
         cause: ErasedCause,
     },
+    /// The credential broker did not answer, so nothing could be executed as the asking subject.
+    ///
+    /// **Its own variant because the two outages are retried differently**, which `docs/adr/0014`
+    /// states as a requirement rather than a preference: an authorization server that is down comes
+    /// back, and a caller told the same sentence for both will retry a data-system outage the same
+    /// way and learn nothing. A transport chooses a different code for it.
+    #[error("the credential broker did not answer")]
+    Broker {
+        #[source]
+        cause: ErasedCause,
+    },
+    /// Credentials came back that do not cover the plan: a wiring defect on this side.
+    ///
+    /// Not a refusal - the question was fine - and not [`Self::Broker`] either, because a broker that
+    /// answered and a broker that could not be reached are different things to whoever is paged. A
+    /// caller can do nothing about it, so what it becomes on the wire is an internal failure.
+    #[error("the credentials that came back do not cover this plan")]
+    Miswired {
+        #[source]
+        cause: ErasedCause,
+    },
 }
 
 /// Every cause beneath `error`, outermost first.
@@ -217,17 +238,24 @@ pub enum ServiceNotStarted {
 /// is registered under that name. The limit is stated where the type is - every entry is the same
 /// adapter type `W`, so a deployment holds two file sources or two databases behind one adapter, and a
 /// heterogeneous set is an architecture decision rather than a change here.
-pub struct LocalService<W, S> {
+/// **And it holds the credential broker, which is what makes a question executable at all.** Every
+/// answer mints once, for every source its plan reads, and `sutura_domain::warehouse::Warehouse`
+/// has no signature that runs without the result - so a service with no broker is not a service
+/// that answers as the process, it is a service that does not compile.
+pub struct LocalService<W, S, B> {
     definitions: Validated<PinnedDefinitions>,
     warehouses: Warehouses<W>,
     sink: S,
+    broker: B,
 }
 
-impl<W, S> LocalService<W, S>
+impl<W, S, B> LocalService<W, S, B>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
     S: AuditSink + Send + Sync + 'static,
+    B: CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
 {
     /// Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
     /// service only if all of them held.
@@ -237,7 +265,7 @@ where
     ///
     /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
     /// startup failure is reported from wherever the composition root happens to be.
-    pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S) -> Result<Self, ServiceNotStarted>
+    pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B) -> Result<Self, ServiceNotStarted>
     where
         C: SemanticCatalog,
         C::Error: Send + Sync,
@@ -245,32 +273,45 @@ where
         let pinned = catalog
             .load()
             .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
+        // The broker is NOT consulted here, and that is the boot path's whole shape: an anchor runs
+        // through `Warehouse::verify_anchor`, which takes no credential because there is no caller to
+        // mint one for. `docs/adr/0008` part 1 decides it, and `sutura_domain::warehouse` records
+        // where this is narrower than that record asked for.
         let definitions = verify_and_validate(pinned, &warehouses).map_err(|cause| ServiceNotStarted::NotValidated { cause })?;
         Ok(Self {
             definitions,
             warehouses,
             sink,
+            broker,
         })
     }
 }
 
-impl<W, S> Surface for LocalService<W, S>
+impl<W, S, B> Surface for LocalService<W, S, B>
 where
     W: Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
     S: AuditSink + Send + Sync + 'static,
+    B: CredentialBroker + Send + Sync + 'static,
+    B::Error: Send + Sync,
 {
     fn definitions(&self) -> &PinnedDefinitions {
         self.definitions.get()
     }
 
     fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
-        let outcome = crate::answer(&self.definitions, query, &self.warehouses).map_err(|error| match error {
-            // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
-            // `#[source]` chain under it.
-            ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
-            ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-        })?;
+        let outcome =
+            crate::answer(&self.definitions, query, context, &self.broker, &self.warehouses).map_err(|error| match error {
+                // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
+                // `#[source]` chain under it.
+                ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
+                ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+                // Two brokers' worth of failure, kept apart on the way out for the reason the variants
+                // give: an authorization server that is down and a broker that answered about the wrong
+                // sources are not retried the same way.
+                ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+                ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line
         // in the workspace where "before the outcome returns" is a property somebody can point at.
@@ -282,7 +323,7 @@ where
     }
 }
 
-impl<W, S> core::fmt::Debug for LocalService<W, S> {
+impl<W, S, B> core::fmt::Debug for LocalService<W, S, B> {
     /// Hand-written because a warehouse adapter need not be `Debug`, and because printing a bundle
     /// into a log is a page of definitions for no benefit. The digest identifies it.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {

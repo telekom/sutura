@@ -39,7 +39,7 @@ a framework type, so this crate still holds none.
 ## `enum ServiceError`
 
 ```rust
-pub enum ServiceError<E>
+pub enum ServiceError<E, M>
 ```
 
 Why the service could not produce an outcome.
@@ -56,15 +56,48 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 
 - `Compile`
 - `Warehouse`
+- `Broker` - The credential broker could not mint. Nothing about the question was wrong.
+- `Credentials` - The broker granted credentials that do not cover the source this plan reads.
 
 ### Implements
 
 `Debug`, `Display`, `Error`
 
+## `struct NoCredentialForThePlan`
+
+```rust
+pub struct NoCredentialForThePlan
+```
+
+A broker granted credentials that say nothing about a source the plan reads.
+
+Its own type rather than a variant carrying a bare name, so the cause survives `#[source]` when
+the service's generic parameters are erased at the driving port - the same reason every other
+failure that crosses that boundary is a typed error rather than a sentence.
+
+The field is `at` rather than `source`, and that is not a naming preference: `thiserror` reads a
+field called `source` as the `Error::source` chain, and a `SourceName` there does not compile.
+
+### Methods
+
+```rust
+pub const fn at(&self) -> &SourceName
+```
+
+Which source had no credential.
+
+Named `at` rather than `source` for the reason above: `clippy::same_name_method` is denied, and
+an inherent `source` beside the trait's own is a call site whose meaning depends on which
+traits are in scope.
+
+### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
 ## `fn answer`
 
 ```rust
-pub fn answer<W>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, warehouses: &Warehouses<W>) -> Answered<W>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>) -> Answered<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -78,6 +111,19 @@ its name says - nothing is configured under that name.
 **The registry is what made that refusal honest.** Under one warehouse the check compared the
 plan's source against the single adapter's own, so "nobody configured this data system" and "this
 is the other one of the two we opened" were the same refusal.
+
+# Nothing here executes without a credential somebody minted
+
+`context` says who is asking - established by the transport, never stated by the caller - and
+`broker` is what turns that into what each leg presents. The credential is minted **once, for
+every source the plan reads**, which is one source today and is the shape a federated answer
+needs: one asker and one deadline for N legs, rather than N mintings that could disagree.
+`docs/adr/0008` is the decision and `sutura_domain::identity::LegCredentials` is where the
+argument lives.
+
+The order is deliberate: mint **before** the pre-flight and before execution. A pre-flight asked
+as the wrong identity answers a different question, and a subject with no credential at that
+source is refused before this deployment has asked the data system anything on their behalf.
 
 ## `fn verify_anchors`
 
@@ -270,6 +316,8 @@ means rather than a field added to one.
 
 - `Compile`
 - `Warehouse`
+- `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
+- `Miswired` - Credentials came back that do not cover the plan: a wiring defect on this side.
 
 #### Implements
 
@@ -295,7 +343,7 @@ Why a service could not be started.
 ### `struct LocalService`
 
 ```rust
-pub struct LocalService<W, S>
+pub struct LocalService<W, S, B>
 ```
 
 The one implementation: a validated bundle, the data systems this process opened, and one audit
@@ -316,11 +364,15 @@ configurable.** A plan names one data system, so the registry is a lookup rather
 is registered under that name. The limit is stated where the type is - every entry is the same
 adapter type `W`, so a deployment holds two file sources or two databases behind one adapter, and a
 heterogeneous set is an architecture decision rather than a change here.
+**And it holds the credential broker, which is what makes a question executable at all.** Every
+answer mints once, for every source its plan reads, and `sutura_domain::warehouse::Warehouse`
+has no signature that runs without the result - so a service with no broker is not a service
+that answers as the process, it is a service that does not compile.
 
 #### Methods
 
 ```rust
-pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S) -> Result<Self, ServiceNotStarted>
+pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a

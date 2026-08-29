@@ -33,12 +33,15 @@
 //! Every layer is checked with `deny_unknown_fields`, at every depth. A misspelled key is an error
 //! naming the key, not an override that silently did not happen.
 //!
-//! # There is no per-caller identity, and this crate says so out loud
+//! # There is no per-caller ACCESS, and this crate says so out loud
 //!
-//! sutura has no request context, no credential broker and no way for a caller's identity to reach
-//! the query path. `AGENTS.md` records "every query runs as the calling principal" as an
-//! aspiration that is **not mechanised**, and `examples/multi-player/README.md` explains why
-//! single-player makes it trivially true and worth nothing.
+//! sutura has a request context and a credential broker now, and a deployment that declares
+//! `security.inbound` establishes who is asking - so what is missing is narrower than it was and it is
+//! the part that matters: **no adapter in this build can carry a per-subject credential.** Every
+//! question executes with a credential a broker minted, and what that credential says is *the identity
+//! this process holds for that source*. `AGENTS.md` records which half is mechanised, and
+//! `examples/multi-player/README.md` explains why single-player makes "every query runs as the calling
+//! principal" trivially true and worth nothing.
 //!
 //! That is a property of the runtime, so it is a property of every deployment this crate
 //! configures. An [`AccessToken`](security::AccessToken) authenticates *the deployment*: a caller
@@ -99,6 +102,7 @@
 
 pub mod api;
 pub mod catalog;
+pub mod credentials;
 pub mod environment;
 pub mod inbound;
 pub mod limits;
@@ -115,6 +119,7 @@ mod settings;
 
 pub use crate::api::ApiSettings;
 pub use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
+pub use crate::credentials::{StaticCredentialBroker, StaticCredentialsUnusable};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::inbound::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,

@@ -67,11 +67,14 @@ recorded against. A deployment configured without it authenticates the DEPLOYMEN
 shared access token, and records every call against the deployment itself. Which of the two this \
 one is, is a deployment decision and this document does not say.\n\
 \n\
-NEITHER IS PER-CALLER ACCESS. There is no per-request credential to a data system and no row-level \
-scoping either way: every question is answered with whatever access the service process already \
-had, whoever asked it. No token and no scope widens what a metric permits - a 403 is the catalog's \
-answer about the metric, never about your credential. And no request field carries an identity: a \
-body naming a subject is a 400 that says so.";
+NEITHER IS PER-CALLER ACCESS. A credential IS minted per question, for the data system the question \
+reads - no question executes without one - and on this build it is the identity the service process \
+holds for that source rather than yours, because no adapter here can carry a per-subject one. So \
+there is no row-level scoping either way: every question is answered with whatever access the \
+service process already had, whoever asked it. One 403 IS about a credential and it is not the one \
+you presented here: credential_unavailable means you have no access at that data system, and this \
+deployment will not read it as itself instead. Every other 403 is the catalog's answer about a \
+metric. And no request field carries an identity: a body naming a subject is a 400 that says so.";
 
 /// The document, before the route fragments are merged into it.
 ///

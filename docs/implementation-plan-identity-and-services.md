@@ -100,6 +100,46 @@ material it cannot use would report a leg as impersonated that ran shared.
 static credentials, a deadline that fires stops an execution rather than stopping a wait, and the boot
 path cannot reach a request credential or the reverse.
 
+### Built, and what of this section was wrong
+
+**This subsection is the authority on the state, and where it contradicts the section above it, it
+wins.** Three of the four *Done when* clauses hold; the third does not, and it is descoped rather than
+half-claimed.
+
+- **The fallback is removed rather than forbidden.** `Warehouse::execute` takes a `&Presented` with no
+  default, so no signature runs as the process, and `dry_run` returns a `PreFlight` whose default says
+  *not asked*. Both adapters match exhaustively on what they were handed and refuse subject material
+  they have nowhere to put, as an `Err` and never a refusal.
+- **The single-user path still works with static credentials.** `sutura_config::StaticCredentialBroker`
+  is the implementor, mints from the `sources:` tree, and is wired in both roots - so the port arrived
+  with a real adapter rather than a fake, exactly as this section required.
+- **A deadline that fires stops an execution: NOT BUILT.** `Expiry` is carried and nothing reads it,
+  because the shipping implementor mints from configuration and a credential an operator wrote in a
+  file does not expire - `Expiry::NothingExpires` is a case a reader names rather than a sentinel. The
+  floor belongs in the broker adapter, the only component with a clock and the configured timeout, and
+  the per-leg check needs a splitter. `a_leg_that_would_start_after_the_deadline_is_not_attempted` and
+  `a_query_over_its_deadline_is_cancelled_in_the_adapter` are therefore **not** written: saying so is
+  cheaper than a test that passes because nothing expires.
+- **The boot path cannot reach a request credential or the reverse**, by a different mechanism than
+  this section describes. `verify_anchor` takes **no** credential rather than a distinct type, so there
+  is no parameter one could arrive in, and it returns `AnchorRows` so a boot result cannot be handed
+  back as an answer. `answer_cannot_pass_a_verification_identity` is **deleted, not descoped**, and the
+  reason is a finding: `VerificationIdentity::parse` is `pub`, so `sutura-app` could construct one and
+  that `compile_fail` block would have compiled. A test that cannot fail is worse than no test.
+
+**Three more corrections, each recorded in
+[a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md)'s own *What is
+built*:** the port takes the existing `RequestContext` rather than a new `Caller`, and **carries no
+caller assertion** - the exchange is blocked on 0014 Decision 3's verification, so that field now would
+be the guess this step was delayed to avoid; `Minted::Refused` carries a source rather than a whole
+`RefusalReason`; and provenance still reads `Warehouse::posture` rather than `Presented::executed_as`,
+which belongs with the first adapter able to make the two disagree.
+
+**What this unblocks, and what it does not.** Every row that needed a credential *type* to key on is
+unblocked. What is absent for all of them is **an adapter that can carry a per-subject credential**:
+both shipped ones declare `NoPlaceForASubject`, so the two subject shapes are constructed only by
+tests and the two-subject test at the foot of 0008 remains unwritable.
+
 ## The plan-stage refusal, re-keyed to identity
 
 **Goal.** `PlanSpansTwoSources` becomes *a plan spanning two identities*, which is the property the

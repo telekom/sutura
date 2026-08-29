@@ -345,6 +345,16 @@ const SOURCE_UNAVAILABLE: Guide = Guide {
              asking again.",
 };
 
+const CREDENTIAL_UNAVAILABLE: Guide = Guide {
+    reason: "CredentialUnavailable",
+    meaning: "the person you are acting for has no access to the data system that metric lives in, \
+              and this deployment will not read it under its own identity instead",
+    remedy: "Nothing you can change, and this is the one refusal where that matters most: a \
+             narrower question, a different grain and a shorter period all return it again. Say so, \
+             and say that access to that data system is what would be needed - a person can ask for \
+             it, and you cannot.",
+};
+
 /// Every refusal a caller can be given, in the order the prompt lists them.
 ///
 /// Ordered so the ones an agent can act on come first and the two it cannot come last, because a
@@ -370,6 +380,7 @@ const GUIDES: &[&Guide] = &[
     &RESOURCES_EXHAUSTED,
     &PLAN_SPANS_TWO_SOURCES,
     &SOURCE_UNAVAILABLE,
+    &CREDENTIAL_UNAVAILABLE,
 ];
 
 /// The guide for one refusal.
@@ -397,6 +408,7 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
+        RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
     }
 }
 

@@ -17,12 +17,14 @@ becomes decorative.
 !!! warning "What is built, and what is a design target"
 
     sutura today is **a governed single-player semantic compiler and executor over local files.**
-    The half of the design that fixes the *second* failure above is not built: there is no request
-    context, no credential broker, no audit sink, no Arrow result envelope and no MCP surface.
-    There **is** an [HTTP surface](serving.md), and its bearer token authenticates the *deployment*
-    rather than the caller - so it serves the tool surface over a network and makes no per-caller
-    claim true. Every claim on this site is marked *enforced today* or *design target* at the
-    point it is made, and the identity claims are all design targets.
+    The half of the design that fixes the *second* failure above is **half built, and the missing
+    half is the one that matters.** A request context, a credential broker port, an audit sink and
+    an MCP surface all exist, and a deployment that declares `security.inbound` verifies a caller's
+    own token - so who is asking can be known, no question can execute without a credential minted
+    for the source it reads, and every outcome is recorded. What is absent is **a data system that
+    evaluates the asking subject**: no adapter in this build can carry a per-subject credential, so
+    every question still reads as one identity. No Arrow result envelope either. Every claim on this
+    site is marked *enforced today* or *design target* at the point it is made.
 
 ## The four properties
 

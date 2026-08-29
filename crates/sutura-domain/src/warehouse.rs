@@ -17,8 +17,9 @@
 //! come from a caller; here there is no text for a value to reach at all.
 
 use crate::calendar::Date;
+use crate::identity::Presented;
 use crate::model::SourceName;
-use crate::plan::Executable;
+use crate::plan::{Executable, QueryPlan};
 use crate::source::{ImpersonationCapability, SourcePosture};
 
 /// A value bound to a placeholder.
@@ -277,6 +278,62 @@ impl RowSet {
     }
 }
 
+/// What a pre-flight established.
+///
+/// **[`Self::NotAsked`] is not [`Self::Accepted`], and no caller can read it as one.** Before
+/// `dry_run` took a credential, a default of `Ok(())` was defensible: with nothing to be wrong
+/// about, "nothing went wrong" is honest. With a subject in the signature it stops being honest,
+/// because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())` from an
+/// adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight
+/// would read as "this subject may run this plan" for every adapter that declined to implement one.
+///
+/// The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
+/// *at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
+///
+/// **The limit, stated with the claim:** [`Self::Accepted`] is the data system's opinion at
+/// pre-flight time and not a guarantee about `execute`, so it is worth a round trip and is not an
+/// authorization decision. Nothing in the plan path may treat it as one, and there is no mechanism
+/// that would stop it - skipping a check on the strength of `Accepted` is a review question.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PreFlight {
+    /// The adapter did not ask. The default, and the honest answer for an adapter where checking
+    /// costs what running costs.
+    NotAsked,
+    /// The data system was asked, as this subject, and accepted the plan.
+    Accepted,
+}
+
+/// The rows one anchor's plan produced at boot.
+///
+/// **A wrapper with a private field, so a boot result cannot be handed back to a caller as an
+/// answer without a named conversion somebody wrote.** The anchor path and the request path are two
+/// ways into a data system and they run as different identities: `execute` takes the asking
+/// subject's credential and cannot be called without one, and [`Warehouse::verify_anchor`] takes no
+/// credential at all - it runs as whatever identity the deployment configured that adapter with,
+/// which is what `docs/adr/0008` part 1 decides for a path that has no caller.
+///
+/// Two types rather than one so the separation is visible at a call site rather than in a comment.
+/// [`Self::verified_at_boot`] is named to be conspicuous in review and in a grep, the way
+/// `crate::identity::Secret::expose` is.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AnchorRows(RowSet);
+
+impl AnchorRows {
+    /// What an adapter returns from a verification run.
+    #[inline]
+    #[must_use]
+    pub const fn of(rows: RowSet) -> Self {
+        Self(rows)
+    }
+
+    /// The rows, for the boot path that compares them against what an author certified.
+    #[inline]
+    #[must_use]
+    pub const fn verified_at_boot(&self) -> &RowSet {
+        &self.0
+    }
+}
+
 /// Where a plan runs.
 ///
 /// **The port takes a [`crate::plan::QueryPlan`], not a statement, and that is what makes a second
@@ -289,6 +346,23 @@ impl RowSet {
 /// It is defaulted rather than required for exactly that reason: an adapter for which it is not
 /// cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
 /// do is nothing.
+///
+/// # Nothing here executes without saying whose credential it holds
+///
+/// [`Self::execute`] takes a [`Presented`] and has no default, so there is no code path into a data
+/// system that runs as whatever the process happens to be. **Today's signature IS the fallback:** an
+/// adapter with no credential parameter runs as the process, and nothing anywhere had to decide
+/// that. `docs/adr/0008` part 1 is the decision, and the mechanism is the absence of a signature
+/// rather than a rule somebody follows.
+///
+/// The boot path is the other caller of this port and it has no subject, so it gets its own method:
+/// [`Self::verify_anchor`] takes no credential and returns [`AnchorRows`] rather than a [`RowSet`].
+/// **Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
+/// `VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
+/// then named a `compile_fail` test asserting that answering a question cannot pass one. That test
+/// could not have held: `crate::source::VerificationIdentity::parse` is `pub`, so any crate can
+/// construct one. A method that takes NO credential has no parameter to pass one to, which is the
+/// property the record wanted, reached by removing the argument instead of by typing it.
 ///
 /// # The two identity declarations, and why they are two
 ///
@@ -308,10 +382,11 @@ impl RowSet {
 /// **An adapter that declares no impersonation capability does not compile:**
 ///
 /// ```compile_fail
+/// use sutura_domain::identity::Presented;
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::Executable;
+/// use sutura_domain::plan::{Executable, QueryPlan};
 /// use sutura_domain::source::SourcePosture;
-/// use sutura_domain::warehouse::{RowSet, Warehouse};
+/// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
 /// struct Undeclared {
 ///     source: SourceName,
@@ -330,7 +405,11 @@ impl RowSet {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+///         Err(core::fmt::Error)
+///     }
+///
+///     fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -340,10 +419,11 @@ impl RowSet {
 /// the two is the one line that declares the capability:
 ///
 /// ```
+/// use sutura_domain::identity::Presented;
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::Executable;
+/// use sutura_domain::plan::{Executable, QueryPlan};
 /// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-/// use sutura_domain::warehouse::{RowSet, Warehouse};
+/// use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 ///
 /// struct Declared {
 ///     source: SourceName,
@@ -363,7 +443,11 @@ impl RowSet {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+///         Err(core::fmt::Error)
+///     }
+///
+///     fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -432,8 +516,15 @@ pub trait Warehouse {
     ///
     /// An adapter that overrides it must not read data: the contract is a plan that resolves, not a
     /// result.
-    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
-        Ok(())
+    ///
+    /// **It takes the credential too, and not for symmetry.** A pre-flight asks "would this be
+    /// accepted", and the answer depends on who is asking: under the process identity it would report
+    /// a plan as executable that the subject may not execute, or prepare a statement against tables
+    /// the subject cannot see. The check has to be asked as the same principal as the question, or it
+    /// answers a different question - which is also why the return type is [`PreFlight`] rather than
+    /// `()`. See that type for what its two variants keep apart.
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
     }
 
     /// Runs the plan and returns its rows.
@@ -450,7 +541,67 @@ pub trait Warehouse {
     /// **Nothing hands any adapter a leg today**, because there is no splitter and no combiner. An
     /// adapter that cannot execute one says so with a typed error of its own rather than with a
     /// default it inherited.
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error>;
+    ///
+    /// # The credential is a parameter, and it cannot be omitted
+    ///
+    /// `presented` is what this leg executes as, minted for THIS source by a
+    /// [`CredentialBroker`](crate::identity::CredentialBroker). An adapter matches on it
+    /// exhaustively and returns its own typed error for a shape it is not configured for -
+    /// `docs/adr/0008` part 4 states both directions and says which is the dangerous one: an adapter
+    /// that quietly accepted subject material it cannot use would report a leg as impersonated that
+    /// ran shared.
+    ///
+    /// Calling it without one does not compile:
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::plan::Executable;
+    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    ///
+    /// fn _as_the_process<W: Warehouse>(warehouse: &W, executable: Executable<'_>) -> Result<RowSet, W::Error> {
+    ///     warehouse.execute(executable)
+    /// }
+    /// ```
+    ///
+    /// The compiling twin, so the block above cannot be passing for a typo - the only difference is
+    /// the argument that says whose credential this runs under:
+    ///
+    /// ```
+    /// use sutura_domain::identity::Presented;
+    /// use sutura_domain::plan::Executable;
+    /// use sutura_domain::warehouse::{RowSet, Warehouse};
+    ///
+    /// fn _as_the_asker<W: Warehouse>(
+    ///     warehouse: &W,
+    ///     executable: Executable<'_>,
+    ///     presented: &Presented,
+    /// ) -> Result<RowSet, W::Error> {
+    ///     warehouse.execute(executable, presented)
+    /// }
+    /// ```
+    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error>;
+
+    /// Re-runs one anchor's plan, under the identity this adapter was configured with.
+    ///
+    /// **Separate from [`execute`](Warehouse::execute) because the boot path has no caller.** Every
+    /// anchor in a bundle is executed against the data system before a listener is bound, so the one
+    /// thing this method cannot be handed is an asking subject's credential - there is none in
+    /// scope, and inventing one is the service-identity fallback arriving through the back door.
+    /// `docs/adr/0008` part 1 decides that it gets its own method, and the trait's own header says
+    /// where this shape is narrower than that record asked for.
+    ///
+    /// Required, with no default. A defaulted body could not execute anything - it has no credential
+    /// to pass `execute` - so the only default available is one that lies about having verified
+    /// something, which is the shape [`PreFlight`] exists to avoid one level up.
+    ///
+    /// It takes a [`QueryPlan`] rather than an [`Executable`]: an anchor is
+    /// asked with no dimensions and resolves to one model on one source, so there is no leg for it to
+    /// be. Returns [`AnchorRows`], which is what stops a boot result being handed back as an answer.
+    ///
+    /// **What an executed anchor proves, precisely:** that these statements reproduced the numbers
+    /// their author certified *for the identity this adapter holds*. Under row-level security that is
+    /// not necessarily any caller's - a per-subject anchor is a function rather than a number, and
+    /// there is no subject at boot to evaluate it at.
+    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
     ///

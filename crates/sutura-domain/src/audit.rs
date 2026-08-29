@@ -32,11 +32,13 @@
 //!
 //! `docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
 //! the posture each leg ran under, and the expiry the credentials carried.** The last two are absent
-//! from [`CallRecord`], and not by oversight: there is no credential broker, no per-leg posture and
-//! no expiry type in this workspace, so a field for either would be a field nothing could fill. A
+//! from [`CallRecord`], and the reason is now narrower than "the types do not exist": they do -
+//! [`crate::source::ExecutedAs`] carries the per-leg posture and
+//! [`crate::identity::Expiry`] the deadline - and neither is REACHED from here, because a record is
+//! built from the chain and the [`ToolOutcome`], and the outcome carries provenance only on an answer.
+//! A refusal would have to carry them separately, which is a change to what a record is made of. A
 //! plan reads exactly one source today - [`crate::query::RefusalReason::PlanSpansTwoSources`] is
-//! what makes that true - so the source set is one name a reader already has from the bundle. Each
-//! is a field this record gains when the type it would carry exists.
+//! what makes that true - so the source set is one name a reader already has from the bundle.
 
 use crate::identity::PrincipalChain;
 use crate::pinned::Provenance;

@@ -78,6 +78,16 @@ pub enum Failure {
     /// The data system did not answer. Distinguished from [`Self::Internal`] because it is the one
     /// failure that is worth retrying, and a caller cannot tell from a 500.
     Unavailable,
+    /// The credential broker did not answer, so nothing could be executed as the asking subject.
+    ///
+    /// **Shares the status with [`Self::Unavailable`] and not the code.** Both are worth retrying, and
+    /// the two are diagnosed in different places: one is a data system that is unwell and this is the
+    /// authorization server the identity path depends on. `docs/adr/0014` states the requirement that
+    /// the two stay distinguishable - a caller told the same sentence for both retries an outage that
+    /// will clear the same way it retries one that will not.
+    ///
+    /// Carries nothing. Which issuer this deployment talks to is not the caller's business.
+    IdentityUnavailable,
     /// Every execution slot was taken for the whole admission window, so the question was shed.
     ///
     /// **`503` and not `429`, and the two say different things.** A `429` is "you personally asked
@@ -106,7 +116,7 @@ impl Failure {
             Self::RateLimited => StatusCode::TOO_MANY_REQUESTS,
             Self::Timeout => StatusCode::REQUEST_TIMEOUT,
             Self::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-            Self::Unavailable | Self::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
+            Self::Unavailable | Self::IdentityUnavailable | Self::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
         }
     }
 
@@ -131,7 +141,8 @@ impl Failure {
             | Self::RateLimited
             | Self::Timeout
             | Self::Internal
-            | Self::Unavailable => None,
+            | Self::Unavailable
+            | Self::IdentityUnavailable => None,
         }
     }
 
@@ -146,6 +157,7 @@ impl Failure {
             Self::Timeout => "timeout",
             Self::Internal => "internal",
             Self::Unavailable => "unavailable",
+            Self::IdentityUnavailable => "identity_unavailable",
             Self::AtCapacity { .. } => "at_capacity",
         }
     }
@@ -165,6 +177,9 @@ impl Failure {
             // Fixed text. See the module documentation: the real detail is in the log.
             Self::Internal => String::from("this request could not be completed"),
             Self::Unavailable => String::from("the data system did not answer"),
+            // Named for what it is without naming which issuer, and worth retrying - which is the one
+            // thing a caller can act on and the reason it is not folded into the line above.
+            Self::IdentityUnavailable => String::from("the identity provider this deployment depends on did not answer; retry"),
             // No numbers. How many questions this deployment runs at once is its sizing, and a
             // caller who is being shed has no use for it - what they need is whether to retry,
             // which the status and `Retry-After` say.
@@ -262,6 +277,7 @@ mod tests {
             Failure::Timeout,
             Failure::Internal,
             Failure::Unavailable,
+            Failure::IdentityUnavailable,
             Failure::AtCapacity { retry_after_seconds: 5 },
         ];
         let mut codes: Vec<&str> = failures.iter().map(Failure::code).collect();
@@ -308,9 +324,28 @@ mod tests {
             Failure::Timeout,
             Failure::Internal,
             Failure::Unavailable,
+            Failure::IdentityUnavailable,
         ] {
             assert_eq!(quiet.retry_after(), None, "{quiet:?} invented a retry hint");
         }
+    }
+
+    #[test]
+    fn an_identity_provider_outage_is_not_reported_as_a_data_system_outage() {
+        // `docs/adr/0014` states this as a requirement rather than a nicety: the identity path is a
+        // hard runtime dependency once a broker exchanges anything, and a caller told "the data
+        // system did not answer" for an authorization-server outage retries the same way and
+        // diagnoses the wrong dependency. Same status, because both clear on their own; different
+        // code, because a client and a dashboard branch on the code.
+        let identity = Failure::IdentityUnavailable;
+        assert_eq!(identity.status(), Failure::Unavailable.status());
+        assert_ne!(identity.code(), Failure::Unavailable.code());
+        assert_eq!(identity.code(), "identity_unavailable");
+        let detail = identity.detail();
+        assert_ne!(detail, Failure::Unavailable.detail(), "two causes, two sentences");
+        // And it names no issuer: which authorization server this deployment talks to is not the
+        // caller's business, the same way `Internal` carries no path.
+        assert!(!detail.contains("http"), "{detail}");
     }
 
     /// An authenticated caller without a grant is told which scope, and told it with a `403`.

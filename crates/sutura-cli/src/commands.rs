@@ -14,6 +14,7 @@ use std::process::ExitCode;
 
 use sutura_app::prompt::{CatalogProse, PromptInputs, Tool};
 use sutura_catalog_local::LocalCatalog;
+use sutura_domain::identity::{PrincipalChain, RequestContext, Subject};
 use sutura_domain::measure::RequiredFilter;
 use sutura_domain::model::{ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog as _};
@@ -311,7 +312,16 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
             .map_err(|e| format!("{}\nthis bundle is not fit to serve", render(&e)))?;
 
         let question = read_question(Path::new(&question_path))?;
-        let outcome = sutura_app::answer(&validated, &question, &engine).map_err(|e| render(&e))?;
+        // The credential this question executes with, and it is the same declaration the engine was
+        // opened under: one user, one host, the files that person already has access to. There is no
+        // path here that executes without one - `Warehouse::execute` has no signature for it - so
+        // "this command runs as whoever typed it" is now a value a reviewer can read rather than a
+        // property of there being no parameter.
+        let broker = single_user_broker()?;
+        // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller,
+        // and the identity the files are read under is the process's own.
+        let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
+        let outcome = sutura_app::answer(&validated, &question, &context, &broker, &engine).map_err(|e| render(&e))?;
         print_outcome(&outcome)?;
         Ok(())
     })())
@@ -378,6 +388,21 @@ fn single_user_posture() -> Result<sutura_domain::source::SourcePosture, String>
     Ok(sutura_domain::source::SourcePosture::SharedServiceUser {
         declared: sutura_domain::source::SharedIdentityDeclared::of(reason),
     })
+}
+
+/// The credential broker this command answers with.
+///
+/// The static one, holding the one source this build can open under the same acknowledgement
+/// [`single_user_posture`] declares - so what the leg presents and what the adapter was opened with
+/// come from one sentence rather than two. A `SharedServiceUser` posture is the only shape the engine
+/// can execute with, and it is the honest one here: there is no second caller for this identity to be
+/// wrong for.
+fn single_user_broker() -> Result<sutura_config::StaticCredentialBroker, String> {
+    let source = SourceName::parse(ENGINE_SOURCE).map_err(|e| format!("the built-in engine source name is not a name: {e}"))?;
+    let sutura_domain::source::SourcePosture::SharedServiceUser { declared } = single_user_posture()? else {
+        return Err(String::from("this command opens its engine shared, one function above"));
+    };
+    Ok(sutura_config::StaticCredentialBroker::for_one_shared_source(source, declared))
 }
 
 /// The working-set ceiling this command bounds the engine with.

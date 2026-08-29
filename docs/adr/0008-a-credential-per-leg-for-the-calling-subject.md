@@ -5,10 +5,17 @@ description: What end-to-end impersonation concretely requires of BigQuery, Post
 
 # A credential per leg, for the calling subject
 
-Status: **accepted as a design, and nothing in it is built.** No line of this record describes code
-in the workspace. It decides the shape of the identity path before the first adapter that needs one,
-because both halves of that path are cheap to decide now and expensive to retrofit: the transport has
-to learn a subject, and the execution port has to stop being able to run without one.
+Status: **accepted, and the port is built - along with four corrections to this record's own
+signature.** *What is built, and the four places this record was wrong about its own signature*, at
+the foot, is the authority on the state: every "not built" above it is older than the code. The line
+that used to be here - *"nothing in it is built"* - was true when it was written.
+
+It decides the shape of the identity path before the first adapter that needs one, because both
+halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
+subject, and the execution port has to stop being able to run without one. The second half is now
+true. The first is [how a caller proves who it is](0014-how-a-caller-proves-who-it-is.md), and what
+is still absent is an adapter that can carry a per-subject credential - so this record's own
+two-subject test remains unwritable.
 
 **Superseded in one part** by [the plan](0009-the-plan-from-one-source-to-many.md): sutura declares no
 data sensitivity. What a person may see lives in the data catalog and in their own permissions at the
@@ -1819,3 +1826,89 @@ shape delivers in a deployment with a shared source, and the accurate version is
 the table above. Second, the *Invariants* row for "an unvalidated bundle is never served" keeps its
 mechanism untouched and needs its reach stated: an anchor is verified under a declared verification
 identity, which is not necessarily any caller's.
+
+## What is built, and the four places this record was wrong about its own signature
+
+Added when the credential port landed. **This section is the authority on the state of the code**, and
+where it contradicts a sentence above it, it wins: the body was written before any of it existed, and
+its status line - *"accepted as a design, and nothing in it is built"* - is now false for the parts
+below and still true for the rest.
+
+### Built
+
+| Decision | Where | The mechanism, not the intent |
+| --- | --- | --- |
+| The port | `sutura_domain::identity::CredentialBroker` | One method, `mint`, taking the whole source set in one call, synchronous, with a per-adapter error type. `Minted` is two outcomes so a refusal comes back in the `Ok` |
+| No signature runs as the process | `sutura_domain::warehouse::Warehouse::execute` | It takes a `&Presented` and has **no default**, so there is no code path into a data system that runs as whatever the process is. A `compile_fail` doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included |
+| A pre-flight cannot claim what it did not ask | `PreFlight` | Two variants, `NotAsked` and `Accepted`, and the DEFAULT is `NotAsked`. `dry_run` takes the credential too, because a pre-flight asked as the wrong identity answers a different question |
+| Three postures, and the third carries no credential material | `Presented` | Three variants. A test asserts the shared one's `Debug` carries the operator's acknowledgement and no `Secret` at all, and that the other two do carry material - so the assertion is not passing because nothing anywhere holds any |
+| One asker and one deadline for N legs | `LegCredentials` | One `asked_by`, one `not_after`, a private `by_source` with no `insert`, and `minted` as the only constructor - which also **refuses a set that does not cover the sources it was minted for**, in both directions. A `compile_fail` doctest for adding a leg with a second asker, with an out-of-crate compiling twin that pins `minted` as `pub` |
+| The one refusal | `RefusalReason::CredentialUnavailable` | `403 credential_unavailable` on HTTP and its own sentence on the agent surface, both from the exhaustive match each transport holds. Provoked by the REAL implementor from a real configuration, and the HTTP test asserts the sentence does not send a caller back to authenticate. **The limit:** on the shipped serve binary it is unreachable end to end, because the one configuration the shipped broker refuses is one the composition root will not boot - `SourcePosture::deliverable_by` refuses `impersonation-at-source` against an adapter declaring `NoPlaceForASubject` before a listener opens. It becomes reachable with the first adapter that can impersonate |
+| A wiring defect is an `Err` | `DataFusionError::NoPlaceForASubject`, `DuckDbError::NoPlaceForASubject` | Each adapter matches exhaustively on what it received and refuses subject material it has nowhere to put, before it plans or prepares anything. One test per adapter, each also asserting that the shape it CAN use still reaches the engine - so neither is passing against an adapter that refuses everything |
+| A broker outage is neither a refusal nor a data system | `ServiceError::Broker`, `SurfaceFailure::Broker`, `Failure::IdentityUnavailable` | `503 identity_unavailable`: the same status as a dead data system and a different code, which is what 0014 asks for. A test asserts the two share a status and not a code |
+| The implementor, and it is not a fake | `sutura_config::StaticCredentialBroker` | Mints from the `sources:` tree an operator wrote: a source declared `shared-service-user` gets that source's own acknowledgement witness, and a source declared `impersonation-at-source` gets **nothing** - so a question against one is refused rather than answered as the process. Wired in both roots: `sutura-serve` builds it from the registry, `sutura` from the one declaration that command makes in code |
+
+### The four places this record was wrong, and each correction is to the record rather than only to the code
+
+1. **`Caller { subject, assertion }` is not what the port takes.** It takes the `RequestContext`, which
+   already existed, already reaches `Surface::answer`, and whose own documentation said the credential
+   an execution leg needs belongs there. A second type carrying a subject would have been a second
+   place the subject lives.
+
+   **And the assertion field is deliberately absent, which is the sharper half.** Part 2 has the broker
+   exchanging the caller's own token, so it gave `Caller` a `Secret`. [How a caller proves who it
+   is](0014-how-a-caller-proves-who-it-is.md) Decision 3 then decided that the exchange chain differs
+   per inbound mode, needs TWO exchanges in the direct one, and is **blocked on a verification nobody
+   has done** - whether a deployment's own identity provider will mint a token of the required type for
+   an audience we do not control. The shape of the value a broker would exchange is what that
+   verification decides, so a `Secret` field added now is exactly the guess this port was delayed to
+   avoid. Adding it is a change to the port's signature, and it arrives with the broker that performs
+   an exchange.
+
+2. **`verify_anchor` takes no identity at all, and the test this record named for it could not have
+   held.** Part 1 gives that method a `VerificationIdentity` parameter so the two credentials cannot be
+   confused at a call site, and the plan named `answer_cannot_pass_a_verification_identity` as a
+   `compile_fail` test. `VerificationIdentity::parse` is `pub`, so any crate - `sutura-app` included -
+   can construct one: the test would have compiled and the block would have failed to fail. What is
+   built instead is a method that takes **no credential**, so there is no parameter to pass one to, and
+   returns `AnchorRows` rather than a `RowSet` so a boot result cannot be handed back as an answer
+   without a named conversion. That is the property the record wanted, reached by removing the argument
+   rather than by typing it.
+
+   **What that costs, stated plainly:** an anchor runs under whatever identity the deployment
+   configured that adapter with, and nothing passes the declared `verification_identity` to the port.
+   The boot refusal for an anchor on a source with no declared identity already exists and is
+   unchanged. So this is narrower than part 1 asks for and it is not weaker than what shipped before:
+   the request path and the boot path are now two methods with two return types, where they were one.
+
+3. **`Minted::Refused` carries a source, not a `RefusalReason`.** A broker holding a whole refusal enum
+   could answer that a metric is unknown, which is not a thing a credential broker knows. The
+   application turns the one fact a broker has into the one variant this record adds.
+
+4. **`Expiry` is a two-variant enum rather than an instant.** The implementor that ships mints from
+   configuration, and a credential an operator wrote in a file does not expire - so the alternatives
+   were an `Option`, where every reader decides what an absence permits, and a sentinel instant that
+   reads as a deadline and compares as one. `NothingExpires` is a case a reader has to name. Nothing in
+   the domain compares it to a clock, exactly as part 6 says.
+
+### Not built, and named rather than left to be discovered
+
+1. **Any adapter that can carry a per-subject credential.** Both shipped ones declare
+   `NoPlaceForASubject` and refuse the two subject shapes. So `Presented::SubjectToken` and
+   `Presented::SubjectPrincipal` are constructed only by tests today, and *the two-subject test at the
+   foot of this record is still unwritable* - which is the honest state of leg 2: a question cannot
+   execute without a credential, and no credential a broker can mint makes a source evaluate anybody's
+   own authorization.
+2. **The deadline check.** `Expiry` is carried and nothing reads it. Part 6 puts the floor in the
+   broker adapter, which is the only component with a clock and the configured timeout, and the
+   implementor that ships has nothing that expires - so there is no number to check yet. Part 4's
+   per-leg check needs a splitter, which does not exist.
+3. **A per-leg credential on a second leg.** `LegCredentials` holds N legs and nothing constructs a
+   second one: there is no splitter and no combiner, and both `Warehouse` implementors answer a leg
+   with a typed error.
+4. **Provenance is still read off `Warehouse::posture`** rather than off `Presented::executed_as`, which
+   the table at the foot of this record wants. The two agree today by construction - each adapter
+   refuses material that disagrees with its own posture - and the reason not to move it is that the
+   posture on the adapter is what the composition root built, while the credential comes from a broker
+   that read the settings tree. Moving it is a one-line change and a change to an invariant row, so it
+   belongs with the adapter that makes the two able to disagree.

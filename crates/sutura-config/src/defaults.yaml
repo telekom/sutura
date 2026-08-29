@@ -126,9 +126,10 @@ security:
   # `authorization: Bearer`, and a request cannot carry two credentials in one header. `behind-gateway`
   # reads a header of its own, so there both survive.
   #
-  # NEITHER makes a data source execute as the asking subject. That is leg 2, it needs a credential per
-  # leg and a source that declares it can impersonate, and none of it is built - the startup log says
-  # so on every boot.
+  # NEITHER makes a data source execute as the asking subject. That is leg 2: the credential port is
+  # built - no question executes without a credential minted for its source - and no adapter in this
+  # build can CARRY a per-subject one, so every question still reads as this process. The startup log
+  # says so on every boot.
 
 rate_limit:
   # `enabled` is deliberately absent - see the note above. It follows the environment, and writing

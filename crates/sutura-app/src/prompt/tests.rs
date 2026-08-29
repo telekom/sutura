@@ -343,6 +343,9 @@ fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),
         },
+        RefusalReason::CredentialUnavailable {
+            source: SourceName::parse("warehouse").expect("a test source is a source"),
+        },
     ]
 }
 

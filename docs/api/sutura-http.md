@@ -36,11 +36,13 @@ resource identifier - and the request runs under a
 `sutura_domain::identity::Subject::TheDeploymentItself` and an access token, if one is
 configured, proves only that the caller holds a secret an operator distributed.
 
-**What neither shape does is make a data system execute as the asking subject.** That is leg 2, it
-needs a credential per leg, and none of it is built - so every question is still answered with
-whatever access this process already had. `docs/adr/0014` says it in those words, the startup log
-prints it on every boot, and `inbound` lists the four things that record describes and this does
-not build.
+**What neither shape does is make a data system execute as the asking subject.** That is leg 2, and
+the half of it that is built is the credential port: a question cannot execute without a credential
+minted for the source it reads, and a subject with no credential there is refused rather than
+answered as this process. What no adapter in this build can do is CARRY a per-subject credential, so
+every question is still answered with whatever access this process already had. The startup log
+prints that limit on every boot, and `inbound` lists the four things `docs/adr/0014` describes
+and this does not build.
 
 `crate::principal` is the one place a `sutura_domain::identity::RequestContext` is constructed,
 and there are exactly two ways in: one takes no argument, and the other takes a
@@ -1990,6 +1992,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 - `Timeout` - The request took longer than the configured bound.
 - `Internal` - Something on our side went wrong. Carries nothing.
 - `Unavailable` - The data system did not answer. Distinguished from `Self::Internal` because it is the one failure that is worth retrying, and a caller cannot tell from a 500.
+- `IdentityUnavailable` - The credential broker did not answer, so nothing could be executed as the asking subject.
 - `AtCapacity` - Every execution slot was taken for the whole admission window, so the question was shed.
 
 #### Implements

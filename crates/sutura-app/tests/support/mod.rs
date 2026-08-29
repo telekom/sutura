@@ -36,11 +36,12 @@ pub(crate) use oracle::{
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 
+use sutura_domain::identity::Presented;
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{Executable, QueryPlan};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::{RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 
 use crate::adapters::source;
 
@@ -68,6 +69,23 @@ fn fake_posture() -> &'static SourcePosture {
                 .expect("a fixture reason is a reason"),
         ),
     })
+}
+
+/// What a fake in this file is handed to execute one leg as.
+///
+/// The deployment's own identity for the source, carrying the same acknowledgement
+/// [`fake_posture`] declares - which is the only shape any of these fakes could honour, for the
+/// reason that function gives: nothing here reaches a data system, so there is nowhere for a
+/// subject's own credential to arrive.
+fn fake_leg() -> Presented {
+    // Read off `fake_posture` rather than written again, so the acknowledgement on the leg and the
+    // posture the fake declares cannot drift into two different sentences.
+    match *fake_posture() {
+        SourcePosture::SharedServiceUser { ref declared } => Presented::SharedServiceUser {
+            declared: declared.clone(),
+        },
+        SourcePosture::ImpersonationAtSource => panic!("the fakes' posture is the shared one, one function above"),
+    }
 }
 
 /// The whole plan a fake was handed.
@@ -151,13 +169,19 @@ impl Warehouse for RecordingWarehouse {
         clippy::unwrap_in_result,
         reason = "the fixed one-cell result is a literal, so a failure to build it is a broken \n                  test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
         // opinion rather than a data system's.
         Ok(RowSet::new(vec![String::from("recorded")], vec![vec![Value::Null]]).expect("one column and one cell is rectangular"))
+    }
+
+    // The anchor path runs the same body. It takes no credential, so what it says about identity is
+    // what these fakes can honestly say: nothing reaches a data system here.
+    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -228,7 +252,7 @@ impl Warehouse for CertifiedNumbers {
         clippy::unwrap_in_result,
         reason = "the one-cell result is built from a literal shape, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         // Labelled after the plan's metric, because that is the column an anchor check looks for. A
         // metric this fake holds no number for answers nothing, which reads as a mismatch rather
@@ -236,6 +260,12 @@ impl Warehouse for CertifiedNumbers {
         let label = String::from(plan.metric().as_str());
         let value = self.numbers.get(&label).cloned().unwrap_or_default();
         Ok(RowSet::new(vec![label], vec![vec![Value::Text(value)]]).expect("one column and one cell is rectangular"))
+    }
+
+    // The anchor path runs the same body, which is what makes this fake the one a bundle validates
+    // against: `verify_and_validate` goes through here now rather than through `execute`.
+    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -298,7 +328,7 @@ impl Warehouse for WideResult {
         clippy::unwrap_in_result,
         reason = "the one-column shape is a literal here, so a failure to build it is a broken test \n                  rather than an input to handle"
     )]
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         let plan = whole_plan(executable);
         self.asked_for.borrow_mut().push(plan.row_limit());
         // One column, so the shape is trivially rectangular and the only thing the test reads is how
@@ -306,6 +336,10 @@ impl Warehouse for WideResult {
         // plausible numbers would invite an assertion about them.
         let rows = vec![vec![Value::Integer(1)]; self.rows];
         Ok(RowSet::new(vec![String::from(plan.metric().as_str())], rows).expect("one column and one cell per row"))
+    }
+
+    fn verify_anchor(&self, plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
+        self.execute(Executable::Query(plan), &fake_leg()).map(AnchorRows::of)
     }
 }
 
@@ -361,7 +395,11 @@ impl Warehouse for ExhaustedEngine {
     // is no reservation for a ceiling to refuse there, which is why `answer` does not treat its
     // failure as exhaustion either.
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
         Err(Exhausted)
     }
 
@@ -401,7 +439,11 @@ impl Warehouse for BrokenEngine {
         &self.source
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(Exhausted)
+    }
+
+    fn verify_anchor(&self, _plan: &QueryPlan) -> Result<AnchorRows, Self::Error> {
         Err(Exhausted)
     }
 

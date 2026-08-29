@@ -24,6 +24,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
+use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
@@ -31,7 +32,7 @@ use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalo
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::{RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: i64 = 197_122;
@@ -137,13 +138,62 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
-        Ok(())
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         Ok(self.result.clone())
     }
+
+    fn verify_anchor(&self, _plan: &sutura_domain::plan::QueryPlan) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
+/// A credential broker that grants the shared posture for whatever it is asked about.
+///
+/// The honest fake for these fixtures, for the reason [`shared_posture`] is the honest posture: a
+/// fake over no data system has nowhere for a subject's own credential to arrive. This duplicates
+/// `sutura_http`'s fixture of the same shape, and it is the same duplication the module header
+/// explains - both `testing` modules are `cfg(test)`, and an adapter may not reach into another.
+pub(crate) struct GrantsTheSharedIdentity;
+
+impl CredentialBroker for GrantsTheSharedIdentity {
+    type Error = Unreachable;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        let mut presented = BTreeMap::new();
+        for name in sources.iter() {
+            drop(presented.insert(
+                name.clone(),
+                Presented::SharedServiceUser {
+                    declared: declared_shared(),
+                },
+            ));
+        }
+        // `map_or_else` rather than a match, because `option_if_let_else` is denied here. The `Err`
+        // arm is unreachable: the map above is built from `sources`, so it covers them.
+        Ok(
+            LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented).map_or_else(
+                |_| Minted::Refused { source: source() },
+                |credentials| Minted::Granted { credentials },
+            ),
+        )
+    }
+}
+
+/// The broker every fixture here starts a service with.
+pub(crate) const fn broker() -> GrantsTheSharedIdentity {
+    GrantsTheSharedIdentity
+}
+
+/// The acknowledgement witness the fake posture and the fake broker's legs both carry.
+fn declared_shared() -> SharedIdentityDeclared {
+    SharedIdentityDeclared::of(
+        AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+            .expect("a fixture reason is a reason"),
+    )
 }
 
 /// The posture every fake here is handed.
@@ -152,10 +202,7 @@ impl Warehouse for FakeWarehouse {
 /// arrive - which makes the shared posture the true declaration rather than a convenient one.
 fn shared_posture() -> SourcePosture {
     SourcePosture::SharedServiceUser {
-        declared: SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
-                .expect("a fixture reason is a reason"),
-        ),
+        declared: declared_shared(),
     }
 }
 

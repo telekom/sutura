@@ -16,12 +16,15 @@ is not, so this page is vocabulary rather than an API you can call.
     down and not built: no port, no adapter, no test, and nothing that would notice if the property
     were false.
 
-    **Every identity claim on this page is a design target.** What exists today is a governed
-    semantic compiler and executor over local files, served over HTTP behind a bearer token that
-    authenticates the **deployment** rather than the caller. So the perimeter is real and the
-    per-caller identity is not: anyone holding that token can ask anything the catalogue certifies.
-    The identity-aware runtime this vocabulary describes is ahead of it, and no sentence here should
-    be read as a control you can rely on unless it says *enforced today*.
+    **The identity claims are the ones to read carefully, and they are no longer all design targets.**
+    A deployment can now establish who is asking, from a signature, and no question can execute
+    without a credential a broker minted for the source it reads. What is still absent is a data
+    system that evaluates the asking subject: no adapter in this build can carry a per-subject
+    credential, so every question reads as one identity - and a deployment behind only the bearer
+    token has no per-caller identity at all, because that token authenticates the **deployment**.
+    So the perimeter is real, the subject is known where leg 1 is configured, and per-caller ACCESS
+    is not here. No sentence should be read as a control you can rely on unless it says *enforced
+    today*.
 
 ## A question, and what it is made of
 
@@ -137,13 +140,21 @@ request that never happened.
 The **principal** is who is asking. When an agent asks on somebody's behalf there is a chain of
 them, and the **subject** is the identity the data system must see: the person, not the service.
 
-**Design target, not built.** Every query runs as the subject: a credential is minted per request,
-and a leg that cannot run as the subject is refused rather than falling back to the service's own
-identity. That fallback turns "you may not see these rows" into "here are the rows". None of that
-mechanism exists. There is no request context type, no credential broker port and no adapter behind
-one, so **no caller identity reaches the query path at all** - answering takes a bundle, a question
-and a data system, and nothing that says who is asking. A port arrives with the adapter that
-implements it, and nothing implements this one yet.
+**Half built, and the halves are worth telling apart.** The target is that every query runs as the
+subject: a credential is minted per request, and a leg that cannot run as the subject is refused
+rather than falling back to the service's own identity - because that fallback turns "you may not see
+these rows" into "here are the rows".
+
+*Built:* answering takes a request context and a credential broker, the broker mints once for every
+source the plan reads, and the execution port takes what it produced with **no signature that omits
+it**. A subject with no credential at a source is refused as `credential_unavailable`, and each
+adapter refuses credential material it has nowhere to put rather than quietly ignoring it. So the
+fallback is not forbidden by a rule - it is absent from every signature.
+
+*Not built:* an adapter that can carry a per-subject credential. Both in this build declare that they
+have nowhere for one to arrive, and the broker that ships mints from configuration and performs no
+token exchange. So what a credential says today is *the deployment's own identity for this source,
+acknowledged by an operator* - which is honest, and is not impersonation.
 
 **Enforced today, and narrower than it sounds.** Nothing in the query path can *choose* an identity.
 `SemanticCatalog::load` takes no request context, so a catalogue cannot return one definition to one
@@ -218,7 +229,7 @@ an absence enforced are not the same thing:
 | SQL, a table name, a filter expression, row ids | The tool surface has no field for any of them. An uncertified question is unrepresentable, not merely refused | **Enforced.** `Query` declares no such field, and `deny_unknown_fields` makes an attempt an error naming it |
 | A cached result | Under row-level security a query-keyed cache is a cross-user leak. There is no cache to key | **Enforced by absence.** No mechanism can prove one: adding any cache of rows is an architecture decision, keyed on subject first or not at all |
 | An edit to a definition | Editing one forks the definition from the number it certifies. Definitions are authored upstream | **Enforced.** Nothing on the query path writes to the catalogue, and the bundle is hashed, so an edit moves the digest that travels with the answer |
-| A query as the service identity | A leg that cannot run as the subject should be refused rather than downgraded | **Design target.** Nothing enforces it. There is no second identity in the process to downgrade to, and no check that would notice one arriving |
+| A query as the service identity | A leg that cannot run as the subject should be refused rather than downgraded | **Enforced, and narrower than it reads.** `Warehouse::execute` takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade THROUGH; a subject with no credential is refused as `credential_unavailable`, and an adapter handed material it cannot use returns an error rather than answering. What is NOT enforced is the sentence people hear in it: no adapter in this build can carry a per-subject credential, so a leg still runs as this process - by declaration and with the answer recording that it did |
 | An unbounded time range | A range has to be bounded to resolve at all | **Enforced.** `TimeRange` has no unbounded form, so an absent bound fails to deserialize and the refusal is unprovokable |
 | A range too long to be worth answering | A bounded range still permits a full scan: two real dates can be ten thousand years apart | **Enforced, on the caller's path only.** Resolution refuses a span over ten years as `TimeRangeTooLong`, carrying two derived integers and nothing of the caller's text. It is checked there rather than in the type because the same type carries a metric's anchor range, which an author writes and no caller can reach. **What it does not bound:** the work inside a permitted span, or a caller asking three permitted questions in a row - a per-caller budget needs a clock and a subject, which is the same absent port as the identity row above |
 | A definitional filter removed or renamed | A metric's required filters are part of what it means | **Enforced.** They are compiled into every plan for the metric and marked as definitional; a caller has no field that could name, select or remove one |
@@ -230,10 +241,12 @@ an absence enforced are not the same thing:
 catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
 certified number re-executed before the bundle may be served.
 
-Everything marked *design target* above is unbuilt, and the identity claims are all of them. There
-is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.
-There IS an HTTP surface, and its bearer token authenticates the deployment rather than the caller -
-so none of the per-caller claims above are made true by it. [What exists today](architecture.md#what-exists-today) is the inventory, and
+Everything marked *design target* above is unbuilt. The identity path is no longer one of them and is
+not finished either: there IS a request context, a credential broker port with a static-credential
+implementor, an audit sink and an MCP surface, and a deployment that declares `security.inbound`
+verifies a caller's own token. What there is NOT is an adapter that can carry a per-subject
+credential, so per-caller ACCESS is still absent - and a deployment behind only the bearer token has
+no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. [What exists today](architecture.md#what-exists-today) is the inventory, and
 `AGENTS.md` in the repository lists each invariant beside the type, lint or gate that holds it -
 including the rows that say outright that nothing holds them yet.
 

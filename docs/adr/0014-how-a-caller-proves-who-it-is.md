@@ -418,6 +418,17 @@ elsewhere, so an overstated claim is itself the defect.**
 And Decision 3 - the exchange chain - is untouched: leg 1 establishes who is asking and performs no
 exchange. The verification it is blocked on is still open.
 
+**`feat/credential-port` has since landed, and this record is why one field is missing from it.**
+[A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md)'s port takes the request
+context - who is asking - and **not** the caller's own assertion, because Decision 3 above decides
+that the exchange differs per mode, needs two exchanges in `direct`, and is blocked on whether a
+deployment's identity provider will mint a token of the required type for an audience we do not
+control. That question decides the SHAPE of the value a broker would exchange, so the field arrives
+with the broker that performs one. What did land from this record's side is the consequence its last
+paragraph names: an authorization server is a hard runtime dependency, so its outage is
+`503 identity_unavailable` - the same status as a dead data system and a different code, which is the
+distinguishability this record asks for, now asserted by a test.
+
 ### One transport, and the other left honest
 
 `sutura-http` is wired. `sutura-mcp` has its own `principal` module and it still answers

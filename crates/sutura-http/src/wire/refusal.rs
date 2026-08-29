@@ -213,6 +213,27 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             "source_unavailable",
             format!("`{source}` could not be reached as the calling subject"),
         ),
+        // 403, and this is the refusal that makes `docs/adr/0005`'s note - "the 403s are not a
+        // statement about a credential" - stop being true. It is one, so the sentence must not send
+        // the caller looking for a better token FOR THIS SERVICE: what is missing is a grant at the
+        // data system, and presenting a different bearer here changes nothing. Retrying is pointless
+        // and the sentence says so, because the alternative reading of a 403 is "authenticate
+        // harder".
+        //
+        // It names the source and nothing about which grant. Which permission a subject lacks is the
+        // data system's to say; guessing it here would be this deployment holding a second opinion
+        // about somebody else's authorization, and it would tell a caller something about a data
+        // system they were just refused access to.
+        RefusalReason::CredentialUnavailable { ref source } => (
+            StatusCode::FORBIDDEN,
+            "credential_unavailable",
+            format!(
+                "you have no credential at the data system `{source}`, so this deployment will not \
+                 read it on your behalf - and it will not read it as itself instead. This is not \
+                 about the token you presented to this service: the missing grant is at that data \
+                 system. Asking the same question again returns this same refusal"
+            ),
+        ),
     };
     (
         status,
@@ -329,6 +350,13 @@ mod tests {
                 StatusCode::SERVICE_UNAVAILABLE,
                 "source_unavailable",
             ),
+            (
+                RefusalReason::CredentialUnavailable {
+                    source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+                },
+                StatusCode::FORBIDDEN,
+                "credential_unavailable",
+            ),
         ]
     }
 
@@ -410,6 +438,30 @@ mod tests {
             "the sentence does not name the ceiling: {detail}"
         );
         assert!(detail.contains("unchanged"), "{detail}");
+    }
+
+    #[test]
+    fn a_missing_credential_at_a_source_is_not_a_request_to_authenticate_again() {
+        // `docs/adr/0005` says the 403s on this surface are not a statement about a credential, and
+        // this variant is the one that makes that stop being true - so the sentence has one job
+        // beyond naming the source: it must not send the caller back to authenticate. A 401 would say
+        // "present a credential", and a client that re-authenticates gets the same token and the same
+        // refusal forever.
+        let (status, body) = refused(&RefusalReason::CredentialUnavailable {
+            source: sutura_domain::model::SourceName::parse("warehouse").expect("a test source is a source"),
+        });
+        assert_ne!(status, StatusCode::UNAUTHORIZED, "re-authenticating changes nothing here");
+        assert_eq!(status, StatusCode::FORBIDDEN);
+        assert_eq!(body.code(), "credential_unavailable");
+        let detail = body.detail();
+        assert!(detail.contains("warehouse"), "the sentence names the source: {detail}");
+        assert!(
+            detail.contains("not about the token you presented"),
+            "the sentence has to say the deployment token is not what is missing: {detail}"
+        );
+        // And it says the thing this whole port exists for: no fallback. The refusal is not "we could
+        // not reach it", it is "we will not read it as somebody else".
+        assert!(detail.contains("not read it as itself"), "{detail}");
     }
 
     #[test]

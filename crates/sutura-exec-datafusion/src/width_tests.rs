@@ -163,7 +163,7 @@ fn a_wide_engine_answers_from_several_threads_at_once_with_no_runtime_entered() 
         let callers: Vec<_> = core::iter::repeat_with(|| {
             scope.spawn(|| {
                 let rows = adapter
-                    .execute(Executable::Query(&asked))
+                    .execute(Executable::Query(&asked), &crate::test_leg())
                     .expect("a concurrent question is answered");
                 (rows.columns().len(), rows.rows().len())
             })
@@ -191,8 +191,12 @@ fn one_thread_answers_the_same_question_the_same_way_a_wide_one_does() {
             .expect("a wide runtime builds"),
     );
     let asked = question();
-    let from_one = narrow.execute(Executable::Query(&asked)).expect("one thread answers");
-    let from_many = wide.execute(Executable::Query(&asked)).expect("four threads answer");
+    let from_one = narrow
+        .execute(Executable::Query(&asked), &crate::test_leg())
+        .expect("one thread answers");
+    let from_many = wide
+        .execute(Executable::Query(&asked), &crate::test_leg())
+        .expect("four threads answer");
     assert_eq!(from_one.columns(), from_many.columns());
     assert_eq!(from_one.rows(), from_many.rows());
 }
