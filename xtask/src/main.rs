@@ -18,6 +18,7 @@ mod crap;
 mod docs;
 mod fmt;
 mod guidance;
+mod hooks;
 mod line_endings;
 mod max_lines;
 mod pins;
@@ -155,6 +156,16 @@ const TASKS: &[Task] = &[
         description: "a narrowed just recipe prints the scope it covered",
         kind: Kind::Hygiene,
         run: tasks::run,
+    },
+    Task {
+        // Beside `check-scope` for the same reason it sits beside `check-guidance`: a claim
+        // checked against the thing it claims, over a file no other gate reads. `check-scope`
+        // owns the `justfile`; this one owns `.pre-commit-config.yaml`, where the tiering
+        // decision lives and where deleting one block silently un-tiers it.
+        name: "check-hook-tiers",
+        description: "the push stage compiles, with the commit stage's own invocation",
+        kind: Kind::Hygiene,
+        run: hooks::run,
     },
     Task {
         name: "check-guidance",
