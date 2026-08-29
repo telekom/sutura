@@ -607,9 +607,9 @@ economise.
 
 **In order, and stop as soon as it is fast enough:**
 
-1. ~~**Exclude ADR pages from the workflows.**~~ **HALF DONE, and the other half is PAUSED pending the
-   cheap check that makes it safe.** This item was two changes in one commit, and they are not equally
-   sound, so they are recorded separately rather than left marked done together.
+1. ~~**Exclude ADR pages from the workflows.**~~ **DONE, in three parts, and the parts are recorded
+   separately because they are not equally sound and lumping them together is what made the original
+   commit hard to review.**
 
    **The path-filter half stands, and it fixed a real defect.** `mkdocs.yml` was in `docs.yml`'s filter
    AND matched `ci.yml`'s leading `**`, so an ADR-only pull request that added a nav entry started BOTH
@@ -617,9 +617,8 @@ economise.
    been checked. `ci.yml` now excludes `docs/**` and `mkdocs.yml` by name, so a prose-only change no
    longer starts the 120-minute chain. Neither path can affect what cargo produces.
 
-   **The gate-skip half is PAUSED, and one path exclusion that rode along with it is reverted
-   outright.** The two have different fates and lumping them together is what made the original commit
-   hard to review. `docs.yml`'s
+   **The gate-skip half was PAUSED and is now RESTORED, with the check that answers the objection to
+   it.** One path exclusion that rode along with it stays reverted outright. `docs.yml`'s
    `verify` job was made to skip the 15m45s `hygiene` build when every changed path was markdown under
    `docs/` or `mkdocs.yml`, keeping only the 3-second `mkdocs --strict` build. The reasoning was that
    `--strict` covers what a page edit actually risks - a dead link, a bad anchor, a page in no nav
@@ -634,18 +633,56 @@ economise.
    narrower ground that a workflow definition is a change to what CI does and should not be excluded
    from the workflow that gates CI on the argument that cargo cannot see it.
 
-   **The synthesis, which is the decided end state rather than a compromise.** The objection above is
-   narrow enough to answer without paying the whole 15m45s again: keep the skip, and give the pull
-   request a **cheap text-only equivalent of the citation check** - grep the changed markdown for
-   `just <task>` and check each name against `just --summary`. That is seconds of shell, needs no Rust
-   closure, and covers the one gate whose absence made post-merge gating unacceptable. So the step is
-   unconditional only until that check exists, and building it is part of this branch rather than a
-   later idea. **The framing to avoid, because this section had it:** the skip was not "rejected in
-   review" - it was asked for deliberately, and the review predates it. What review found was one
-   defect in it, and the fix for a defect that specific is the check above, not the cost.
+   **The synthesis, and it is BUILT rather than decided.** The objection above is narrow enough to
+   answer without paying the whole 15m45s again, so the citation property is checked as TEXT on the
+   pull request: `.github/scripts/check-task-citations.sh`, run by `just citations` locally and by a
+   `verify` step in CI, reads every `just <task>` and `cargo xtask <task>` this repository's markdown
+   cites and checks each against the names `just --summary` reports and against the `TASKS` table in
+   `xtask/src/main.rs`. Seconds, no compiler, and **neither list is kept in the script** - a second
+   copy of the task names is the class of drift this repository already has gates about. `nix run
+   .#just` is how the list is obtained in CI, from the locked nixpkgs like every other tool here.
+   **The framing to avoid, because this section had it:** the skip was not "rejected in review" - it
+   was asked for deliberately, and the review predates it. What review found was one defect in it, and
+   the fix for a defect that specific is the check above, not the cost.
+
+   **Three properties of the check, because each of them is a decision a reader would otherwise have
+   to reverse-engineer.** It reads citations inside a code span or a fenced block and NOT bare prose,
+   because "just" is an English adverb and this repository uses it as one constantly - a citation that
+   wraps across a line break is therefore missed, the same limit `check-guidance` has. It exempts
+   `docs/implementation-plan-*.md`, because a plan's job is to name what does not exist yet - this very
+   document has a section headed `just demo` - and a gate that failed on that is a gate people route
+   around; the cost of the exemption is that a plan citing a RENAMED task is not caught here either. And
+   it **fails closed towards the runner minute**: an empty task list or an unparsable table exits 2,
+   which the workflow answers by running the full gates rather than by passing. The path
+   classification fails open the same way `xtask classify` does - a diff it cannot compute, and any
+   path that is not markdown under `docs/` or `mkdocs.yml`, runs everything. Two consequences of that
+   were checked case by case and must stay true: **`AGENTS.md` still runs the gates**, because
+   `check-guidance` reads it and reads nothing else, and **a non-markdown asset under `docs/` still
+   runs them**, because `check-docs` is what resolves it.
+
+   **The residual risk, stated rather than waved at, because the replacement is narrower than what it
+   replaced.** `hygiene` is thirteen gates. Seven read Rust, manifests, lock files or workflow YAML -
+   `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
+   `check-workflows`, `check-crap` - and a markdown-only diff cannot change what any of them reads, so
+   skipping those loses nothing. Six read prose, and only part of one is replaced:
+
+   | Gate | On a prose-only pull request |
+   | --- | --- |
+   | `check-guidance` | Citations replaced by the text-only check. **Stale phrases, version-against-pin, contradicted claims and counts are deferred to the `main` push** |
+   | `check-docs` | Nav entries and links covered independently by `mkdocs --strict`; the asset half is unreachable from a `docs/*.md`-only diff |
+   | `check-skills` | Deferred. A prose-only edit to `.agents/skills/**` is not under `docs/`, so this only bites a page that names a skill |
+   | `text-hygiene`, `line-endings` | Deferred. Whitespace and CRLF in a new page |
+   | `max-lines` | Deferred, and **this is the sharpest one**: a new 1200-line page merges green and fails the publish |
+
+   Every one of those still runs on the `main` push, in `publish`, whose cache posture and
+   unconditional gates are unchanged. So the trade is explicit: **one property was moved forward onto
+   the pull request, five were left behind it**, and the reason the trade is acceptable is that the
+   moved one is the only one whose post-merge failure blocks a publish on something a reviewer could
+   not see coming - the other five are visible in the diff and fail loudly with the page in front of
+   whoever wrote it.
 
    **What that means for the rest of this section:** the 15m45s is still owed a measurement, and that
-   is what point 2 is for - it decides whether points 3 and 4 are needed at all once the text-only
+   is what point 2 is for - it decides whether points 3 and 4 are needed at all now that the text-only
    check has removed the reason the gate had to stay. Nothing about the closure being the cost has
    changed.
 2. **Find out whether these numbers are cache misses.** Both runs measured were the first after a
@@ -670,6 +707,13 @@ economise.
 **Done when** an ADR-only change is gated in about a minute rather than seventeen **on the pull
 request**, with `check-docs`, `check-guidance` and mkdocs `--strict` all still running there, and with
 the publish job's cache posture unchanged. "Gated on the merge instead" does not satisfy this.
+
+**Point 1 does NOT satisfy that bar, and saying so is the point of writing it down.** It buys the
+minute and it keeps mkdocs `--strict` and the citation half of `check-guidance` on the pull request -
+but `check-docs` and the rest of `check-guidance` are gated on the merge there, which this paragraph
+says plainly does not count. What closes the gap is point 3 or point 4: a cached `hygiene`, or a split
+that lets the prose gates run without a dependency closure. The residual table under point 1 is the
+honest interim state, not the finish line.
 
 ## The examples are the demo, one per deployment variant
 

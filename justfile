@@ -359,6 +359,18 @@ lint-ci:
     test "${#scripts[@]}" -gt 0
     nix run .#shellcheck -- -x "${scripts[@]}"
 
+# The cheap, text-only half of the citation gate. Seconds, and no compiler.
+#
+# It exists because `docs.yml`'s verify job skips the 15m45s `hygiene` build for a pull request
+# that changes only markdown under `docs/`, and a citation of a task that does not exist was the
+# one property that skip could not defer: deferring it to the `main` push blocks the publish
+# instead of the merge. Same script CI runs, same two authorities - this recipe's own name
+# included, since the list comes from `just --summary` rather than from a copy.
+citations:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just --summary | sh .github/scripts/check-task-citations.sh
+
 # Refresh every imported skill and rewrite the lock.
 skills-refresh:
     pixi run --frozen skills-refresh

@@ -12,8 +12,16 @@
 #
 # This is also the workflow that covers what `ci.yml` deliberately ignores. `ci.yml` skips a
 # PROSE-only change entirely - `**/*.md`, `docs/**`, LICENSE and NOTICE, minus the catalogs - so
-# those paths trigger THIS workflow instead, and it runs the structural gates as well as the
-# build. A prose edit is therefore checked by the cheap workflow rather than by none.
+# those paths trigger THIS workflow instead. A prose edit is therefore checked by the cheap
+# workflow rather than by none.
+#
+# WHAT "CHECKED" MEANS HERE IS NOW TWO DIFFERENT THINGS, and the split is measured rather than
+# assumed. The site build under `--strict` is 3 seconds and always runs; the `hygiene` nix build
+# is 15m45s, because it builds a Rust dependency closure so `xtask` can read files, and for a
+# change that is only markdown under `docs/` it is REPLACED by a text-only citation check that
+# costs seconds. `verify`'s own steps carry the reasoning and the one property that replacement
+# had to preserve. `publish` still runs `hygiene` unconditionally, so nothing merges to `main`
+# without it.
 #
 # The two filters are COMPLEMENTS and are meant to stay that way. The semantic catalogs are
 # markdown documents but they are not prose - a metric's `measure:` decides generated SQL - so
@@ -105,6 +113,12 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # Two commits, not one. On a pull request this action checks out the MERGE commit,
+          # whose first parent is the base branch tip - so `git diff HEAD^1 HEAD` is the pull
+          # request's own change set, computed from the clone with no token and no API call.
+          # Depth 1 would leave HEAD parentless and that diff would fail, which the step below
+          # reads as "cannot tell" and answers by running everything.
+          fetch-depth: 2
           persist-credentials: false
 
       # Before nix installs: /nix/store is what fills. See
@@ -126,27 +140,127 @@ jobs:
       # from a pull request, and a published page must not be built from a store path a pull
       # request could have put there. Same call `release.yml` makes, for the same reason.
 
+      # Is every changed path plainly prose? That decides whether the 15m45s step below runs.
+      #
+      # FAIL OPEN, THE WAY `xtask classify` DOES, and for its reason: the expensive failure here
+      # is a gate silently skipped, not a wasted runner minute. A diff this cannot compute, an
+      # empty diff, and any path that is not markdown under `docs/` or `mkdocs.yml` all answer
+      # "run everything" - and it says which path made it decide that.
+      #
+      # TWO CONSEQUENCES WERE CHECKED CASE BY CASE AND MUST STAY TRUE, because each is a gate
+      # that would otherwise be lost rather than replaced:
+      #
+      #   * `AGENTS.md` runs the full gates. It is not under `docs/`, and `check-guidance` reads
+      #     it - the claims and counts in that file are checked against nothing else.
+      #   * A NON-MARKDOWN asset under `docs/` runs them too. `check-docs` is what resolves an
+      #     asset `mkdocs.yml` references, so a new image is its business and not `--strict`'s.
+      #
+      # No API call and no token: the pull request's change set is `HEAD^1..HEAD` in the clone
+      # the checkout above already made two commits deep.
+      - name: Which gates does this change need?
+        id: scope
+        run: |
+          set -eu
+          if ! git diff --name-only HEAD^1 HEAD > "$RUNNER_TEMP/changed"; then
+            echo "the diff could not be computed - running the full gates"
+            echo "prose_only=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ ! -s "$RUNNER_TEMP/changed" ]; then
+            echo "the diff is empty - running the full gates"
+            echo "prose_only=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          verdict=yes
+          while IFS= read -r path; do
+            case "$path" in
+              # A `*` in a case pattern matches `/` as well, so this is markdown under `docs/`
+              # at ANY depth - `docs/adr/0005-x.md` included - and nothing else.
+              docs/*.md | mkdocs.yml) ;;
+              *)
+                echo "not prose: $path"
+                verdict=no
+                ;;
+            esac
+          done < "$RUNNER_TEMP/changed"
+          printf 'changed paths: %s\n' "$(wc -l < "$RUNNER_TEMP/changed" | tr -d ' ')"
+          printf 'prose_only=%s\n' "$verdict" | tee -a "$GITHUB_OUTPUT"
+
+      # THE CHECK THAT MAKES THE SKIP BELOW SAFE, and it is here because of exactly one
+      # objection to an earlier version of that skip rather than as a general improvement.
+      #
+      # The skip was asked for deliberately, on the measurement that the site build is 3 seconds
+      # and the `hygiene` build is 15m45s. What review found in it was narrow: a citation of a
+      # `just` task that does not exist is caught by `hygiene` and by nothing else, ADR prose
+      # does cite tasks, and deferring that to the `main` push moves the failure from the pull
+      # request to the default branch - where it blocks the PUBLISH instead of the merge, with
+      # the offending commit already in `main`. A post-merge failure is not a pull-request gate.
+      #
+      # So the property is checked here instead, as text, in seconds: every `just <task>` and
+      # `cargo xtask <task>` a page cites, against `just --summary` and against the one table
+      # `xtask`'s `--help` and dispatch are built from. The script carries the grammar, the
+      # authorities and the one exemption; `nix run .#just` is how the list is obtained from the
+      # locked nixpkgs rather than from a copy kept in the script.
+      #
+      # RUNS UNCONDITIONALLY, including on the changes that also run the full gates. It costs
+      # seconds, and a check that only runs on the cheap path is one that never runs on the
+      # expensive one.
+      #
+      # Exit 2 from the script means the SCAN is broken rather than the prose - an empty task
+      # list, an unparsable table - and it is answered by running the full gates, which is the
+      # same direction as everything else on this path: fail towards the runner minute.
+      - name: Task citations in the prose
+        id: citations
+        run: |
+          set -eu
+          if ! nix run .#just -- --summary > "$RUNNER_TEMP/tasks"; then
+            echo "::warning::could not read the task list - running the full gates"
+            echo "checked=no" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          status=0
+          sh .github/scripts/check-task-citations.sh < "$RUNNER_TEMP/tasks" || status=$?
+          case "$status" in
+            0)
+              echo "checked=yes" >> "$GITHUB_OUTPUT"
+              ;;
+            2)
+              echo "::warning::the citation scan could not run - running the full gates"
+              echo "checked=no" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              exit "$status"
+              ;;
+          esac
+
       # The gates judge prose too, and this is the only workflow a prose-only change starts.
       # `check-docs` is in here: it rejects a nav entry with no file, a page in no nav entry, and
       # an asset `mkdocs.yml` references but does not have.
       #
-      # UNCONDITIONAL AS OF THIS COMMIT, and the reason is one objection rather than a reversal.
-      # A previous commit on this branch skipped this step for a prose-only pull request, on the
-      # measurement that the site build is 3 seconds and this step is 15m45s - a real cost, and
-      # the skip was asked for deliberately. What the skip got wrong is narrow: `check-guidance`
-      # is the ONLY gate that fails a citation of a `just` task that does not exist, ADR prose
-      # does cite them, and deferring it to the `main` push moves the failure from a pull request
-      # to the default branch, where it blocks the publish instead of the merge. A post-merge
-      # failure is not a pull-request gate.
+      # SKIPPED FOR A PROSE-ONLY CHANGE, and the two conditions are not the same condition. The
+      # paths have to be prose AND the citation check above has to have actually run: a scan that
+      # could not run is not evidence, so it buys the gates back rather than the skip.
       #
-      # That objection does not need the whole cost back, and the synthesis is the one this
-      # comment named in its previous form: keep the skip, and give the pull request a CHEAP
-      # text-only equivalent of the citation check - grep the changed markdown for `just <task>`
-      # and check each name against `just --summary`, which is seconds of shell and needs no Rust
-      # closure. The step is unconditional only until that check exists, and
-      # `ci/prose-change-cost` in the implementation plan owns both it and the open measurement
-      # of whether 15m45s was a cold-cache miss rather than a floor.
+      # WHAT THIS NO LONGER CHECKS ON A PULL REQUEST, stated rather than implied, because the
+      # replacement is NARROWER than what it replaced. `hygiene` is thirteen gates. Seven of them
+      # - `check-boundaries`, `check-pins`, `check-warm-start`, `unused-deps`, `check-arrow`,
+      # `check-workflows`, `check-crap` - read Rust, manifests, lock files or workflow YAML, none
+      # of which a markdown-only diff can change, so skipping those loses nothing. The six that
+      # DO read prose are the residual, and only part of one is replaced above:
+      #
+      #   * `check-guidance` - the citation half is replaced. Its stale phrases, its
+      #     version-against-pin comparison, its contradicted claims and its counts are not.
+      #   * `check-docs` - `--strict` covers the nav and link half independently; the asset half
+      #     cannot be reached by a markdown-only diff, which is why one is a `docs/*.md` filter.
+      #   * `check-skills`, `text-hygiene`, `line-endings`, `max-lines` - not replaced at all. The
+      #     sharpest of these is `max-lines`: a new 1200-line page would merge green and fail the
+      #     publish.
+      #
+      # Every one of them still runs on the `main` push, in `publish` below.
+      # `docs/implementation-plan-identity-and-services.md` records the same residual, so it is
+      # not only in a comment on the thing that caused it.
       - name: Structural gates
+        if: steps.scope.outputs.prose_only != 'yes' || steps.citations.outputs.checked != 'yes'
         run: nix build .#checks.x86_64-linux.hygiene -L
 
       # `--strict` turns a dead link, an orphan page and a bad anchor into a failure. Without it

@@ -805,6 +805,25 @@
           type = "app";
           program = "${pkgs.betterleaks}/bin/betterleaks";
         };
+
+        # `just` itself, for the one workflow that needs the TASK LIST rather than a task.
+        #
+        # `docs.yml` runs `.github/scripts/check-task-citations.sh`, which checks every
+        # `just <task>` a page cites against the names `just --summary` reports. The point of
+        # that check is that it costs seconds instead of the 15m45s a Rust dependency closure
+        # costs, so it cannot reach the list through `xtask` - and the list must come from
+        # `just` rather than from a copy, because a second list of task names is the drift this
+        # repository already has gates about.
+        #
+        # An app, from the locked nixpkgs, for the reason the block above states: the registry
+        # form resolves to whatever nixpkgs-unstable points at when the job runs. Not in
+        # pixi.toml either - `cargo xtask check-pins` fails a tool named in both - and no
+        # verdict depends on its version here: it prints its own recipe names, so a bump can
+        # change the FORMAT but cannot change what the authority is.
+        apps.just = {
+          type = "app";
+          program = "${pkgs.just}/bin/just";
+        };
         # The pinned cargo, for the one workflow that has to touch Cargo.lock. `nix develop`
         # was used here and could never have worked: this flake exposes no devShells.
         # writeShellApplication, not `toString (writeShellScript ...)`: the latter yields a
