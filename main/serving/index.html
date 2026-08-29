@@ -847,6 +847,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Who is asking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-scope-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a scope grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2185,6 +2202,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Who is asking">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-a-scope-grants" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What a scope grants
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2609,7 +2643,7 @@ what the mode means. What is not trusted is a string.</p>
 </tr>
 <tr>
 <td><code>scope</code></td>
-<td>Parsed, bounded, carried - and <strong>read by nothing</strong>. Scope-filtered advertisement and a per-caller ceiling are not built</td>
+<td>Parsed, bounded, and <strong>read</strong> - it decides which of this surface's operations the caller may invoke. See <em>What a scope grants</em> below. A per-caller ceiling derived from a scope is still not built</td>
 </tr>
 </tbody>
 </table>
@@ -2648,6 +2682,46 @@ of the pinned kind, is logged at <code>error</code> and <strong>not</strong> ado
 adopting a broken set turns a rotation mistake into a total outage.</p>
 <p>Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
 it, and the bucket it counts against is a network address rather than a principal.</p>
+<h3 id="what-a-scope-grants">What a scope grants<a class="headerlink" href="#what-a-scope-grants" title="Permanent link">&para;</a></h3>
+<p><strong>Only where <code>security.inbound</code> is configured.</strong> A deployment with no block has no verified claim to
+narrow by, so every operation is available - and a filter over an unverified claim would look like a
+control and be none.</p>
+<p>Two scopes, one per operation this surface has. They are the same strings for every deployment, and
+they name a <strong>capability</strong> rather than a metric - deliberately, so that adding or renaming a metric in
+the catalog can never change what a token means:</p>
+<table>
+<thead>
+<tr>
+<th>Scope</th>
+<th>What it grants</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura:catalog.read</code></td>
+<td><code>GET /v1/catalog</code></td>
+</tr>
+<tr>
+<td><code>sutura:metrics.ask</code></td>
+<td><code>POST /v1/query</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>It fails closed.</strong> A caller is granted exactly the capabilities its <code>scope</code> claim names. A token
+this deployment verified that carries no capability scope reaches <strong>nothing</strong> - which means switching
+<code>security.inbound</code> on before authoring these scopes at your authorization server switches every caller
+off. The response says so and says what to add: <code>403</code>, <code>code: insufficient_scope</code>, and the missing
+scope string in the detail. A scope this surface does not know is ignored rather than refused, so a
+token minted for other resources too is fine.</p>
+<p><strong>What it does not grant, and this is the sentence to keep.</strong> A scope decides which <em>operations</em> a
+caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
+same pinned bundle and every question executes with whatever access the service process already had -
+leg 2 does not exist, so no source executes as the asking subject. A caller granted
+<code>sutura:metrics.ask</code> gets exactly the numbers any other caller would.</p>
+<p>The agent surface offers the same two capabilities under the names <code>describe_catalog</code> and <code>ask_metric</code>,
+from the same declaration, so the two transports cannot describe different tool sets. It speaks over
+standard input and output, where there is no header a token could arrive in, so nothing narrows the set
+there today.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2665,12 +2739,12 @@ it, and the bucket it counts against is a network address rather than a principa
 </tr>
 <tr>
 <td><code>GET /v1/catalog</code></td>
-<td>yes, when one is configured</td>
+<td>yes, when one is configured; plus <code>sutura:catalog.read</code> where <code>security.inbound</code> is</td>
 <td>The metrics this catalog defines, with grains, dimensions and the values a filter may use</td>
 </tr>
 <tr>
 <td><code>POST /v1/query</code></td>
-<td>yes, when one is configured</td>
+<td>yes, when one is configured; plus <code>sutura:metrics.ask</code> where <code>security.inbound</code> is</td>
 <td>One certified question. <code>200</code> only when it was answered; a refusal carries its own status - see <a href="#a-refusal-carries-a-status">A refusal carries a status</a>. <code>503 at_capacity</code> when no execution slot is free - see <a href="#capacity">Capacity</a></td>
 </tr>
 <tr>
@@ -2797,11 +2871,14 @@ depends on why:</p>
 </tr>
 </tbody>
 </table>
-<p><strong>The <code>403</code>s are not about your credential.</strong> No token and no scope widens a metric's dimension set;
-a <code>403</code> is the catalog's answer to "may this be asked of this metric", and the sentence names the
-metric and the dimension so it cannot be mistaken for the other thing. That stays true with leg 1
-configured: a verified caller is a caller whose identity is known, not a caller with more permissions -
-nothing anywhere reads a scope.</p>
+<p><strong>The refusal <code>403</code>s are not about your credential.</strong> No token and no scope widens a metric's
+dimension set; a refusal <code>403</code> is the catalog's answer to "may this be asked of this metric", and the
+sentence names the metric and the dimension so it cannot be mistaken for the other thing. A verified
+caller is a caller whose identity is known, not a caller with more permissions.</p>
+<p><strong>There is now one <code>403</code> that IS about your credential, and <code>code</code> is what tells them apart.</strong>
+<code>insufficient_scope</code> means the credential is valid and does not carry the scope the <em>operation</em>
+requires; it carries no <code>outcome</code> field, because it is a failure rather than a refusal, and its detail
+names the scope to grant. It still says nothing about any metric - see <em>What a scope grants</em>.</p>
 <p><strong>Two statuses are shared with something that is not a refusal</strong>, and <code>code</code> is what separates them -
 as is the body shape, because only a refusal carries <code>outcome</code>:</p>
 <ul>

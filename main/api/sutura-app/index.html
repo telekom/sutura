@@ -1801,6 +1801,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-none_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-none_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#type_alias-answered" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2145,6 +2167,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#use-none_2" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#use-none_3" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#type_alias-answered" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2262,6 +2306,8 @@ anything, and reading it off the bundle beats being told twice.</p>
 same one <code>verify_anchors</code> picks a grain by.</p>
 <h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_1"><code>use None</code><a class="headerlink" href="#use-none_1" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_2"><code>use None</code><a class="headerlink" href="#use-none_2" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_3"><code>use None</code><a class="headerlink" href="#use-none_3" title="Permanent link">&para;</a></h2>
 <h2 id="type_alias-answered"><code>type_alias Answered</code><a class="headerlink" href="#type_alias-answered" title="Permanent link">&para;</a></h2>
 <p>What answering produced, or why it could not.</p>
 <p>A named alias because the inline form is over the complexity threshold in <code>clippy.toml</code>, and
@@ -2579,6 +2625,152 @@ passed in.</p>
 <p>Deterministic in its inputs: every collection walked here is a <code>BTreeMap</code> or a <code>BTreeSet</code>, and
 the grains are sorted explicitly. Two calls with the same bundle produce the same bytes, which is
 what lets the rendering be pinned by a snapshot rather than described.</p>
+<h2 id="module-capability">Module <code>capability</code><a class="headerlink" href="#module-capability" title="Permanent link">&para;</a></h2>
+<p>What this surface can be asked to do, named once for every transport that offers it.</p>
+<h1 id="why-the-vocabulary-is-here-rather-than-in-a-transport">Why the vocabulary is here rather than in a transport<a class="headerlink" href="#why-the-vocabulary-is-here-rather-than-in-a-transport" title="Permanent link">&para;</a></h1>
+<p><code>crate::surface::Surface</code> has exactly two operations - read the pinned bundle, and answer one
+governed question - and those two <em>are</em> the tool set. A transport renames them for its own
+protocol: the agent surface calls them tools and the HTTP surface calls them routes. Neither owns
+the set.</p>
+<p>That is not a preference. <code>sutura-mcp</code> and <code>sutura-http</code> cannot see each other - <em>an adapter never
+calls another adapter</em> - so a set owned by one of them is a set the other has to reach through it,
+which is the same argument that moved the driving port itself out of <code>sutura-http</code>. One source in
+the crate that declares the port is the only shape in which two transports <strong>cannot</strong> disagree
+about what this deployment offers, and <code>docs/implementation-plan.md</code>'s
+<code>both_transports_describe_the_same_tools</code> is the property that needs it.</p>
+<p><strong>What is shared is the SET, the identifier and the scope. Not the prose.</strong> Each transport writes
+its own description, because they are written for different readers - a model deciding whether to
+call a tool, and a person reading an interface description - and <code>AGENTS.md</code> already draws that
+line for the two refusal vocabularies: <em>"Nothing compares the two sentences, and nothing should."</em></p>
+<h1 id="what-a-scope-gates-stated-before-anything-reads-one">What a scope gates, stated before anything reads one<a class="headerlink" href="#what-a-scope-gates-stated-before-anything-reads-one" title="Permanent link">&para;</a></h1>
+<p><strong>A scope decides which capabilities a caller may use. It decides nothing about which rows a
+question reaches.</strong> Every capability reads the same pinned bundle and every question executes
+under the same identity, because no source executes as the asking subject: <code>docs/adr/0014</code>'s leg 1
+establishes <em>who is asking</em> and leg 2 does not exist. So a deployment that grants one caller
+<code>sutura:catalog.read</code> and not <code>sutura:metrics.ask</code> has narrowed what that caller may <em>do</em>, and has
+not narrowed what any answer would contain.</p>
+<p>And within that: <strong>filtering advertisement is presentation, and the control is at invocation.</strong> A
+caller that names a capability it was not granted is refused whether or not it was ever told the
+capability exists. Both halves are built - see the <em>Invariants</em> row <code>AGENTS.md</code> gained with this
+module - and if they ever disagree it is the refusal that is the control.</p>
+<h1 id="a-scope-names-a-capability-and-never-a-metric">A scope names a capability and never a metric<a class="headerlink" href="#a-scope-names-a-capability-and-never-a-metric" title="Permanent link">&para;</a></h1>
+<p><code>docs/adr/0014</code>'s <em>What is not decided</em> left this open with a leaning: <em>"A scope naming a metric
+couples the authorization server to the catalog, and a scope naming a capability does not. The
+second is almost certainly right and it is not yet argued."</em> This module takes the second, and the
+argument is that a catalog edit must not be able to change what a token means. A scope naming
+<code>revenue</code> would put the authorization server's vocabulary under the catalog's version, so adding a
+metric would silently grant it to every token holding a wildcard and renaming one would revoke a
+grant nobody edited - an authorization change made by a definition author, in a repository the
+authorization server does not read. The scopes here are two fixed strings no catalog can move.</p>
+<p><code>Capability::scope</code> is therefore part of the deployed contract rather than an implementation
+detail: an authorization server is configured with those literals by hand. A test pins them by
+value for that reason.</p>
+<h3 id="enum-capability"><code>enum Capability</code><a class="headerlink" href="#enum-capability" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Capability</span>
+</span></code></pre></div>
+<p>One thing this surface can be asked to do.</p>
+<p>Closed, and closed on purpose: a third capability is a third exhaustive match to satisfy - the
+walk in <code>Capability::next</code>, the scope in <code>Capability::scope</code> and the identifier in
+<code>Capability::id</code> - plus whatever each transport's own match needs. There is no wildcard arm in
+any of them, so a variant added here does not compile until every one of those has been answered.</p>
+<p><strong>Declaration order is <code>Ord</code>, and it runs from the least to the most a caller can get out of this
+deployment</strong>: describing what is measured comes before asking for a number. A
+<code>BTreeSet&lt;Capability&gt;</code> therefore iterates in that order, which is what makes a rendered tool list
+deterministic.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>DescribeCatalog</code> - Read the pinned bundle: which metrics exist, at which grains, with which dimensions and which filter values.</li>
+<li><code>AskMetric</code> - Answer one governed question about one certified metric.</li>
+</ul>
+<h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Every capability this surface has, in declaration order.</p>
+<p>Built from <code>FIRST</code> and <code>Capability::next</code> rather than written out as an array, so there is
+no second list to keep in step with the enum.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">id</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The stable identifier both transports name this capability by.</p>
+<p>The agent surface uses it as the tool name; the HTTP surface uses it as the operation
+identifier in the generated interface description. <strong>It is part of the deployed contract</strong>, so
+it is a fixed literal here rather than derived from the variant name: a <code>Debug</code> rendering would
+rename a client's tool the day somebody renamed a variant.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The scope that licenses this capability.</p>
+<p>A fixed literal, stated independently of <code>Capability::id</code> rather than derived from it. That
+is the whole point: deriving one from the other would mean renaming a tool silently renamed a
+scope, and every authorization server configured with the old one would stop granting anything
+- an authorization change made by a rename.</p>
+<p>Prefixed, so a token minted for another resource server that happens to carry <code>catalog.read</code>
+does not read as a grant here. The audience check is what actually keeps such a token out -
+<code>docs/adr/0014</code> Decision 2 - and this is defence in depth rather than the control.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h3 id="struct-permitted"><code>struct Permitted</code><a class="headerlink" href="#struct-permitted" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Permitted</span>
+</span></code></pre></div>
+<p>What one caller may do on this surface.</p>
+<p><strong>Two named constructors and no third way in</strong>, because the two cases are the two honest answers to
+<em>who is asking</em> and a reader has to name which one a deployment is in:</p>
+<ul>
+<li><code>Permitted::every_capability</code> - nothing established a caller identity, so there is no verified
+  claim to narrow by. A single-player deployment, and the agent surface over standard input and
+  output.</li>
+<li><code>Permitted::granted_by</code> - a verified token's scopes decide, and <strong>only</strong> they do.</li>
+</ul>
+<h1 id="it-fails-closed-and-the-consequence-is-named-rather-than-softened">It fails closed, and the consequence is named rather than softened<a class="headerlink" href="#it-fails-closed-and-the-consequence-is-named-rather-than-softened" title="Permanent link">&para;</a></h1>
+<p>A verified caller whose token names no capability scope is permitted <strong>nothing</strong>: it sees no tools
+and every call is refused. That follows from <code>AGENTS.md</code>'s <em>fail closed on the query path</em> and from
+<code>docs/implementation-plan.md</code>'s own <em>"a caller without a scope cannot see the tool it lacks"</em>, and
+it means a deployment that switches <code>security.inbound</code> on without authoring scopes at its
+authorization server has switched every caller off.</p>
+<p><strong>What keeps that discoverable rather than mysterious is the refusal</strong>: the HTTP surface answers
+<code>403</code> with <code>code: insufficient_scope</code> and a sentence naming the exact scope string to grant, so an
+operator reads the fix out of the response rather than out of this comment.</p>
+<h1 id="why-this-takes-strings-rather-than-a-parsed-scope-type">Why this takes strings rather than a parsed scope type<a class="headerlink" href="#why-this-takes-strings-rather-than-a-parsed-scope-type" title="Permanent link">&para;</a></h1>
+<p><code>sutura_http::inbound::Scopes</code> is where a scope claim is parsed and bounded, and it stays there.
+Moving it would be taking a decision <code>docs/adr/0014</code>'s closing section explicitly reserves - <em>"how
+[the agent surface] is reached at all, and then which crate the validator moves to ... is an
+architecture decision, not a refactor"</em> - and nothing here needs the parse: this compares against
+two fixed literals, and a string that could not be a scope simply matches neither.</p>
+<h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">advertised</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="o">'</span><span class="nb">_</span>
+</span></code></pre></div>
+<p>What to advertise, in declaration order.</p>
+<p>Presentation. A capability absent from here is one <code>Permitted::includes</code> also refuses, which
+is what keeps the two from being able to disagree: both read the same set.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+</span></code></pre></div>
+<p>How many capabilities are permitted. For a startup or per-request log line.</p>
+<p>The count and not the names, for the same reason <code>sutura_http::inbound::Scopes</code> puts a count on
+a log line: the names are a caller's authorization detail and they multiply a log's
+cardinality.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every_capability</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Every capability this surface has.</p>
+<p><strong>What a deployment that establishes no caller identity permits, and the name says so.</strong> It is
+not a bypass and not a default: it is the correct answer when there is no verified claim to
+narrow by, and a filter over an unverified claim is the thing <code>docs/implementation-plan.md</code>
+calls <em>worse than no filter - it looks like a control</em>.</p>
+<p>Two callers today: <code>sutura_http</code>'s capability layer, for a deployment with no
+<code>security.inbound</code> block, and <code>sutura_mcp::serve_stdio</code>, where the process boundary is the
+boundary and there is no header a token could arrive in.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">granted_by</span><span class="o">&lt;'</span><span class="na">scope</span><span class="o">&gt;</span><span class="p">(</span><span class="n">scopes</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">IntoIterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Exactly the capabilities these scopes name.</p>
+<p><strong>The one comparison, so there is not one per transport.</strong> A scope this surface does not know
+is ignored rather than refused: a token is minted by an authorization server that may serve
+other resources too, and refusing a caller for holding an unrelated grant would be refusing
+them for somebody else's configuration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">includes</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+</span></code></pre></div>
+<p>Whether this caller may use one capability.</p>
+<p><strong>This is the control.</strong> <code>Permitted::advertised</code> decides what a caller is shown; this decides
+what it may do, and a transport calls it on every invocation whether or not it filtered the
+advertisement.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
 

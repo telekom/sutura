@@ -2468,9 +2468,9 @@ internal that a stable surface can grow behind.</p>
 </tr>
 <tr>
 <td>3</td>
-<td><code>feat/agent-surface-scope</code></td>
-<td>1 - <strong>done</strong></td>
-<td><strong>yes</strong></td>
+<td>~~<code>feat/agent-surface-scope</code>~~</td>
+<td>1, and leg 1 for a claim to filter on</td>
+<td><strong>IN REVIEW</strong> - stacked on the leg 1 branch</td>
 </tr>
 <tr>
 <td>4</td>
@@ -2893,6 +2893,26 @@ is here and not deferred further.</p>
   equal. This is the drift this slice exists to prevent, and it is untestable with one tool.</p>
 <p><strong>Done when</strong> the two transports cannot disagree, and a caller without a scope cannot see the tool it
 lacks.</p>
+<p><strong>Built, and three things about it are worth reading before the next step depends on them.</strong></p>
+<ul>
+<li><strong>The one source is <code>sutura_app::Capability</code></strong>, in the crate that declares the driving port, because
+  <code>Surface</code>'s two operations <em>are</em> the tool set and the two transports cannot see each other. So
+  <code>both_transports_describe_the_same_tools</code> is not a comparison between the transports - it cannot be -
+  but a test in each of them against that source. <code>sutura_app::Permitted</code> is the derivation from a
+  claim to what a caller may do, so the comparison lives once rather than once per transport.</li>
+<li><strong>A scope names a capability and never a metric</strong>, which answers half of
+  <a href="../adr/0014-how-a-caller-proves-who-it-is/">0014</a>'s last open question. A scope naming a metric would
+  put the authorization server's vocabulary under the catalog's version.</li>
+<li><strong>The filtering is presentation; the refusal at invocation is the control</strong> - and the two halves are
+  built separately on purpose, because a caller can skip <code>tools/list</code> entirely. On HTTP the refusal is
+  a layer over the versioned subtree plus <code>RouterNotBuilt::RouteNotGoverned</code>, so a route added without
+  a capability does not assemble. <strong>And nothing narrows the agent surface today</strong>: it speaks over
+  standard input and output, where there is no header a token could arrive in. The narrowing is a
+  required constructor argument there, exercised by tests and by no request path.</li>
+<li><strong><code>Scopes</code> did not move out of <code>sutura-http</code></strong>, deliberately: 0014's closing section reserves <em>which
+  crate the validator moves to</em> for whoever makes the agent surface reachable, and moving the parse now
+  would take that decision early. <code>sutura_app::Permitted::granted_by</code> takes the values instead.</li>
+</ul>
 <p>Note the demo step depends on slice one <strong>or</strong> on the OpenAPI route; slice one is the better one, and
 the demo must not wait for either slice.</p>
 <h2 id="the-inbound-identity-and-who-performs-the-exchange">The inbound identity, and who performs the exchange<a class="headerlink" href="#the-inbound-identity-and-who-performs-the-exchange" title="Permanent link">&para;</a></h2>

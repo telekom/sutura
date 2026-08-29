@@ -2685,8 +2685,14 @@ mutual TLS.</p>
 <li><strong>Token lifetime, refresh, and what a long-running agent task does when its token expires mid-question.</strong> The
   deadline bound makes a question shorter than any sane token lifetime, so this is a question about a session
   rather than about a query - but it is unanswered.</li>
-<li><strong>Where scopes are authored.</strong> A scope naming a metric couples the authorization server to the catalog, and a
-  scope naming a capability does not. The second is almost certainly right and it is not yet argued.</li>
+<li>~~<strong>Where scopes are authored.</strong>~~ <strong>Answered by <code>feat/agent-surface-scope</code>: a scope names a capability, never a
+  metric.</strong> The leaning recorded here was right and the argument it was missing is that a catalog edit must not be
+  able to change what a token means. A scope naming <code>revenue</code> puts the authorization server's vocabulary under the
+  catalog's version: adding a metric silently grants it to every token holding a wildcard, and renaming one revokes
+  a grant nobody edited - an authorization change made by a definition author, in a repository the authorization
+  server does not read. <code>sutura_app::Capability::scope</code> is two fixed literals no catalog can move, pinned by value
+  in a test because an authorization server is configured with them by hand. What is still open is whether a
+  <em>deployment</em> may author additional scopes of its own; nothing reads one today.</li>
 </ul>
 <h2 id="what-is-built-and-what-of-this-record-is-not">What is built, and what of this record is not<a class="headerlink" href="#what-is-built-and-what-of-this-record-is-not" title="Permanent link">&para;</a></h2>
 <p>Added when leg 1 landed. <strong>This section is the authority on the state of the code</strong>, and where it
@@ -2781,13 +2787,28 @@ built" statements are older than the implementation.</p>
    for the authorization server and the client. This deployment is a resource server and validates
    what arrives; nothing here excludes any of the three mechanisms and nothing here implements one.</li>
 <li><strong>A ceiling derived from a scope.</strong> Decision 4's claim shape exists - <code>Scopes</code>, parsed and bounded,
-   on the verified caller - and <strong>nothing reads it.</strong> Scope-filtered advertisement is
-   <code>feat/agent-surface-scope</code>, the raw tool's gate is
-   <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a>, and a per-caller budget has no port to
-   live behind. A reader must not take the presence of that type as a control.</li>
+   on the verified caller - and a <strong>per-caller ceiling</strong> still reads nothing from it: there is no
+   budget port in this workspace, and the raw tool's gate is
+   <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a>, which is not built either.</li>
+</ol>
+<p><strong>Scope-filtered advertisement is now built, by <code>feat/agent-surface-scope</code>, and it is narrower than
+   the phrase suggests.</strong> <code>sutura_app::Capability</code> declares this surface's two operations and the scope
+   that licenses each; <code>sutura_app::Permitted</code> derives what a caller may do from the claim; both
+   transports render that one declaration, and the HTTP surface refuses an ungranted operation with
+   <code>403 insufficient_scope</code> naming the scope. Three limits belong with it:</p>
+<ul>
+<li><strong>What it gates is which OPERATIONS a caller may invoke, not which rows an answer contains.</strong>
+     Leg 2 does not exist, so a narrowed caller gets the same numbers as anybody else. The word
+     <em>authorization</em> is correct for the surface and wrong for the data.</li>
+<li><strong>Filtering the advertisement is presentation; the control is the refusal at invocation.</strong> A
+     caller that names an unadvertised operation is refused whether or not it was ever shown one, and
+     the two read the same set so they cannot disagree.</li>
+<li><strong>Nothing narrows the agent surface today.</strong> It speaks over standard input and output, where there
+     is no header a token could arrive in. The narrowing is a required constructor argument there, so
+     the decision the next section names arrives as a composition change rather than as a redesign.</li>
 <li><strong>Binding a gateway assertion to a request, and any record of what has been seen.</strong> Added by
    review, and it is the reason Decision 1's wording changed - see the correction below.</li>
-</ol>
+</ul>
 <h3 id="the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code">The correction review forced, and it is to this record rather than only to the code<a class="headerlink" href="#the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code" title="Permanent link">&para;</a></h3>
 <p><strong>Decision 1 said <code>BehindGateway</code> validates "a short-lived proof that the request transited that
 component". The code delivered neither half, and the wording was the defect.</strong></p>
