@@ -1530,6 +1530,67 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-what-of-this-record-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and what of this record is not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built, and what of this record is not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-built-and-named-rather-than-left-to-be-discovered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not built, and named rather than left to be discovered
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The correction review forced, and it is to this record rather than only to the code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-transport-and-the-other-left-honest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One transport, and the other left honest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2222,6 +2283,67 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-what-of-this-record-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and what of this record is not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built, and what of this record is not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-built-and-named-rather-than-left-to-be-discovered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not built, and named rather than left to be discovered
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The correction review forced, and it is to this record rather than only to the code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-transport-and-the-other-left-honest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One transport, and the other left honest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2243,7 +2365,12 @@
 
 
 <h1 id="how-a-caller-proves-who-it-is">How a caller proves who it is<a class="headerlink" href="#how-a-caller-proves-who-it-is" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as a design, and nothing in it is built.</strong></p>
+<p>Status: <strong>accepted, and the mechanism is built. Five things this record describes are not, and one
+sentence of it was wrong about what the code could support</strong> - see <em>What is built, and what of this
+record is not</em> at the foot, and <em>The correction review forced</em> inside it. That section is the authority
+on the state: every "not built" in the body below it is older than the code, and Decision 1's wording
+about a <em>proof that the request transited</em> a component is corrected there rather than quietly rewritten
+in place.</p>
 <p><a href="../0008-a-credential-per-leg-for-the-calling-subject/">A credential per leg</a> decides <strong>leg 2</strong> - sutura to a
 source, as the asking subject - in detail, and says at its head that both halves of the identity path are
 cheap to decide now and expensive to retrofit. It then decides one half. This record is the other:
@@ -2561,6 +2688,135 @@ mutual TLS.</p>
 <li><strong>Where scopes are authored.</strong> A scope naming a metric couples the authorization server to the catalog, and a
   scope naming a capability does not. The second is almost certainly right and it is not yet argued.</li>
 </ul>
+<h2 id="what-is-built-and-what-of-this-record-is-not">What is built, and what of this record is not<a class="headerlink" href="#what-is-built-and-what-of-this-record-is-not" title="Permanent link">&para;</a></h2>
+<p>Added when leg 1 landed. <strong>This section is the authority on the state of the code</strong>, and where it
+contradicts a sentence above it, it wins: the body was written before any of it existed and its "not
+built" statements are older than the implementation.</p>
+<h3 id="built">Built<a class="headerlink" href="#built" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Where</th>
+<th>The mechanism, not the intent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Two modes, no default</td>
+<td><code>sutura_config::inbound</code></td>
+<td><code>InboundIdentity</code> is a closed enum. A <code>security.inbound</code> block with no <code>mode</code> is <code>SettingsError::InboundModeUndeclared</code> and the process does not start. <strong>A deployment with no block at all is a single-player deployment and is unaffected</strong>, which is the consequence this record already names</td>
+</tr>
+<tr>
+<td><code>BehindGateway</code> is not a header</td>
+<td><code>TransitProof</code></td>
+<td>Its fields are an issuer, an audience, a key set, a pinned algorithm, a required class and a lifetime ceiling. There is no field for the name of a header holding a username, and the subject is derived from the claims of a token whose signature checked out. A test presents a header holding <code>admin@example.com</code> and it establishes nobody</td>
+</tr>
+<tr>
+<td>Algorithm pinning, <code>none</code> and symmetric refused</td>
+<td><code>sutura_config::SigningAlgorithm</code> and <code>sutura_http::inbound::keys</code></td>
+<td><strong>Unrepresentable rather than checked, in two places</strong>: the enum has no <code>None</code> and no <code>HS*</code> variant, so a configuration naming either cannot produce a value; and a key set holding an <code>oct</code> key is refused at load, because otherwise the library would build an HMAC verifier from a secret the issuer published. Nothing reads the <code>alg</code> of the token being validated in order to choose one</td>
+</tr>
+<tr>
+<td>Key rotation with a <strong>rate-limited</strong> refetch, and revocation with an <strong>age bound</strong></td>
+<td><code>sutura_http::inbound::keys::KeySetCache</code></td>
+<td>Two triggers answering two questions. <em>Added</em>: a key has been added → refetch on an unknown key id, at most once per <code>MIN_REFETCH_INTERVAL</code>, measured from the last <em>attempt</em> so a failing source is limited too. <em>Removed</em> → re-read once per <code>MAX_KEY_SET_AGE</code>, on a timer and on the first request past the horizon. <strong>Review found the second one missing and the reason it could not be the first:</strong> a caller presenting a revoked key presents a <code>kid</code> the cache <em>has</em>, so a caller-driven refetch never triggers. A candidate that will not parse is logged and <strong>not</strong> adopted, which is the trade <code>crate::tls</code> already makes. <code>key_for</code> and <code>poll_once</code> both take the instant, which is what makes both windows assertable without a sleep. <strong>The bound is per window whatever the concurrency, and a second review pass found that it was not:</strong> the eligibility check sat in <code>key_for</code> under a <em>read</em> lock and the write lock was taken only to stamp, so two callers observing the same <code>last_attempt</code> both read the source - three reads measured where two were required. <code>KeySetCache::reserve</code> makes the check and the stamp one lock acquisition, with the source read still outside it, and it is the single gate both triggers and the timer pass through. The wording of this row did not have to change; the code had to catch up to it</td>
+</tr>
+<tr>
+<td>The token's <strong>class</strong></td>
+<td><code>sutura_config::RequiredTokenType</code> and <code>sutura_http::inbound::token</code></td>
+<td>RFC 9068's <code>at+jwt</code>, default-on in <code>direct</code>, checked on <code>decoded.header</code> <strong>after</strong> the signature - so it is a rule applied to a document the issuer signed rather than to an unauthenticated header. <strong>Review found this missing and it was the serious one:</strong> without it, any JWT the issuer signed with this audience verifies, an OIDC ID token included wherever the resource identifier is also a client id, which is the ordinary arrangement. <code>at+jwt</code>, <code>AT+JWT</code> and <code>application/at+jwt</code> are one value (RFC 7515 §4.1.9); a token with <strong>no</strong> <code>typ</code> is refused, so the check cannot be satisfied by omission; <code>any</code> is the written opt-out and the startup log prints it at <code>WARN</code>. In <code>behind-gateway</code> the class is a <strong>required</strong> key, because a component's <code>typ</code> is a fact only the deployment knows</td>
+</tr>
+<tr>
+<td>A ceiling on a gateway assertion's lifetime</td>
+<td><code>sutura_config::ProofLifetime</code></td>
+<td><code>iat</code> <strong>required</strong> and <code>exp - iat</code> capped at <code>transit_max_lifetime_seconds</code>; an <code>iat</code> dated forward past the leeway is refused too, or a component could buy a longer window by dating forward. <strong>Review demonstrated the gap:</strong> an assertion with no <code>iat</code> and an <code>exp</code> ten years out was accepted, twice, on a replay of the identical token - so this record's own word <em>short-lived</em> was one the code did not enforce. <code>iat</code> is checked by us and not by the library, whose <code>required_spec_claims</code> honours only <code>exp</code>, <code>nbf</code>, <code>aud</code>, <code>iss</code> and <code>sub</code></td>
+</tr>
+<tr>
+<td>The audience, unconditionally</td>
+<td><code>sutura_http::inbound::token</code></td>
+<td>One value - this deployment's own resource identifier - and <code>aud</code> is in <code>required_spec_claims</code>, so a token carrying <strong>no</strong> audience is refused rather than passing an audience check that had nothing to compare. <code>ResourceIdentifier</code> is stored exactly as written, because a URL parser's normalisation would make us accept a token minted for a different spelling</td>
+</tr>
+<tr>
+<td>A subject with something behind it</td>
+<td><code>sutura_http::principal::of_verified</code></td>
+<td><code>Subject::Verified</code> has a constructor at last, and <code>act</code> becomes an ordered <code>ActorChain</code> - RFC 8693 nests backwards in time and the domain's chain runs the other way, so the conversion reverses it. Every audit record for such a call names the person</td>
+</tr>
+<tr>
+<td>Wired</td>
+<td><code>sutura-serve</code></td>
+<td>The key set is read before the listener opens, so an unreadable one is a refusal to start. <code>sutura_http::router</code> refuses to assemble when the settings declare an inbound identity and no gate was attached, which is what makes forgetting it a startup failure rather than an open door</td>
+</tr>
+</tbody>
+</table>
+<p>Two findings the record did not anticipate, both now refusals:</p>
+<ul>
+<li><strong><code>direct</code> and <code>security.access_token</code> cannot coexist.</strong> RFC 6750 puts an access token in
+  <code>Authorization: Bearer</code> and an OAuth 2.1 client has no option to put it elsewhere, so a deployment
+  that is its own resource server owns that header. <code>NotFitToServe::DeploymentTokenSharesTheHeader</code>
+  refuses the pair. This record says the two controls both survive and answer different questions;
+  they do, in the <code>behind-gateway</code> mode, whose proof arrives in a header of the component's own.
+  The consequence is that the token requirement in production is satisfied by <em>either</em> credential -
+  a validated, audience-bound, expiring token per caller is strictly more than one shared secret
+  every caller holds - and without that change the two refusals are mutually unsatisfiable.</li>
+<li><strong>A pinned algorithm list spanning two key families verifies nothing</strong>, because one token is
+  verified by one key and the validator refuses a permitted list whose family disagrees with it. A
+  mixed list is refused at startup rather than becoming a deployment that starts and authenticates
+  nobody.</li>
+</ul>
+<h3 id="not-built-and-named-rather-than-left-to-be-discovered">Not built, and named rather than left to be discovered<a class="headerlink" href="#not-built-and-named-rather-than-left-to-be-discovered" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>A JWKS endpoint.</strong> Keys are read from a file - <code>security.inbound.key_set_file</code>. Everything a URL
+   source would need is built and tested behind a one-method port; what is missing is the outbound
+   HTTP client, which is a supply-chain change with its own review, and the consequence this record
+   already states: the authorization server becomes a hard runtime dependency whose outage must stay
+   <em>distinguishable from a dead data system</em>. A file is a real shape rather than a placeholder - a
+   sidecar that rewrites a mounted key set is how a process with no egress rotates - and its honest
+   limit is that a file has no cache header, so a key rotated <em>without</em> its id changing is one this
+   deployment keeps using.</li>
+<li><strong>The two metadata documents.</strong> There is no protected-resource metadata route. The <code>401</code> carries an
+   RFC 6750 challenge naming the realm and no <code>resource_metadata</code> parameter, so a client is configured
+   with its issuer out of band. Decision 2's steps 2 and 3 are therefore undelivered.</li>
+<li><strong>Client registration and client authentication.</strong> Decision 2's sub-sections 1 and 2 are decisions
+   for the authorization server and the client. This deployment is a resource server and validates
+   what arrives; nothing here excludes any of the three mechanisms and nothing here implements one.</li>
+<li><strong>A ceiling derived from a scope.</strong> Decision 4's claim shape exists - <code>Scopes</code>, parsed and bounded,
+   on the verified caller - and <strong>nothing reads it.</strong> Scope-filtered advertisement is
+   <code>feat/agent-surface-scope</code>, the raw tool's gate is
+   <a href="../0013-a-raw-sql-tool-off-by-default/">a raw SQL tool</a>, and a per-caller budget has no port to
+   live behind. A reader must not take the presence of that type as a control.</li>
+<li><strong>Binding a gateway assertion to a request, and any record of what has been seen.</strong> Added by
+   review, and it is the reason Decision 1's wording changed - see the correction below.</li>
+</ol>
+<h3 id="the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code">The correction review forced, and it is to this record rather than only to the code<a class="headerlink" href="#the-correction-review-forced-and-it-is-to-this-record-rather-than-only-to-the-code" title="Permanent link">&para;</a></h3>
+<p><strong>Decision 1 said <code>BehindGateway</code> validates "a short-lived proof that the request transited that
+component". The code delivered neither half, and the wording was the defect.</strong></p>
+<ul>
+<li><em>Short-lived</em> was the component's word, not ours: nothing capped the lifetime, and an assertion with
+  no <code>iat</code> and an <code>exp</code> ten years out was accepted. <strong>Fixed</strong>, by the ceiling in the table above.</li>
+<li><em>That the request transited</em> is a claim a signature cannot support. A signature says the component
+  <strong>issued</strong> the token. Nothing binds one to a method, a path or a body, and nothing records which
+  assertions have been seen - so within the lifetime window an intercepted assertion replays, which
+  review demonstrated by replaying the identical token. <strong>Not fixed, and downgraded rather than left
+  standing:</strong> this record, <code>sutura_config::inbound</code> and <code>docs/serving.md</code> now call it a
+  <strong>gateway-issued identity assertion</strong>, and they say that the hop between the component and this
+  process is a <strong>trusted transport boundary</strong> - which is what <code>security.tls_termination</code> is for.</li>
+</ul>
+<p>The stronger claim is still available and is not built. It needs the component to compute a binding
+over the request and this deployment to verify it, or a store of seen assertions with the eviction and
+the shared-state questions that come with one. Either is a change to what a deployment must run, not a
+patch, and neither should be written into this record before it exists. <strong>The rule this applies to
+itself is <code>AGENTS.md</code>'s: a control described as stronger than it is spends trust a reviewer needed
+elsewhere, so an overstated claim is itself the defect.</strong></p>
+<p>And Decision 3 - the exchange chain - is untouched: leg 1 establishes who is asking and performs no
+exchange. The verification it is blocked on is still open.</p>
+<h3 id="one-transport-and-the-other-left-honest">One transport, and the other left honest<a class="headerlink" href="#one-transport-and-the-other-left-honest" title="Permanent link">&para;</a></h3>
+<p><code>sutura-http</code> is wired. <code>sutura-mcp</code> has its own <code>principal</code> module and it still answers
+<code>Subject::TheDeploymentItself</code>, truthfully: it speaks over standard input and output, where there is
+no header for a token to arrive in. Nothing in <code>sutura_http::inbound</code> is reachable from it - an
+adapter never calls another adapter - so wiring that surface means first deciding how it is reached
+at all, and then which crate the validator moves to. <strong>That is an architecture decision, not a
+refactor</strong>, and it is the same decision that leaves <code>serve_stdio</code> without a binary.</p>
 
 
 

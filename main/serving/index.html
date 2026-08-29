@@ -839,6 +839,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#who-is-asking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is asking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-endpoints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2166,6 +2177,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#who-is-asking" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Who is asking
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-endpoints" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2402,19 +2424,24 @@
 executable with no server in it, and putting an async runtime, an I/O driver and a web framework
 into all four cross-compiled targets is a decision rather than a side effect.</p>
 <h2 id="read-this-part-first">Read this part first<a class="headerlink" href="#read-this-part-first" title="Permanent link">&para;</a></h2>
-<p><strong>There is no per-caller identity.</strong> No request context reaches the query path, no credential is
-minted per request, and the port that would do it is deliberately absent, because in this repository
-a port arrives with the adapter that implements it. <code>AGENTS.md</code> records "every query runs as the
-calling principal" as an aspiration that is <em>not mechanised</em>, and the multi-player example explains
-why single player makes it trivially true and worth nothing.</p>
-<p>So an HTTP endpoint that answers catalog questions is, today, a way to read whatever the process can
-read. Where an access token is configured, presenting it proves the caller holds a secret an
-operator wrote down - it authenticates the <strong>deployment</strong>, not the caller. It cannot be scoped to a
-subset of the catalog, it cannot be revoked for one party without revoking it for all of them, and it
-does not reach the data system. Every question is answered with whatever access the service process
-already had, whoever asked it.</p>
-<p>That sentence is printed at <code>WARN</code> on every boot and is in the generated interface description, so an
-operator and an integrator both meet it without reading this page.</p>
+<p><strong>A caller's identity can now be established, and it is still not per-caller access.</strong> Those are two
+different sentences and a deployment that reads them as one is the failure this section exists to
+prevent.</p>
+<p>By default there is <strong>no per-caller identity at all</strong>: no <code>security.inbound</code> block means the bearer
+token is the whole story, and presenting it proves the caller holds a secret an operator wrote down -
+it authenticates the <strong>deployment</strong>, not the caller. It cannot be scoped to a subset of the catalog,
+it cannot be revoked for one party without revoking it for all of them, and it does not reach the data
+system. That is a single-player deployment, and it is a first-class shape rather than a degraded one.</p>
+<p>A deployment that declares <code>security.inbound</code> gets leg 1: every request carries a token this service
+verifies itself - signature against a pinned asymmetric algorithm, issuer, expiry, and an audience
+matching this deployment's own resource identifier - and the request runs under a verified subject
+that every audit record then names. See <a href="#who-is-asking">who is asking</a> for the two modes and the keys.</p>
+<p><strong>Neither shape makes a data system execute as the asking subject.</strong> That is leg 2: it needs a
+credential per leg and a source that declares it can impersonate, and none of it is built. So a
+deployment with leg 1 knows who asked and still reads every row as one identity. Believing otherwise -
+that authentication implies per-user access - is precisely the confusion the records warn about.</p>
+<p>Both sentences are printed at <code>WARN</code> on every boot, read out of the configuration types rather than
+written into the log by hand, so an operator meets them without reading this page.</p>
 <p>Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
 it, and the bucket it counts against is a network address rather than a principal.</p>
 <h2 id="what-it-will-not-start-with">What it will not start with<a class="headerlink" href="#what-it-will-not-start-with" title="Permanent link">&para;</a></h2>
@@ -2435,8 +2462,36 @@ them one at a time.</p>
 <td>with no per-caller identity the bind address is the whole perimeter, and the bearer token crosses whatever hop is in front. Saying which thing terminates TLS is how the cleartext segment becomes a stated fact rather than an assumption. Applies in <em>every</em> environment, including a laptop. See <a href="#tls">TLS</a> for the four answers</td>
 </tr>
 <tr>
-<td>no <code>security.access_token</code>, in production or on a non-loopback bind</td>
-<td>the alternative is an unauthenticated way to read whatever the process can read</td>
+<td>no <code>security.access_token</code> <strong>and</strong> no <code>security.inbound</code>, in production or on a non-loopback bind</td>
+<td>the alternative is an unauthenticated way to read whatever the process can read. Either credential satisfies it: a validated, audience-bound, expiring token per caller is strictly more than one shared secret every caller holds</td>
+</tr>
+<tr>
+<td>a <code>security.inbound</code> block with no <code>mode</code></td>
+<td>both defaults are wrong in opposite directions - <code>direct</code> makes a deployment behind a gateway reject every caller, and <code>behind-gateway</code> makes a directly exposed one accept a proof anybody can forge. See <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.access_token</code> together with <code>security.inbound.mode: direct</code></td>
+<td>both are read from <code>authorization: Bearer</code>, and a request cannot carry two credentials in one header. In the direct mode the caller's own token is what authenticates the request</td>
+</tr>
+<tr>
+<td><code>security.inbound.algorithms</code> naming <code>none</code>, an <code>HS*</code> algorithm, nothing, or two key families</td>
+<td><code>none</code> is the absence of a signature; a symmetric algorithm is how algorithm confusion works; an empty list is pinning nothing; and a list spanning two key kinds verifies nothing, because one token is verified by one key</td>
+</tr>
+<tr>
+<td>a <code>security.inbound.key_set_file</code> that cannot be read or is not a usable JWK set</td>
+<td>the alternative is a process that starts and answers <code>401</code> to everybody. A key with no <code>kid</code>, a symmetric (<code>oct</code>) key, and <strong>two keys under one <code>kid</code></strong> are each refused rather than skipped - the last one because which key verifies would otherwise be decided by their order in the document</td>
+</tr>
+<tr>
+<td>a key set holding <strong>no key of the kind <code>security.inbound.algorithms</code> needs</strong></td>
+<td>an RSA key set under <code>algorithms: ["ES256"]</code> cannot verify anything, so the deployment would start and answer <code>401</code> to everybody with nothing in the log connecting the two</td>
+</tr>
+<tr>
+<td><code>security.inbound.mode: behind-gateway</code> with no <code>security.inbound.transit_token_type</code></td>
+<td>a component's <code>typ</code> is a fact only the deployment knows, and a guess either rejects every request or checks nothing</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_max_lifetime_seconds</code> outside 1..3600</td>
+<td>a zero refuses every assertion, and past an hour "short-lived" is not being used</td>
 </tr>
 <tr>
 <td>an explicit <code>rate_limit.enabled: false</code> in production</td>
@@ -2458,6 +2513,141 @@ them one at a time.</p>
 </table>
 <p>The checks read the <strong>loaded</strong> values, not any one file. The environment-variable layer is applied
 last, so a check against a file would be checking something the process is not running on.</p>
+<h2 id="who-is-asking">Who is asking<a class="headerlink" href="#who-is-asking" title="Permanent link">&para;</a></h2>
+<p>Leg 1, and it is <strong>opt-in</strong>: a deployment with no <code>security.inbound</code> block has no per-caller identity
+and is unaffected by everything in this section.</p>
+<p>A deployment that wants one picks a mode, and there is deliberately no default, because both would be
+wrong in opposite directions.</p>
+<p><strong><code>direct</code> - this deployment is the resource server.</strong> It validates the caller's own token itself. The
+token arrives in <code>authorization: Bearer</code>, which is where RFC 6750 puts an access token and where an
+OAuth 2.1 client has no option to put it - so <code>security.access_token</code> cannot also be set, and the pair
+is refused at startup.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">inbound</span><span class="p">:</span>
+</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">"direct"</span>
+</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">resource</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">authorization_server</span><span class="p">:</span><span class="w"> </span><span class="s">"https://issuer.example.com"</span><span class="w">   </span><span class="c1"># the `iss` value, exactly</span>
+</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/jwks.json"</span>
+</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"RS256"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">    </span><span class="c1"># token_type defaults to RFC 9068's `at+jwt`. Leave it out unless your issuer uses another</span>
+</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="c1"># profile - and read the class check below before writing `any`.</span>
+</span></code></pre></div>
+<p><strong><code>behind-gateway</code> - a fronting component authenticated the caller.</strong> This deployment validates a
+short-lived <strong>identity assertion that component signed</strong>, and derives the subject from that
+assertion's own claims. It arrives in a header of the component's own, so the deployment bearer token
+keeps <code>authorization</code> and both controls survive.</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">inbound</span><span class="p">:</span>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="s">"behind-gateway"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">transit_header</span><span class="p">:</span><span class="w"> </span><span class="s">"x-transit-proof"</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">transit_issuer</span><span class="p">:</span><span class="w"> </span><span class="s">"https://gateway.example.com"</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">transit_audience</span><span class="p">:</span><span class="w"> </span><span class="s">"https://sutura.example.com"</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">key_set_file</span><span class="p">:</span><span class="w"> </span><span class="s">"/etc/sutura/keys/gateway-jwks.json"</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">algorithms</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="s">"ES256"</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">transit_token_type</span><span class="p">:</span><span class="w"> </span><span class="s">"at+jwt"</span><span class="w">            </span><span class="c1"># required; `any` if the component sets no `typ`</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">transit_max_lifetime_seconds</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">120</span><span class="w">       </span><span class="c1"># the longest `exp - iat` this deployment accepts</span>
+</span></code></pre></div>
+<p><strong>It is called an assertion and not a proof of transit, and the wording is the honest one.</strong> A
+signature says the component <em>issued</em> the token. It does not say this particular request carried it
+there: nothing binds an assertion to a method, a path or a body, and there is no record of which
+assertions have been seen. What is bounded is the <em>window</em> - an <code>iat</code> is required and <code>exp - iat</code> is
+capped by <code>transit_max_lifetime_seconds</code> - so an intercepted assertion replays for at most that long.
+<strong>The hop between the component and this process is therefore a trusted transport boundary</strong>, and
+<code>security.tls_termination</code> is where you say how far it reaches.</p>
+<p><strong><code>behind-gateway</code> does not mean "trust a header", and the configuration is what stops it meaning
+that.</strong> There is no key here that names the header a <em>username</em> arrives in. A component asserting an
+identity in a header is not authentication: anything that can reach the port can write that header,
+and the failure is invisible in a diff - a header named <code>x-authenticated-user</code> that means
+"authenticated" because of where it is <em>expected</em> to come from. What this validates is a token, on
+every request, and the subject is derived by this service from claims whose signature checked out.
+<strong>The limit:</strong> in this mode the component's <em>authentication of the caller</em> is trusted, because that is
+what the mode means. What is not trusted is a string.</p>
+<p>What the checks are, in both modes:</p>
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>What it is, and what it is not</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The signature</td>
+<td>Against a key from <code>key_set_file</code>, selected by the token's <code>kid</code>. A token naming no key id is refused rather than tried against every key - otherwise an unknown key and a bad signature are indistinguishable and a rotation is invisible</td>
+</tr>
+<tr>
+<td>The algorithm</td>
+<td><strong>Pinned from configuration and never read from the token.</strong> <code>none</code> and every <code>HS*</code> cannot be configured at all, and a symmetric key in the key set is refused at load - both halves have to be closed, because a token signed <code>HS256</code> with the issuer's <em>public</em> key as the secret verifies against a validator that accepts either</td>
+</tr>
+<tr>
+<td><strong><code>typ</code>, the token's class</strong></td>
+<td>Checked <strong>after</strong> the signature, on a header the issuer signed. RFC 9068's <code>at+jwt</code> by default in <code>direct</code>. Without it, <em>any</em> JWT this issuer signed for this audience verifies - and where your resource identifier is also a client id, which is the ordinary arrangement, that includes an <strong>OIDC ID token</strong>: a document minted to describe a login, establishing a caller for an API call. <code>at+jwt</code>, <code>AT+JWT</code> and <code>application/at+jwt</code> are one value; a token with <strong>no</strong> <code>typ</code> is refused, so the check cannot be satisfied by omission</td>
+</tr>
+<tr>
+<td><code>exp</code> and <code>nbf</code></td>
+<td>Both, with thirty seconds of leeway for clock skew. Not configurable: an operator who needs more has a clock problem that a wider window hides</td>
+</tr>
+<tr>
+<td><code>iat</code>, in <code>behind-gateway</code> only</td>
+<td><strong>Required</strong>, and <code>exp - iat</code> is capped by <code>transit_max_lifetime_seconds</code>. Without an <code>iat</code> there is no lifetime to bound, and an assertion whose lifetime is the component's alone is not short-lived in any sense this deployment can enforce. An <code>iat</code> dated into the future past the leeway is refused too, or a component could buy a longer window by dating forward</td>
+</tr>
+<tr>
+<td><code>iss</code></td>
+<td>Must equal the configured issuer, byte for byte. Not resolved as a URL - see the key table</td>
+</tr>
+<tr>
+<td><code>aud</code></td>
+<td>Must contain <strong>this deployment's own</strong> resource identifier, byte for byte, and the claim is <strong>required</strong> - a token carrying no audience is refused rather than passing a check with nothing to compare. A client may also ask its authorization server for a narrowly scoped token; that is welcome and it is an optimisation, and it is never what makes the token safe</td>
+</tr>
+<tr>
+<td><code>sub</code></td>
+<td>Required, and parsed: a control character or an invisible code point in it is a refusal, because the value is written into an audit record that is one line per call</td>
+</tr>
+<tr>
+<td><code>act</code></td>
+<td>RFC 8693's actor claim, if present, becomes the ordered actor chain in the record - so a call by an agent for a person is a different event from a call by that person</td>
+</tr>
+<tr>
+<td><code>scope</code></td>
+<td>Parsed, bounded, carried - and <strong>read by nothing</strong>. Scope-filtered advertisement and a per-caller ceiling are not built</td>
+</tr>
+</tbody>
+</table>
+<p>A refused request in the <code>direct</code> mode gets <code>401</code> with a <code>WWW-Authenticate: Bearer
+realm="&lt;your resource identifier&gt;", error="invalid_token"</code>. It deliberately does <strong>not</strong> say which
+check failed: "the signature verified and the audience did not" tells a caller which half of a forgery
+to fix. The log says, in the cause chain, where an operator can read it.</p>
+<p><strong>In <code>behind-gateway</code> there is no challenge</strong>, and that is deliberate rather than missing: the caller
+holds no bearer token for this resource, so an instruction to present one is one it cannot follow - and
+a client that followed it would start putting credentials in a header this deployment refuses to read.</p>
+<p><strong>Rotation and revocation are two questions, and they have two answers.</strong></p>
+<table>
+<thead>
+<tr>
+<th>Question</th>
+<th>What triggers a re-read</th>
+<th>The bound</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>has a key been <strong>added</strong></td>
+<td>a token naming a <code>kid</code> the cache does not hold</td>
+<td>at most one read per thirty seconds, <strong>however many requests arrive at once</strong>: the window is compared and reserved in one lock acquisition, so concurrent callers with forged key ids share the one read rather than getting one each. Without that bound a forged key id turns every request into a re-read, which is a denial-of-service primitive aimed at whatever serves the key set</td>
+</tr>
+<tr>
+<td>has a key been <strong>removed</strong></td>
+<td>age: the cached set is re-read once a minute</td>
+<td>one minute. This is the one the caller cannot influence, and it is the one that matters for revocation - a caller presenting a revoked key presents an id the cache <em>has</em>, so nothing else would ever trigger</td>
+</tr>
+</tbody>
+</table>
+<p>The age re-read happens on a timer <em>and</em> on the first request past the horizon, so a deployment gets
+the bound whether or not it is serving traffic. A candidate that will not parse, or that holds no key
+of the pinned kind, is logged at <code>error</code> and <strong>not</strong> adopted: the previous keys keep verifying, because
+adopting a broken set turns a rotation mistake into a total outage.</p>
+<p>Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
+it, and the bucket it counts against is a network address rather than a principal.</p>
 <h2 id="the-endpoints">The endpoints<a class="headerlink" href="#the-endpoints" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -2507,28 +2697,28 @@ describes the surface, which is business information even with no row of data in
 an explicit status, the stable <code>code</code> it always carried, and a sentence saying what to change - all
 three, so a caller is told the same thing whether it reads the status, the code or the prose. The
 <code>outcome</code> field is what says which envelope arrived:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span>
-</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"answer"</span><span class="p">,</span>
-</span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">  </span><span class="nt">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">    </span><span class="nt">"definition_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local-1"</span><span class="p">,</span>
-</span><span id="__span-0-5"><a id="__codelineno-0-5" name="__codelineno-0-5" href="#__codelineno-0-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50"</span>
-</span><span id="__span-0-6"><a id="__codelineno-0-6" name="__codelineno-0-6" href="#__codelineno-0-6"></a><span class="w">  </span><span class="p">},</span>
-</span><span id="__span-0-7"><a id="__codelineno-0-7" name="__codelineno-0-7" href="#__codelineno-0-7"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
-</span><span id="__span-0-8"><a id="__codelineno-0-8" name="__codelineno-0-8" href="#__codelineno-0-8"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
-</span><span id="__span-0-9"><a id="__codelineno-0-9" name="__codelineno-0-9" href="#__codelineno-0-9"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-01-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"237320"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-02-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"232822"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-03-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"216700"</span><span class="p">],</span>
-</span><span id="__span-0-10"><a id="__codelineno-0-10" name="__codelineno-0-10" href="#__codelineno-0-10"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-04-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"206160"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-05-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202994"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202121"</span><span class="p">]</span>
-</span><span id="__span-0-11"><a id="__codelineno-0-11" name="__codelineno-0-11" href="#__codelineno-0-11"></a><span class="w">  </span><span class="p">]</span>
-</span><span id="__span-0-12"><a id="__codelineno-0-12" name="__codelineno-0-12" href="#__codelineno-0-12"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"answer"</span><span class="p">,</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">  </span><span class="nt">"provenance"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">"definition_version"</span><span class="p">:</span><span class="w"> </span><span class="s2">"local-1"</span><span class="p">,</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">"definition_digest"</span><span class="p">:</span><span class="w"> </span><span class="s2">"1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50"</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">  </span><span class="p">},</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">  </span><span class="nt">"columns"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="s2">"period"</span><span class="p">,</span><span class="w"> </span><span class="s2">"recurring_revenue"</span><span class="p">],</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">  </span><span class="nt">"rows"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-01-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"237320"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-02-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"232822"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-03-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"216700"</span><span class="p">],</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="p">[</span><span class="s2">"2026-04-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"206160"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-05-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202994"</span><span class="p">],</span><span class="w"> </span><span class="p">[</span><span class="s2">"2026-06-01"</span><span class="p">,</span><span class="w"> </span><span class="s2">"202121"</span><span class="p">]</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">  </span><span class="p">]</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>The second one comes back <code>404</code>:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
-</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span>
-</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"metric_unknown"</span><span class="p">,</span>
-</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">404</span><span class="p">,</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this catalog defines no metric called `customer_lifetime_value`"</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">  </span><span class="p">}</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="p">{</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">  </span><span class="nt">"outcome"</span><span class="p">:</span><span class="w"> </span><span class="s2">"refusal"</span><span class="p">,</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">  </span><span class="nt">"reason"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"metric_unknown"</span><span class="p">,</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">404</span><span class="p">,</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this catalog defines no metric called `customer_lifetime_value`"</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">  </span><span class="p">}</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="p">}</span>
 </span></code></pre></div>
 <p>Both of those are <code>examples/single-player</code> over the wire, each captured as one line of JSON and
 reformatted here. <code>examples/single-player/README.md</code> has the whole session: the startup output,
@@ -2607,10 +2797,11 @@ depends on why:</p>
 </tr>
 </tbody>
 </table>
-<p><strong>The <code>403</code>s are not about your credential.</strong> There is no per-caller identity here, so no token
-widens a metric's dimension set; a <code>403</code> is the catalog's answer to "may this be asked of this
-metric", and the sentence names the metric and the dimension so it cannot be mistaken for the other
-thing.</p>
+<p><strong>The <code>403</code>s are not about your credential.</strong> No token and no scope widens a metric's dimension set;
+a <code>403</code> is the catalog's answer to "may this be asked of this metric", and the sentence names the
+metric and the dimension so it cannot be mistaken for the other thing. That stays true with leg 1
+configured: a verified caller is a caller whose identity is known, not a caller with more permissions -
+nothing anywhere reads a scope.</p>
 <p><strong>Two statuses are shared with something that is not a refusal</strong>, and <code>code</code> is what separates them -
 as is the body shape, because only a refusal carries <code>outcome</code>:</p>
 <ul>
@@ -2640,7 +2831,7 @@ rendering everywhere means the number in an answer is the number in the anchor t
 naming the field. Without that, the key would be dropped silently and a caller who believed they sent
 SQL would be answered as though they had asked the modelled question instead.</p>
 <p>Every other failure is one shape:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unauthorized"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">401</span><span class="p">,</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this service requires a bearer token"</span><span class="w"> </span><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unauthorized"</span><span class="p">,</span><span class="w"> </span><span class="nt">"status"</span><span class="p">:</span><span class="w"> </span><span class="mi">401</span><span class="p">,</span><span class="w"> </span><span class="nt">"detail"</span><span class="p">:</span><span class="w"> </span><span class="s2">"this service requires a bearer token"</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
 <p>A <code>500</code> carries no detail, ever. The text of an internal error is a path, a table name, a column name
 or a driver message, and any of those handed to a caller describes the deployment.</p>
@@ -2709,9 +2900,10 @@ does nothing: the timeout layer answers first.</p>
   not have, and adding one is a change to every adapter.</li>
 <li><strong>It does not bound how long one question takes.</strong> One question that runs for an hour holds its
   slot for an hour.</li>
-<li><strong>It is not a per-caller budget.</strong> One caller can fill every slot and shed everybody else, and
-  nothing can tell two callers apart, because there is no per-caller identity - see the first
-  section. The limiter bounds an address's <em>rate</em>; this bounds the deployment's <em>concurrency</em>.</li>
+<li><strong>It is not a per-caller budget.</strong> One caller can fill every slot and shed everybody else. With leg 1
+  configured two callers <em>can</em> now be told apart - and nothing does: there is no budget port to key on
+  a principal, which is one of the four things <a href="#what-is-not-built">what is not built</a> names. The
+  limiter bounds an address's <em>rate</em>; this bounds the deployment's <em>concurrency</em>.</li>
 <li><strong>It does not reach inside the engine.</strong> The in-process engine has its own blocking thread pool at
   the runtime default, which nothing here sizes.</li>
 </ul>
@@ -2808,12 +3000,67 @@ selects which file is layered, so a file that could change it would be self-refe
 <tr>
 <td><code>security.access_token</code></td>
 <td>absent</td>
-<td>An RFC 6750 <code>b64token</code>, at least 32 characters. Required in production and on a non-loopback bind</td>
+<td>An RFC 6750 <code>b64token</code>, at least 32 characters. Required in production and on a non-loopback bind, <strong>unless <code>security.inbound</code> is declared</strong></td>
 </tr>
 <tr>
 <td><code>security.tls_termination</code></td>
 <td><code>none</code></td>
 <td>One of <code>none</code>, <code>sidecar</code>, <code>ingress</code>, <code>in-process</code>. Must be declared for any bind other hosts can reach</td>
+</tr>
+<tr>
+<td><code>security.inbound.mode</code></td>
+<td>absent, and <strong>no default</strong></td>
+<td><code>direct</code> or <code>behind-gateway</code>. Absent means no per-caller identity; present-but-unset does not start. See <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.inbound.resource</code></td>
+<td>absent</td>
+<td><code>direct</code> only. This deployment's own resource identifier - an absolute <code>https</code> URI, no query, no fragment. What <code>aud</code> must equal, byte for byte</td>
+</tr>
+<tr>
+<td><code>security.inbound.authorization_server</code></td>
+<td>absent</td>
+<td><code>direct</code> only. <strong>The <code>iss</code> value, exactly</strong> - it is compared byte for byte against the claim, not resolved as a URL. Copy it out of the issuer's own discovery document rather than typing the console URL: Entra's v1 and v2 endpoints publish <em>different</em> <code>iss</code> values for one tenant, and that is the classic way to configure this wrongly</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_header</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. The header the component's <strong>signed assertion</strong> arrives in. Never a header holding a name. <code>authorization</code> is refused - it is the deployment token's</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_issuer</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. Who must have signed the assertion, again as the <code>iss</code> value exactly</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_audience</code></td>
+<td>absent</td>
+<td><code>behind-gateway</code> only. The audience the assertion must carry</td>
+</tr>
+<tr>
+<td><code>security.inbound.key_set_file</code></td>
+<td>absent</td>
+<td>Both modes. A JWK set on disk. <strong>There is no URL source</strong> - see <a href="#what-is-not-built">what is not built</a>. Re-read on a timer and when a token names an unknown key; it must hold at least one key of the pinned algorithms' kind, or the process refuses to start</td>
+</tr>
+<tr>
+<td><code>security.inbound.algorithms</code></td>
+<td>absent, and <strong>no default</strong></td>
+<td>Both modes. One or more of <code>RS256</code>, <code>RS384</code>, <code>RS512</code>, <code>PS256</code>, <code>PS384</code>, <code>PS512</code>, <code>ES256</code>, <code>ES384</code>, <code>EdDSA</code>. <code>none</code> and every <code>HS*</code> are refused by name, and a list spanning two key kinds is refused because one token is verified by one key</td>
+</tr>
+<tr>
+<td><code>security.inbound.token_type</code></td>
+<td><code>at+jwt</code></td>
+<td><code>direct</code> only. Which class of token, out of the <code>typ</code> header. <code>any</code> switches the check off and is printed at <code>WARN</code> on every boot. <strong>Leaving it alone is the safe reading</strong> - see <a href="#who-is-asking">who is asking</a></td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_token_type</code></td>
+<td>absent, and <strong>required</strong></td>
+<td><code>behind-gateway</code> only. The class the component emits, or <code>any</code> if it sets none. Required because a component's <code>typ</code> is a fact only the deployment knows</td>
+</tr>
+<tr>
+<td><code>security.inbound.transit_max_lifetime_seconds</code></td>
+<td><code>120</code></td>
+<td><code>behind-gateway</code> only. The longest <code>exp - iat</code> this deployment will call short-lived. Between 1 and 3600. An assertion with no <code>iat</code> is refused</td>
 </tr>
 <tr>
 <td><code>server.tls_certificate</code></td>
@@ -2981,18 +3228,18 @@ mutual TLS between pods answers it differently from a flat one, and nothing here
 <h3 id="terminating-it-in-this-process">Terminating it in this process<a class="headerlink" href="#terminating-it-in-this-process" title="Permanent link">&para;</a></h3>
 <p>For the deployment where nothing sits in front. It needs <strong>a build that has a TLS listener in it</strong>,
 which the default build does not:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve<span class="w"> </span>--features<span class="w"> </span>tls
 </span></code></pre></div>
 <p>The feature is default-off because most deployments do not use it, and a TLS stack compiled into an
 artifact that will never present a certificate is cost with no return. With the feature off the
 dependency is absent from the build rather than merely unused, and asking for <code>in-process</code>
 termination is a startup refusal that names the feature - so the two cannot disagree.</p>
 <p>Then:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">security</span><span class="p">:</span>
-</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
-</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="nt">server</span><span class="p">:</span>
-</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
-</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">security</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">tls_termination</span><span class="p">:</span><span class="w"> </span><span class="s">"in-process"</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="nt">server</span><span class="p">:</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">  </span><span class="nt">tls_certificate</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/chain.pem"</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">  </span><span class="nt">tls_key</span><span class="p">:</span><span class="w"> </span><span class="s">"/tls/key.pem"</span>
 </span></code></pre></div>
 <p>Both halves or neither. A certificate with no key is refused rather than half-configured, and a path
 set to the empty string is an error naming the key rather than TLS quietly switching itself off -
@@ -3089,10 +3336,10 @@ for a deployment being replaced. Nothing here can know how long a question takes
 check it - the number that <em>is</em> checked is that it is neither zero nor above five minutes.</p>
 <h2 id="running-it">Running it<a class="headerlink" href="#running-it" title="Permanent link">&para;</a></h2>
 <p>The engine reads files, so there is nothing to provision:</p>
-<div class="language-bash highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="nv">SUTURA__CATALOG__DATA_DIR</span><span class="o">=</span>examples/single-player/data<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="nv">SUTURA__CATALOG__DIR</span><span class="o">=</span>examples/single-player/catalog<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="nv">SUTURA__CATALOG__DATA_DIR</span><span class="o">=</span>examples/single-player/data<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="nv">SUTURA__CATALOG__VERSION</span><span class="o">=</span>local-1<span class="w"> </span><span class="se">\</span>
+</span><span id="__span-7-4"><a id="__codelineno-7-4" name="__codelineno-7-4" href="#__codelineno-7-4"></a><span class="w">  </span>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-serve
 </span></code></pre></div>
 <p>It binds <code>127.0.0.1:8080</code>, needs no token there, and serves the browser interface at <code>/docs</code>. Startup
 loads the catalog through its port and re-executes <strong>every declared anchor</strong> against the data system;
@@ -3112,9 +3359,29 @@ like.</p>
 <li><strong>No MCP surface.</strong> The seam is there and nothing sits on it: the transport talks to the service
   through one small port, so a second transport consumes the same thing rather than growing its own
   copy of the wiring.</li>
-<li><strong>No audit sink.</strong> <code>AGENTS.md</code> records "every call is attributable, refusals included" as an
-  invariant enforced by one. There is none, and there would be no principal to record if there were.
-  Every question and every outcome reaches the log, and the log is named for what it is.</li>
+<li><strong>No record STORE.</strong> This bullet said "no audit sink" and that had already stopped being true: there
+  is an <code>AuditSink</code> port, <code>sutura-app</code> writes one record per outcome through it before the outcome
+  returns, and the writer a deployment gets for free puts that record on the log below. What does not
+  exist is retention - sutura keeps nothing, so what a record is worth is what the deployment's log
+  pipeline is worth. What has changed with leg 1 is that the record can now name a <strong>person</strong> rather
+  than only the deployment.</li>
+<li><strong>No key-set endpoint.</strong> <code>security.inbound.key_set_file</code> reads a JWK set off disk, and there is no
+  URL source: an outbound HTTP client is a supply-chain change with its own review, and it makes the
+  authorization server a hard runtime dependency whose outage has to stay distinguishable from a dead
+  data system. Everything a URL source would need is built - the cache, the refetch on an unknown key
+  id, and the rate limit on that refetch - and a sidecar that rewrites a mounted key set is how a
+  process with no egress rotates. <strong>The limit a file has:</strong> no cache header, so a key rotated <em>without</em>
+  its id changing is one this deployment keeps using.</li>
+<li><strong>No protected-resource metadata.</strong> A <code>401</code> carries an RFC 6750 challenge naming the realm and no
+  <code>resource_metadata</code> parameter, so a client learns which authorization server governs this resource
+  out of band rather than by reading a document here.</li>
+<li><strong>No replay protection on a gateway assertion.</strong> The <em>window</em> is bounded - an <code>iat</code> is required and
+  <code>exp - iat</code> is capped - and inside it an intercepted assertion replays. Closing that needs the
+  assertion bound to the request (a hash of the method, path and body the component computes) or a
+  store of what has been seen, and neither exists. That is why this page calls it an assertion rather
+  than a proof of transit, and why the hop from the component is a trusted boundary.</li>
+<li><strong>No leg 2.</strong> Leg 1 establishes who is asking; nothing makes a data system execute as that person.
+  See the first section - this is the single most important absence on this page.</li>
 <li><strong>No request identifier.</strong> It belongs in the failure body and there is nothing to put in it, and a
   field that is always absent is worse than no field.</li>
 <li><strong>No readiness endpoint.</strong> There is nothing it could report that is not already true of a process
@@ -3166,9 +3433,10 @@ credential. The paths are in the published interface description in any case. Ev
 resolves to a handler holds a credential.</p>
 <p>A caller with the token can occupy every execution slot and shed everybody else, inside their own
 rate limit, by asking questions that each cost more than the request timeout. The <code>503</code> the others
-get is honest and the backlog is bounded, but the <em>sharing</em> is not fair and cannot be made fair here:
-fairness needs a per-caller identity to be fair between, and there is none. What exists is
-<code>rate_limit.api_per_second</code>, which bounds how fast one address can start questions.</p>
+get is honest and the backlog is bounded, but the <em>sharing</em> is not fair and is not made fair here.
+With leg 1 there is now a principal to be fair <em>between</em> - and nothing keys anything on it: no budget
+port exists, so what bounds a caller is still <code>rate_limit.api_per_second</code>, which bounds how fast one
+address can start questions.</p>
 <p>The same caller can keep a question running after being answered <code>408</code>, because nothing cancels one.
 So the cost of a question is not bounded by anything the caller experiences - only the <em>number</em> of
 them running at once is.</p>
