@@ -480,9 +480,13 @@ mod tests {
             }
             .stands(&root)
         );
+        // The absent side of the same check. **Not the manifest of a PLANNED crate**, which is what
+        // this used to be: `crates/sutura-mcp/Cargo.toml` was the fixture until the agent surface
+        // landed, and then a test about path existence started failing because a crate got written.
+        // A path with a name nothing will ever take cannot go the same way.
         assert!(
             !Evidence {
-                path: "crates/sutura-mcp/Cargo.toml",
+                path: "crates/no-such-crate-exists/Cargo.toml",
                 holds: ""
             }
             .stands(&root)

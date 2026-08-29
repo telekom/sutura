@@ -34,6 +34,11 @@ members = [
   "crates/sutura-config",
   "crates/sutura-runtime",
   "crates/sutura-http",
+  # The agent-facing surface, and a SECOND transport rather than a layer on the first: it depends on
+  # `sutura-app`'s driving port and on nothing in `sutura-http`, because an adapter that reached into
+  # another adapter is the one direction this layout forbids. The cost of that rule is a second wire
+  # type, and the cost is paid deliberately - `crates/sutura-mcp/src/wire.rs` says so at length.
+  "crates/sutura-mcp",
   "crates/sutura-serve",
   "xtask",
   "dev",
@@ -67,6 +72,9 @@ sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }
+# NO `sutura-mcp` entry, and `cargo xtask unused-deps` is why: nothing links the agent surface yet,
+# so a workspace pin for it would be a declaration no member inherits. It comes back with the
+# composition root that needs it.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
@@ -280,6 +288,31 @@ tracing-log = "0.2"
 utoipa = { version = "5", features = ["preserve_order"] }
 utoipa-axum = "0.2"
 utoipa-swagger-ui = { version = "9", default-features = false, features = ["axum", "vendored"] }
+
+# The agent-facing transport, and the schema derive the tool surface is generated from.
+#
+# `rmcp` is the Model Context Protocol SDK, and it is a dependency rather than a hand-rolled
+# JSON-RPC server for one reason: a framing we wrote ourselves could be tested only against our own
+# parser, which `AGENTS.md` already rules out as evidence. `crates/sutura-mcp/src/lib.rs` carries
+# the whole argument, including what the dependency costs.
+#
+# THREE features, and every one of them is off by default:
+#   * `server` is the handler trait, and it is what pulls `schemars` in - the SDK models a tool's
+#     input schema as JSON Schema and offers no other shape for it.
+#   * `transport-io` is stdio, which is the transport an agent client launches a server over.
+#   * `client` is a DEV feature, declared on `sutura-mcp`'s dev-dependency rather than here, so a
+#     shipped build has no client in it.
+# `macros` is deliberately absent: the `#[tool]` attribute writes code into the crate that uses it,
+# and this workspace gates on the whole clippy `restriction` category with `-D warnings`.
+# `base64` is absent for the same reason it is not needed - nothing here returns image or audio
+# content.
+rmcp = { version = "3.1", default-features = false, features = ["server", "transport-io"] }
+# The DERIVE, and it lives on a wire type in `sutura-mcp` rather than on a domain type. That is not
+# a preference: `sutura-domain`'s whole transitive tree is walked by `cargo xtask
+# check-boundaries` against `ALLOWED_IN_DOMAIN`, so putting a macro crate on a domain type is an
+# architecture decision. The plan for the agent surface decided the wire type instead, and
+# `crates/sutura-mcp/src/wire.rs` records the cost that choice carries.
+schemars = { version = "1.2", default-features = false, features = ["derive", "std"] }
 
 # The global allocator, Linux only. `sutura-cli` inherits this under a
 # `[target.'cfg(target_os = "linux")'.dependencies]` table, so a developer on macOS or
