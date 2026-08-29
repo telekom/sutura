@@ -11,7 +11,10 @@ use sutura_sql::{Dialect, dialect};
 
 use crate::adapters::{ReferenceCatalog, load, questions, read_question, stem};
 
-use crate::shared::{settings, sql_for};
+use crate::shared::{
+    appears_bare, assert_absent_as_text, assert_one_placeholder_per_parameter, bound_value, settings, sql_for,
+    without_string_literals,
+};
 
 /// The statement and the values bound to it.
 fn pins_the_statement_and_its_parameters(dialect: Dialect) {
@@ -34,117 +37,25 @@ fn pins_the_statement_and_its_parameters(dialect: Dialect) {
     assert!(checked > 0, "the corpus produced no statements to check");
 }
 
-/// A parameter's value as text, for comparing against what a question carried.
-fn bound_value(param: &sutura_domain::warehouse::ParamValue) -> String {
-    match *param {
-        sutura_domain::warehouse::ParamValue::Text(ref v) => v.clone(),
-        sutura_domain::warehouse::ParamValue::Date(d) => d.to_iso(),
-    }
-}
-
-/// The statement with every span delimited by `delimiter` removed, delimiters included.
-///
-/// One toggle, parameterised, because there are two spans worth dropping and the two claims below
-/// want DIFFERENT ones dropped - see [`without_identifiers`] and [`without_string_literals`]. Two
-/// hand-written copies of this loop would be two things to keep in step for no gain; one
-/// implementation cannot drift from itself.
-///
-/// A single toggle is enough for either delimiter because an identifier here is `[A-Za-z0-9_]` and
-/// nothing else - `parse_identifier` in `sutura-domain` rejects every other character, which is
-/// what makes that a fact rather than an assumption - so neither a `"` nor a `'` can occur inside
-/// a name. It also handles SQL's doubled `''` escape with no special case: the pair flips out of
-/// the literal and straight back into it, which drops the same characters either way.
-fn without_spans(sql: &str, delimiter: char) -> String {
-    let mut out = String::with_capacity(sql.len());
-    let mut inside = false;
-    for ch in sql.chars() {
-        if ch == delimiter {
-            inside = !inside;
-        } else if !inside {
-            out.push(ch);
-        }
-    }
-    out
-}
-
-/// The statement with every quoted identifier removed.
-///
-/// Searching the raw SQL for a value gives false positives, and one bit for real. **The catalog it
-/// happened under has been deleted and the record is kept on purpose**, because the false positive
-/// is a property of substring search rather than of that catalog: the e-commerce metric
-/// `web_revenue` had a required filter of `channel = 'web'`, the predicate was correctly bound as
-/// `"orders"."channel" = ?`, and a plain substring search still found "web" - inside the alias
-/// `AS "web_revenue"`. The value had not reached the statement at all, and what the test was
-/// reading was the metric's own name.
-///
-/// **Nothing in the telco vocabulary collides that way today, which is why the pass stays rather
-/// than why it could go.** `recurring_revenue` binds `status = 'active'`, and it takes only one
-/// metric alias containing the word - `active_subscriptions` is already there, in statements about
-/// itself - or one dimension value that is a substring of a column name, to put the false positive
-/// straight back. The mechanism is what protects the claim; a corpus that happens not to collide is
-/// not.
-///
-/// Identifiers are double-quoted and a value inlined as text would be single-quoted, so
-/// dropping the double-quoted spans leaves exactly the part of the statement a value could
-/// have leaked into. It is a stronger check than looking for `'value'` would be: it also
-/// catches a value inlined bare, without quotes.
-///
-/// **The single-quoted spans STAY, and keeping this pass that narrow is the point.** They are
-/// exactly where a leaked value would be sitting, so a version of this that dropped them would
-/// delete the evidence rather than the noise: `recurring-revenue-annual-in-north` written as
-/// `= 'north'` instead of bound would leave nothing behind to search for, and
-/// [`binds_every_value_rather_than_writing_it`] would report success on a generator that had
-/// stopped binding. [`without_string_literals`] drops them for the one assertion that has to look
-/// PAST a literal rather than at it, layered on top of this rather than folded into it. Two
-/// haystacks, because the two claims want opposite things from the same characters.
-fn without_identifiers(sql: &str) -> String {
-    without_spans(sql, '"')
-}
-
-/// The statement with the quoted identifiers **and** the single-quoted string literals removed.
-///
-/// Layered on [`without_identifiers`], and read by [`quotes_every_identifier`] alone.
-///
-/// **The time bucket's grain reaches the statement as a string literal, and a grain keyword is a
-/// perfectly good column name.** `generate` renders the bucket as `DATE_TRUNC(<unit>, <column>)`
-/// with the unit written by `generate::unit`, so a month-grain question renders
-/// `DATE_TRUNC('month', "fct_subscription_monthly"."month")` - and `'month'` there is a STRING
-/// LITERAL, an argument to a function, not an identifier. The statement is correct: the column
-/// beside it is quoted.
-///
-/// What goes wrong is the SEARCH. A model that declares a column called `month` puts `month` into
-/// the set of names [`quotes_every_identifier`] looks for; `'` is not a word character, so
-/// [`appears_bare`] matches the grain keyword and the test reports an unquoted identifier the
-/// generator never emitted. **This is live rather than hypothetical, and it is why the pass was
-/// written before the corpus moved:** the telco catalog under `examples/single-player` declares
-/// `month` on its `subscriptions` model, so every question at month grain renders
-/// `DATE_TRUNC('month', "fct_subscription_monthly"."month")`. The e-commerce fixture this crate used
-/// to read named no column after a grain, which is the only reason the hole stayed latent for as
-/// long as it did - and every unit `Grain` has (`day`, `week`, `month`, `quarter`, `year`) is a name
-/// a modeller could reasonably pick. A catalog is data, so "no catalog names a column after a grain"
-/// is not something this suite gets to assume.
-///
-/// **So the identifier claim gets its own haystack and the value claim keeps the one it had.** They
-/// are not the same claim. The value test asks whether text reached the statement AT ALL, and a
-/// string literal is precisely where such text would be sitting; the identifier test asks whether a
-/// NAME reached it unquoted, and a string literal is somewhere a name cannot have leaked to.
-/// Folding this pass into [`without_identifiers`] would fix the false positive here and silently
-/// destroy the no-injection guarantee there, which is the trade this arrangement exists to refuse.
-///
-/// Applied on top of the pass above rather than as an independent strip of the raw SQL. Neither
-/// delimiter can appear inside an identifier (see [`without_spans`]), so the order does not change
-/// the result today; composing this way makes that independence something a reader can see instead
-/// of something to re-derive.
-fn without_string_literals(sql: &str) -> String {
-    without_spans(&without_identifiers(sql), '\'')
-}
-
 /// The mechanical form of the no-injection claim, over the whole corpus.
 ///
 /// Every value that ends up in a predicate must arrive as a bind parameter, so none of them
 /// may appear in the SQL - and there are two sources of them. Written against `Query::literals`
 /// and `QueryPlan::definitional_params` rather than as a list of places to look, so a field
 /// added to either cannot quietly stop being covered.
+///
+/// **Three assertions, and the first of them is here because the other two were not enough.** They
+/// live in `shared` so this axis and the leg axis cannot drift into two different opinions about
+/// what the claim is; `shared::assert_absent_as_text` carries the searches and their limit, and
+/// `shared::assert_one_placeholder_per_parameter` carries what covers that limit.
+///
+/// 1. **The statement names one bind parameter per value the plan carries.** Positive, and the only
+///    one of the three that does not read the value's text at all - which is what makes it the
+///    assertion that bites whatever a leaked value spells.
+/// 2. **No value appears in the statement**, by two searches: substring with the quoted identifiers
+///    stripped, and word-bounded on the raw statement.
+/// 3. **The question's values are still bound.** Without it a generator that dropped the predicate
+///    entirely would satisfy 2 and 1 alike.
 fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
     let pinned = load::<ReferenceCatalog>();
     let mut checked = 0_usize;
@@ -157,19 +68,17 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
             continue;
         };
         let query = sql_for(plan, dialect);
+        let name = stem(&path);
 
-        // Searched with the quoted identifiers removed: see `without_identifiers`.
-        let searchable = without_identifiers(query.sql());
+        // The positive half, first because it is the one that holds when a search cannot. Counted
+        // against the PLAN's parameters rather than the rendered query's, so a generator that
+        // inlined a value and dropped it from its own list is still one placeholder short.
+        assert_one_placeholder_per_parameter(&name, dialect, plan.params().len(), query.sql());
 
         // What the CALLER sent. The classic injection: a filter value or a date written into
         // the statement instead of bound.
         for literal in &literals {
-            assert!(
-                !searchable.contains(literal.as_str()),
-                "{} for {dialect} carries the question's literal {literal:?}:\n{}",
-                stem(&path),
-                query.sql()
-            );
+            assert_absent_as_text(&name, dialect, "the question's literal", literal.as_str(), query.sql());
         }
 
         // What the CATALOG said. A required filter's value is not caller text, so inlining it
@@ -183,12 +92,7 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
             if literals.contains(value) {
                 continue;
             }
-            assert!(
-                !searchable.contains(value.as_str()),
-                "{} for {dialect} carries the catalog's value {value:?}:\n{}",
-                stem(&path),
-                query.sql()
-            );
+            assert_absent_as_text(&name, dialect, "the catalog's value", value.as_str(), query.sql());
             with_definitional = with_definitional.saturating_add(1);
         }
 
@@ -198,9 +102,8 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
         for literal in &literals {
             assert!(
                 bound.contains(literal),
-                "{} for {dialect} did not bind the question's {literal:?}; \
+                "{name} for {dialect} did not bind the question's {literal:?}; \
                  the predicate is missing rather than inlined:\n{}",
-                stem(&path),
                 query.sql()
             );
         }
@@ -213,25 +116,6 @@ fn binds_every_value_rather_than_writing_it(dialect: Dialect) {
         with_definitional > 0,
         "no question exercised a required filter; the definitional half of this test proved nothing"
     );
-}
-
-/// Whether `needle` appears in `haystack` as a bare word rather than inside a longer one.
-///
-/// Word-bounded rather than a plain substring, and the boundary is what makes the assertion below
-/// precise instead of merely alarming. With the quoted spans removed the statement still holds
-/// `DATE_TRUNC`, `CAST`, `DOUBLE` and `DISTINCT`, so a model column called `date` or a metric
-/// called `cast` would match a substring search that no bare identifier caused. An identifier
-/// emitted unquoted is surrounded by whitespace, a comma or a parenthesis, which is exactly what
-/// this admits.
-fn appears_bare(haystack: &str, needle: &str) -> bool {
-    let word = |ch: char| ch == '_' || ch.is_ascii_alphanumeric();
-    haystack.match_indices(needle).any(|(at, _)| {
-        let before = haystack.get(..at).and_then(|head| head.chars().next_back());
-        let after = haystack
-            .get(at.saturating_add(needle.len())..)
-            .and_then(|tail| tail.chars().next());
-        !before.is_some_and(word) && !after.is_some_and(word)
-    })
 }
 
 /// The other half of not being an injection, asserted as the property rather than as one example.
@@ -247,21 +131,27 @@ fn appears_bare(haystack: &str, needle: &str) -> bool {
 /// does **not** cover aliases, so `generate::aliased` sets the alias's own `quoted` flag by hand.
 /// Deleting that line left this test green.
 ///
-/// So the claim is made over [`without_string_literals`], which layers on the mechanism
-/// `no_value_reaches_the_statement_as_text` already trusts: dropping the double-quoted spans leaves
-/// exactly the part of the statement an identifier could have leaked into. Every model column,
-/// every dimension label, every metric name and the time bucket's label has to be absent from what
-/// is left - the aliases included, which is the half the old body could not see.
+/// So the claim is made over `shared::without_string_literals`: dropping the double-quoted spans
+/// leaves exactly the part of the statement an identifier could have leaked into. Every model
+/// column, every dimension label, every metric name and the time bucket's label has to be absent
+/// from what is left - the aliases included, which is the half the old body could not see.
 ///
 /// The positive half is what stops it passing on a generator that emits no identifiers at all: the
 /// names this plan actually uses have to be present, quoted, in the raw statement.
 ///
-/// It reads [`without_string_literals`] and not [`without_identifiers`] directly, and the extra
-/// pass is not tidiness. The bucket's grain keyword is a single-quoted STRING LITERAL that can
-/// legitimately equal a column name, so `'month'` inside `DATE_TRUNC('month', ...)` looks exactly
-/// like a bare `month` to the search below. This is the one place where this claim and the value
-/// claim need DIFFERENT haystacks, and [`without_string_literals`] carries the reason they cannot
-/// share one.
+/// **The stripping is sound HERE for a reason the value claim cannot borrow, and that asymmetry is
+/// the point.** This claim is about a name that reached the statement UNQUOTED, so a double-quoted
+/// span is by construction not where its evidence could be: dropping those spans removes noise and
+/// no evidence. The value claim asks whether text reached the statement at all, and a double-quoted
+/// span is somewhere such text CAN sit - which is exactly the hole that was found in it. Same
+/// helper, opposite consequence.
+///
+/// It reads `shared::without_string_literals` and not `shared::without_identifiers` directly, and
+/// the extra pass is not tidiness. The bucket's grain keyword is a single-quoted STRING LITERAL that
+/// can legitimately equal a column name, so `'month'` inside `DATE_TRUNC('month', ...)` looks
+/// exactly like a bare `month` to the search below. This is the one place where this claim and the
+/// value claim need DIFFERENT haystacks, and `shared::without_string_literals` carries the reason
+/// they cannot share one.
 fn quotes_every_identifier(dialect: Dialect) {
     let pinned = load::<ReferenceCatalog>();
     let definitions = pinned.definitions();
