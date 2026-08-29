@@ -171,11 +171,7 @@ impl Surface for FailingSurface {
         &self.definitions
     }
 
-    fn answer(
-        &self,
-        _context: &sutura_domain::identity::RequestContext,
-        _query: &Query,
-    ) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(&self, _context: &sutura_domain::identity::RequestContext, _query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
         })

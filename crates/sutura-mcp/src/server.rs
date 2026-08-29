@@ -268,9 +268,12 @@ mod tests {
     /// state that exists - so every service here has one whether a test reads it or not.
     fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
         let sink = std::sync::Arc::new(testing::CountingSink::default());
-        let service =
-            LocalService::start(&testing::FixedCatalog, testing::fake_warehouse(), std::sync::Arc::clone(&sink))
-                .expect("the fixture bundle validates");
+        let service = LocalService::start(
+            &testing::FixedCatalog,
+            testing::fake_warehouse(),
+            std::sync::Arc::clone(&sink),
+        )
+        .expect("the fixture bundle validates");
         (service, sink)
     }
 
