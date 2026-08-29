@@ -25,7 +25,7 @@ use datafusion::arrow::record_batch::RecordBatch;
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
 };
 use sutura_domain::warehouse::{ParamValue, Warehouse as _};
 
@@ -159,7 +159,9 @@ fn a_wide_engine_answers_from_several_threads_at_once_with_no_runtime_entered() 
     std::thread::scope(|scope| {
         let callers: Vec<_> = core::iter::repeat_with(|| {
             scope.spawn(|| {
-                let rows = adapter.execute(&asked).expect("a concurrent question is answered");
+                let rows = adapter
+                    .execute(Executable::Query(&asked))
+                    .expect("a concurrent question is answered");
                 (rows.columns().len(), rows.rows().len())
             })
         })
@@ -183,8 +185,8 @@ fn one_thread_answers_the_same_question_the_same_way_a_wide_one_does() {
     let wide =
         attached(DataFusionWarehouse::with_worker_threads(source(), width(CALLERS), roomy()).expect("a wide runtime builds"));
     let asked = question();
-    let from_one = narrow.execute(&asked).expect("one thread answers");
-    let from_many = wide.execute(&asked).expect("four threads answer");
+    let from_one = narrow.execute(Executable::Query(&asked)).expect("one thread answers");
+    let from_many = wide.execute(Executable::Query(&asked)).expect("four threads answer");
     assert_eq!(from_one.columns(), from_many.columns());
     assert_eq!(from_one.rows(), from_many.rows());
 }

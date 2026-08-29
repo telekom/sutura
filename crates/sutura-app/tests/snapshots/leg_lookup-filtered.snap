@@ -1,0 +1,26 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: leg
+---
+lookup:
+  source: crm
+  table: dim_customer
+  keys:
+    - label: customer_key
+      column:
+        table: dim_customer
+        column: customer_key
+    - label: region
+      column:
+        table: dim_customer
+        column: region
+  filters:
+    - origin: requested
+      predicate:
+        equals:
+          column:
+            table: dim_customer
+            column: region
+          param: 0
+  params:
+    - Text: north

@@ -13,11 +13,21 @@
 //!
 //! A plan holds no SQL. Its serialized form is what a golden snapshot pins, so a change to what we
 //! decided shows up as a reviewable diff rather than as a different number.
+//!
+//! **Two shapes, not one, and [`leg`] holds the second.** A [`QueryPlan`] is a whole answer from one
+//! data system. A [`LegPlan`] is one data system's share of an answer assembled above it, and it is
+//! its own type rather than a `QueryPlan` with three fields made optional - `leg` says at length
+//! why. [`Executable`] is what the port takes, so an adapter's match over what it can be handed is
+//! exhaustive.
 
 use crate::calendar::TimeRange;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use crate::warehouse::ParamValue;
+
+pub mod leg;
+
+pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 
 /// The most rows any plan may return.
 ///

@@ -6,6 +6,13 @@
 //! at load, for every dialect at once. [`GeneratedQuery`] is what `generate` returns, and it is at
 //! the crate root because it is this crate's output rather than any one module's detail.
 //!
+//! **Two entry points, one output type.** [`generate`] renders a whole answer from a `QueryPlan`;
+//! [`generate_leg`] renders one leg of a federated question from a `LegPlan`. They share every
+//! decision that could drift - the quoting, the placeholder style, the bucket, the joins, how a term
+//! renders - and differ in the four ways `generate_leg`'s own documentation lists. Nothing in a
+//! binary calls the second one yet: there is no splitter, so `AGENTS.md`'s *Built And Not Wired*
+//! section is where its state is recorded.
+//!
 //! # Why this is its own crate and not the compiler's last stage
 //!
 //! It used to be `sutura_semantic::generate` and `sutura_semantic::dialect`, and rendering was
@@ -54,7 +61,7 @@ pub mod generate;
 pub use crate::dialect::{Dialect, PlaceholderStyle};
 pub use crate::expression::refusal::{Construct, ExpressionError};
 pub use crate::expression::{CompiledExpression, Rendering, compile};
-pub use crate::generate::{GenerateError, generate};
+pub use crate::generate::{GenerateError, generate, generate_leg};
 
 /// A statement, its parameters, and the one data system it runs against.
 ///

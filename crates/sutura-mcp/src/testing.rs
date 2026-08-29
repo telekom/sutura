@@ -28,7 +28,7 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
@@ -129,11 +129,11 @@ impl Warehouse for FakeWarehouse {
         &self.source
     }
 
-    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
         Ok(self.result.clone())
     }
 }

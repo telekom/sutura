@@ -7,7 +7,7 @@
 //!
 //! Two things this adapter deliberately does not offer:
 //!
-//! **No arbitrary SQL entry point.** [`DuckDbWarehouse::execute`] takes a [`QueryPlan`] and renders
+//! **No arbitrary SQL entry point.** [`DuckDbWarehouse::execute`] takes an [`Executable`] and renders
 //! the statement itself, into a [`GeneratedQuery`] that carries its parameters separately. There is
 //! no method that takes a string. A development affordance that ran a statement somebody typed would
 //! be the shortest path around every check upstream of here.
@@ -21,7 +21,7 @@ use std::path::Path;
 use duckdb::Connection;
 use duckdb::types::Value as DuckValue;
 use sutura_domain::model::TableName;
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::{MalformedRowSet, ParamValue, Real, RowSet, Value, Warehouse};
 use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
@@ -117,6 +117,24 @@ pub enum DuckDbError {
         #[source]
         cause: duckdb::Error,
     },
+    /// One leg of a federated answer, which nothing here can assemble above.
+    ///
+    /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
+    /// [`Executable`], so this adapter's match over what it can be handed is exhaustive - that is
+    /// the mechanism, and this variant is what it costs today. Nothing constructs a
+    /// [`LegPlan`](sutura_domain::plan::LegPlan) outside a test: there is no splitter and no
+    /// combiner, so no code path reaches here.
+    ///
+    /// **This adapter could RENDER one** - `sutura_sql::generate_leg` renders every leg shape for
+    /// this dialect and the golden family pins it - and rendering is not answering. Executing a leg
+    /// with nothing above it returns rows at a finer grouping than the question asked for, and a
+    /// half-federated answer under a certified metric name is the failure this repository exists to
+    /// prevent. So the leg path arrives with the combiner and its differential test, not before.
+    ///
+    /// It carries the table rather than a sentence, because that is the one thing a reader chasing
+    /// this needs and the message may be reworded.
+    #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
+    LegWithoutCombiner { table: String },
 }
 
 /// A `DuckDB` database, behind the [`Warehouse`] port.
@@ -195,8 +213,15 @@ impl DuckDbWarehouse {
     ///
     /// Free-standing rather than a method: it reads nothing from `self`, and taking `&self` would
     /// imply the rendering depends on which connection is open, which it must not.
-    fn render(plan: &QueryPlan) -> Result<GeneratedQuery, DuckDbError> {
-        generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause })
+    /// One exhaustive match, so a third plan shape cannot be answered by accident. The leg arm
+    /// refuses rather than renders, and [`DuckDbError::LegWithoutCombiner`] says why.
+    fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {
+        match executable {
+            Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
+            Executable::Leg(leg) => Err(DuckDbError::LegWithoutCombiner {
+                table: String::from(leg.table().as_str()),
+            }),
+        }
     }
 
     /// The parameters, as this driver wants them.
@@ -345,8 +370,8 @@ impl Warehouse for DuckDbWarehouse {
     /// A real check rather than a stub: preparing resolves every table and column name and validates
     /// the syntax, so a statement that would fail at the data system fails here, before anything is
     /// read.
-    fn dry_run(&self, plan: &QueryPlan) -> Result<(), Self::Error> {
-        let query = Self::render(plan)?;
+    fn dry_run(&self, executable: Executable<'_>) -> Result<(), Self::Error> {
+        let query = Self::render(executable)?;
         drop(
             self.connection
                 .prepare(query.sql())
@@ -355,8 +380,8 @@ impl Warehouse for DuckDbWarehouse {
         Ok(())
     }
 
-    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
-        let query = Self::render(plan)?;
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+        let query = Self::render(executable)?;
         self.run(&query)
     }
 }

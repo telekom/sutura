@@ -29,7 +29,7 @@ internal that a stable surface can grow behind.
 | 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
 | 8 | `feat/source-registry` | 6 - **done** | **yes** |
-| 9 | `feat/leg-plan-types` | 4 - **done** | **yes** |
+| 9 | `feat/leg-plan-types` | 4 - **done** | **IN REVIEW** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
 | 10 | `feat/two-source-execution` | 8, 9 | after 9 |
 | 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
 | 12 | `feat/credential-port` | 2, 5, 8 | after 8 |

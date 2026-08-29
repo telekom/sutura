@@ -29,6 +29,9 @@
 //!   mechanical no-injection and quoting assertions. Per dialect, so a change to identifier quoting or
 //!   placeholder style is visible in the target it affects rather than only in the one we execute
 //!   against. Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere.
+//!   `golden/legs.rs` is the same axis over the federated plan shapes, and it is a second file rather
+//!   than more cells in the first because its input is not the question corpus: there is no splitter,
+//!   so a leg plan is a hand-built fixture and says so.
 //! - **The data-system axis.** The rows: the anchor check, the executed corpus, and `dry_run`
 //!   acceptance. Two entries today and they are two different kinds of thing behind one port - an
 //!   engine that generates no SQL, and a data source that renders and pushes down.
@@ -69,6 +72,10 @@ mod catalogs;
 #[cfg(test)]
 #[path = "golden/dialects.rs"]
 mod dialects;
+
+#[cfg(test)]
+#[path = "golden/legs.rs"]
+mod legs;
 
 #[cfg(test)]
 #[path = "golden/data_systems.rs"]

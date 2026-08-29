@@ -151,7 +151,10 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         | DataFusionError::Shape { .. }
         | DataFusionError::SchemaMismatch { .. }
         | DataFusionError::MissingParam { .. }
-        | DataFusionError::NoPredicate => false,
+        | DataFusionError::NoPredicate
+        // A leg handed to an adapter with nothing above it is a composition fault, not a ceiling
+        // refusing a reservation: no operator ran, so no reservation was made.
+        | DataFusionError::LegWithoutCombiner { .. } => false,
     }
 }
 

@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "dim_customer"."customer_key" AS "customer_key", "dim_customer"."region" AS "region" FROM "dim_customer" WHERE "dim_customer"."region" = ? GROUP BY "dim_customer"."customer_key", "dim_customer"."region" ORDER BY "dim_customer"."customer_key", "dim_customer"."region"
