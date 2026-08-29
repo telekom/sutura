@@ -111,6 +111,28 @@ fn announce_capacity(settings: &Settings) {
          answered 503 rather than queued. A question already executing is NOT cancelled by any \
          timeout here"
     );
+    let working_set = runtime.working_set();
+    if let Some(available) = working_set.checked_against() {
+        tracing::info!(
+            working_set_max_bytes = working_set.bytes().get(),
+            available_bytes = available,
+            "the engine's operators may reserve this much at once, checked against the memory this \
+             process can reach. It bounds OPERATOR RESERVATIONS - a hash-join build side, aggregate \
+             state, a sort - and NOT this process's memory: nothing here bounds what a driver \
+             buffers or what materialising a result costs. A reservation over it is a refused \
+             question, never a spill to local disk"
+        );
+    } else {
+        // Its own branch, because a ceiling nobody checked is a different fact from one that passed.
+        // On a platform that will not report its memory - macOS - an over-configured ceiling starts
+        // and dies inside a join later, which an operator has to be able to know from the log.
+        tracing::info!(
+            working_set_max_bytes = working_set.bytes().get(),
+            "the engine's operators may reserve this much at once. NOTHING CHECKED IT: this platform \
+             does not report the memory available to the process, so a ceiling above it was not \
+             refused at startup and would end the process rather than refuse a question"
+        );
+    }
     let workers = runtime.engine_workers();
     if workers.was_chosen() {
         tracing::info!(

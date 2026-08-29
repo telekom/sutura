@@ -278,6 +278,30 @@ pub enum RefusalReason {
     /// this workspace can yet run as any identity, so that half is a design target and not a
     /// control. `AGENTS.md` records which is which.
     SourceUnavailable { source: SourceName },
+    /// An engine operator asked its memory pool for more than the deployment's working-set ceiling.
+    ///
+    /// **The variant that exists because process death was the alternative.** Shipped profiles
+    /// compile `panic = "abort"`, so an unbounded allocation is not an error for the caller who
+    /// asked - it is the process ending for every caller in flight. A bounded pool turns that into a
+    /// reservation that fails, and this is what a failed reservation is on the way out.
+    ///
+    /// **A refusal rather than an error, and the distinction is the whole point of the variant.**
+    /// Exhaustion used to reach a caller as `503 unavailable`, which is what a data system that is
+    /// down looks like - so a caller was told to retry against a bound that will fire again at the
+    /// same place. It is a governance outcome: the question is well formed, the metric permits it,
+    /// and this deployment will not spend more than a configured number of bytes certifying it.
+    ///
+    /// Carries the ceiling and not what was asked for. The ceiling is a configured number, so it is
+    /// the same for every caller and safe in a log; the *demand* is a measurement of the shape of
+    /// somebody's data, and reporting it would tell a caller how much of the pool their question
+    /// needed - a number arrived at by asking rather than by being permitted to know it.
+    ///
+    /// **What this does NOT cover, stated with the claim.** The pool counts what the engine's own
+    /// operators reserve - a hash-join build side, aggregate state, a sort - and nothing else. Not
+    /// what a driver buffers, not `collect()` materialising every batch, not the row set built while
+    /// results are converted. So a question large enough to end the process on one of those paths
+    /// still ends it, and this refusal is not the control that reaches them.
+    ResourcesExhausted { ceiling_bytes: u64 },
 }
 
 /// What a tool call produced.

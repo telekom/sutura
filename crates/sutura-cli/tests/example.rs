@@ -371,7 +371,20 @@ mod tests {
                 sources.len()
             );
         };
-        let warehouse = sutura_exec_datafusion::DataFusionWarehouse::new((*source).clone()).expect("the engine starts");
+        // The same ceiling the `query` command uses, read through the same parse, so this exercises
+        // the bound a person running the example actually gets. `available_memory_bytes` is asked
+        // for the same reason it is there: a machine smaller than the default should say so here
+        // rather than inside a join.
+        let ceiling = sutura_config::WorkingSetCeiling::parse(
+            sutura_config::WorkingSetCeiling::DEFAULT_BYTES,
+            sutura_config::available_memory_bytes(),
+        )
+        .expect("the embedded default is a ceiling on this machine");
+        let warehouse = sutura_exec_datafusion::DataFusionWarehouse::new(
+            (*source).clone(),
+            sutura_exec_datafusion::WorkingSet::of_bytes(ceiling.bytes()),
+        )
+        .expect("the engine starts");
         let data = example_root().join("data");
         for model in pinned.definitions().models().values() {
             let csv = data.join(format!("{}.csv", model.table()));

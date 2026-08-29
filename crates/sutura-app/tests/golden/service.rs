@@ -82,6 +82,38 @@ fn a_refused_question_never_reaches_the_data_system() {
 }
 
 #[test]
+fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
+    // THE defect this variant exists for, asserted above the port. Exhaustion used to leave here as
+    // `ServiceError::Warehouse`, which the HTTP surface answers `503 unavailable` - the same status a
+    // data system that is down produces - so a caller was told to retry against a configured bound
+    // that fires again in exactly the same place.
+    //
+    // A fake rather than the engine, because what is decided here is the branch taken on the way out
+    // and not whether an engine can be made to run out of memory. The real one is shown biting in
+    // `sutura_exec_datafusion::pool::ceiling_tests`.
+    let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
+    let exhausted = crate::support::ExhaustedEngine::at(1024 * 1024 * 1024);
+    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &exhausted)
+        .expect("exhaustion is a refusal, not an error");
+    assert_eq!(
+        outcome.refusal(),
+        Some(&RefusalReason::ResourcesExhausted {
+            ceiling_bytes: 1024 * 1024 * 1024
+        }),
+        "an exhausted working set must be refused, and refused for being exhausted"
+    );
+
+    // The other direction, which is the more dangerous mistake: a failure that is NOT the ceiling
+    // must still be an error. A caller told "do not retry" about a data system that is briefly unwell
+    // has been told the wrong thing, and the port's default answer of `None` is what keeps that true
+    // for every adapter with no pool to bound.
+    let broken = crate::support::BrokenEngine::new();
+    let failure = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &broken)
+        .expect_err("a failure that is not the ceiling is not a refusal");
+    assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
+}
+
+#[test]
 fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated() {
     // THE BUG THIS EXISTS FOR, and it was a wrong number under a certified name. `plan::MAX_ROWS`
     // was the `LIMIT` on the statement and on the engine's plan, and NOTHING compared the rows that

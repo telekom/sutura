@@ -44,12 +44,17 @@ pub(crate) struct RawSettings {
 ///
 /// `engine_worker_threads` is the one optional field: absent means "as many threads as this machine
 /// can run", resolved to a number at load time so the startup log prints what is in effect. The
-/// other three are required, because a bound nobody wrote down is a bound nobody chose.
+/// other four are required, because a bound nobody wrote down is a bound nobody chose.
+///
+/// `working_set_max_bytes` is here and **nowhere else**, which is what makes 0009's "no per-source
+/// override" a mechanism rather than a sentence: `deny_unknown_fields` sits on every shape in this
+/// file, so the key written under any other group is an error naming it.
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct RawRuntime {
     pub(crate) max_concurrent_queries: usize,
     pub(crate) admission_timeout_seconds: u64,
+    pub(crate) working_set_max_bytes: u64,
     #[serde(default)]
     pub(crate) engine_worker_threads: Option<usize>,
     pub(crate) shutdown_grace_seconds: u64,

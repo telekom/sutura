@@ -83,6 +83,21 @@ The checks read the *loaded* values, not any one file, because the variable laye
 last: a check against `production.yaml` would be checking something the process is not running
 on.
 
+**A value out of range is a different refusal, through a different type, and one of them reads the
+machine.** `NotFitToServe` is about a *combination* of settings that are each individually legal;
+a single value the type will not accept is a `SettingsError` out of `Settings::load`, so it
+refuses to start too and is not in that list. The one worth naming here is
+`runtime.working_set_max_bytes`: it is checked against the memory this process can actually reach -
+a cgroup limit, or the machine - and refuses above it, because shipped profiles compile
+`panic = "abort"` and a ceiling over what is reachable is the unbounded case with a number written
+next to it. **On a platform that will not report that number, notably macOS, no check is made**,
+and `WorkingSetCeiling::checked_against` is what lets the startup log say which of the two
+happened rather than implying the check was run.
+
+## `use None`
+
+## `use None`
+
 ## `use None`
 
 ## `use None`
@@ -966,6 +981,12 @@ waiter costs a dropped future rather than a thread.
 runtime and blocks on it, so a single-threaded one is a contention point every concurrent
 question shares. See `sutura_exec_datafusion::DataFusionWarehouse`.
 
+`WorkingSetCeiling` is the bound that did not exist. Nothing built a `RuntimeEnv`, so the engine
+installed its unbounded memory pool - and under `panic = "abort"` a hash join wide enough to
+outgrow the machine is the process ending for every caller in flight rather than an error for the
+one who asked. It is a **query-wide** value with no per-source override, and the reason it is not
+symmetric with the deadline is on the type.
+
 `ShutdownGrace` is the budget for stopping, and it covers the whole of stopping rather than
 the connection drain alone.
 
@@ -1080,6 +1101,98 @@ For the startup log, and for the same reason `api.docs` records it: an operator 
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### `struct WorkingSetCeiling`
+
+```rust
+pub struct WorkingSetCeiling
+```
+
+How many bytes the engine's operators may reserve at once, across the whole process.
+
+**This is the bound that did not exist, and its absence was process death.** Nothing constructed
+a `RuntimeEnv`, so the engine installed its unbounded memory pool: a hash join or an aggregate
+wide enough to outgrow the machine allocated until the allocator failed, and shipped profiles
+compile `panic = "abort"`, so that is not an error for the caller who asked - it is the process
+ending for every caller in flight. A bounded pool turns it into a reservation that fails, which
+leaves as `RefusalReason::ResourcesExhausted`.
+
+# What it counts, and what it does not
+
+The pool counts what the engine's own operators reserve - a hash-join build side, aggregate
+state, a sort - and nothing else. **Not** what a driver buffers before conversion, **not**
+`collect()` materialising every batch, **not** the row set built while a result is converted into
+domain rows. So this is not a bound on the process's memory and must not be read as one: a
+question large enough to end the process on one of those paths still ends it. The bound that
+reaches those is a byte budget applied as rows are converted, which
+`docs/adr/0009-the-plan-from-one-source-to-many.md` puts with the execution boundary rather than
+here.
+
+# Global, and no per-source override
+
+There is one combiner and one working set, so a per-source ceiling would be a number with nothing
+to bound - and 0009 decides that a source declaration carrying one is **refused at parse rather
+than ignored**, because a setting that silently does nothing is worse than a missing one.
+`deny_unknown_fields` on every on-disk shape is the mechanism, and the test that provokes it is in
+`crate::settings`. **The deadline is the bound that takes a per-source override; this one does
+not**, and the two are decided separately on purpose.
+
+# Never spill
+
+Decided rather than defaulted, and the second reason is what settles it. A refusal the caller sees
+beats a degraded answer it cannot; and spilling writes the *asking subject's rows* to the pod's
+local disk, an ungoverned data-at-rest surface, on the one path whose whole purpose is that a
+query runs as the person who asked. So no spill directory and no disk sizing - the adapter builds
+its runtime with temporary files disabled, and `sutura_exec_datafusion::WorkingSet` is where that
+is written down.
+
+# A provisional number
+
+`Self::DEFAULT_BYTES` is a gibibyte and nobody has measured it. It is a starting point recorded
+as one, not a finding.
+
+#### Methods
+
+```rust
+pub const fn bytes(self) -> core::num::NonZeroUsize
+```
+
+The ceiling, for whatever builds the pool.
+
+```rust
+pub const fn checked_against(self) -> Option<u64>
+```
+
+What this ceiling was compared against at boot, if the platform would say.
+
+For the startup log, and it is the honest half of the claim: a `None` here means nothing
+verified that the configured ceiling is reachable, so an over-configured deployment on such a
+platform starts and dies later rather than refusing now.
+
+```rust
+pub fn parse(bytes: u64, available: Option<u64>) -> Result<Self, InvalidBound>
+```
+
+Reads a ceiling in bytes, against what the process can actually reach.
+
+`available` is passed in rather than probed here, and that is deliberate twice over: it makes
+this function total and testable - the interesting case is a machine nobody has - and it keeps
+the one place that reads `/proc` and `/sys` separate from the one that decides. `None` means
+the platform would not say, and then the comparison is not made; `available_memory_bytes`
+says which platforms those are.
+
+Bytes and not a suffixed string, for the reason `crate::server::RequestTimeout` takes whole
+seconds: a parser for `1GiB` is a second grammar for a single value, and the two spellings of
+a gibibyte that differ by 7% are exactly the confusion it would introduce.
+
+Not a `const fn`, unlike most of its neighbours and for the same shape of reason
+`EngineWorkers::parse` is not: the width check below is a `TryFrom`, which is not yet const.
+An `as` cast would be const and would truncate silently on the one target where the check
+matters, which is the wrong direction for a bound.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct ShutdownGrace`
 
 ```rust
@@ -1140,7 +1253,7 @@ pub const fn max_concurrent_queries(self) -> QueryConcurrency
 ```
 
 ```rust
-pub const fn new(max_concurrent_queries: QueryConcurrency, admission_timeout: AdmissionTimeout, engine_workers: EngineWorkers, shutdown_grace: ShutdownGrace) -> Self
+pub const fn new(max_concurrent_queries: QueryConcurrency, admission_timeout: AdmissionTimeout, engine_workers: EngineWorkers, working_set: WorkingSetCeiling, shutdown_grace: ShutdownGrace) -> Self
 ```
 
 Assembles the group from parts that have each already been parsed.
@@ -1154,9 +1267,42 @@ timeout above the request timeout is never reached - spans two groups and is doc
 pub const fn shutdown_grace(self) -> ShutdownGrace
 ```
 
+```rust
+pub const fn working_set(self) -> WorkingSetCeiling
+```
+
+How many bytes the engine's operators may reserve at once.
+
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `fn available_memory_bytes`
+
+```rust
+pub fn available_memory_bytes() -> Option<u64>
+```
+
+How many bytes this process can actually reach, when the platform will say.
+
+**Three sources, smallest wins**, because they answer three different questions and the binding
+one is whichever is tightest:
+
+1. `/sys/fs/cgroup/memory.max` - the cgroup v2 limit, and the number that matters in a container.
+2. `/sys/fs/cgroup/memory/memory.limit_in_bytes` - the same under cgroup v1, where "unlimited" is
+   a sentinel near `u64::MAX` rather than a word, which is why taking the minimum with the
+   machine total is what disarms it rather than a comparison against the sentinel.
+3. `MemTotal` in `/proc/meminfo` - the machine, for a process with no cgroup limit.
+
+**`None` on any platform that has none of these, and that is a limit on the claim rather than a
+fallback.** macOS is such a platform: nothing here reads `sysctl`, so a laptop makes no boot check
+at all and an over-configured ceiling there starts and dies later. The shipped artifacts are Linux,
+which is where the check has to hold - and `WorkingSetCeiling::checked_against` is what lets the
+startup log say which of the two happened rather than implying the check was made.
+
+It reads files and cannot fail: an unreadable or unparsable source contributes nothing rather than
+refusing to start, because the expensive failure here is a deployment that will not boot on a
+kernel laid out differently, and the cheap one is a boot check that did not run and said so.
 
 ## Module `security`
 
@@ -1572,6 +1718,7 @@ Why a bound is not a bound.
 
 - `Zero` - Nothing here may be zero: a zero timeout answers nothing and a zero body limit accepts nothing, and both read as no limit at all to somebody writing the file.
 - `TooLarge` - Above the ceiling this type declares.
+- `AboveAvailableMemory` - Above the memory this process can actually reach.
 
 #### Implements
 

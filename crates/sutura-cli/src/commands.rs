@@ -347,11 +347,32 @@ fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<DataFusionWare
              files in the directory given to this command"
         ));
     }
-    let engine = DataFusionWarehouse::new(engine_source).map_err(|e| render(&e))?;
+    let engine = DataFusionWarehouse::new(engine_source, working_set()?).map_err(|e| render(&e))?;
     for model in pinned.definitions().models().values() {
         attach(&engine, model.name(), model.table(), data)?;
     }
     Ok(engine)
+}
+
+/// The working-set ceiling this command bounds the engine with.
+///
+/// **The embedded default, and not a flag.** This command answers one question and exits, and it has
+/// no settings tree in scope - `sutura prompt` is the only subcommand that loads one, deliberately, so
+/// the prompt an operator pipes into an agent is rendered from the configuration the service would
+/// read. Giving the query path a flag would be a second number an operator could set, disagreeing with
+/// the one the service uses.
+///
+/// It goes through `WorkingSetCeiling::parse` rather than constructing the wrapper from the constant
+/// directly, so this reads the same number through the same checks the service does; a test asserts the
+/// constant and `defaults.yaml` agree. `available_memory_bytes` is asked here too: a laptop with less
+/// memory than the default ceiling should be told so rather than dying inside a join.
+fn working_set() -> Result<sutura_exec_datafusion::WorkingSet, String> {
+    let ceiling = sutura_config::WorkingSetCeiling::parse(
+        sutura_config::WorkingSetCeiling::DEFAULT_BYTES,
+        sutura_config::available_memory_bytes(),
+    )
+    .map_err(|cause| render(&cause))?;
+    Ok(sutura_exec_datafusion::WorkingSet::of_bytes(ceiling.bytes()))
 }
 
 /// Registers one model's file, preferring Parquet.

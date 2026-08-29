@@ -26,7 +26,7 @@ use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};
 use crate::proxy::{ClientAddressSource, InvalidTrustedProxy, TrustedProxies, UnknownClientAddressSource};
 use crate::raw::RawSettings;
-use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace};
+use crate::runtime::{AdmissionTimeout, EngineWorkers, QueryConcurrency, RuntimeSettings, ShutdownGrace, WorkingSetCeiling};
 use crate::security::{AccessToken, InvalidAccessToken, SecuritySettings, TlsTermination, UnknownTlsTermination};
 use crate::server::{
     BindAddress, BodyLimit, InvalidBindAddress, InvalidBound, InvalidTlsMaterial, RequestTimeout, ServerSettings,
@@ -792,8 +792,14 @@ fn parse_runtime(raw: &RawSettings) -> Result<RuntimeSettings, SettingsError> {
     let admission =
         AdmissionTimeout::parse(raw.runtime.admission_timeout_seconds).map_err(|cause| SettingsError::Bound { cause })?;
     let workers = EngineWorkers::parse(raw.runtime.engine_worker_threads).map_err(|cause| SettingsError::Bound { cause })?;
+    // The one place the machine is asked about its memory. `parse` takes the answer rather than
+    // probing for it, so the interesting case - a ceiling above what the process can reach - is
+    // testable without a machine that has it. `available_memory_bytes` answers `None` where a
+    // platform will not say, and that is recorded on the value rather than assumed away.
+    let working_set = WorkingSetCeiling::parse(raw.runtime.working_set_max_bytes, crate::runtime::available_memory_bytes())
+        .map_err(|cause| SettingsError::Bound { cause })?;
     let grace = ShutdownGrace::parse(raw.runtime.shutdown_grace_seconds).map_err(|cause| SettingsError::Bound { cause })?;
-    Ok(RuntimeSettings::new(concurrency, admission, workers, grace))
+    Ok(RuntimeSettings::new(concurrency, admission, workers, working_set, grace))
 }
 
 /// The two keys that shape the agent-facing prompt.

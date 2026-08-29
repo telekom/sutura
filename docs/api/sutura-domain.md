@@ -3881,6 +3881,7 @@ somebody else's input.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
 - `SourceUnavailable` - The plan named a data system this process did not open.
+- `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 
 #### Implements
 

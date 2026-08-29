@@ -111,7 +111,7 @@ fn run() -> Result<(), String> {
     // 6. The adapters, then the service. Both ports are named exactly here.
     let catalog = LocalCatalog::new(PathBuf::from(settings.catalog().dir()), settings.catalog().version().clone());
     let pinned = catalog.load().map_err(flatten)?;
-    let opened = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime().engine_workers())?;
+    let opened = open_engine(&pinned, settings.catalog().data_dir(), settings.runtime())?;
     // `LocalService::start` loads through the catalog port a SECOND time rather than being handed
     // the bundle above, and that is deliberate: the bundle it validates has to be the bundle it
     // serves, and the only way to guarantee that is for the same call to do both. The load above
@@ -372,10 +372,16 @@ fn names<'table>(tables: impl Iterator<Item = &'table TableName>) -> String {
 /// thread, so a single-threaded one is a ceiling every concurrent question shares - measured flat at
 /// one caller's throughput however many are asking. The command-line tool keeps `new`: it answers one
 /// question and exits. See `DataFusionWarehouse::with_worker_threads` for the numbers.
+///
+/// **It also hands over `runtime.working_set_max_bytes`**, which is what stops the engine installing
+/// its unbounded memory pool - and under `panic = "abort"` an unbounded pool makes a large enough join
+/// process death for every caller in flight rather than a refusal for the one who asked. The whole
+/// group is taken rather than two of its values, because a third bound would otherwise mean a third
+/// parameter here.
 fn open_engine(
     pinned: &PinnedDefinitions,
     data: &std::path::Path,
-    workers: sutura_config::EngineWorkers,
+    runtime: sutura_config::RuntimeSettings,
 ) -> Result<Opened, String> {
     let declared = match sutura_app::sources(pinned).as_slice() {
         [only] => (*only).clone(),
@@ -401,8 +407,12 @@ fn open_engine(
     // absent key from the machine, which reports at least one. Written as a fallback rather than an
     // unwrap because the workspace denies both, and because one worker is the safe direction to fail
     // in - a narrow engine is slow, and a zero-width runtime does not build.
-    let width = core::num::NonZeroUsize::new(workers.count()).unwrap_or(core::num::NonZeroUsize::MIN);
-    let engine = DataFusionWarehouse::with_worker_threads(engine_source, width).map_err(flatten)?;
+    let width = core::num::NonZeroUsize::new(runtime.engine_workers().count()).unwrap_or(core::num::NonZeroUsize::MIN);
+    // The ceiling arrives already parsed - `WorkingSetCeiling::parse` refused a zero and refused a
+    // value above the memory this process can reach - so there is nothing left to check here. The
+    // wrapper exists so a thread count and a quantity of memory cannot be swapped at this call.
+    let working_set = sutura_exec_datafusion::WorkingSet::of_bytes(runtime.working_set().bytes());
+    let engine = DataFusionWarehouse::with_worker_threads(engine_source, width, working_set).map_err(flatten)?;
     let mut attached: BTreeSet<TableName> = BTreeSet::new();
     for model in pinned.definitions().models().values() {
         attach(&engine, model.table(), data)?;

@@ -27,15 +27,26 @@
 //! What it does offer is two narrow, typed attach affordances, [`DataFusionWarehouse::attach_csv`]
 //! and [`DataFusionWarehouse::attach_parquet`], which is what a golden fixture needs.
 //!
-//! # Three files, along two seams
+//! **The engine's memory is bounded, and the bound is not this process's memory.** Every session here
+//! is built with a `RuntimeEnv` carrying a fixed-size pool, because the alternative is the engine's
+//! unbounded one - and under `panic = "abort"` a large enough hash join is then process death for
+//! every concurrent caller rather than an error for the one who asked. A refused reservation leaves as
+//! `RefusalReason::ResourcesExhausted`. What the pool counts is operator reservations and **nothing
+//! else**: not what a driver buffers, not `collect()` materialising every batch, not the row set built
+//! in the conversion loop below. See [`pool`], which states the gap rather than implying it is closed.
+//!
+//! # Four files, along three seams
 //!
 //! `translate.rs` turns a plan into expressions and never reads a result; `collect.rs` turns a result
-//! into domain rows and never reads a plan except for its labels. What is left here is what neither
-//! of them is about: the session, the runtime, attaching a file, and executing.
+//! into domain rows and never reads a plan except for its labels; `pool.rs` is the working-set ceiling
+//! and reads neither. What is left here is what none of them is about: the session, the runtime,
+//! attaching a file, and executing.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use datafusion::common::JoinType as EngineJoin;
+use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::model::{JoinType, SourceName, TableName};
@@ -58,6 +69,17 @@ pub enum DataFusionError {
     Runtime {
         #[source]
         cause: std::io::Error,
+    },
+    /// The execution environment - the bounded memory pool, and nowhere to spill - could not be
+    /// built.
+    ///
+    /// Separate from [`Self::Runtime`], which is the *tokio* runtime: one is a thread pool and one is
+    /// the memory bound, and a deployment that cannot start needs to know which. Like `Runtime` it
+    /// happens once at construction or not at all.
+    #[error("the bounded execution environment this adapter reserves against could not be built")]
+    Environment {
+        #[source]
+        cause: datafusion::error::DataFusionError,
     },
     #[error("could not register {path} as table {table}")]
     Attach {
@@ -155,6 +177,14 @@ mod translate;
 /// labels.
 mod collect;
 
+/// The working-set ceiling.
+///
+/// The pool, the never-spill policy, and how a refused reservation is recognised. Its own file
+/// because it is a third seam, and because `lib.rs` is at the length gate.
+pub mod pool;
+
+pub use crate::pool::WorkingSet;
+
 use crate::collect::{cell, outputs};
 use crate::translate::{bucket_expression, column, measure_expression, predicate, table_reference};
 
@@ -178,12 +208,34 @@ pub struct DataFusionWarehouse {
     /// threads. Nothing in this crate sizes it, and the transport's admission bound does not reach
     /// it.*
     runtime: tokio::runtime::Runtime,
+    /// The pool every operator in this session reserves against, kept rather than derived.
+    ///
+    /// Retained for two reasons. It is what an operator watching a deployment reads - reserved bytes
+    /// against the ceiling, which `docs/adr/0015` specifies and deliberately does not ship until this
+    /// field exists - and reaching it back out of the session context would be a second path to the
+    /// same value.
+    ///
+    /// See [`crate::pool`] for what it counts, which is narrower than "this process's memory".
+    pool: Arc<dyn MemoryPool>,
+    /// The ceiling the pool was built with.
+    ///
+    /// Kept alongside the pool rather than read off it, which is what `docs/adr/0015` decides and for
+    /// a stated reason: `MemoryPool::memory_limit` defaults to `Unknown`, so a pool implementation
+    /// that does not override it reports no ceiling and the ratio an operator wants is unavailable.
+    /// The configured number is always knowable.
+    working_set: WorkingSet,
 }
 
 impl core::fmt::Debug for DataFusionWarehouse {
     /// Hand-written because neither the session context nor the runtime is `Debug`, and because a
     /// session context's own `Debug` would be the sort of thing that prints every registered path
     /// into a log for no benefit.
+    ///
+    /// The pool is not printed either, and `finish_non_exhaustive` is what says so. `GreedyMemoryPool`
+    /// is `Debug`, so it could be - but a `Debug` of a warehouse is a thing that reaches a log by
+    /// accident, and what it would carry is a live reservation figure: a number about the shape of
+    /// whatever question is in flight. [`Self::working_set`] is the accessor for the configured
+    /// ceiling, which is the half that is a configuration fact rather than an observation.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("DataFusionWarehouse")
             .field("source", &self.source)
@@ -196,14 +248,27 @@ impl DataFusionWarehouse {
     ///
     /// There is no file to open, which is the difference from the `DuckDB` adapter: the engine is
     /// this process, and a table exists once it has been attached.
-    pub fn new(source: SourceName) -> Result<Self, DataFusionError> {
+    ///
+    /// **It takes a ceiling, and that is not optional.** `SessionContext::new()` installs the
+    /// engine's unbounded pool, which under `panic = "abort"` makes a large enough join process death
+    /// rather than a refusal - so a constructor that let a caller skip the bound would be the one
+    /// place the whole control could be forgotten. `sutura_config::WorkingSetCeiling::DEFAULT_BYTES`
+    /// is what a caller with no settings to read uses.
+    pub fn new(source: SourceName, working_set: WorkingSet) -> Result<Self, DataFusionError> {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
+        let (environment, pool) = pool::environment(working_set)?;
         Ok(Self {
             source,
-            context: SessionContext::new(),
+            // `new_with_config_rt` rather than `new`, which is the whole of the bound: `new` installs
+            // an `UnboundedMemoryPool`. The config half is the engine's own default here, because a
+            // current-thread runtime has no width to pin - see `with_worker_threads` for the site
+            // where it does.
+            context: SessionContext::new_with_config_rt(SessionConfig::new(), environment),
             runtime,
+            pool,
+            working_set,
         })
     }
 
@@ -236,17 +301,56 @@ impl DataFusionWarehouse {
     ///
     /// [`Self::new`] is deliberately left alone: the command-line tool answers one question and
     /// exits, and it is also the caller with no settings to read a width from.
-    pub fn with_worker_threads(source: SourceName, workers: core::num::NonZeroUsize) -> Result<Self, DataFusionError> {
+    pub fn with_worker_threads(
+        source: SourceName,
+        workers: core::num::NonZeroUsize,
+        working_set: WorkingSet,
+    ) -> Result<Self, DataFusionError> {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(workers.get())
             .thread_name("sutura-engine")
             .build()
             .map_err(|cause| DataFusionError::Runtime { cause })?;
+        let (environment, pool) = pool::environment(working_set)?;
         Ok(Self {
             source,
-            context: SessionContext::new_with_config(SessionConfig::new().with_target_partitions(workers.get())),
+            // `new_with_config_rt` and NOT `new_with_config`: the second takes the default
+            // environment, which carries the engine's unbounded pool. **`with_target_partitions` is
+            // untouched** - `width_tests.rs` asserts both halves of this line, and a partition count
+            // that stops following the width silently builds sixteen-way plans on a two-worker
+            // runtime.
+            context: SessionContext::new_with_config_rt(SessionConfig::new().with_target_partitions(workers.get()), environment),
             runtime,
+            pool,
+            working_set,
         })
+    }
+
+    /// The pool every operator in this session reserves against.
+    ///
+    /// **An accessor because the fields are private and stay private**, and because
+    /// `docs/adr/0015` needs `MemoryPool::reserved` for a gauge whose absence it currently specifies:
+    /// a gauge reading zero while no pool exists is a lie an operator builds an alert on.
+    ///
+    /// **State the limit with the reading.** What comes back counts operator reservations - a
+    /// hash-join build side, aggregate state, a sort - and nothing else. It is not this process's
+    /// memory, and it must not be alerted on as though it were: `collect()` materialising every batch
+    /// and the row set built during conversion are both outside it, on the same request path.
+    #[inline]
+    #[must_use]
+    pub fn memory_pool(&self) -> &Arc<dyn MemoryPool> {
+        &self.pool
+    }
+
+    /// The ceiling this adapter's pool was built with.
+    ///
+    /// From the configured value rather than from `MemoryPool::memory_limit`, which defaults to
+    /// `Unknown`: a pool that does not override it reports no ceiling, and then the reserved-against-
+    /// ceiling ratio an operator actually wants cannot be computed.
+    #[inline]
+    #[must_use]
+    pub const fn working_set(&self) -> WorkingSet {
+        self.working_set
     }
 
     /// Exposes a CSV file as a table.
@@ -423,6 +527,17 @@ impl Warehouse for DataFusionWarehouse {
     fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
         self.runtime.block_on(self.rows(plan))
     }
+
+    /// The one question the domain asks about this adapter's error, answered from the one variant
+    /// that means it. [`pool::refused_a_reservation`] is the exhaustive match; this is the ceiling.
+    ///
+    /// `u64` because the refusal is a domain value and the domain does not know how wide this
+    /// target's pointers are. `try_from` cannot fail on any target this ships to; the fallback is
+    /// `u64::MAX` rather than `None`, because losing the refusal would put the caller back on the
+    /// `503` this whole variant exists to get them off.
+    fn working_set_exhausted(&self, error: &Self::Error) -> Option<u64> {
+        pool::refused_a_reservation(error).then(|| u64::try_from(self.working_set.bytes()).unwrap_or(u64::MAX))
+    }
 }
 
 /// The half of the value mapping that is shared with the data source, in its own file.
@@ -457,6 +572,11 @@ mod tests {
 
     fn day(iso: &str) -> Date {
         Date::parse(iso).expect("a test date is a date")
+    }
+
+    /// A ceiling no test in this module is meant to reach. The bound has its own suite in `pool.rs`.
+    fn roomy() -> super::WorkingSet {
+        super::WorkingSet::of_bytes(core::num::NonZeroUsize::new(64 * 1024 * 1024).expect("a test ceiling is positive"))
     }
 
     fn real(value: f64) -> Real {
@@ -525,7 +645,7 @@ mod tests {
     /// `register_batch` is synchronous and takes a `RecordBatch`, so a test needs no fixture file and
     /// no temporary directory - which is what lets the end-to-end cases below run in the unit suite.
     fn warehouse(batch: RecordBatch) -> DataFusionWarehouse {
-        let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"))
+        let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"), roomy())
             .expect("a current-thread runtime builds");
         drop(
             adapter
@@ -846,7 +966,7 @@ mod tests {
         // An unattached table must be an error and not an empty result, because an empty result
         // reads as "there was no revenue in June". The engine resolves every name during analysis,
         // so that holds on the only pass this adapter makes.
-        let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"))
+        let adapter = DataFusionWarehouse::new(SourceName::parse("local").expect("a test source is a source"), roomy())
             .expect("a current-thread runtime builds");
         let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
 

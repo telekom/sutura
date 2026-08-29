@@ -146,9 +146,13 @@ const TAG: &str = "query";
             status = 422,
             description = "REFUSED - `outcome: refusal`. The question is well formed and out of \
                            bounds. `code` says which bound: `time_range_too_long`, \
-                           `too_many_dimensions`, `duplicate_dimension`, or `grain_not_supported` \
-                           (the metric exists; that grain is not defined for it). Repeating the \
-                           request unchanged will fail the same way; the detail carries the limit.",
+                           `too_many_dimensions`, `duplicate_dimension`, `grain_not_supported` \
+                           (the metric exists; that grain is not defined for it), or \
+                           `resources_exhausted` (answering needed more working memory than this \
+                           deployment's ceiling, and it was refused rather than allowed to exhaust \
+                           the process - narrow the period or group by fewer dimensions). \
+                           Repeating the request unchanged will fail the same way; the detail \
+                           carries the limit.",
             body = OutcomeBody
         ),
         (status = 429, description = "Too many requests from this address.", body = crate::problem::ProblemBody),
