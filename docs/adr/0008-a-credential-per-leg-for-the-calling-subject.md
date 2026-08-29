@@ -283,6 +283,92 @@ requirement rather than a documented PostgreSQL position.
 token that opened it - the same conclusion the expiry discussion reaches from the other direction, and
 one more reason a long-lived session is the wrong shape here.
 
+**Option B needs two pieces nobody ships together, and this is what each costs.** The paragraphs above
+say the option costs "a bespoke security-critical C library in the server". That was right about the
+shape and pessimistic about one half and optimistic about the other, so the state of both is recorded
+here rather than left to whoever picks the step up.
+
+*Verified:* `oauth_validator_libraries` is `PGC_SIGHUP` with `GUC_SUPERUSER_ONLY` and a default of the
+empty string, so it is settable in `postgresql.conf` or on the postmaster's command line and nowhere
+else. **That makes option B a self-managed option**, which is what this record assumes throughout: it
+needs a file on the server's filesystem and a line in that server's configuration. *Verified, and it is
+one sentence because it is a limit rather than a path:* no major managed PostgreSQL offering exposes the
+`oauth` host-based-authentication method - the managed identity integrations put a short-lived token in
+the password field instead, which is a different mechanism - so a deployment on one has no impersonation
+path through this record's option B at all.
+
+**The server half: a module exists, it is not the stub, and its state should be read rather than
+assumed.** *Verified:* upstream writes a validator - `src/test/modules/oauth_validator/validator.c` - and
+it is a test double rather than a starting point: it authorizes every token, reads the answer out of two
+of its own settings, checks no signature, issuer, audience or expiry, and logs the bearer token at `LOG`.
+It also reaches no installed artifact, because `src/Makefile`'s `SUBDIRS` names `test/regress`,
+`test/isolation` and `test/perl` and never `test/modules`. Of the third-party modules, checked on
+2026-08-29: `percona/pg_oidc_validator` is the only one that publishes packages - Apache-2.0, C++23,
+module version 1.1.0, packaged as `percona-pg_oidc_validator18` and installed in Percona's PostgreSQL 18
+distribution image - while `cloudnative-pg/postgres-keycloak-oauth-validator` (Apache-2.0, marked
+EXPERIMENTAL, Keycloak-specific), `TantorLabs/oauth_validator` and `proddata/pg_oauth_validator` publish
+no release and no tag between them. **None presents itself as production-ready**, which is a persistent
+condition rather than a young-project one: the feature's own design puts every provider-specific decision
+in the module, so a batteries-included validator is not a thing upstream withheld.
+
+***Verified by reading `pg_oidc_validator` 1.1.0's `validate_token`, and it lands on this record rather
+than on that module:*** it fetches the issuer's OIDC discovery document and its JWKS on every
+authentication, verifies the token's signature and its `iss` claim against the `pg_hba.conf` `issuer=`,
+and requires the entry's `scope=` to be a subset of the token's `scp` and `scope` claims - **and it
+checks no `aud` claim at all.** The option B paragraph above reasons that "the validator is told to check
+audience" and infers RFC 8693 from that requirement; against this module the inference has nothing to
+rest on, and a token minted for any audience at the same issuer, carrying the right scope, authenticates.
+A second thing worth knowing before writing a fixture: `scope=""` does not merely skip the scope
+comparison, it sets the result to authorized unconditionally. **So "the validator checks audience" is a
+property to require of a chosen module and to test for, not one to assume from the mechanism.**
+
+**The client half is the smaller half, and Rust is the ecosystem that has neither shipped it nor started
+it.** *Verified on 2026-08-29:* `libpq` has `OAUTHBEARER` compiled unconditionally, and `jackc/pgx`
+merged OAuth support on 2026-03-01, so a shipped reference implementation exists to read; `pgjdbc` has an
+open pull request and `node-postgres` has one whose title is itself the shape argument below - *"Add SASL
+OAUTHBEARER support with application-supplied tokens"*. `tokio-postgres` and `sqlx` declare
+`SCRAM-SHA-256` and `SCRAM-SHA-256-PLUS` and nothing else, and neither repository carries an issue or a
+pull request about OAuth - and note that `sqlx` has moved to `transact-rs/sqlx`, so searching the old
+path finds nothing for the wrong reason. *Verified:* supplying a token you already hold to `libpq` is
+reachable only from C - there is no connection parameter, and `PQsetAuthDataHook` with a
+`PGoauthBearerRequest` is the whole interface. So the missing client work is nameable and small: the
+`OAUTHBEARER` initial client response carrying the token, one challenge/response round, **token-first** -
+the mechanism performs the SASL exchange and never talks to an identity provider, because part 4's
+`LegCredentials` is where the token comes from. Two pieces, then, and neither mysterious: a validator the
+operator installs, and a SASL mechanism we write.
+
+**What a client can determine about any of this at boot, which is narrower than it looks.** The
+deployment already opens a connection at boot, so a check has somewhere to live, and it was worth
+establishing what such a check can actually observe before writing one:
+
+- *Verified:* `SHOW oauth_validator_libraries` and `current_setting('oauth_validator_libraries')` are
+  gated by the `GUC_SUPERUSER_ONLY` flag above. A role that is neither superuser nor a member of
+  `pg_read_all_settings` gets SQLSTATE `42501`, `permission denied to examine
+  "oauth_validator_libraries"`, with a detail naming that role.
+- *Verified, and it is the query that looks right and cannot fire:* `pg_settings` **omits the row
+  entirely** for such a role rather than showing it as null. Zero rows is therefore indistinguishable
+  from a server too old to have the parameter, so a check written over that view cannot tell "not
+  permitted" from "not PostgreSQL 18".
+- *Verified:* `current_setting('oauth_validator_libraries', true)` separates the three states, because
+  the missing-parameter branch returns before the privilege check - null for a server without the
+  parameter, `42501` for one that has it and will not show it, and the value otherwise, where an empty
+  string is the no-validator case.
+- *Verified, and it is what bounds such a check hardest:* the state a boot check would most want to
+  catch is **not reachable on a running server.** An `oauth` line in `pg_hba.conf` with an empty
+  `oauth_validator_libraries` fails upstream's own `check_oauth_validator`, which makes `load_hba()`
+  return false, which at startup is `FATAL: could not load pg_hba.conf` - the postmaster exits. On a
+  reload the new file is rejected wholesale and the previously parsed one stays in force. So this
+  record's "an empty value refuses every OAuth connection" is if anything understated, and a boot check
+  is moving a loud failure earlier rather than closing an open one.
+
+Two consequences for the check, and they are the reason it is written here rather than invented at the
+call site. It is worth having for the case that *is* reachable - a source declared
+`ImpersonationAtSource` against a server whose `server_version_num` is below 180000, which needs no
+privilege to read. And it has to be **three-valued**: refuse, refuse, or record undetermined and say so
+in the startup log, naming the source. Collapsing the third into a pass is how it would fail to a false
+green in every deployment that had not granted its boot role `pg_read_all_settings` - and that grant is a
+deliberate one rather than a default, because the role exposes every setting, file paths included.
+
 ### Oracle
 
 Read against Oracle AI Database 26ai, the current release, with 19c noted where a claim is

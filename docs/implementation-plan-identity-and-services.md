@@ -391,11 +391,24 @@ conformance packs cover.
 corpus registration are already merged and green on a static credential, so this step changes exactly
 one thing: how the connection is authenticated.
 
-**Blocked on one verification, to do FIRST:** whether the client that adapter chose speaks SASL
-OAUTHBEARER. A pure-Rust protocol implementation may not - and if it does not, the choice is between a
-second client for this source and a different authentication route, which is a decision on merged code
-rather than a redesign of an unbuilt step. Also confirm that a validator module exists for the
-deployment's identity provider.
+**The verification this step was blocked on is DONE, and the answer is the unwelcome one.** It asked
+whether the client the adapter chose speaks SASL `OAUTHBEARER`. Neither Rust client does: `tokio-postgres`
+and `sqlx` each declare `SCRAM-SHA-256` and `SCRAM-SHA-256-PLUS` and nothing else, and neither repository
+carries an issue or a pull request about OAuth - checked on 2026-08-29, and `sqlx` has moved to
+`transact-rs/sqlx`, so a search of the old path finds nothing for the wrong reason. So the option this
+paragraph used to leave open - "a second client for this source" - has one occupant, `libpq`, and
+supplying a token you already hold to `libpq` is reachable **only from C**: there is no connection
+parameter for it, and `PQsetAuthDataHook` with a `PGoauthBearerRequest` is the whole interface. The step
+therefore owes **first-party protocol code**, and that is scoped rather than open-ended - see *Adds*.
+
+**And the server side owes a module, which `feat/compose-tier` established the route for.** Core
+Postgres ships no validator; upstream's stub is `src/test/modules/oauth_validator/validator.c` and
+reaches no installed artifact, because `src/Makefile`'s `SUBDIRS` never names `test/modules` and the
+official image deletes its source and its toolchain. The route that needs no compiler is a prebuilt one
+on the registry the tier already reaches: `percona/percona-distribution-postgresql:18` installs
+`percona-pg_oidc_validator18`. `compose.services.yaml`'s postgres block carries the whole finding, the
+module's maturity and the reason the fixture belongs under the `identity` profile; this step wires it and
+brings it up, which is what proves it.
 
 **A third prerequisite was listed here and is withdrawn, because it was checked and it is false.** The
 earlier version required that the `libpq` in the toolchain be built with curl. Curl is needed only for
@@ -413,6 +426,43 @@ whoever picks it up a day.
 subject so the source maps it to a role. **Not** `SET ROLE` on a pooled connection: `RESET ALL` does
 not clear the role, `SET LOCAL ROLE` outside a transaction fails open, and four advisories name
 shared-pool-plus-role-switching.
+
+**Adds, second: a token-first `OAUTHBEARER` mechanism, and the scope is the smallest honest one.** The
+initial client response carrying the bearer token, and one challenge/response round for the failure
+case - which is deliberately the same scope the `node-postgres` work limits itself to. **Token-first**
+means the adapter supplies a token and the mechanism performs the SASL exchange and nothing else: no
+discovery, no device flow, no identity-provider conversation, because part 4's `LegCredentials` is
+already where the token comes from. `pgx` has a shipped implementation to read against - the OAuth
+support merged into `jackc/pgx` on 2026-03-01 - so this is a port of a known-good exchange rather than a
+protocol design. It belongs in the adapter crate, not in the driver: a fork of `tokio-postgres` is a
+maintenance liability this step does not need if the driver exposes enough of the authentication
+handshake, and **whether it does is the one thing to check before writing any of it.**
+
+**Adds, third: a boot refusal for a source that declares impersonation against a server that cannot do
+it - and its scope is smaller than it sounds, because the failure is already closed.** Today such a
+deployment discovers the problem at its first question; the deployment already opens a connection at
+boot, so the check has somewhere to live. What it must NOT be sold as is plugging a hole:
+[a credential per leg](adr/0008-a-credential-per-leg-for-the-calling-subject.md) records the
+determinability findings, and two of them bound this check hard. An `oauth` line in `pg_hba.conf` with an
+empty `oauth_validator_libraries` is refused at HBA parse, so the postmaster does not start at all - that
+state is not reachable on a running server. And `oauth_validator_libraries` is `GUC_SUPERUSER_ONLY`, so
+the boot role usually cannot read it. So the check is three-valued and the middle value is the honest one:
+
+- **Refuse** when the server does not have the mechanism at all - `server_version_num < 180000`. Free,
+  needs no privilege, and it is the misconfiguration that actually happens: a source declared
+  `ImpersonationAtSource` pointed at a Postgres 17.
+- **Refuse** when `current_setting('oauth_validator_libraries', true)` returns an empty string, which is
+  readable only where the boot role holds `pg_read_all_settings` or is superuser.
+- **Record UNDETERMINED, in the startup log, naming the source** when that read raises `42501`. It must
+  not collapse into a pass: an operator who wants the stronger check grants the boot role
+  `pg_read_all_settings`, and the record says so with the cost - that role exposes every setting,
+  file paths included, so it is a deliberate grant rather than a default.
+
+**Tests, for that check specifically, and they are unit tests against a fake rather than a container:**
+`a_source_declaring_impersonation_against_a_server_without_the_mechanism_does_not_boot`, its green twin
+with an 18 server, and `an_unreadable_validator_setting_is_recorded_as_undetermined_rather_than_passing` -
+the third is the one that stops the check being written as a two-valued one that passes on refusal to
+answer, which is how it would fail to a false green in every deployment that did not grant the role.
 
 **Tests.** The two-subject test that cannot exist today, and three assertions rather than one, because
 "different rows" alone would pass against a fixture that differed for the wrong reason. Compose tier by
