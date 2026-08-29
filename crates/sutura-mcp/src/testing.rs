@@ -171,9 +171,36 @@ impl Surface for FailingSurface {
         &self.definitions
     }
 
-    fn answer(&self, _query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
+    fn answer(
+        &self,
+        _context: &sutura_domain::identity::RequestContext,
+        _query: &Query,
+    ) -> Result<ToolOutcome, SurfaceFailure> {
         Err(SurfaceFailure::Warehouse {
             cause: Box::new(ConnectionRefused),
         })
+    }
+}
+
+/// A sink that counts, because what this crate's tests need from the audit port is that a call
+/// produced a record - not what the record said. `sutura-http` has a `RecordingSink` that renders
+/// its content; duplicating that here would be a second renderer to keep in step with no test
+/// asserting on it. The record's *content* is covered at the port and at
+/// `sutura_runtime::TracingAuditSink`.
+#[derive(Default)]
+pub(crate) struct CountingSink {
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl CountingSink {
+    /// How many records were written.
+    pub(crate) fn calls(&self) -> usize {
+        self.calls.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl sutura_domain::audit::AuditSink for CountingSink {
+    fn record(&self, _record: &sutura_domain::audit::CallRecord<'_>) {
+        self.calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 }

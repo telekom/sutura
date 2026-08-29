@@ -64,6 +64,7 @@
 //!   binary would call, and which binary gets it - and how a deployment configures it - is a
 //!   composition decision this slice does not take.
 
+mod principal;
 mod refusal;
 pub mod server;
 #[cfg(test)]
