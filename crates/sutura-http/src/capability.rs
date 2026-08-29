@@ -214,10 +214,7 @@ mod tests {
     /// descriptions cannot disagree.
     #[test]
     fn both_transports_describe_the_same_tools() {
-        let mut covered: Vec<&str> = governed()
-            .iter()
-            .map(|governed| governed.capability().id())
-            .collect();
+        let mut covered: Vec<&str> = governed().iter().map(|governed| governed.capability().id()).collect();
         covered.sort_unstable();
         let mut expected: Vec<&str> = Capability::every().map(Capability::id).collect();
         expected.sort_unstable();
@@ -257,9 +254,7 @@ mod tests {
         // unprefixed path would gate nothing, because `MatchedPath` carries the full template.
         assert_eq!(capability_of(&Method::GET, base_paths::CATALOG), None);
         assert!(
-            governed()
-                .iter()
-                .all(|governed| governed.route().starts_with(API_V1_PREFIX)),
+            governed().iter().all(|governed| governed.route().starts_with(API_V1_PREFIX)),
             "a governed route outside the version prefix would never be reached by the layer"
         );
     }
