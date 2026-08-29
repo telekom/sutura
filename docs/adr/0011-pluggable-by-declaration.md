@@ -285,7 +285,7 @@ the ones that exist today are marked.
 | --- | --- |
 | Wren-style markdown and YAML | ships |
 | OKF-style markdown and YAML | target |
-| Datahub | target, and the one that has been **measured** rather than assumed - [what DataHub can carry](0016-what-datahub-can-carry.md) reads its published model field by field and finds a narrow source, so it is the canonical instance of the composition case below rather than of the rich one |
+| Datahub | target, and the one that has been **measured** rather than assumed - [what DataHub can carry](0016-what-datahub-can-carry.md) reads its published model field by field and finds a narrow source, so it is the canonical instance of an adapter that DECLARES rather than of the rich one that needs no declaration. It is also the record that schedules the metadata-side declaration this section describes, and that found composition is not a precondition for a narrow source |
 | OpenMetadata | target |
 | A custom data catalog over an RDBMS | target, and the one specified in full below - including the thing it may NOT do, which is contribute source-level usage prose to the prompt |
 | BPMN | target |

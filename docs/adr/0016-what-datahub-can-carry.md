@@ -1,12 +1,22 @@
 ---
 title: What DataHub can carry, and the measure it cannot
-description: A research spike, measured against the SemanticCatalog port rather than reasoned about - DataHub 1.7.0 does now have first-class metric and semanticModel entities, and what it holds a measure as is a raw expression string tagged with a dialect, so it carries the physical model, the descriptions, the joins with a declared cardinality and a rich glossary, and carries no measure this repository will execute, no definitional filter, no grain, no value allowlist and no anchor; therefore a DataHub adapter is a COMPOSITION step and not a registration, the catalog conformance matrix cannot take it as an entry, and the contribution manifest 0011 decided is on its critical path.
+description: A research spike, measured against the SemanticCatalog port rather than reasoned about - DataHub 1.7.0 does now have first-class metric and semanticModel entities, and what it holds a measure as is a raw expression string tagged with a dialect, so it carries the physical model, the descriptions, the join columns and a conditional glossary, and carries no measure this repository will execute, no reliable cardinality, no definitional filter, no grain, no value allowlist and no anchor; the two golden adapters stay the reference and keep the strict oracle test, and DataHub is a DECLARING adapter whose declaration must name every one of those absences rather than leave it to silence.
 ---
 
 # What DataHub can carry, and the measure it cannot
 
 Status: **accepted as a finding. No adapter is written, no crate exists, and no dependency was added.**
-The finding is the deliverable; the decision it forces is about sequencing.
+The finding is the deliverable; the decision it forces is about what an adapter declares.
+
+**Reframed after review, and the reframe is recorded rather than smoothed over.** The measurements
+below are unchanged and were independently verified. What changed is the conclusion drawn from one of
+them: the first version read the catalog conformance matrix as every adapter's contract and concluded
+that DataHub needs a *composition* step before it can be useful. It does not. The oracle test is the
+**golden adapters'** contract, and everything else conforms or declares - which is what
+[pluggable by declaration](0011-pluggable-by-declaration.md) already decided and what
+`sutura-catalog-local`'s own documentation already says about itself. The withdrawn reading is written
+out in *Alternatives considered* rather than deleted, because the reasoning that produced it is the
+reasoning somebody will produce again.
 
 `AGENTS.md`'s crate table lists a `-datahub` crate as planned. Four accepted records name DataHub as a
 metadata connector -
@@ -26,14 +36,19 @@ Three answers were possible and each implies different work:
 
 | If DataHub supplies | It is | What it costs |
 | --- | --- | --- |
-| complete `Definitions` | a second `SemanticCatalog` implementor, under the definition digest | low - a registration, as the invariant promises |
+| complete `Definitions` | a second adapter held to the golden adapters' own contract | low - a registration, as the invariant promises |
 | descriptions and a glossary only | a `Knowledge` source, which this repository confines to descriptive content with the prompt as its only consumer | a different feature, arguably a different port |
-| **part** - the physical model and the prose, the measure still authored | a **merge** story that does not exist | expensive: the digest and *a catalog edit cannot change what executes* both bite |
+| **part** - the physical model and the prose, the measure still authored | a **declaring** adapter: it says which kinds it provides and which it does not, and is tested against that | a required capability declaration on `SemanticCatalog`, which does not exist yet |
 
 **It is the third.** The reason is not the one that was expected, and the difference matters enough to
 be the substance of this record: the expectation was that DataHub has no metric at all. As of
 **1.7.0** it has one, it is `category: core`, and what it holds a measure as is **a raw expression
 string tagged with a dialect.**
+
+**The third row's cost is written as it is now understood, and it is smaller than the first version of
+this record said.** That version priced it as a merge story - an assembler over several sources plus a
+contribution manifest that moves every committed digest. The declaring reading prices it as a required
+associated item on one port. Both are real work; only one of them is in the way.
 
 ## What was measured against
 
@@ -126,7 +141,7 @@ pedantic: one aspect's schema version already differs between the tag and the br
 | `Model.source` | the `dataPlatform` URN, and `dataPlatformInstance` | **faithful**, with a name mapping a deployment decides |
 | `Model.description` | `datasetProperties`, `editableDatasetProperties`, `documentation`, `institutionalMemory` | **faithful, and richer than ours** - separate ingested and human-edited prose, and multiple documentation sources |
 | `Relationship` endpoints | `SemanticModelRelationship.from`/`fromColumns`/`to`/`toColumns`, or `schemaMetadata.foreignKeys` | **faithful, and WIDER**: both are arrays, so a multi-column join is expressible where ours is one column each |
-| `Relationship.join_type` | `SemanticModelRelationship.cardinality` | **partly** - see below |
+| `Relationship.join_type` | `SemanticModelRelationship.cardinality`, and `ERModelRelationshipProperties.cardinality` | **present, and declared unsupported anyway** - see below |
 | `Measure` | `MetricInfo.expression`, or a `MEASURE`-annotated field's `aggregationFunction` | **NOT faithful** - see below |
 | `Metric.required_filters` | nothing first-class | **absent** - see below |
 | `Metric.time_column` | `Dimension.isTime` marks a dimension as temporal | **partly**: which dimension is time, not which column a metric measures time on |
@@ -322,97 +337,242 @@ converged, and it is a better place to look than at any one tool's model.
 **Case three. DataHub supplies part of a semantic model as this repository defines one.**
 
 Precisely: it supplies **the physical model, the descriptions, the joins with a declared cardinality,
-and a rich glossary.** It does not supply **a measure this repository will execute, a definitional
-filter in any form, a grain, a value allowlist, or an anchor.**
+and a glossary that needs a metric to point at.** It does not supply **a measure this repository will
+execute, a definitional filter in any form, a grain, a value allowlist, or an anchor.**
 
-And the sharpest consequence is not in the mapping table. It is in the test suite:
+There is a sharp consequence in the test suite, and it is worth stating before the decision because
+the first version of this record drew the wrong conclusion from it.
 
-**The catalog conformance matrix cannot take DataHub as an entry.**
 `crates/sutura-app/tests/golden/catalogs.rs` expands seven behaviours over every registered catalog,
 and its central one is `agrees_with_the_oracle`: every registered `SemanticCatalog` must produce
 **the same `Definitions`** as the hand-written oracle over `examples/single-player`. That corpus
 contains `measure: { simple: { aggregate: sum, column: mrr_cents } }` and
 `required_filters: [{ equals: { column: status, value: active } }]` and `grains: [month]` and value
-allowlists and an anchor. A source that cannot express five of those cannot pass that test, and no
-amount of adapter code changes that - the missing thing is in the source.
+allowlists and an anchor. **A source that cannot express five of those cannot pass that test**, and no
+amount of adapter code changes it - the missing thing is in the source. That finding stands, and it has
+been verified independently rather than taken on this record's word.
+
+**What it MEANS is the part this record had to correct.** The first version concluded that DataHub
+therefore needs a *composition* step in front of it - something to supply the measures so that a
+combined bundle could satisfy the oracle. That is one reading. It is not the one this repository had
+already decided, and the difference is not cosmetic: composition-first makes a narrow source unusable
+until unbuilt work lands, and the reading below makes it usable now.
+
+**The reading that matches [pluggable by declaration](0011-pluggable-by-declaration.md) is that the
+oracle test is the GOLDEN adapters' contract and not every adapter's.** There are two golden adapters.
+`sutura-catalog-local` is the metadata reference - wren-style, where the model and the structures are
+defined here, so it can be held to producing all of them - and `sutura-exec-duckdb` is the data-system
+reference. Everything else **conforms, or declares what it does not provide.** A declaring adapter is
+then tested against its own declaration rather than against the reference bundle: what it says it
+provides must be exactly what it provides, and what it says it does not provide must be **visibly
+absent rather than silently missing.**
+
+That is not this record's idea to invent. It is in the tree already, in `sutura-catalog-local`'s own
+words, and it predicted this case before anybody measured it:
+
+> **This adapter declares every knowledge capability there is, and that is a statement about the
+> ADAPTER rather than about the directory it read.** [...] A metadata-service adapter is the other
+> case: it has glossary terms with synonyms and no way at all to record an absence, so it will declare
+> the two it can represent and never the other two. [...] `KnowledgeCapabilities::all` rather than a
+> list of the four, deliberately [...] which is what makes this **the reference adapter** [...] An
+> adapter mapping a fixed external schema gets the opposite treatment - `of([..])`, so a new kind
+> leaves its declaration alone.
+
+**That prediction is now measured, and it is nearly right and wrong in one checkable place.** DataHub
+does have glossary terms and does have no way to record an absence, exactly as written. What it does
+not have is synonyms *on the glossary term*: `GlossaryTermInfo` has no such field, and the synonym list
+lives on `AiContext` instead. The shape of the conclusion survives; the field it names moved.
 
 So the invariant *"Adding a metadata provider or a data system is a registration, not a test edit"* is
-**true as written and was never measured against a narrow source.** It holds for a provider that can
-carry the whole model. DataHub is the first candidate that cannot, and the honest statement is the
-scoped one: a registration is what it costs to add a provider that carries a bundle; a provider that
-carries part of one costs the composition work first. That is not a defect in the invariant and it is
-not a reason to weaken the row - it is the row's scope, found by trying to use it.
+**true as written, and what this record adds is WHICH test.** For a golden adapter it is the oracle. For
+a declaring adapter it is fidelity to its declaration - still a registration plus a declaration rather
+than a test edit, because the declaration is what selects the assertions.
+
+**And a narrow source is usable on its own, which is the claim the composition-first reading quietly
+denied.** Checked rather than assumed: `Definitions::assemble` has **no minimum-metric refusal** -
+there is no `NoMetrics` variant and no such check anywhere - so a bundle of models, relationships and
+zero metrics assembles, pins and validates, because zero metrics is zero anchors. 0011 already says the
+prompt can state *this deployment carries no certified metric layer* as a fact derived from what it was
+handed rather than from something a source claimed. A DataHub-only deployment therefore gets a bundle,
+a prompt that tells the truth about it, and a path to add metrics. It does not get a refusal at load
+for being narrow.
+
+**The honest limit on that, stated next to the claim, and it is not about DataHub.** What a zero-metric
+bundle cannot do on its own is open a data system, and the two composition roots differ - which is
+worth getting right because the mechanism moved recently. `sutura-cli` takes one data directory on the
+command line, reads no source registry, and refuses a catalog declaring **no models** - *"this catalog
+declares no models, so there is nothing to open"* - which a DataHub bundle passes, and refuses one
+naming a source it has no adapter for. `sutura-serve` does **not** compare names: every source a
+catalog names needs a `sources.<alias>` entry declaring a `SourceKind`, and a missing one is
+*"this catalog reads from `<source>`, and no `sources.<source>` entry declares where that ..."*. So a
+DataHub bundle whose models carry platform URNs is servable exactly when a deployment has declared a
+source per platform it wants to read. **That is configuration, not a refusal of DataHub**, and it is
+the concrete thing the guidance below has to mention. It is written here so nobody reads *usable alone*
+as *answers questions alone*.
 
 ## The decision
 
-**1. DataHub is adopted as a NARROW metadata source, and never as a source of a measure.**
+**1. There are two golden adapters, and they are the reference everything else is measured against.**
 
-It declares structure, descriptions, relationships-with-cardinality and glossary content. It declares
-no metrics, in the sense
-[pluggable by declaration](0011-pluggable-by-declaration.md) means declaring: the capability
-vocabulary is what a provider says it provides, and a provider that does not declare metrics cannot
-contribute one. This is 0011's own split - *"structure and meaning can be harvested; the measure is
-declared"* - and this record supplies the mechanism-shaped reason for it that 0011 could only assert.
+`sutura-catalog-local` on the metadata side and `sutura-exec-duckdb` on the data side. The reason a
+golden adapter can be held to the whole model is that the model is defined here: a wren-style directory
+of markdown with YAML frontmatter has a document shape for every field `Definitions::assemble` needs,
+so *"produce the same `Definitions` as the hand-written oracle"* is a contract it can meet. **That
+contract stays exactly as it is and is not weakened by anything in this record.**
 
-**2. `metricInfo.expression` is READ and REPORTED, never executed and never converted.**
+**2. Every other adapter conforms, or DECLARES what it does not provide - and the negatives are the
+point.**
 
-A DataHub metric that exists is a **promotion candidate**: a name, a description, an owner, a semantic
-model, a set of dimensional fields, and a string somebody wrote in a dialect we do not render. What a
-DataHub adapter may do with the string is show it to a person deciding whether to author a `Measure`.
-What it may not do is compile it, translate it, or infer a `Measure` from the `aggregationFunction`
-beside it. **Unbuilt**, and it is a decision about what the adapter will be permitted to do rather
-than a description of anything that exists.
+An absence must be **declared**, never inferred from silence. 0011 decided this and already carries the
+three-state distinction that makes it work: *declared*, *not declared*, and *declared-and-empty*, with
+the note that *not declared* means the prompt must not imply the absence list is complete. A map with
+no entries cannot tell those apart, which is why the declaration exists at all.
 
-**3. The DataHub adapter is BLOCKED on the composition work, and that is its dependency.**
+**The mechanical shape to reuse is already in the tree, and it should be copied rather than reinvented.**
+`Warehouse::IMPERSONATION` is an associated constant **with no default**, so an adapter that omits it
+does not compile - pinned by a `compile_fail` doctest whose struct is literally named `Undeclared`,
+beside a compiling twin named `Declared` differing in exactly the one line. Its own documentation gives
+the argument in full: *"A defaulted capability would mean an adapter that said nothing got the benefit
+of the doubt in whichever direction the default pointed - and both directions are wrong."* And the
+negative has a **name** rather than being an absence: `ImpersonationCapability::NoPlaceForASubject`,
+whose doc says saying so explicitly is the point.
 
-A narrow source is only useful composed with something that carries the measures. 0011 decided the
-whole of what that needs and none of it is built: an assembler in `sutura-app` over N
-`SemanticCatalog` ports, one-source-per-kind-per-entity with a refusal naming both on a conflict, no
-precedence for metrics ever, per-source required/optional availability, and **the contribution
-manifest hashed as a third element beside the definitions and the knowledge** - without which
-*"the bundle records that an optional source was unreachable"* is a claim the digest cannot make.
-So the plan gains two rows rather than one: the composition step, and the connector on top of it.
+The contrast next door is the other half of the vocabulary. `dry_run` **is** defaulted, and its doc
+explains why: *"an adapter for which it is not cheaper has no way to say so if the port demands an
+implementation, and the honest thing for it to do is nothing."* So the rule this record adopts is that
+one: **a capability whose absence changes what a caller may believe is required with no default; a
+capability whose absence is merely a missed optimisation may be defaulted, and the default says why.**
 
-**4. A relationship whose cardinality is absent or `N_N` is refused at load, by the adapter, naming
-the relationship.** Not defaulted, in either direction. `ManyToOne` as a default assumes the fan-out
-away and `OneToMany` refuses every dimension, so neither is a default - one is unsafe and the other is
-a silent feature removal. The refusal is the adapter's own typed error, because mapping a source's
-vocabulary is what an adapter is for.
+The metadata-side analogue does not exist yet. `SemanticCatalog` today is an associated `Error` and
+`load`, and nothing on it declares anything. **That is the gap this record schedules**, and it is the
+one thing here that is a change to a port rather than a new adapter.
 
-**5. Lineage is out of scope, and `docs/architecture.md` overstated it.** That page says metrics,
-dimensions, the glossary *and lineage* arrive through `SemanticCatalog`. There is no lineage type in
-the workspace and none is planned, so the sentence claims an input that does not exist. Corrected on
-this branch, in the same diff as this record, because an overstated claim is itself the defect.
+**3. What DataHub declares, concretely - and this is where the research lands.**
+
+Not a list of blockers. The content of a declaration, with the negatives named because naming them is
+what makes the source safe to use:
+
+| Kind | DataHub declares | On the evidence of |
+| --- | --- | --- |
+| Structure - tables, columns, types | **provides** | `dataset` + `schemaMetadata.fields` |
+| Descriptions | **provides**, and richer than ours | four aspects, ingested and human-edited kept apart |
+| Relationships - the join columns | **provides**, with a caveat below | `SemanticModelRelationship`, or `schemaMetadata.foreignKeys` |
+| Relationship CARDINALITY | **does NOT provide** | optional on the semantic join; on the physical relationship it *defaults to `N_N`*, so a default is indistinguishable from a decision |
+| Metrics and measures | **does NOT provide** | `MetricInfo.expression` is a raw string in a dialect set that does not intersect ours; `aggregationFunction` contradicts it with nothing reconciling the two |
+| Definitional filters | **does NOT provide** | no aspect carries a predicate; the nearest record has no `@Aspect`; structured properties are scalars |
+| Grains | **does NOT provide** | nothing in either package; `Dimension` is one boolean |
+| Value allowlists | **does NOT provide** | no field-level enumeration; the two near-misses enumerate something else |
+| Anchors | **does NOT provide** | DataHub's own FAQ: value computation stays in the BI tool |
+| Glossary phrases | **provides, conditionally** | `AiContext.synonyms` plus `glossaryTermInfo.definition` - and only where the bundle already declares a metric for a `Referent` to name |
+| Caveats | **provides, conditionally** | `institutionalMemory`, `documentation`, `deprecation.note` - same `Referent` condition |
+| Reviewed absences | **does NOT provide** | there is no *deliberately undefined* concept; `deprecation` and `status.removed` are different claims |
+| Worked examples | **does NOT provide** | `AiContext.examples` is free text, and an `Example` must carry a `Query` that validates against the metric's grains, dimensions and allowlists |
+
+**Two of those are "does not provide" where the field EXISTS, and that is the interesting kind.**
+Cardinality and the measure are both present in DataHub and both declared unsupported here - not
+because reading them is hard, but because reading them would be reading something the source does not
+guarantee. The `N_N` default means an unconsidered relationship and a considered many-to-many are the
+same value. The `aggregationFunction`/`expression` pair means taking either one alone certifies half a
+definition. **Declaring those two unsupported is a better outcome than harvesting them**, and it is a
+better outcome than the composition step the first version of this record proposed: it is one line of
+declaration each, it is visible in a diff, and it fails nothing.
+
+**4. `metricInfo.expression` is READ and REPORTED, never executed and never converted.**
+
+A DataHub metric is a **promotion candidate**: a name, a description, an owner, a semantic model, a set
+of dimensional fields, and a string somebody wrote in a dialect this repository does not render. What
+an adapter may do with the string is show it to a person deciding whether to author a `Measure`. What
+it may not do is compile it, translate it, or infer a `Measure` from the `aggregationFunction` beside
+it. **Unbuilt** - a decision about what the adapter will be permitted to do, not a description of
+anything that exists.
+
+**5. A relationship reaches a dimension only where cardinality is declared and representable.**
+Absent or `N_N` is refused by the adapter, naming the relationship, rather than defaulted in either
+direction: `ManyToOne` as a default assumes the fan-out away, and `OneToMany` refuses every dimension,
+so one is unsafe and the other is a silent feature removal. **Under decision 3 this is not a
+degradation** - the adapter declares that it does not provide cardinality, so a deployment reads that
+in the declaration rather than discovering it when a dimension is missing. The relationship still
+arrives; what it cannot do on its own is license a join.
+
+**6. `agrees_with_the_oracle` is NOT weakened, and a declaring adapter needs a different assertion.**
+
+Specified here and deliberately not written in this branch. The golden adapters keep the oracle test.
+A declaring adapter gets **declaration fidelity**, which is two assertions rather than one:
+
+- *everything it declared, it produced* - for each declared kind, the bundle carries content of that
+  kind, so a declaration is not aspirational;
+- *everything it did not declare is absent* - nothing of an undeclared kind appears in the bundle,
+  which is the direction `Knowledge::assemble`'s `UndeclaredContent` guard already covers for knowledge
+  and which nothing covers for definitions.
+
+Plus the negative-capability shape 0012 already decided: **where a declared absence has something to
+try, the pack tries it and the absence must hold**, and where there is nothing to perform, no test is
+written - because *"a green test named `..._is_declared_unsupported_...` over nothing is
+coverage-shaped and measures nothing"*. A metadata adapter that declares it provides no grains has
+nothing to perform, so what holds there is the fidelity assertion above and not an invented action.
+
+**7. Guidance, not requirement - and it is the easiest thing here to overshoot.**
+
+A deployment that already runs DataHub gets value from the model it already has: that is decision 3,
+and nothing in the docs may turn it into a precondition. So the guidance that lands with the connector
+**states what a user MAY populate and what each thing buys**, once, with the benefit next to it - and
+never that DataHub must be configured a particular way for this to work. Concretely, the shape it may
+take: a semantic model with `cardinality` set on its relationships lets those relationships license a
+join; `AiContext.synonyms` on a metric a deployment has also certified lets a glossary phrase render;
+and a `sources.<alias>` entry per platform a DataHub model names is what lets that model's data system
+be opened at all. **Each of those is an option with a payoff, and the absence of all three is a
+supported configuration** - the bundle still loads, and the prompt still tells the truth about it. The two sentences that may not be written are *"configure DataHub like this"* and
+*"DataHub is not usable without X"*, because the second one is false and the first one is not ours to
+say.
+
+**8. Lineage is out of scope, and `docs/architecture.md` overstated it.** That page said metrics,
+dimensions, the glossary *and lineage* arrive through `SemanticCatalog`. There is no lineage type in the
+workspace and none is planned, so the sentence claimed an input that does not exist. Corrected on this
+branch, in the same diff as this record, because an overstated claim is itself the defect.
 
 ## Consequences
 
-- **The stack table gains a composition row and a connector row**, with the connector depending on the
-  composition and on the conformance packs. Neither can start now, and the reason is written in the
-  table rather than remembered.
+- **The stack table gains a capability-declaration row and a connector row.** The declaration row can
+  start now, because it is a port change plus a conformance shape and needs no live service. The
+  connector depends on it. **Neither depends on composition**, which is the substantive change from the
+  first version of this record.
+- **`SemanticCatalog` gains a required declaration, and that is the only port change here.** Today the
+  trait is an associated `Error` and `load`. What it needs is the `Warehouse::IMPERSONATION` shape: an
+  associated item with **no default**, so an adapter cannot be silent about what it cannot supply, with
+  a `compile_fail` doctest and its compiling twin to pin that the omission does not build. `dry_run` is
+  the counter-example to imitate deliberately, not accidentally - it is defaulted, and its doc says why.
 - **`docs/implementation-plan-identity-and-services.md` said the remaining metadata connectors are
   all "`feat/source-registry`-shaped once the packs exist: a registration, a declaration, and
-  fixtures." That is now known to be false for DataHub**, and it is corrected on this branch. The
-  claim was reasonable when written - nothing had been measured against a real narrow source - and it
-  is exactly the kind of sentence this record exists to replace with a checked one.
-- **0011's dormant half stops being dormant.** That record says the metadata half of it - a second
-  connector, the assembler, the contribution manifest - is *"in no branch in that stack"*, and says
-  correctly that *"a decision whose record is accepted and whose branch does not exist is a decision,
-  not progress."* This record schedules it, which is what makes the availability rules and the manifest
-  worth having: the first narrow source is the first thing that needs them.
-- **Every committed digest moves once, when the manifest lands.** 0011 already priced that and it is
-  unchanged by this record; it is repeated here because the DataHub row is the reason the bill arrives.
-- **The example corpus is not enough to test a narrow source, and that is a cost this record does not
-  pay.** `agrees_with_the_oracle` compares against one hand-written oracle for one whole bundle. A
-  narrow source's conformance question is a different one - *did it contribute exactly what it declared
-  and nothing else* - and what that test looks like belongs with the assembler, not here.
-- **The Beta flag is a real risk to price.** `MetricInfo` is at schema version 4 in the release and 5
-  on the development branch; `SemanticModelInfo.datasets` is deprecated on the branch and not in the
-  release; membership moved from the model side to the member side within one cycle. An adapter built
-  against this model this quarter is an adapter that will be revised. That is an argument for the
-  narrow declaration rather than against the connector: `schemaMetadata`, the dataset property aspects
-  and the glossary are the long-established part of the model - `schemaMetadata` even carries a
-  deprecated foreign-key field superseded by a newer one, which is what an aspect that has been through
-  a migration looks like - and the metric entity is the part that is one release old and moving.
+  fixtures."** That is closer to right than the first version of this record allowed, and it is still
+  not right: a registration and a declaration is exactly the cost, **once the declaration exists to
+  make** - and it does not exist yet. So the correction is narrower than the one this branch first
+  wrote. It is corrected on this branch to say that.
+- **0011's metadata half stops being wholly dormant, but only the part this needs.** That record's
+  metadata work is three things: the capability declaration, the assembler over N sources, and the
+  contribution manifest. **The declaration is scheduled here. The assembler and the manifest are not**,
+  and this record no longer claims they block anything - they become valuable when a deployment wants
+  DataHub's structure *and* certified metrics in one bundle, which is a real want and a separate step.
+  0011's own sentence still applies to those two: *"a decision whose record is accepted and whose branch
+  does not exist is a decision, not progress."*
+- **No committed digest moves.** The first version of this record priced a manifest that would have
+  moved every one of them. Under this framing nothing is hashed differently, because the adapter's
+  capability declaration is a property of the code rather than of the bundle - the same distinction
+  0011 draws between `IMPERSONATION` and `posture`. **The knowledge capabilities already under the
+  digest are unaffected**; they travel with the bundle as they do now.
+- **A narrow source is servable, and the prompt has to say so honestly.** A bundle with zero metrics
+  loads. What the prompt says about it is derived from the bundle rather than authored, which 0011
+  already decided, so a deployment reading only DataHub is told there is no certified metric layer
+  rather than being told nothing. Nothing in this record adds prose to the prompt.
+- **The Beta flag is a real risk to price, and the declaration is what contains it.** `MetricInfo` is at
+  schema version 4 in the release and 5 on the development branch; `SemanticModelInfo.datasets` is
+  deprecated on the branch and not in the release; membership moved from the model side to the member
+  side within one cycle. An adapter built against the metric entity this quarter would be revised.
+  **Under decision 3 the adapter does not read the metric entity at all**, so the moving part of
+  DataHub's model is outside what this connector depends on - `schemaMetadata`, the dataset property
+  aspects and the glossary are the long-established part, and `schemaMetadata` even carries a deprecated
+  foreign-key field superseded by a newer one, which is what an aspect that has been through a migration
+  looks like. That is a durability argument for the narrow declaration, and it is the second one after
+  correctness.
 
 ## What could not be determined
 
@@ -455,12 +615,28 @@ wrong way.
 
 ## Alternatives considered
 
+**Composition first: block the connector on an assembler and a contribution manifest.** This is what
+the first version of this record decided, and it is written out rather than deleted because the
+reasoning that produced it is the reasoning somebody will produce again. It follows from reading
+`agrees_with_the_oracle` as every adapter's contract: if a registered catalog must match the oracle,
+and DataHub cannot, then something must supply the difference. **Rejected because the premise is
+wrong** - the oracle is the golden adapter's contract, 0011 already decided that adapters declare, and
+`sutura-catalog-local`'s own documentation already calls itself the reference and already prescribes
+`of([..])` for an adapter mapping a fixed external schema. The cost of the mistake was not small: it
+would have made a deployment that already runs DataHub wait for an assembler and a digest migration
+before getting anything, and it would have put a *"one source may provide a given kind"* precedence
+argument in front of a source that provides kinds nothing else does. Composition remains decided and
+unbuilt in 0011, and it remains genuinely wanted - for the deployment that has DataHub's structure and
+certified metrics elsewhere - but it is not this connector's precondition.
+
 **Treat DataHub as a `Knowledge` source only.** The second of the three cases. Rejected because it
 throws away the half of DataHub that is genuinely load-bearing: `schemaMetadata` is the authoritative
-column list for a great many warehouses, and a relationship with a declared cardinality is the field
-`Definitions::assemble` refuses without. Declaring descriptions only would be flattening a source to
+column list for a great many warehouses. Declaring descriptions only would be flattening a source to
 its least interesting capability, which
-[pluggable by declaration](0011-pluggable-by-declaration.md) argues against by name.
+[pluggable by declaration](0011-pluggable-by-declaration.md) argues against by name. It is also
+self-defeating under decision 3: a glossary phrase needs a `Referent` naming a metric, so a
+knowledge-only DataHub with no metrics anywhere contributes *nothing at all*, whereas a
+structure-and-descriptions DataHub contributes a working bundle.
 
 **Read `metricInfo.expression` through the authored-SQL hatch.** Rejected on two independent grounds,
 either of which is sufficient: the dialect sets do not intersect and closing the gap is translation;
@@ -470,7 +646,17 @@ would still be refused, one stage later and less clearly.
 **Derive a `Measure` from `aggregationFunction` plus the annotated field.** Rejected because the
 expression beside it is authored independently and nothing reconciles the two, so the derivation
 certifies half a definition. This is the alternative that looks cheapest and is the one whose failure
-mode is a wrong number under a certified name.
+mode is a wrong number under a certified name. **Declaring the capability unsupported is the cheaper
+outcome and the honest one** - it costs one line and it tells a deployment the truth.
+
+**Read the cardinality and use it.** Rejected, and it is the closest call in this record, because
+cardinality is the one thing 0011 hoped a rich source would improve. On the semantic-model join it is
+`optional`; on the physical relationship it defaults to `N_N`. Using it would mean treating a default
+as a decision on the input where the default is *many-to-many* - so a deployment that never thought
+about a relationship would get the same treatment as one that decided. Both happen to be refused here,
+because `N_N` maps to no `JoinType`, which is why this is a decision about what the adapter may
+*declare* rather than a live hazard. Declaring cardinality unsupported means a deployment reads that
+fact in the declaration instead of discovering it when a dimension goes missing.
 
 **Add an `N_N` variant to `JoinType`.** Not now, and not as part of a connector. A many-to-many
 relationship cannot reach a dimension without changing a measure, so the variant's only behaviour
@@ -478,8 +664,8 @@ would be to be refused - and `AGENTS.md` records that a variant no test can prov
 refuses to carry. If a source needs to *record* many-to-many for a human to read, that is a different
 field from the one the join planner reads.
 
-**Write the adapter now against a single-source deployment.** Tempting, because a DataHub instance
-with hand-authored annotations could in principle carry enough to serve. Rejected: it would put the
-narrow source on the path that assumes a whole bundle, and the first metric anybody promoted would
-have to be written into DataHub's own metadata as a string this repository refuses. The composition
-step is not a nicety in front of this connector; it is the thing that makes the connector coherent.
+**Weaken `agrees_with_the_oracle` so a narrow source can pass it.** Rejected outright, and named so
+that nobody proposes it as the cheap version of decision 6. That test is the reason two independently
+written statements of one catalog can be compared at all, and a version of it that tolerated missing
+measures would pass a golden adapter that had silently stopped reading them. The golden adapters keep
+the strict test; a declaring adapter gets a different one.

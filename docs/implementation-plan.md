@@ -51,8 +51,8 @@ internal that a stable surface can grow behind.
 | 22 | `build/supply-chain` | nothing - orthogonal | **yes** |
 | 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
 | 24 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
-| 25 | `feat/metadata-composition` | nothing built - [0011](adr/0011-pluggable-by-declaration.md) decided all of it | **yes** |
-| 26 | `feat/datahub-catalog` | 25 for the assembler and the manifest, 11 for the packs, 14 - **done** - for an instance to read | after 25 |
+| 25 | `feat/metadata-capabilities` | nothing - [0011](adr/0011-pluggable-by-declaration.md) decided it and `Warehouse::IMPERSONATION` is the shape to copy | **yes** |
+| 26 | `feat/datahub-catalog` | 25 for the declaration, 11 for the packs, 14 - **done** - for an instance to read | after 25 |
 
 **Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
 [BigQuery](implementation-plan-bigquery.md), and rows 12 to 14 and 17 to 24 are in
@@ -118,7 +118,7 @@ project becomes something else.
 | Inspiration from Spice | **compared and declined as a dependency**, correctly - and nothing taken as SHAPE | the connector API, connection pooling and Arrow execution patterns are exactly what `feat/source-registry`, `feat/leg-plan-types`, `feat/two-source-execution` and `feat/postgres-adapter` need |
 | Execution from DataFusion | **present**, and it stays the combiner under federation | none |
 | Polyglot for rendering, transpilation if needed | **present for rendering**, three dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
-| Flexible sources and metadata systems | **decided, not built - and one of the eleven connectors is now measured rather than assumed** | the connectors and the declaration that carries them, plus the composition step [what DataHub can carry](adr/0016-what-datahub-can-carry.md) put in front of the narrow ones |
+| Flexible sources and metadata systems | **decided, not built - and one of the eleven connectors is now measured rather than assumed** | the connectors, and the metadata capability declaration they conform through - which [what DataHub can carry](adr/0016-what-datahub-can-carry.md) schedules, having found the first source that provides part of a model rather than all of it |
 | Security | **the strongest part of the record** | the credential port is designed and unbuilt |
 | The agent-facing surface | **MISSING FROM THIS PLAN** | there is no `sutura-mcp`, and until now no step for it |
 
@@ -911,97 +911,130 @@ route not taken.
 **Done when** the semantic compiler is conformance-tested across catalogs with no container anywhere,
 the compile half runs on every push, and an orphaned snapshot fails a gate rather than accumulating.
 
-## Composing several metadata sources
+## The metadata capability declaration
 
-**Goal.** One bundle from N metadata sources, with the rules that make that safe.
-[Pluggable by declaration](adr/0011-pluggable-by-declaration.md) decided all of it and none of it is
-built; [what DataHub can carry](adr/0016-what-datahub-can-carry.md) is why it is now scheduled rather
-than dormant - the first narrow source is the first thing that needs it.
+**Goal.** A `SemanticCatalog` adapter cannot be silent about what it does not provide.
+[Pluggable by declaration](adr/0011-pluggable-by-declaration.md) decided this and
+[what DataHub can carry](adr/0016-what-datahub-can-carry.md) is why it is now scheduled: the first
+adapter that provides part of a model is the first thing that needs it.
 
-**Touches.** `sutura-app` for the assembler, `sutura-domain`'s `PinnedDefinitions::pin` for the
-manifest, and every committed digest.
+**Touches.** `sutura-domain`'s `SemanticCatalog`, which today is an associated `Error` and `load` and
+declares nothing. `sutura-catalog-local`, which gains one line saying it provides everything.
+`crates/sutura-app/tests/adapters/mod.rs`, where the declaration joins `posture` as part of what a
+registration is.
 
-**Adds.** An assembler in `sutura-app` over N `SemanticCatalog` ports - **application code, not an
-adapter over adapters**, for the three reasons 0011 gives, the load-bearing one being that "exactly one
-source may provide a given kind for a given entity" is a domain rule rather than one implementation's
-opinion. Exactly one source per kind per entity, refusing and naming both on a conflict. **No
-precedence for metrics, declared or otherwise** - two sources defining one metric is refused always.
-Declared-and-empty stays distinct from not-declared. Availability declared per source: required and
-unreachable at startup fails closed, optional and unreachable starts without it, and either one
-unreachable at refresh keeps the last validated bundle and says so.
+**Adds.** A closed capability vocabulary for the metadata side - structure, descriptions,
+relationships, cardinality, metrics, filters, grains, allowlists, anchors, and the four knowledge kinds
+that already have one - carried as a **required associated item with no default.**
+`Warehouse::IMPERSONATION` is the shape to copy and the argument is already written there: *"A
+defaulted capability would mean an adapter that said nothing got the benefit of the doubt in whichever
+direction the default pointed - and both directions are wrong."* So the rule is the one that trait
+already demonstrates twice over: **a capability whose absence changes what a caller may believe is
+required with no default, and a capability whose absence is merely a missed optimisation may be
+defaulted with a doc comment saying why** - `dry_run` is the second case and says so in its own words.
 
-**And the contribution manifest, which is the part with a bill.** A canonical entry per configured
-metadata source - the declared name, its typed capability declaration, required or optional, and
-whether it was reached - hashed as a **third element** beside the definitions and the knowledge,
-computed by `pin` from what it stores with no manifest parameter. Without it the availability rules
-above are describing a distinction the code cannot make, because the digest is taken over the assembly:
-an optional source that was unreachable and contributed nothing anybody read produces the same digest
-as the run that included it. **Every committed digest moves once**, in one reviewable diff, and a
-single-source deployment carries a one-entry manifest so the interesting case is not the untested one.
+**And the negative gets a NAME.** `ImpersonationCapability::NoPlaceForASubject` is the precedent: the
+absence is a variant a reader can see, not a key missing from a map. A metadata adapter that cannot
+carry grains says so in a word.
 
-**Tests.** `two_sources_defining_one_metric_is_refused_naming_both`.
-`two_sources_providing_one_kind_for_one_entity_is_refused`.
-`a_source_that_never_declared_descriptions_cannot_contribute_one`.
-`an_unreachable_optional_source_produces_a_different_digest_from_the_run_that_included_it` - which is
-the test that fails today and is the whole reason the manifest is in this step.
-`a_source_rename_moves_the_digest`, asserting the honest limit rather than hiding it.
+**The reference adapter's declaration is `all()`, and that is not laziness.**
+`sutura-catalog-local` already documents why: *"it says 'this provider supports whatever kinds exist',
+which is what makes this the reference adapter and what keeps a fifth kind from needing an edit here.
+An adapter mapping a fixed external schema gets the opposite treatment - `of([..])`, so a new kind
+leaves its declaration alone."* That sentence is about knowledge capabilities and it generalises
+unchanged.
 
-**Done when** a deployment can read a source that carries descriptions and a source that carries
-metrics and serve one bundle whose digest says which sources produced it.
+**Tests.**
+- `an_adapter_that_declares_nothing_does_not_compile` - a `compile_fail` doctest with its compiling
+  twin, differing by the one line, verified non-vacuous by unmarking it.
+- `a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind` - the three-state
+  distinction, which is the whole reason the declaration exists.
+- **Declaration fidelity, which is the assertion a declaring adapter gets instead of the oracle:**
+  `everything_it_declared_it_produced` and `nothing_of_an_undeclared_kind_appears_in_the_bundle`.
+  The second direction already exists for knowledge as `Knowledge::assemble`'s `UndeclaredContent`
+  guard and exists nowhere for definitions.
+- **`agrees_with_the_oracle` is NOT touched.** It stays the golden adapters' contract. A version of it
+  that tolerated a missing measure would pass a golden adapter that had silently stopped reading them,
+  which is the one thing that test is for.
 
-## The DataHub catalog, and what it may not be asked for
+**Done when** an adapter cannot be written that is silent about a kind it cannot supply, and the
+matrix runs the oracle over the golden adapters and declaration fidelity over the rest.
 
-**Goal.** A `SemanticCatalog` over DataHub, declaring structure, descriptions,
-relationships-with-cardinality and glossary content, and declaring **no metrics**.
+## The DataHub catalog, and what it declares it cannot do
+
+**Goal.** A `SemanticCatalog` over DataHub that gives a deployment value from the model it already
+has, and names every gap rather than leaving it to silence.
 
 **Read [what DataHub can carry](adr/0016-what-datahub-can-carry.md) first.** It is the measurement
-this step is shaped by, and the three things it decided are the three things this step must not
-quietly reverse: a DataHub measure is a per-dialect raw expression string and is **read and reported,
-never executed and never converted**; the `aggregationFunction` beside it is **not** harvested into a
-`Measure`, because it and the expression are authored independently and taking one certifies half a
-definition; and a relationship whose cardinality is absent or many-to-many is **refused at load**,
-naming the relationship, rather than defaulted in either direction.
+this step is shaped by, and its decision 3 is the declaration's content: **provides** structure,
+descriptions, the join columns, and - conditionally, where the bundle declares a metric to point at -
+glossary phrases and caveats. **Does not provide** measures, cardinality, definitional filters,
+grains, value allowlists, anchors, reviewed absences or worked examples.
 
-**Touches.** A new `sutura-catalog-datahub` crate. An HTTP client written here, because DataHub
-publishes Python and Java SDKs and no Rust one. **Which surface is already settled by DataHub's own
-guidance** and 0016 records why: its GraphQL API assumes frontend callers and says operations there
-are intentionally limited in scope, so this reads the versioned OpenAPI v3 entity surface, against a
-spec the deployment serves for itself, with a personal access token as a bearer. What is **not**
-settled is the cost - how many requests a whole bundle takes, and what keeps a generated client from
-drifting - and that is this step's first engineering question.
+**Two of those absences are declared for a source that HAS the field**, which is the part not to
+quietly reverse. `metricInfo.expression` is a raw string in a dialect set that does not intersect ours,
+and the `aggregationFunction` beside it is authored independently with nothing reconciling them, so
+taking either certifies half a definition. `cardinality` defaults to `N_N` on the physical
+relationship, so a default is indistinguishable from a decision. **Declaring both unsupported costs one
+line each and is the better outcome**; harvesting them is the failure mode this whole repository is
+arranged against.
 
-**Depends on the composition step**, and the dependency is structural rather than convenient: a source
-that carries no measure cannot fill a bundle on its own, and the catalog conformance matrix's central
-behaviour is that every registered catalog produces **the same `Definitions`** as the hand-written
-oracle. A narrow source cannot pass that and no adapter code changes it. So this step also owes the
-matrix a second question - *did the source contribute exactly what it declared and nothing else* - and
-where that test lives is the composition step's to answer.
+**Touches.** A new `sutura-catalog-datahub` crate, and the registry in
+`crates/sutura-app/tests/adapters/mod.rs`.
+
+**The read path.** An HTTP client written here, because DataHub publishes Python and Java SDKs and no
+Rust one. **Which surface is settled by DataHub's own guidance** and 0016 records why: its GraphQL API
+assumes frontend callers and says operations there are intentionally limited in scope, so this reads
+the versioned OpenAPI v3 entity surface, against a spec the deployment serves for itself, with a
+personal access token as a bearer. What is **not** settled is the cost - how many requests a whole
+bundle takes, and what keeps a generated client from drifting - and that is this step's first
+engineering question.
+
+**A DataHub-only deployment works, and that is a requirement of this step rather than a nice
+outcome.** A bundle of models, relationships and zero metrics assembles, pins and validates - 0016
+checked that there is no minimum-metric refusal - and the prompt states the absence of a certified
+metric layer as a fact derived from the bundle. What such a deployment needs configured is a
+`sources.<alias>` entry per platform its models name, because `sutura-serve` resolves a catalog source
+through the registry rather than by comparing names.
+
+**Guidance, not requirement - and this is the sentence to hold the docs to.** A short section tells a
+user what they **may** populate and what each thing buys: `cardinality` on a semantic model's
+relationships lets those relationships license a join; `AiContext.synonyms` on a metric the deployment
+has also certified lets a glossary phrase render; a `sources.<alias>` per platform lets a model's data
+system be opened. **Each is an option with a payoff stated, and the absence of all of them is a
+supported configuration.** The two sentences that may not be written are *"configure DataHub like
+this"* and *"DataHub is not usable without X"* - the second is false, and the first is not ours to say.
 
 **Note what this step does NOT get.** No source-level usage prose in the prompt: 0011 withdrew that
 claim in full, a note is attached to a `Referent` that names a metric, and there is nothing legal for a
-source's own instructions to point at. DataHub's `AiContext` - synonyms, instructions, examples - is
-the field a `Knowledge` contribution would come from, and it still has to name a metric the bundle
-declares.
+source's own instructions to point at. And nothing server-side may **match** on a harvested synonym -
+DataHub's own roadmap goes the other way, this repository has no `PhraseNotDefined` and the agent
+states its choice in its own transcript, and 0016 names that as a fork rather than a gap.
 
-**Tests.** `a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined`.
-`a_relationship_with_no_declared_cardinality_is_refused_naming_it`.
-`a_many_to_many_cardinality_is_refused_because_no_join_type_represents_it`.
-`the_adapter_declares_no_metrics_so_content_for_that_kind_fails_the_load` - which is the existing
-`UndeclaredContent` guard doing the job it was built for, against a real source rather than a fixture.
+**Tests.**
+- `it_declares_it_provides_no_metrics_and_the_bundle_has_none` - declaration fidelity, from row 25.
+- `a_metric_whose_measure_is_an_expression_string_is_reported_and_not_defined`.
+- `it_declares_it_provides_no_cardinality_so_a_relationship_licenses_no_dimension`.
+- `a_bundle_of_models_and_no_metrics_loads_and_validates` - the DataHub-only deployment, which is the
+  test that would fail if somebody made metrics a precondition.
+- `content_for_a_kind_it_did_not_declare_fails_the_load` - the existing `UndeclaredContent` guard,
+  against a real source rather than a fixture.
 
-**Done when** a deployment reads its physical model, its prose and its joins from DataHub, its
-measures from a source that declares them, and serves one bundle whose digest names both.
+**Done when** a deployment running DataHub gets its physical model, its prose and its joins with no
+catalog authored here, its declaration says in words which of the nine definition kinds and four
+knowledge kinds it cannot supply, and the docs offer a way to get more without implying it is required.
 
 ## The rest of the stack
 
 The branch sections above cover the first eleven rows of the table - the surface, the domain and
-federation - and rows 25 and 26, the metadata composition and the DataHub connector. **Those two are
-here rather than split off by the seam this page otherwise follows**, and the reason is in
-`devco/max-lines-ignore`: prose is exempt from the line cap, and the earlier splits of this document
-cost cross-references and paragraphs explaining themselves. Row 26 does need a live service, so by the
-seam's letter it belongs on the services page; separating a finding from the connector it shapes is the
-mistake that left DataHub with four accepted records and no row at all, and it is not worth repeating
-for tidiness. **Rows 12 to 24 continue on two further pages.**
+federation - and rows 25 and 26, the metadata capability declaration and the DataHub connector.
+**Those two are here rather than split off by the seam this page otherwise follows**, and the reason is
+in `devco/max-lines-ignore`: prose is exempt from the line cap, and the earlier splits of this document
+cost cross-references and paragraphs explaining themselves. Row 25 needs no live service and belongs
+here by the seam's own rule; row 26 does need one, so by the letter it belongs on the services page.
+Separating a finding from the connector it shapes is the mistake that left DataHub with four accepted
+records and no row at all, and it is not worth repeating for tidiness. **Rows 12 to 24 continue on two
+further pages.**
 [BigQuery](implementation-plan-bigquery.md) carries rows 15 and 16.
 [Identity, services and the operational work](implementation-plan-identity-and-services.md) carries the
 credential port, the compose tier, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
