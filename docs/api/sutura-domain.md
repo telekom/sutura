@@ -35,6 +35,10 @@ types it speaks in:
   `expression::Computation` is what makes "this metric is authored SQL" a word rather than an
   absence.
 - `plan` is what we decided to execute, and the artifact the execution port speaks in.
+- `federation` is how a measure survives being computed in pieces: which aggregates descend
+  into a leg, which one descends decomposed, and which needs its rows pulled up. Nothing executes
+  it yet - there is no splitter and no combiner - so it is a classification with no production
+  caller, and its own header says so.
 - `catalog` is what a catalog says, and where its cross-references are checked.
 - `knowledge` is what a catalog says ABOUT what it defines - the glossary, the caveats, the
   terms deliberately left undefined, the worked questions - checked against a `catalog` and read
@@ -1167,6 +1171,328 @@ A bound rather than a judgement about style: the fragment is handed to a recursi
 at load, and an unbounded string out of a file is an unbounded amount of work and stack.
 Generous enough for the conditional sums and guarded ratios this exists for; anything longer is a
 derived column that belongs upstream, which is what `docs/adr/0001` says about the whole class.
+
+## Module `federation`
+
+How a measure federates: what descends into a leg, and the one computation that happens above
+them.
+
+**This module is a classification and a rule, and nothing executes it.** There is no leg plan
+type, no splitter and no combiner in this workspace yet, so nothing here has a production
+caller: the same shape `AGENTS.md`'s *Built And Not Wired* section describes for the
+authored-SQL hatch. It is stated here rather than left for a reader to discover, because a
+classification that looks wired is worse than one that says it is not.
+
+**The problem it answers.** Grouping a fact leg by a remote join key is a strictly finer grouping
+than the answer, so a combine above the legs has to aggregate again - and whether that is correct
+depends entirely on the aggregate. `AVG` of `AVG`s is not the average, and two exact distinct
+counts added together over-count every key the two legs share. Neither of those raises an error
+anywhere: they are wrong numbers under a certified metric name, which is the failure mode this
+repository exists to prevent.
+`docs/adr/0007-federating-across-different-data-systems.md` is the finding and
+`docs/adr/0009-the-plan-from-one-source-to-many.md` Decision 2 is the decision.
+
+**A measure that does not descend is not a refusal.** Decision 2 is explicit: where an aggregate
+cannot be computed per leg and re-aggregated, the leg carries finer-grained rows and the
+aggregate happens above, paying the processing cost. So there is no error type in this module and
+no [`RefusalReason`](crate::query::RefusalReason) variant behind it - `Descent` is total over
+the vocabulary, and its third variant is a plan rather than a decline.
+
+**Three exhaustive matches, and each of them is the mechanism.** `Descent::of` matches
+`Aggregate`, so a seventh aggregate cannot compile without stating which of the three classes
+it is in; `descend` matches `Term`, so a third term has to say the same thing; and
+`Federation::of` matches `Measure`, so a third shape does too. A `match` that has to gain an
+arm is the whole content of this branch.
+
+**The division cannot happen in a leg, and that is a shape rather than a check.** The vocabulary
+already splits into a `Term` - one number - and a `Measure` - one term or a ratio of two.
+What a leg carries is a `Carried`, and a `Carried` is built out of the *term* level: it has no
+variant that divides and no field a `ZeroDenominator` fits in, at any depth. The only
+`ZeroDenominator` in this module is on `Above::Quotient`, which is the node above every leg.
+The bug that closes is specific: `ZeroDenominator::Null` renders as `NULLIF(d, 0)`, so applied
+*inside* a leg a subgroup with a zero denominator becomes null, the `SUM` above skips nulls, and
+that subgroup's numerator is silently dropped from the answer instead of nulling it.
+
+What is deliberately NOT here: the join kind. Decision 2's other half - INNER for a remote
+dimension carrying a filter, LEFT for one that does not - is a function of where the filters
+went, which only a splitter can know. It belongs to the branch that builds one.
+
+### `struct Pushed`
+
+```rust
+pub struct Pushed
+```
+
+An aggregate that descends as written, paired with the function that re-aggregates it above.
+
+**Two aggregates rather than one, because they are not always the same one.** A `Count` pushed
+into a leg is re-aggregated above with a `Sum`: adding the leg counts is the count, and counting
+them again counts legs. That is the single most repeated arithmetic mistake in a hand-written
+combine, and recording both halves is what stops it being restated at each call site.
+
+**The fields are private and there is no public constructor**, so the only values of this type
+are the ones `Descent::of` returns. That is what makes `Carried::Aggregated` unable to *name*
+an aggregate the classification did not call pushable: `Avg` and `CountDistinct` have no
+`Pushed` anywhere, so no caller can write one. **The limit, stated with the claim:** the
+guarantee is module-scoped, since code in this file can write the struct literal - which is
+exactly where the classification lives, and nowhere else.
+
+#### Methods
+
+```rust
+pub const fn combine(self) -> Aggregate
+```
+
+The aggregate that re-aggregates the leg's column above.
+
+```rust
+pub const fn push(self) -> Aggregate
+```
+
+The aggregate the leg computes.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct Pulled`
+
+```rust
+pub struct Pulled
+```
+
+An aggregate that does not descend at all, and runs above the legs on the rows they carried.
+
+Private field and no public constructor, for `Pushed`'s reason: a `Carried::Keys` can only
+name an aggregate `Descent::of` classified as non-descending, and it carries *which* one rather
+than assuming `CountDistinct` is the only one it will ever be.
+
+#### Methods
+
+```rust
+pub const fn above(self) -> Aggregate
+```
+
+The aggregate the combine applies to the pulled-up rows.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Descent`
+
+```rust
+pub enum Descent
+```
+
+How one aggregate of the closed vocabulary descends into a leg.
+
+**Three variants, because there are three answers and not two.** An earlier version of the plan
+named `combine_with() -> Option<Aggregate>`, and `Option` cannot say the third one: descends as
+itself, descends as two columns, does not descend and travels as a grouping key. The compile
+error a seventh aggregate produces is therefore *you have not said which of the three you are*
+rather than *you have not said whether you can*.
+
+#### Variants
+
+- `AsWritten` - Pushable as written: one column in the leg, one function above it.
+- `Decomposed` - Pushable decomposed: two columns in the leg, divided once above.
+- `AsGroupingKey` - Not pushable. The column travels as a grouping key and the aggregate runs above.
+
+#### Methods
+
+```rust
+pub const fn of(aggregate: Aggregate) -> Self
+```
+
+The total function from an aggregate to how it federates.
+
+Exhaustive over `Aggregate` by construction: this `match` is the mechanism the whole
+branch exists for, and a new variant of that closed enum does not compile until it appears
+here.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Carried`
+
+```rust
+pub enum Carried
+```
+
+What one leg carries for one number the answer needs.
+
+**The type that cannot divide.** There is no `Quotient` variant here and no `ZeroDenominator`
+reachable from one: a `Carried` is a `Pushed` or a `Pulled` over a `ColumnName`, and none
+of those three can hold one. That is the ratio rule as a shape rather than as a rule somebody
+remembers - see this module's header for the wrong number it prevents.
+
+The division that a leg cannot express does not compile:
+
+```compile_fail
+use sutura_domain::federation::Carried;
+use sutura_domain::measure::ZeroDenominator;
+
+// There is no variant of `Carried` that divides, so this names nothing.
+fn _per_leg(numerator: Carried, denominator: Carried, zero_denominator: ZeroDenominator) -> Carried {
+    Carried::Quotient { numerator, denominator, zero_denominator }
+}
+```
+
+Nor does the zero guard, which is the half that silently drops a subgroup when it is applied
+inside a leg:
+
+```compile_fail
+use sutura_domain::federation::{Carried, Pushed};
+use sutura_domain::measure::ZeroDenominator;
+use sutura_domain::model::ColumnName;
+
+fn _guarded(pushed: Pushed, column: ColumnName, zero_denominator: ZeroDenominator) -> Carried {
+    Carried::Aggregated { pushed, column, zero_denominator }
+}
+```
+
+And the twin, so a rename cannot make either block pass vacuously: the division exists, one level
+up, where every leg is already below it.
+
+```
+use sutura_domain::federation::{Above, Carried};
+use sutura_domain::measure::ZeroDenominator;
+
+fn _above(numerator: Carried, denominator: Carried, zero_denominator: ZeroDenominator) -> Above {
+    Above::Quotient {
+        numerator: Box::new(Above::Total(numerator)),
+        denominator: Box::new(Above::Total(denominator)),
+        zero_denominator,
+    }
+}
+```
+
+#### Variants
+
+- `Aggregated` - One aggregate the leg computes and hands up as one column.
+- `CountIf` - A conditional count the leg computes and hands up as one column.
+- `Keys` - No aggregate in the leg at all: the column travels as a grouping key, and the aggregate `Pulled` names runs above the rows it carried.
+
+#### Methods
+
+```rust
+pub const fn column(&self) -> &ColumnName
+```
+
+The column this leg reads.
+
+```rust
+pub const fn combine(&self) -> Aggregate
+```
+
+The aggregate the combine applies to what this leg carried.
+
+One place, so no combiner has to restate it - and so `Count` pushed down, `Sum` above stays
+one decision rather than one per call site.
+
+```rust
+pub const fn is_pulled_up(&self) -> bool
+```
+
+Does this leg carry rows at the fact grain rather than one row per group?
+
+The price of the pull-up, and the quantity worth logging: it is the difference between a leg
+returning one row per group and one row per distinct key.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `enum Above`
+
+```rust
+pub enum Above
+```
+
+The one computation above the legs.
+
+**A tree rather than a pair, and the reason is a nested case that is representable today**:
+`ratio(avg(x), count(y))` has an `Avg` numerator, and an `Avg` is itself a division, so the
+above-step nests. Depth is bounded at two by the vocabulary - a `Measure` is at most a ratio of
+terms, and a term contributes at most one division - so the `Box` is indirection for a
+recursive type rather than an unbounded structure.
+
+Every division in this workspace's federated path is one of these nodes. That is the property:
+the numbers a leg produces are re-aggregated, and only then divided.
+
+#### Variants
+
+- `Total` - One column the legs carried, re-aggregated by `Carried::combine`.
+- `Quotient` - Two of those, divided once - above every leg, with the zero handling the definition asked for applied to the final denominator rather than to a leg's.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `struct Federation`
+
+```rust
+pub struct Federation
+```
+
+How a measure federates: the whole answer for one measure.
+
+Produced by `Federation::of`, which is total: every measure the closed vocabulary can express
+federates, and the ones that cannot descend pull rows up instead of being declined.
+
+#### Methods
+
+```rust
+pub const fn above(&self) -> &Above
+```
+
+What happens once, above the legs.
+
+```rust
+pub fn carried(&self) -> Vec<&Carried>
+```
+
+What every leg carries, in the order a reader would say the measure.
+
+The leaves of `Above`, collected rather than stored twice: a second copy is a second thing
+to keep in step with the tree.
+
+```rust
+pub fn of(measure: &Measure) -> Self
+```
+
+Classifies one measure.
+
+Exhaustive over `Measure`'s shapes, and over `Term`'s terms through `descend`. A ratio
+becomes an `Above::Quotient` whose halves are pushed separately, which is the rule stated
+as the only tree this function can build.
+
+```rust
+pub fn pulls_up_rows(&self) -> bool
+```
+
+Does answering this measure need rows at the fact grain?
+
+True for anything reaching a `Descent::AsGroupingKey`, which is `CountDistinct` today. This
+is the cost Decision 2 accepts rather than refuses, so it is a quantity to report and not a
+condition to fail on.
+
+#### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+### `fn descend`
+
+```rust
+pub fn descend(term: &crate::measure::Term) -> Above
+```
+
+How one term descends.
+
+Exhaustive over `Term`, which is the second of this module's three matches: a third term has to
+say how it federates before this compiles.
 
 ## Module `identity`
 
