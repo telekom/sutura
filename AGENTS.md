@@ -113,6 +113,19 @@ Rules:
 - If tooling is missing, report the exact install command and ask before installing it.
 - Hook tiers, commit format and the PR checklist: CONTRIBUTING.md.
 - The leak guard is not a hook here. Its pattern list lives in a private repo and runs from there.
+ . - **This shell's environment follows `cargo` into OTHER repositories, and it breaks builds there.**
+  `devenv` exports `CARGO_UNSTABLE_CODEGEN_BACKEND=true` and
+  `CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` for our own inner loop, plus `DUCKDB_LIB_DIR` and
+  `DUCKDB_INCLUDE_DIR` pointing at nix store paths. Nothing scopes those to this directory, so a
+  `cargo` invocation in an unrelated checkout inherits all four: it gets built by cranelift, and a
+  crate linking C++ gets OUR DuckDB. **Measured, not theorised** - a control build of `duckdb-rs`
+  from this shell aborted with `libc++abi: terminating due to uncaught foreign exception` behind
+  3.4 million `ld: could not create compact unwind` lines and a 1.7 GB log, because cranelift's
+  unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is green with
+  the four variables unset. So when working in a checkout outside this repository - upstreaming a
+  patch, reproducing a bug against a dependency - **unset them first, and treat a red run from this
+  shell as unexplained until you have.** There is deliberately no mechanism for this: a gate here
+  cannot see a build somewhere else, which is exactly why it is written down.
 ## Canonical Sources And Generated Output
 
 One owner per artefact. Nothing here is hand-edited: each is regenerated from its source, and the
@@ -194,8 +207,17 @@ each step is only reached because the one above it failed:
    the old version. *Verified against this workspace.* What works is patching the crate that declares
    the stale requirement, with its own manifest line changed - also one line, also no fork, and it must
    be proved by a build rather than assumed. For the Arrow case that was proved: a single `arrow 59.2.0`,
-   a clean compile, and the patched crate's own suite at 288 passed and 0 failed, identical to the
-   unpatched control.
+   a clean compile, and the patched crate's own suite green, identical to the unpatched control.
+   **A step 1 turned out to be available for this case and was taken, which is why the option order
+   above is not decoration:** `duckdb-rs` had simply not bumped, so the fix went upstream as a
+   one-line manifest change rather than living here as a patch. Measured on 2026-08-29 against
+   `duckdb-rs` at `199547d`, the same stable toolchain on both legs and the `bundled modern-full
+   vscalar vscalar-arrow vtab-full` feature set: 469 lib tests passed and 0 failed on **both** Arrow
+   58.4.0 and 59.2.0, with `libduckdb-sys` at 12 and 0 on both, and **zero source changes** - Arrow
+   59's breaking changes do not reach that crate. An earlier version of this paragraph recorded
+   *"288 passed"* from a narrower feature set; the number is dropped rather than corrected in place,
+   because a bare count with no feature set and no date attached is not reproducible and this file's
+   own *Dependency Currency* rule says a figure carries the day it was checked.
 4. **Vendor**, last, and never silently: `VENDOR.md` takes upstream repo, licence, commit, date and
    local changes, the `cargo-deny` licence gate applies, and *"inspired by" is not a licence position*.
    The real cost is not the patch - it is that **a vendored copy makes us the security response for it**,
