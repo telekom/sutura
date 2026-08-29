@@ -46,9 +46,10 @@ internal that a stable surface can grow behind.
 | 23 | `ci/prose-change-cost` | nothing - measure first. The path-filter half is DONE on this branch | **yes** |
 | 24 | `feat/metrics-endpoint` | 6 for the memory series, nothing for the rest | partly |
 
-**Rows 1 to 11 have their branch sections on this page. Rows 12 to 24 are in
-[identity, services and the operational work](implementation-plan-identity-and-services.md)**, which is
-the same document under a second file name: this table stays the only owner of a step number, and the
+**Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
+[BigQuery](implementation-plan-bigquery.md), and rows 12 to 14 and 17 to 24 are in
+[identity, services and the operational work](implementation-plan-identity-and-services.md)** - three
+file names, one document: this table stays the only owner of a step number, and the
 split is at the stack's own phase boundary - nothing up to and including the conformance packs needs a
 live service or an identity decision, and everything after it needs one or both.
 
@@ -834,9 +835,10 @@ the compile half runs on every push, and an orphaned snapshot fails a gate rathe
 ## The rest of the stack
 
 The branch sections above cover the first eleven rows of the table - the surface, the domain and
-federation. **Rows 12 to 24 continue in
-[identity, services and the operational work](implementation-plan-identity-and-services.md)**: the
-credential port, the compose tier, the two BigQuery steps, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
+federation. **Rows 12 to 24 continue on two further pages.**
+[BigQuery](implementation-plan-bigquery.md) carries rows 15 and 16.
+[Identity, services and the operational work](implementation-plan-identity-and-services.md) carries the
+credential port, the compose tier, the two Postgres steps, mutual TLS, the raw SQL tool, the demo
 tasks, the supply chain and the CI cost of a prose change - plus the selective-service-CI work that
 is deferred rather than scheduled, and what is deliberately not in this plan at all.
 

@@ -6,8 +6,8 @@
 # Two sections, and the difference between them is the whole point:
 #
 #   [silent]  Output whose length is a function of what it describes rather than of how well it
-#             is written: generated, vendored or lock-like files nobody hand-edits, AND decision
-#             records, where a line budget would be a budget on evidence. No output.
+#             is written: generated, vendored or lock-like files nobody hand-edits, AND PROSE,
+#             where a line budget would be a budget on evidence. No output.
 #   [warn]    Hand-written files over the limit with a split already agreed. Prints WARN
 #             on every run and does NOT fail - visible debt, not an exemption.
 #
@@ -49,6 +49,20 @@ docs/api/*.md
 # does. Hand-written and exempt on purpose, which is why the section header above says so.
 docs/adr/*.md
 
+# The rest of the published prose, on the SAME reasoning, generalised. The argument that exempts a
+# decision record was never specific to decision records: a page's length is a function of what it
+# has to explain, and the failure the cap exists to catch is a SOURCE FILE accreting
+# responsibilities nobody notices. Prose does not do that - a long page is legible or it is not, and
+# a reviewer can see which, whereas a 1200-line module hides its seams.
+#
+# This was learned the wrong way round rather than reasoned from the start, and the note is here so
+# it is not re-learned: the implementation plan was split across two files to get under this cap,
+# then a third time, and each split cost cross-references, nav entries and a paragraph explaining
+# itself. The cap was making the documentation worse in order to satisfy a rule written for code.
+# Splits that survive are the ones with a reason of their own - a self-contained argument, or two
+# branches editing one file - and those reasons are visible without a gate.
+docs/*.md
+
 # Vendored third-party source: the allocator's C and the two crates that wrap it. Upstream's
 # file lengths are not ours to budget, and pinning individual paths would mean editing this
 # list on every version bump. `VENDOR.md` records what is vendored, from where, and why.
@@ -59,3 +73,9 @@ vendor/**
 # Empty on purpose: every hand-written file in this repo is under the limit. An entry here
 # is a promise to split a file, not a way to silence the gate - and it keeps printing until
 # somebody keeps that promise.
+
+# Scratch a browser tool writes into the working tree: verbatim dumps of visited pages, thousands
+# of lines each, regenerated on every run and gitignored. Generated output by any reading, and the
+# reason it is listed rather than left to fail is that a developer who used that tool could not
+# then pass the gates - the same shape as the `site/` exemption above.
+.playwright-mcp/**
