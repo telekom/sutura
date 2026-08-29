@@ -50,7 +50,7 @@ use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::model::{JoinType, SourceName, TableName};
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::{Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{MalformedRowSet, RowSet, Value, Warehouse};
 
@@ -169,6 +169,20 @@ pub enum DataFusionError {
     /// about an unbounded scan.
     #[error("a plan must carry the two bounds of its range, and this one carries no predicate")]
     NoPredicate,
+    /// One leg of a federated answer, which this adapter has nothing to assemble above.
+    ///
+    /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
+    /// [`Executable`](sutura_domain::plan::Executable), so this adapter's match over what it can be
+    /// handed is exhaustive - which is the mechanism, and this variant is what it costs today.
+    /// Nothing constructs a [`LegPlan`](sutura_domain::plan::LegPlan) outside a test: there is no
+    /// splitter and no combiner, so no code path reaches here. When the combiner arrives this arm is
+    /// where the engine's leg path lands, and until then an error naming the leg is more honest than
+    /// a silently non-federating default.
+    ///
+    /// It carries the table rather than a sentence, because that is the one thing a reader chasing
+    /// this needs and the message may be reworded.
+    #[error("this adapter executes a whole plan, and the leg against {table} needs a combiner above it")]
+    LegWithoutCombiner { table: String },
 }
 
 /// A plan becomes expressions here. The half of this adapter that never reads a result.
@@ -552,8 +566,17 @@ impl Warehouse for DataFusionWarehouse {
     // during analysis, so a plan naming a table that was never attached is an error out of
     // `execute` before a single row comes back - which is what the pre-flight was for.
 
-    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
-        self.runtime.block_on(self.rows(plan))
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+        match executable {
+            Executable::Query(plan) => self.runtime.block_on(self.rows(plan)),
+            // Stated rather than defaulted. This adapter is the engine and it belongs ABOVE the
+            // port once federation lands, so a leg arriving here would mean the composition is
+            // wrong - not that the leg is unanswerable. Nothing reaches this today: there is no
+            // splitter to build a leg.
+            Executable::Leg(leg) => Err(DataFusionError::LegWithoutCombiner {
+                table: String::from(leg.table().as_str()),
+            }),
+        }
     }
 
     /// The one question the domain asks about this adapter's error, answered from the one variant
@@ -594,11 +617,7 @@ pub(crate) fn test_posture() -> SourcePosture {
     }
 }
 
-/// Translating a plan, attaching a file, and executing - in its own file for the same reason.
-///
-/// **Moved here by the file-length gate**, not by a change of mind about where tests live: this file
-/// crossed 1000 lines when the identity declarations landed on the adapter, and the gate's answer to
-/// that is to split the file rather than to shorten the fix. It is the third such split in this crate,
-/// and the module comment above says why the others happened.
+/// The adapter's own suite - attaching a file, executing a plan, and the translation helpers - in
+/// its own file for the same reason.
 #[cfg(test)]
-mod plan_tests;
+mod execute_tests;

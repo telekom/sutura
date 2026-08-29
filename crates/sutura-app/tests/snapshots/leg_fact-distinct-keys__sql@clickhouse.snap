@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.sql()
+---
+SELECT "fct_subscription_monthly"."customer_key" AS "customer_key", "fct_subscription_monthly"."subscription_key" AS "subscription_key", CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) AS "period" FROM "fct_subscription_monthly" WHERE "fct_subscription_monthly"."month" >= ? AND "fct_subscription_monthly"."month" < ? AND "fct_subscription_monthly"."status" = ? GROUP BY "fct_subscription_monthly"."customer_key", "fct_subscription_monthly"."subscription_key", CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE) ORDER BY "fct_subscription_monthly"."customer_key", "fct_subscription_monthly"."subscription_key", CAST(dateTrunc('month', "fct_subscription_monthly"."month") AS DATE)

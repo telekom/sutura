@@ -37,11 +37,11 @@
 //! workspace manifest.
 
 use polyglot_sql::DialectType;
-use polyglot_sql::builder::{self, Expr};
+use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType};
-use sutura_domain::plan::{PlanColumn, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 
 use crate::GeneratedQuery;
 use crate::dialect::{Dialect, PlaceholderStyle};
@@ -229,14 +229,73 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
     }
 }
 
-/// Renders a plan as one statement, paired with its parameters.
-pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
-    let bucket = plan.bucket();
-    let bucket_expr = builder::func(
+/// The truncated time column, cast to a date.
+///
+/// One definition, shared by the whole-answer path and the leg path, because a bucket that truncated
+/// differently in a leg than in a mono-source answer would make the two disagree about which month a
+/// row belongs to - and the differential test compares rows rather than statements, so it would
+/// report the disagreement as a wrong number.
+fn bucket_expression(bucket: &PlanBucket) -> Expr {
+    builder::func(
         "DATE_TRUNC",
         vec![builder::lit(unit(bucket.grain())), column(bucket.column())],
     )
-    .cast("DATE");
+    .cast("DATE")
+}
+
+/// Every join a plan declared, added to the statement.
+///
+/// A LEFT join, always, and this was a bug before it was a decision.
+///
+/// The metric's own model is the grain being measured; a dimension is a lookup beside it. An INNER
+/// join drops every fact row with no matching dimension row - an order whose customer is missing
+/// from the customer table - so `revenue by region` would total less than `revenue`, with nothing
+/// raising an error anywhere. That is the same failure the catalog already refuses a row-DUPLICATING
+/// join for, arrived at from the other direction, and the duplication check could not see it:
+/// `may_duplicate_rows` is about fan-out, not about elimination.
+///
+/// Left-joining makes an unmatched row group under a null key instead of vanishing, so the grouped
+/// total always reconciles with the ungrouped one - which is what
+/// `a_dimension_join_does_not_change_the_measure` asserts over real data.
+///
+/// `OneToMany` never reaches here: a join that can duplicate the metric's rows is refused when the
+/// definitions are assembled. The cardinality therefore does not change the join KIND today; it is
+/// matched on so that adding a variant is a compile error here rather than a silently wrong
+/// statement.
+///
+/// **A federated fact leg reaches this with same-source hops only.** A dimension on another data
+/// system is a [`LegPlan::Lookup`] leg and not a join, so the join kind a splitter derives for the
+/// combine above - INNER for a remote dimension carrying a filter, LEFT for one that does not - is
+/// decided nowhere in this file.
+fn joined(statement: SelectBuilder, joins: &[PlanJoin]) -> SelectBuilder {
+    let mut statement = statement;
+    for join in joins {
+        let on = column(join.origin()).eq(column(join.target()));
+        statement = match join.join_type() {
+            JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(join.table().as_str(), on),
+        };
+    }
+    statement
+}
+
+/// The statement, as this dialect writes it.
+///
+/// Identifiers force-quoted, for the reason this module's header gives at length. One function, so
+/// the whole-answer path and the leg path cannot quote differently.
+fn render(ast: &Expression, dialect: Dialect) -> Result<String, GenerateError> {
+    let mut config = polyglot_sql::dialects::Dialect::get(dialect_type(dialect))
+        .generator_config()
+        .clone();
+    config.always_quote_identifiers = true;
+    polyglot_sql::Generator::with_config(config)
+        .generate(ast)
+        .map_err(|cause| GenerateError::Render { dialect, cause })
+}
+
+/// Renders a plan as one statement, paired with its parameters.
+pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    let bucket = plan.bucket();
+    let bucket_expr = bucket_expression(bucket);
 
     // Dimensions, then the time bucket, then the measure. A stable order, because it is the result
     // schema a caller reads by position and a golden pins by text - and `QueryPlan::result_labels`
@@ -250,31 +309,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
     grouping.push(bucket_expr);
     projection.push(aliased(measure_expression(plan.measure()), plan.measure_label())?);
-    let mut statement = builder::select(projection).from(plan.table().as_str());
-    for join in plan.joins() {
-        let on = column(join.origin()).eq(column(join.target()));
-        // A LEFT join, always, and this was a bug before it was a decision.
-        //
-        // The metric's own model is the grain being measured; a dimension is a lookup beside it. An
-        // INNER join drops every fact row with no matching dimension row - an order whose customer
-        // is missing from the customer table - so `revenue by region` would total less than
-        // `revenue`, with nothing raising an error anywhere. That is the same failure the catalog
-        // already refuses a row-DUPLICATING join for, arrived at from the other direction, and the
-        // duplication check could not see it: `may_duplicate_rows` is about fan-out, not about
-        // elimination.
-        //
-        // Left-joining makes an unmatched row group under a null key instead of vanishing, so the
-        // grouped total always reconciles with the ungrouped one - which is what
-        // `a_dimension_join_does_not_change_the_measure` asserts over real data.
-        //
-        // `OneToMany` never reaches here: a join that can duplicate the metric's rows is refused
-        // when the definitions are assembled. The cardinality therefore does not change the join
-        // KIND today; it is matched on so that adding a variant is a compile error here rather than
-        // a silently wrong statement.
-        statement = match join.join_type() {
-            JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(join.table().as_str(), on),
-        };
-    }
+    let statement = joined(builder::select(projection).from(plan.table().as_str()), plan.joins());
 
     // Folded in plan order, which is parameter order: the range bounds, then the metric's required
     // filters, then the caller's. For a dialect that writes `?` the position in the statement is the
@@ -299,13 +334,92 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
         .limit(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX))
         .build();
 
-    let mut config = polyglot_sql::dialects::Dialect::get(dialect_type(dialect))
-        .generator_config()
-        .clone();
-    config.always_quote_identifiers = true;
-    let sql = polyglot_sql::Generator::with_config(config)
-        .generate(&ast)
-        .map_err(|cause| GenerateError::Render { dialect, cause })?;
+    Ok(GeneratedQuery::new(
+        plan.source().clone(),
+        render(&ast, dialect)?,
+        plan.params().to_vec(),
+    ))
+}
 
-    Ok(GeneratedQuery::new(plan.source().clone(), sql, plan.params().to_vec()))
+/// Renders one leg of a federated question as one statement, paired with its parameters.
+///
+/// **Four differences from [`generate`], and each of them is why a second entry point exists rather
+/// than a flag on the first.**
+///
+/// 1. **It projects a LIST of term columns**, one per descending term, instead of one measure
+///    expression. That is the whole of 0009's Decision 2 at the rendering layer: a decomposed `Avg`
+///    travels as a sum beside a count and a ratio travels as an undivided numerator and denominator,
+///    so nothing here can emit a division. It never calls [`measure_expression`], and it could not -
+///    there is no [`PlanMeasure`] in a [`LegPlan`] to hand it.
+/// 2. **The bucket and the joins are the fact leg's alone.** A dimension lookup reads a table with
+///    no time column, so it projects its keys and groups by them, which is a distinct key set.
+/// 3. **It emits no `LIMIT`.** A leg is not an answer:
+///    `sutura_domain::plan::MAX_ROWS` caps one answer's rows and
+///    [`QueryPlan::row_limit`] is how an adapter asks for one more than the cap, so a cap applied per
+///    leg would refuse a question no answer was too large for. What bounds a leg is the byte budget
+///    at the conversion boundary, which belongs with the code that converts.
+/// 4. **The `WHERE` clause is optional.** A [`QueryPlan`] always carries the two bounds of its range
+///    so [`GenerateError::NoPredicate`] is unreachable there; a lookup leg for a remote dimension
+///    that carries no filter has no predicate at all, and no clause is the correct rendering rather
+///    than an error.
+///
+/// Everything else is shared with [`generate`] on purpose - [`column`], [`aliased`], [`aggregate`],
+/// [`term_expression`], [`predicate`], [`bucket_expression`], [`joined`] and [`render`] - so a
+/// change to identifier quoting, to placeholder style or to how a term renders cannot apply to one
+/// path and not the other.
+///
+/// **Nothing calls this from a binary.** There is no splitter, so no [`LegPlan`] is constructed
+/// outside a test; what pins it is the golden family under `crates/sutura-app/tests/golden`, one
+/// statement per shape per dialect, parse-checked in the dialect it was generated for.
+pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
+    // Keys first, in leg order, and both grouped by and projected. `LegPlan::result_labels` states
+    // the same order for whatever reads the rows back.
+    let mut projection = Vec::with_capacity(leg.keys().len().saturating_add(1));
+    let mut grouping = Vec::with_capacity(leg.keys().len().saturating_add(1));
+    for key in leg.keys() {
+        projection.push(aliased(column(key.column()), key.label())?);
+        grouping.push(column(key.column()));
+    }
+
+    // THE rendering arm. A third leg shape does not compile until it says what it projects.
+    let joins: &[PlanJoin] = match *leg {
+        LegPlan::Fact {
+            ref bucket,
+            ref terms,
+            ref joins,
+            ..
+        } => {
+            let bucket_expr = bucket_expression(bucket);
+            projection.push(aliased(bucket_expr.clone(), bucket.label())?);
+            grouping.push(bucket_expr);
+            // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
+            // here: the projection is then the key list and the bucket, grouped by itself.
+            for term in terms {
+                projection.push(aliased(term_expression(term.term()), term.label())?);
+            }
+            joins
+        }
+        // No bucket, no terms, no joins. It projects its keys and groups by them, which is the
+        // distinct set of dimension rows surviving its own filters.
+        LegPlan::Lookup { .. } => &[],
+    };
+
+    let mut statement = joined(builder::select(projection).from(leg.table().as_str()), joins);
+
+    // Folded in leg order, which is parameter order, exactly as `generate` folds a plan's.
+    let mut clauses = leg.filters().iter().map(|f| predicate(dialect, f.predicate()));
+    if let Some(first) = clauses.next() {
+        statement = statement.where_(clauses.fold(first, Expr::and));
+    }
+
+    let ordering: Vec<Expr> = grouping.clone();
+    // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
+    // unspecified and a golden over it flaps.
+    let ast = statement.group_by(grouping).order_by(ordering).build();
+
+    Ok(GeneratedQuery::new(
+        leg.source().clone(),
+        render(&ast, dialect)?,
+        leg.params().to_vec(),
+    ))
 }

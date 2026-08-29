@@ -4,7 +4,7 @@ Operational, and expected to churn. The decisions it executes live in
 [the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
 harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
 
-**Twenty-four steps, seven done, six of which can start at once.** Every number is counted off the table
+**Twenty-four steps, eight done, six of which can start at once.** Every number is counted off the table
 below rather than remembered, which is the fourth attempt at getting them right: a number typed by hand
 beside the table that owns it goes stale on the next row, and it has now gone stale three times -
 "eleven steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which"
@@ -32,8 +32,8 @@ internal that a stable surface can grow behind.
 | 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
 | 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
 | 8 | ~~`feat/source-registry`~~ | - | **DONE**. Two of row 7's tests were replaced rather than kept: a multi-source CATALOG is servable now, and the source-NAME comparison became a declared kind |
-| 9 | `feat/leg-plan-types` | 4 - **done** | **yes** |
-| 10 | `feat/two-source-execution` | 8 - **done**, 9 | after 9 |
+| 9 | ~~`feat/leg-plan-types`~~ | - | **DONE** - #47. The shapes and their rendering; built and NOT wired, see AGENTS.md |
+| 10 | `feat/two-source-execution` | 8, 9 - both **done** | **yes** |
 | 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
 | 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |

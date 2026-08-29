@@ -16,7 +16,7 @@ where "run as the calling subject" is trivially satisfied because there is nobod
 
 Two things this adapter deliberately does not offer:
 
-**No arbitrary SQL entry point.** `DuckDbWarehouse::execute` takes a `QueryPlan` and renders
+**No arbitrary SQL entry point.** `DuckDbWarehouse::execute` takes an `Executable` and renders
 the statement itself, into a `GeneratedQuery` that carries its parameters separately. There is
 no method that takes a string. A development affordance that ran a statement somebody typed would
 be the shortest path around every check upstream of here.
@@ -45,6 +45,7 @@ Why this data system could not answer.
 - `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
 - `Render` - The plan could not be rendered as SQL.
 - `Attach`
+- `LegWithoutCombiner` - One leg of a federated answer, which nothing here can assemble above.
 
 ### Implements
 

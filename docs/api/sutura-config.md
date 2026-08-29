@@ -79,7 +79,7 @@ for; a process that does not start is read by everybody.
   without the `tls` feature; or a certificate and key no declaration would ever read.
 - `server.port: 0` in production.
 - A configured source with no `security.identity`. The mode has no default and no derivation - see
-  [`DeploymentIdentity`](security::DeploymentIdentity), which explains why no combination of source
+  `security::DeploymentIdentity`, which explains why no combination of source
   postures may answer it on the operator's behalf.
 - A `shared-service-user` source in `multi-user` mode with no `acknowledged_because` on that
   source's own entry. Per source, because an acknowledgement inherited from a neighbour is how a

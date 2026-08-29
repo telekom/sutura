@@ -18,6 +18,7 @@
 
 use crate::calendar::Date;
 use crate::model::SourceName;
+use crate::plan::Executable;
 use crate::source::{ImpersonationCapability, SourcePosture};
 
 /// A value bound to a placeholder.
@@ -308,7 +309,7 @@ impl RowSet {
 ///
 /// ```compile_fail
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::QueryPlan;
+/// use sutura_domain::plan::Executable;
 /// use sutura_domain::source::SourcePosture;
 /// use sutura_domain::warehouse::{RowSet, Warehouse};
 ///
@@ -329,7 +330,7 @@ impl RowSet {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -340,7 +341,7 @@ impl RowSet {
 ///
 /// ```
 /// use sutura_domain::model::SourceName;
-/// use sutura_domain::plan::QueryPlan;
+/// use sutura_domain::plan::Executable;
 /// use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 /// use sutura_domain::warehouse::{RowSet, Warehouse};
 ///
@@ -362,7 +363,7 @@ impl RowSet {
 ///         &self.posture
 ///     }
 ///
-///     fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+///     fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
 ///         Err(core::fmt::Error)
 ///     }
 /// }
@@ -416,6 +417,9 @@ pub trait Warehouse {
 
     /// Checks the plan is executable here, without producing rows.
     ///
+    /// Takes an [`Executable`] for [`execute`](Warehouse::execute)'s reason, so the two cannot
+    /// disagree about what this adapter accepts.
+    ///
     /// **Defaulted to doing nothing, and the default is a statement rather than a stub.** A data
     /// system across a network can prepare a statement for a fraction of what running it costs, so
     /// there the pre-flight is worth a round trip: a plan naming a column that is not there is
@@ -428,12 +432,25 @@ pub trait Warehouse {
     ///
     /// An adapter that overrides it must not read data: the contract is a plan that resolves, not a
     /// result.
-    fn dry_run(&self, _plan: &crate::plan::QueryPlan) -> Result<(), Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
         Ok(())
     }
 
     /// Runs the plan and returns its rows.
-    fn execute(&self, plan: &crate::plan::QueryPlan) -> Result<RowSet, Self::Error>;
+    ///
+    /// **One method for both plan shapes, and the exhaustive match is why.** An
+    /// [`Executable`] is a whole [`QueryPlan`](crate::plan::QueryPlan) or one
+    /// [`LegPlan`](crate::plan::LegPlan) of a federated answer, so an adapter that reads what it was
+    /// handed has to say what it does with each. A second port method for legs was considered and
+    /// rejected: a second method invites a default body, a default that errors lets an adapter be
+    /// silently non-federating, and *adding a data system is a registration* would then stop being
+    /// true in the one direction nobody would notice.
+    /// `docs/adr/0007-federating-across-different-data-systems.md` is the decision.
+    ///
+    /// **Nothing hands any adapter a leg today**, because there is no splitter and no combiner. An
+    /// adapter that cannot execute one says so with a typed error of its own rather than with a
+    /// default it inherited.
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error>;
 
     /// Was this failure the working-set ceiling refusing a reservation, and what was the ceiling?
     ///

@@ -38,7 +38,7 @@ use std::collections::BTreeMap;
 
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::{Executable, QueryPlan};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
@@ -68,6 +68,27 @@ fn fake_posture() -> &'static SourcePosture {
                 .expect("a fixture reason is a reason"),
         ),
     })
+}
+
+/// The whole plan a fake was handed.
+///
+/// `Warehouse::execute` takes an `Executable` so an adapter cannot silently ignore one leg of a
+/// federated answer. **None of the fakes here is where that distinction is exercised:** nothing in
+/// this crate's tests hands a data system a `LegPlan`, and the leg shapes are pinned through the
+/// renderer in `golden/legs.rs` rather than through a warehouse - because rendering a leg and
+/// answering with one are different claims, and only the first is true today.
+///
+/// One function rather than an arm in each fake, so three stand-ins cannot grow three different
+/// opinions about a case none of them can reach. A panic is the right shape for it: it is a broken
+/// test rather than an input to handle, and it names the leg it was handed.
+fn whole_plan(executable: Executable<'_>) -> &QueryPlan {
+    match executable {
+        Executable::Query(plan) => plan,
+        Executable::Leg(leg) => panic!(
+            "no fake in this suite answers a leg, and one arrived against {}",
+            leg.table().as_str()
+        ),
+    }
 }
 
 // ------------------------------------------------------------------------ the fake warehouse ---
@@ -130,7 +151,8 @@ impl Warehouse for RecordingWarehouse {
         clippy::unwrap_in_result,
         reason = "the fixed one-cell result is a literal, so a failure to build it is a broken \n                  test rather than an input to handle"
     )]
-    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+        let plan = whole_plan(executable);
         self.seen.borrow_mut().push(String::from(plan.metric().as_str()));
         // One row of nothing, shaped so `RowSet::new` accepts it. A fake that returned plausible
         // numbers would invite a test to assert on them, and those numbers would be this file's
@@ -206,7 +228,8 @@ impl Warehouse for CertifiedNumbers {
         clippy::unwrap_in_result,
         reason = "the one-cell result is built from a literal shape, so a failure to build it is a \n                  broken test rather than an input to handle"
     )]
-    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+        let plan = whole_plan(executable);
         // Labelled after the plan's metric, because that is the column an anchor check looks for. A
         // metric this fake holds no number for answers nothing, which reads as a mismatch rather
         // than as a pass.
@@ -275,7 +298,8 @@ impl Warehouse for WideResult {
         clippy::unwrap_in_result,
         reason = "the one-column shape is a literal here, so a failure to build it is a broken test \n                  rather than an input to handle"
     )]
-    fn execute(&self, plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+        let plan = whole_plan(executable);
         self.asked_for.borrow_mut().push(plan.row_limit());
         // One column, so the shape is trivially rectangular and the only thing the test reads is how
         // many rows there are. The values are all the same on purpose: a fake that returned
@@ -337,7 +361,7 @@ impl Warehouse for ExhaustedEngine {
     // is no reservation for a ceiling to refuse there, which is why `answer` does not treat its
     // failure as exhaustion either.
 
-    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
         Err(Exhausted)
     }
 
@@ -377,7 +401,7 @@ impl Warehouse for BrokenEngine {
         &self.source
     }
 
-    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
         Err(Exhausted)
     }
 

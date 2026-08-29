@@ -21,7 +21,7 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::QueryPlan;
+use sutura_domain::plan::Executable;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{RowSet, Value, Warehouse};
 
@@ -259,13 +259,13 @@ impl Warehouse for FailingWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
     }
 
-    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -296,11 +296,11 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
         // Held rather than slept, and that is about the test suite rather than about realism. A
         // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
         // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the

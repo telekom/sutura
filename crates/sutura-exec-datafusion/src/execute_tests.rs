@@ -1,3 +1,9 @@
+//! The adapter's own suite: attaching a file, executing a plan, and the translation helpers.
+//!
+//! In its own file for the reason `value_mapping_tests.rs` and `width_tests.rs` are: `lib.rs` is at
+//! the 1000-line gate, and the gate's answer to that is to split the file rather than to shorten
+//! the fix. A pure move - nothing here changed with the split.
+
 use super::collect::cell;
 use super::translate::{aggregate_expr, literal, measure_expression, unit};
 use super::{DataFusionError, DataFusionWarehouse, column};
@@ -10,7 +16,7 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
 };
 // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
 use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
@@ -253,7 +259,7 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
         ],
     ));
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
-    let result = adapter.execute(&query).expect("the plan runs");
+    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
     assert_eq!(result.columns(), query.result_labels().as_slice());
     assert_eq!(
         result.rows(),
@@ -300,7 +306,7 @@ fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing()
         "hit_rate",
         region_key(),
     );
-    let result = adapter.execute(&query).expect("the plan runs");
+    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Null));
 }
@@ -329,7 +335,7 @@ fn a_count_if_answers_zero_for_a_group_with_no_matches_rather_than_nothing() {
         "paid_orders",
         region_key(),
     );
-    let result = adapter.execute(&query).expect("the plan runs");
+    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
     assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
 }
@@ -364,7 +370,7 @@ fn a_conditional_count_is_usable_as_a_ratio_numerator() {
         "paid_share",
         region_key(),
     );
-    let result = adapter.execute(&query).expect("the plan runs");
+    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));
 }
@@ -430,11 +436,13 @@ fn a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_
     // twice. Asserted rather than assumed, because "the engine does not pre-check" is exactly
     // the kind of claim that stops being true when somebody adds an override back.
     assert!(
-        adapter.dry_run(&query).is_ok(),
+        adapter.dry_run(Executable::Query(&query)).is_ok(),
         "the engine answers `would this work` by not asking, so a plan it cannot run still dry-runs clean"
     );
 
-    let error = adapter.execute(&query).expect_err("an unattached table does not resolve");
+    let error = adapter
+        .execute(Executable::Query(&query))
+        .expect_err("an unattached table does not resolve");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
     assert_eq!(adapter.source().as_str(), "local");
 }

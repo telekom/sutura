@@ -30,6 +30,7 @@
 use sutura_domain::catalog::Anchor;
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
+use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
@@ -247,7 +248,9 @@ where
     // execution does all of it again, so the guarantee was bought at the price of two full planning
     // passes per question. `Warehouse::dry_run` is defaulted for that reason: an adapter that cannot
     // make checking cheaper answers this by doing nothing, and says so by not implementing it.
-    warehouse.dry_run(&plan).map_err(|cause| ServiceError::Warehouse { cause })?;
+    warehouse
+        .dry_run(Executable::Query(&plan))
+        .map_err(|cause| ServiceError::Warehouse { cause })?;
     // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
     // governance outcome - the question is well formed and this deployment will not spend more than
     // a configured number of bytes on it - and it used to leave here as `ServiceError::Warehouse`,
@@ -260,7 +263,7 @@ where
     //
     // `dry_run` above is deliberately not given the same treatment: the port's contract is that a
     // check reads no data, so there is no reservation for a ceiling to refuse.
-    let rows = match warehouse.execute(&plan) {
+    let rows = match warehouse.execute(Executable::Query(&plan)) {
         Ok(rows) => rows,
         Err(cause) => {
             if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
@@ -396,7 +399,7 @@ where
             plan: plan.source().clone(),
         });
     };
-    let rows = match warehouse.execute(&plan) {
+    let rows = match warehouse.execute(Executable::Query(&plan)) {
         Ok(rows) => rows,
         Err(cause) => {
             let (message, chain) = flatten(&cause);
@@ -492,7 +495,7 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
 #[cfg(test)]
 mod tests_support {
     use sutura_domain::model::SourceName;
-    use sutura_domain::plan::QueryPlan;
+    use sutura_domain::plan::Executable;
     use sutura_domain::source::{ImpersonationCapability, SourcePosture};
     use sutura_domain::warehouse::{RowSet, Warehouse};
 
@@ -556,14 +559,14 @@ mod tests_support {
             &self.posture
         }
 
-        fn dry_run(&self, _plan: &QueryPlan) -> Result<(), Self::Error> {
+        fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
             match self.result {
                 Some(_) => Ok(()),
                 None => Err(AdapterFailure { cause: DriverFailure }),
             }
         }
 
-        fn execute(&self, _plan: &QueryPlan) -> Result<RowSet, Self::Error> {
+        fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
             self.result.clone().ok_or(AdapterFailure { cause: DriverFailure })
         }
     }
