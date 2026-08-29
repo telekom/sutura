@@ -21,20 +21,20 @@ internal that a stable surface can grow behind.
 
 | Order | Branch | Depends on | Can start now |
 | --- | --- | --- | --- |
-| 1 | `feat/agent-surface` | nothing unshipped | **yes** |
+| 1 | ~~`feat/agent-surface`~~ | - | **DONE** - #35 |
 | 2 | ~~`docs/inbound-identity`~~ | - | **DONE** - landed as [0014](adr/0014-how-a-caller-proves-who-it-is.md) |
-| 3 | `feat/agent-surface-scope` | 1 | after 1 |
-| 4 | `feat/federation-decomposability` | nothing | **yes** |
-| 5 | `feat/principal-chain` | nothing | **yes** |
-| 6 | `feat/query-bounds` | nothing | **yes** |
-| 7 | `test/startup-source-refusals` | nothing | **yes** |
-| 8 | `feat/source-registry` | 6 | after 6 |
-| 9 | `feat/leg-plan-types` | 4 | after 4 |
+| 3 | `feat/agent-surface-scope` | 1 - **done** | **yes** |
+| 4 | ~~`feat/federation-decomposability`~~ | - | **DONE** - #33. Built and NOT wired; see AGENTS.md |
+| 5 | ~~`feat/principal-chain`~~ | - | **DONE** - #37. Both tail positions still absent |
+| 6 | ~~`feat/query-bounds`~~ | - | **DONE** - #38 |
+| 7 | ~~`test/startup-source-refusals`~~ | - | **DONE** - #31 |
+| 8 | `feat/source-registry` | 6 - **done** | **yes** |
+| 9 | `feat/leg-plan-types` | 4 - **done** | **yes** |
 | 10 | `feat/two-source-execution` | 8, 9 | after 9 |
 | 11 | `feat/conformance-packs` | 10 for the execute half, nothing for the compile half | partly |
 | 12 | `feat/credential-port` | 2, 5, 8 | after 8 |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
-| 14 | `feat/compose-tier` | nothing in this repo - docker on the host | **yes** |
+| 14 | `feat/compose-tier` | nothing in this repo - docker on the host | **IN REVIEW** - #34 |
 | 15 | `feat/bigquery-adapter` | 8, and the fixture decision | after 8 |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
 | 17 | `feat/postgres-adapter` | 8, 14, and the artifact question | after 14 |
