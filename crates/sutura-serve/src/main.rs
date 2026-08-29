@@ -152,8 +152,13 @@ fn run() -> Result<(), String> {
     // start rather than that refusal firing at assembly.
     let inbound = inbound_gate(&settings)?;
     let mut state = ServiceState::new(Arc::new(service), Arc::new(settings));
+    // Kept beside the state so the key-set watch can be armed once the runtime exists. `Arc` because
+    // the state holds one and the watch needs to reach the same cache.
+    let mut watching: Option<Arc<sutura_http::InboundGate>> = None;
     if let Some(gate) = inbound {
-        state = state.with_inbound_identity(Arc::new(gate));
+        let gate = Arc::new(gate);
+        watching = Some(Arc::clone(&gate));
+        state = state.with_inbound_identity(gate);
     }
     let router = sutura_http::router(&state).map_err(flatten)?;
 
@@ -165,7 +170,7 @@ fn run() -> Result<(), String> {
     // returns needs to know how much of the grace period the drain spent. `tokio::sync` needs no
     // runtime entered, so this is safe on this side of `block_on`.
     let stopping = Shutdown::with_grace(grace);
-    let served = runtime.block_on(serve_until_stopped(router, address, material, stopping.clone()));
+    let served = runtime.block_on(serve_until_stopped(router, address, material, watching, stopping.clone()));
     stop(runtime, &stopping);
     served
 }
@@ -227,12 +232,20 @@ async fn serve_until_stopped(
     router: axum::Router,
     address: std::net::SocketAddr,
     material: Option<TlsMaterial>,
+    inbound: Option<Arc<sutura_http::InboundGate>>,
     stopping: Shutdown,
 ) -> Result<(), String> {
     // Detached on purpose: the task's only job is to translate the first signal into the shared
     // flag, and `serve` below is what waits on it. Joining it would mean waiting for a signal that
     // may never arrive.
     drop(tokio::spawn(shutdown::listen(stopping.clone())));
+    // Armed HERE and not where the gate was built, for the reason the TLS renewal watch is: the gate
+    // is built before the runtime exists, and a `tokio::spawn` on that side would panic. What it buys
+    // is a bound on how long a REVOKED key keeps verifying while nothing is being asked - the gate's
+    // own age check covers the case where requests are arriving.
+    if let Some(gate) = inbound {
+        gate.watch_keys_until_shutdown(stopping.clone());
+    }
     serve_as_configured(router, address, stopping, material).await
 }
 

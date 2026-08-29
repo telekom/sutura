@@ -38,14 +38,16 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse as _, Response};
 use sutura_config::{InboundIdentity, TokenLocation};
 
+use sutura_runtime::Shutdown;
+
 use crate::inbound::caller::VerifiedCaller;
-use crate::inbound::keys::{FileKeySet, KeySetCache, KeySetUnavailable};
+use crate::inbound::keys::{FileKeySet, KeySetCache, KeySetUnavailable, MAX_KEY_SET_AGE};
 use crate::inbound::token::{TokenRejected, TokenValidator};
 use crate::problem::Failure;
 
 /// The scheme an `Authorization` token carries, and the header it arrives in.
 const AUTHORIZATION: &str = "authorization";
-const BEARER: &str = "Bearer ";
+const BEARER: &str = "Bearer";
 
 /// Everything one deployment needs to establish who a caller is, built once at startup.
 ///
@@ -57,7 +59,9 @@ const BEARER: &str = "Bearer ";
 /// attach one a startup failure rather than an open door.
 pub struct InboundGate {
     validator: TokenValidator,
-    keys: KeySetCache,
+    /// Behind an `Arc` so [`crate::inbound::keys::KeySetCache::watch_until_shutdown`] can hold a
+    /// `Weak` to it, and stop when this gate is dropped rather than keeping it alive.
+    keys: Arc<KeySetCache>,
     /// Where the token arrives, resolved from the declaration at startup rather than per request.
     ///
     /// An owned `String` rather than the borrowed `TokenLocation`, so the gate does not hold a
@@ -65,6 +69,9 @@ pub struct InboundGate {
     header: String,
     /// Whether the value carries the `Bearer ` prefix. The `direct` mode does, per RFC 6750; a
     /// component setting its own header does not.
+    ///
+    /// It also decides whether a refused request gets a `WWW-Authenticate: Bearer` challenge at all -
+    /// see [`InboundGate::challenge`].
     bearer_prefixed: bool,
     /// What the challenge names as its realm.
     realm: String,
@@ -86,7 +93,17 @@ impl InboundGate {
     pub fn from_declaration(inbound: &InboundIdentity) -> Result<Self, InboundNotUsable> {
         let requirement = inbound.requirement();
         let source = FileKeySet::at(requirement.key_set().path());
-        let keys = KeySetCache::primed(Box::new(source), Instant::now()).map_err(|cause| InboundNotUsable { cause })?;
+        // The pinned family travels into the cache, so **every** path that adopts a key set - this one
+        // and every later refresh - refuses one that holds no key of it. A deployment whose key set and
+        // whose `algorithms` disagree about the kind of key starts and answers `401` to everybody
+        // otherwise, which is the shape review asked to have refused.
+        let keys = KeySetCache::primed(
+            Box::new(source),
+            requirement.algorithms().family(),
+            requirement.algorithms().to_string(),
+            Instant::now(),
+        )
+        .map_err(|cause| InboundNotUsable { cause })?;
         Ok(Self::over(inbound, keys))
     }
 
@@ -104,10 +121,24 @@ impl InboundGate {
         Self {
             realm: String::from(requirement.audience().as_str()),
             validator: TokenValidator::new(&requirement),
-            keys,
+            keys: Arc::new(keys),
             header,
             bearer_prefixed,
         }
+    }
+
+    /// Starts the timer that bounds how long a revoked key keeps verifying.
+    ///
+    /// Called from the composition root, inside the runtime, for the reason
+    /// `crate::tls::Renewal::watch_until_shutdown` is: the gate is built before a runtime exists, so it
+    /// cannot spawn its own task at construction.
+    ///
+    /// **Forgetting it does not leave revocation unbounded**, and that is deliberate rather than
+    /// forgiving: `crate::inbound::keys::KeySetCache::key_for` checks the age itself, so a deployment
+    /// serving traffic re-reads within the same horizon. What the timer adds is the bound holding while
+    /// nothing is being asked.
+    pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown) {
+        KeySetCache::watch_until_shutdown(&self.keys, MAX_KEY_SET_AGE, shutdown);
     }
 
     /// The header this gate reads, for a startup log line and for a test.
@@ -122,14 +153,24 @@ impl InboundGate {
         self.keys.describe().await
     }
 
-    /// The RFC 6750 challenge a refused request carries.
+    /// The RFC 6750 challenge a refused request carries, where one is meaningful.
     ///
-    /// **No `error_description`**, and that is the same decision the response body makes: a
-    /// description would have to say which check failed to be worth anything, and that is the one
-    /// thing a caller must not learn.
+    /// **`None` in the `behind-gateway` mode, and that is a fix rather than an omission.** A `Bearer`
+    /// challenge tells a client to present a bearer token to *this* resource; behind a component, the
+    /// caller holds no token for us and the thing that was missing was a header the component sets.
+    /// Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
+    /// client that followed it would start putting credentials in a header this deployment refuses to
+    /// read.
+    ///
+    /// **No `error_description`** in the direct case, and that is the same decision the response body
+    /// makes: a description would have to say which check failed to be worth anything, and that is the
+    /// one thing a caller must not learn.
     #[must_use]
-    pub fn challenge(&self) -> String {
-        format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm)
+    pub fn challenge(&self) -> Option<String> {
+        if !self.bearer_prefixed {
+            return None;
+        }
+        Some(format!("Bearer realm=\"{}\", error=\"invalid_token\"", self.realm))
     }
 
     /// Establishes who is asking, or says why it could not.
@@ -144,9 +185,7 @@ impl InboundGate {
     /// `Sync`, so a future holding `&Request` across an await is not `Send` and cannot run as a layer
     /// at all - which is how the narrow reason got discovered.
     pub async fn establish(&self, headers: &HeaderMap, now: Instant) -> Result<VerifiedCaller, TokenRejected> {
-        let presented = self.presented(headers).ok_or_else(|| TokenRejected::Absent {
-            location: self.header.clone(),
-        })?;
+        let presented = self.presented(headers)?;
         let id = TokenValidator::key_id(presented)?;
         let key = self
             .keys
@@ -158,15 +197,36 @@ impl InboundGate {
 
     /// The token as presented, without the scheme prefix where there is one.
     ///
-    /// Returns `None` for an absent header, a header this HTTP implementation will not hand back as a
-    /// string, and - in the `Authorization` case - a value with no `Bearer ` prefix. All three are the
-    /// same fact from a caller's side: nothing was presented here.
-    fn presented<'request>(&self, headers: &'request HeaderMap) -> Option<&'request str> {
-        let value = headers.get(self.header.as_str())?.to_str().ok()?;
-        if self.bearer_prefixed {
-            return value.strip_prefix(BEARER);
+    /// **The scheme is matched case-insensitively, which is a fix.** RFC 9110 section 11.1 makes an
+    /// authentication scheme name case-insensitive, so `bearer abc` is a bearer token and a
+    /// `strip_prefix("Bearer ")` refused it - as *absent*, which is the wrong diagnostic on top of the
+    /// wrong outcome. A client that sends the lower-case spelling is not a client presenting nothing.
+    ///
+    /// The three failures are three variants rather than one, because they are three different things
+    /// for whoever is debugging: no header at all is a client nobody configured; a value with another
+    /// scheme is a client configured for a different service; and a header this HTTP implementation
+    /// will not hand back as a string is a value with bytes no scheme could carry.
+    fn presented<'request>(&self, headers: &'request HeaderMap) -> Result<&'request str, TokenRejected> {
+        let absent = || TokenRejected::Absent {
+            location: self.header.clone(),
+        };
+        let value = headers
+            .get(self.header.as_str())
+            .ok_or_else(absent)?
+            .to_str()
+            .map_err(|_not_a_string| absent())?;
+        if !self.bearer_prefixed {
+            return Ok(value);
         }
-        Some(value)
+        let (scheme, credential) = value.split_once(' ').ok_or_else(|| TokenRejected::NotABearerToken {
+            location: self.header.clone(),
+        })?;
+        if !scheme.eq_ignore_ascii_case(BEARER) {
+            return Err(TokenRejected::NotABearerToken {
+                location: self.header.clone(),
+            });
+        }
+        Ok(credential)
     }
 }
 
@@ -223,7 +283,9 @@ fn refused(gate: &InboundGate, rejected: &TokenRejected) -> Response {
         "no verified caller: the presented token did not establish one"
     );
     let mut response = Failure::Unauthorized.into_response();
-    challenged(&mut response, &gate.challenge());
+    if let Some(challenge) = gate.challenge() {
+        challenged(&mut response, &challenge);
+    }
     response
 }
 

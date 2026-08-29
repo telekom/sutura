@@ -228,6 +228,12 @@ happened rather than implying the check was run.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -434,10 +440,11 @@ How the identity of a caller reaches this deployment - leg 1, and the one fact t
 
 `docs/adr/0014` decides two inbound modes and says plainly that **neither of them is a default**.
 A deployment either *is* the resource server and validates the caller's token itself, or it sits
-behind a component that already authenticated the caller and validates a proof the request
-transited that component. Both defaults are wrong in opposite directions: defaulting to
+behind a component that already authenticated the caller and validates a short-lived **identity
+assertion that component signed**. Both defaults are wrong in opposite directions: defaulting to
 `InboundIdentity::Direct` makes a gateway deployment reject every caller, and defaulting to
-`InboundIdentity::BehindGateway` makes a directly exposed deployment accept a forged proof.
+`InboundIdentity::BehindGateway` makes a directly exposed deployment accept an assertion anybody
+can mint.
 
 So the mode is a required key **inside** the declaration, and the declaration as a whole is
 optional. Those are two different absences and the difference matters:
@@ -468,10 +475,21 @@ things `InboundIdentity::Direct` validates - and the subject is derived by us fr
 a token whose signature checked out. There is no shape in this module that could hold "the name of
 the header the username is in".
 
-**The limit, stated next to the claim:** under `BehindGateway` this deployment trusts the
-component's *authentication of the caller*, because that is what the mode means. What it does not
-trust is a string. The signature says the claims came from the component; nothing here can say the
-component authenticated correctly, and no configuration could.
+**The limits, stated next to the claim, and there are three.** Under `BehindGateway` this
+deployment trusts the component's *authentication of the caller*, because that is what the mode
+means; what it does not trust is a string. The signature says the claims came from the component,
+and nothing here can say the component authenticated correctly.
+
+And what a signed assertion proves is that **the component issued it**, not that *this request*
+carried it there first. Review found the wording overstating exactly that: a proof was replayable
+for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
+are now bounded - `ProofLifetime` caps `exp - iat` and an `iat` is required, so the replay window
+is a number this deployment chose rather than one it was handed. **Binding an assertion to a
+particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
+body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
+proof that the request transited anything, and why the trusted transport boundary - the hop between
+the component and this process - is load-bearing rather than incidental.
 
 # One derived view, two named modes
 
@@ -480,6 +498,68 @@ component authenticated correctly, and no configuration could.
 operator writes and a reviewer reads, and the validator downstream consumes a single
 `TokenRequirement` borrowed out of whichever variant is configured. There is one validator, so
 there is one place algorithm pinning and the audience check can be got wrong.
+
+### `enum RequiredTokenType`
+
+```rust
+pub enum RequiredTokenType
+```
+
+Which class of token this deployment will accept, out of the `typ` header.
+
+**Two variants because the check has to be switchable and must not be switchable by silence.** The
+finding it answers is cross-JWT substitution: without it, any JWT the issuer signed with this
+audience verifies, an OIDC ID token included whenever the resource identifier equals the client id.
+So `Self::Exactly` is the default in the `direct` mode - RFC 9068's `at+jwt` - and turning it off
+is a value an operator writes, `any`, which the startup log prints at `WARN`.
+
+There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+value reads as "not configured yet" at every call site, and the one thing that has to be legible is
+whether a deployment decided to accept every class of token.
+
+#### Variants
+
+- `Exactly` - A token whose `typ` is this, compared after the signature verified.
+- `Any` - Any class of token the issuer signed for this audience.
+
+#### Methods
+
+```rust
+pub fn accepts(&self, presented: Option<&TokenType>) -> bool
+```
+
+Does a presented `typ` satisfy this?
+
+`None` is an ABSENT `typ` header, and it satisfies nothing but `Self::Any`: a token carrying no
+type is exactly the shape a class check exists to refuse, and treating absence as acceptable
+would make the check satisfiable by omission.
+
+```rust
+pub fn access_token() -> Self
+```
+
+RFC 9068's access-token type. The `direct` mode's default.
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+What is required, as a word for a log line and for a refusal message.
+
+```rust
+pub fn parse(key: &'static str, raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue>
+```
+
+Reads the configured word: `any`, or a media type.
+
+`any` is compared on the folded value, so `Any` and `ANY` are the same answer - and a deployment
+whose component really does emit a `typ` of `any` cannot express it. That collision is worth
+having: the word is checked before the media type precisely so that turning the check off cannot
+happen by accident.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 ### `enum TokenLocation`
 
@@ -523,10 +603,16 @@ pub const fn header(&self) -> &ProofHeader
 The header the proof arrives in.
 
 ```rust
-pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: ResourceIdentifier, key_set: KeySetFile, algorithms: PinnedAlgorithms) -> Self
+pub const fn new(header: ProofHeader, issuer: IssuerUrl, audience: ResourceIdentifier, key_set: KeySetFile, algorithms: PinnedAlgorithms, token_type: RequiredTokenType, max_lifetime: ProofLifetime) -> Self
 ```
 
 Assembles a declaration from parts that have each already been parsed.
+
+Seven arguments, over `clippy.toml`'s threshold of five, and taken rather than grouped
+deliberately: a parts struct would need public fields, which `cargo xtask check-boundaries`
+refuses on a public struct in a library crate - for the reason it exists, that a public field is
+a second way to build a value without its invariant. Every one of these is already a parsed
+newtype, so the list is seven invariants rather than seven strings.
 
 #### Implements
 
@@ -548,9 +634,18 @@ posture must not be satisfiable by silence.
 #### Variants
 
 - `Direct` - This deployment is the resource server. It validates the caller's token itself: signature, issuer, expiry, and an audience matching its own resource identifier.
-- `BehindGateway` - A fronting component authenticated the caller. This deployment validates a short-lived proof that the request transited that component, and derives the subject from the claims of that proof rather than from a string somebody set.
+- `BehindGateway` - A fronting component authenticated the caller. This deployment validates a **signed identity assertion** the component issued, and derives the subject from that assertion's own claims rather than from a string somebody set.
 
 #### Methods
+
+```rust
+pub const fn accepts_any_token_class(&self) -> bool
+```
+
+Is the class check switched off?
+
+Read by the startup log to decide the level, so the answer is a value rather than a comparison
+somebody writes at the call site.
 
 ```rust
 pub const fn mode(&self) -> &'static str
@@ -578,6 +673,17 @@ The one validation this deployment performs, whichever mode it is in.
 
 See this module's documentation: the two modes are one fact and not two code paths, so there
 is one validator and one place the audience check can be got wrong.
+
+```rust
+pub const fn type_check(&self) -> &'static str
+```
+
+What the `typ` check does on this deployment, as a sentence for the startup log.
+
+**A sentence rather than a boolean, because the interesting value is the one that reads as
+nothing.** A deployment that wrote `any` has switched off the check that stops an OIDC ID token
+from establishing a caller, and `type_check = "any"` on a log line does not say that. This does,
+and `crate::security::SecuritySettings` prints it at `WARN`.
 
 ```rust
 pub const fn what_it_does_not_do() -> &'static str
@@ -654,9 +760,25 @@ pub const fn location(&self) -> TokenLocation<'inbound>
 
 Where the token arrives.
 
+```rust
+pub const fn max_lifetime(&self) -> Option<ProofLifetime>
+```
+
+The ceiling on `exp - iat`, where this deployment puts one. See the field.
+
+```rust
+pub const fn token_type(&self) -> &'inbound RequiredTokenType
+```
+
+Which class of token, out of the `typ` header, checked after the signature verified.
+
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 

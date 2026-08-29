@@ -1,5 +1,22 @@
 //! Verifying one token, and turning its claims into a principal chain.
 //!
+//! # The check review found missing, and it is the serious one
+//!
+//! **A signature, an issuer and an audience do not identify a token's CLASS.** Without a `typ` check,
+//! any JWT the issuer signed with this audience verifies - and an OIDC ID token has the same issuer
+//! and, whenever the resource identifier equals the client id, the same audience. That is the ordinary
+//! identity-provider arrangement rather than an exotic one, so the substitution is cheap: a document
+//! minted to describe a login establishes a caller for an API call. Review demonstrated it against
+//! this file.
+//!
+//! [`TokenValidator::verify`] now checks `typ` against `sutura_config::RequiredTokenType`, which
+//! defaults to RFC 9068's `at+jwt` in the `direct` mode. **The check happens on `decoded.header`,
+//! after the signature**, and that placement is the point: [`TokenValidator::key_id`]'s whole doc
+//! comment is that nothing configured applies yet because a JWT header is unauthenticated input, so a
+//! `typ` read there would be a rule applied to a document nobody signed. After `decode` it is a rule
+//! applied to a document the issuer signed - the same reasoning that already puts the actor-nesting
+//! bound there.
+//!
 //! # The three things `docs/adr/0014` says a direct deployment owns
 //!
 //! Key rotation is [`super::keys`]. The other two are here:
@@ -38,7 +55,7 @@
 use core::time::Duration;
 
 use jsonwebtoken::{Algorithm, DecodingKey, Validation};
-use sutura_config::{PinnedAlgorithms, ResourceIdentifier, SigningAlgorithm, TokenRequirement};
+use sutura_config::{ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenRequirement, TokenType};
 use sutura_domain::identity::{Actor, ActorChain, InvalidPrincipalId, PrincipalChain, Subject, SubjectId};
 
 use crate::inbound::caller::{InvalidScope, Scopes, VerifiedCaller};
@@ -87,6 +104,14 @@ pub enum TokenRejected {
     /// client whose token is wrong.
     #[error("no token was presented in {location}")]
     Absent { location: String },
+    /// A header with some other authentication scheme.
+    ///
+    /// **Its own variant because it used to be [`Self::Absent`], and that was the wrong diagnostic.** A
+    /// client sending `Basic` or `Negotiate` here is a client configured for a different service, and a
+    /// log saying nothing was presented sends whoever reads it looking for a missing header. The scheme
+    /// itself is not rendered: it is caller text.
+    #[error("the value in {location} does not carry the `Bearer` scheme")]
+    NotABearerToken { location: String },
     #[error("the presented token is longer than {limit} bytes")]
     TooLong { limit: usize },
     /// The header is not a JWT header, or names no key.
@@ -143,6 +168,62 @@ pub enum TokenRejected {
         #[source]
         cause: InvalidScope,
     },
+    /// The token is of a class this deployment does not accept.
+    ///
+    /// **The refusal that closes cross-JWT substitution.** It carries the required type - a configured
+    /// value, so safe to render - and the presented one only when that presented value **passed
+    /// `TokenType::parse`**, which bounds its length and its character set. A `typ` is caller-adjacent
+    /// text, so the rule about not putting caller text in a message applies; a value that has been
+    /// through a parse is the workspace's own answer to that, the same way a `KeyId` is.
+    #[error("the presented token is a `{presented}` and this deployment accepts `{required}`")]
+    WrongTokenType { required: String, presented: PresentedType },
+    /// A transit proof with no `iat`.
+    ///
+    /// Its own variant rather than folded into [`Self::NotVerified`], because the library cannot
+    /// require `iat` - `required_spec_claims` honours `exp`, `nbf`, `aud`, `iss` and `sub` and nothing
+    /// else - so this is a check of ours and a reader should be able to tell. Only the
+    /// `behind-gateway` mode requires it: without an `iat` there is no lifetime to bound, and the
+    /// lifetime is the only thing standing between an intercepted assertion and an unbounded replay.
+    #[error("the presented proof carries no `iat`, so this deployment cannot tell how long-lived it is")]
+    NoIssuedAt,
+    /// A transit proof declaring a longer life than this deployment will call short-lived.
+    #[error("the presented proof declares a lifetime of {seconds}s and this deployment accepts at most {limit}s")]
+    LifetimeTooLong { seconds: i64, limit: u64 },
+    /// An `iat` in the future by more than the leeway.
+    ///
+    /// A separate refusal from an expiry, because it says something different: a proof issued in the
+    /// future is a clock that disagrees or a claim somebody wrote, and either way the lifetime bound
+    /// above cannot be trusted to mean what it says.
+    #[error("the presented proof was issued {seconds}s in the future, past the {leeway}s allowed for clock skew")]
+    IssuedInTheFuture { seconds: i64, leeway: u64 },
+}
+
+/// The `typ` a refused token presented, where it was one at all.
+///
+/// A named type rather than an `Option<TokenType>` in the variant, so the *absent* case renders as a
+/// sentence rather than as `None` - and so the case where a `typ` was present but unusable is
+/// distinguishable from the case where there was none. Both are refusals; they are different
+/// diagnostics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PresentedType {
+    /// A `typ` that parsed, and is not the one required.
+    Named { typ: TokenType },
+    /// No `typ` header at all. Refused by anything but `any` - see
+    /// `sutura_config::RequiredTokenType::accepts`.
+    Absent,
+    /// A `typ` header holding something no media type could be. Not rendered, for the reason
+    /// [`TokenRejected::WrongTokenType`] gives.
+    Unusable,
+}
+
+impl core::fmt::Display for PresentedType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match *self {
+            Self::Named { ref typ } => write!(f, "{typ}"),
+            Self::Absent => f.write_str("token with no `typ` at all"),
+            Self::Unusable => f.write_str("token whose `typ` is not a media type"),
+        }
+    }
 }
 
 /// The `act` claim: who acted for the subject, nesting outward in time.
@@ -174,6 +255,19 @@ struct Claims {
     /// RFC 6749's space-delimited scope string, if the issuer sent one.
     #[serde(default)]
     scope: Option<String>,
+    /// When the token was issued.
+    ///
+    /// **Read here rather than required of the library**, because the library cannot: its
+    /// `required_spec_claims` honours `exp`, `nbf`, `aud`, `iss` and `sub` and ignores anything else,
+    /// which is documented on the field and was checked against the 9.3.1 source. So a mode that needs
+    /// an `iat` checks for one itself - see [`TokenValidator::within_the_lifetime_ceiling`].
+    #[serde(default)]
+    iat: Option<i64>,
+    /// When it expires. Always present: `exp` is in `required_spec_claims`, so a token without one
+    /// does not reach here. Read for the lifetime ceiling rather than for the expiry, which the
+    /// library already enforced.
+    #[serde(default)]
+    exp: i64,
 }
 
 /// One deployment's whole token check, built once at startup.
@@ -185,6 +279,11 @@ struct Claims {
 pub struct TokenValidator {
     validation: Validation,
     audience: ResourceIdentifier,
+    /// Which class of token, checked on the header of a document that already verified.
+    token_type: RequiredTokenType,
+    /// The ceiling on `exp - iat`, where this deployment puts one. `None` in the `direct` mode - see
+    /// the field on `sutura_config::TokenRequirement` for why the two modes differ.
+    max_lifetime: Option<ProofLifetime>,
 }
 
 impl TokenValidator {
@@ -198,7 +297,7 @@ impl TokenValidator {
         let algorithms = requirement.algorithms();
         // `Validation::new` seeds `algorithms` with the one it is given; the assignment below replaces
         // the whole list, so the seed cannot survive as an extra permitted algorithm.
-        let mut validation = Validation::new(map_algorithm(first_of(algorithms)));
+        let mut validation = Validation::new(map_algorithm(algorithms.first()));
         validation.algorithms = algorithms.iter().map(map_algorithm).collect();
         // The audience check. One value - ours - whatever the client asked its issuer for.
         validation.set_audience(&[requirement.audience().as_str()]);
@@ -216,6 +315,8 @@ impl TokenValidator {
         Self {
             validation,
             audience: requirement.audience().clone(),
+            token_type: requirement.token_type().clone(),
+            max_lifetime: requirement.max_lifetime(),
         }
     }
 
@@ -241,12 +342,18 @@ impl TokenValidator {
     /// Verifies the token with the key and turns its claims into a caller.
     ///
     /// The order is the library's and it is the right one: signature first, then the registered
-    /// claims, and only then is the claim payload deserialized into [`Claims`] - so the nesting bound
-    /// in [`chain_from`] is applied to a document an issuer signed rather than to one a caller wrote.
+    /// claims, and only then is the claim payload deserialized into [`Claims`] - so every check below
+    /// is applied to a document an issuer signed rather than to one a caller wrote. That is why the
+    /// class check, the actor-nesting bound and the lifetime ceiling all live here and not in
+    /// [`Self::key_id`].
     pub fn verify(&self, token: &str, key: &DecodingKey) -> Result<VerifiedCaller, TokenRejected> {
         let decoded =
             jsonwebtoken::decode::<Claims>(token, key, &self.validation).map_err(|cause| TokenRejected::NotVerified { cause })?;
+        // FIRST, on the header of the document that just verified: which class of token is this. A
+        // signature, an issuer and an audience do not distinguish an access token from an ID token.
+        self.of_the_right_class(decoded.header.typ.as_deref())?;
         let claims = decoded.claims;
+        self.within_the_lifetime_ceiling(&claims)?;
         let subject = SubjectId::parse(&claims.sub).map_err(|cause| TokenRejected::UnusableSubject { cause })?;
         let mut chain = PrincipalChain::of(Subject::Verified { id: subject });
         if let Some(ref actor) = claims.act {
@@ -257,6 +364,71 @@ impl TokenValidator {
             Some(ref written) => Scopes::parse(written).map_err(|cause| TokenRejected::UnusableScope { cause })?,
         };
         Ok(VerifiedCaller::established(chain, scopes))
+    }
+
+    /// Is this the class of token this deployment accepts?
+    ///
+    /// **Reads the `typ` of a document that has already verified**, and parses it through the same
+    /// `TokenType::parse` the configured value went through - which is what makes the two agree by
+    /// construction: RFC 7515 lets a `typ` omit the `application/` prefix and says nothing about case,
+    /// so `at+jwt`, `AT+JWT` and `application/at+jwt` have to compare equal or correct tokens get
+    /// refused.
+    ///
+    /// A `typ` that will not parse is refused rather than compared, and refused *without being
+    /// rendered*: a header value is caller-adjacent text.
+    fn of_the_right_class(&self, presented: Option<&str>) -> Result<(), TokenRejected> {
+        let presented = presented.map_or(PresentedType::Absent, |raw| {
+            TokenType::parse(TokenType::KEY, raw).map_or(PresentedType::Unusable, |typ| PresentedType::Named { typ })
+        });
+        let named = match presented {
+            PresentedType::Named { ref typ } => Some(typ),
+            PresentedType::Absent | PresentedType::Unusable => None,
+        };
+        if self.token_type.accepts(named) {
+            return Ok(());
+        }
+        Err(TokenRejected::WrongTokenType {
+            required: String::from(self.token_type.as_str()),
+            presented,
+        })
+    }
+
+    /// Is the token's declared lifetime one this deployment will call short-lived?
+    ///
+    /// **`Ok` immediately where there is no ceiling**, which is the `direct` mode: an access token's
+    /// lifetime belongs to the authorization server that minted it, and a ceiling here would refuse
+    /// tokens an issuer produced correctly.
+    ///
+    /// Where there is one - `behind-gateway` - three things are checked, and the first is what makes
+    /// the other two possible: an `iat` has to be there at all. Review demonstrated an assertion with
+    /// no `iat` and an `exp` ten years out being accepted, which is what made "short-lived" a word the
+    /// record used and the code did not.
+    ///
+    /// **What this does NOT do, stated where the check is:** it bounds the replay *window*. It does not
+    /// stop a replay inside that window - nothing here is bound to a request, and there is no store of
+    /// what has been seen. See `sutura_config::inbound` and `docs/adr/0014`.
+    fn within_the_lifetime_ceiling(&self, claims: &Claims) -> Result<(), TokenRejected> {
+        let Some(ceiling) = self.max_lifetime else {
+            return Ok(());
+        };
+        let issued = claims.iat.ok_or(TokenRejected::NoIssuedAt)?;
+        let leeway = i64::try_from(LEEWAY_SECONDS).unwrap_or(i64::MAX);
+        let ahead = issued.saturating_sub(now_in_seconds());
+        if ahead > leeway {
+            return Err(TokenRejected::IssuedInTheFuture {
+                seconds: ahead,
+                leeway: LEEWAY_SECONDS,
+            });
+        }
+        let seconds = claims.exp.saturating_sub(issued);
+        let limit = i64::try_from(ceiling.seconds()).unwrap_or(i64::MAX);
+        if seconds > limit {
+            return Err(TokenRejected::LifetimeTooLong {
+                seconds,
+                limit: ceiling.seconds(),
+            });
+        }
+        Ok(())
     }
 
     /// The audience this validator requires, for a challenge and for a log line.
@@ -274,12 +446,17 @@ impl TokenValidator {
     }
 }
 
-/// The first pinned algorithm. Infallible, because `PinnedAlgorithms` has no empty state.
-fn first_of(algorithms: &PinnedAlgorithms) -> SigningAlgorithm {
-    // `unwrap_or` and not `unwrap`: the type cannot be empty - its first element lives in a field of
-    // its own - and `unwrap_used` is denied here, so the fallback is a value rather than a panic path.
-    // Any fallback would be wrong if it were reachable, so it is the most restrictive one available.
-    algorithms.iter().next().unwrap_or(SigningAlgorithm::Rs256)
+/// Now, in whole seconds since the epoch, as a JWT's time claims express it.
+///
+/// **`unwrap_or(0)` rather than a panic, and the fallback is the safe direction.** `duration_since`
+/// fails only for a clock before 1970; a zero there makes every `iat` look enormously far in the
+/// future, so a proof is refused rather than accepted. A machine whose clock says 1969 should not be
+/// authenticating anybody, and this refuses rather than deciding what it meant.
+fn now_in_seconds() -> i64 {
+    let seconds = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs());
+    i64::try_from(seconds).unwrap_or(i64::MAX)
 }
 
 /// Maps this workspace's algorithm vocabulary onto the library's.

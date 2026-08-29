@@ -5,9 +5,12 @@ description: The other half of the identity path - leg 1, from the caller to sut
 
 # How a caller proves who it is
 
-Status: **accepted, and the mechanism is built. Four things this record describes are not** - see
-*What is built, and what of this record is not* at the foot. That section is the authority on the
-state; every "not built" in the body below it is older than the code.
+Status: **accepted, and the mechanism is built. Five things this record describes are not, and one
+sentence of it was wrong about what the code could support** - see *What is built, and what of this
+record is not* at the foot, and *The correction review forced* inside it. That section is the authority
+on the state: every "not built" in the body below it is older than the code, and Decision 1's wording
+about a *proof that the request transited* a component is corrected there rather than quietly rewritten
+in place.
 
 [A credential per leg](0008-a-credential-per-leg-for-the-calling-subject.md) decides **leg 2** - sutura to a
 source, as the asking subject - in detail, and says at its head that both halves of the identity path are
@@ -321,9 +324,11 @@ built" statements are older than the implementation.
 | Decision | Where | The mechanism, not the intent |
 | --- | --- | --- |
 | Two modes, no default | `sutura_config::inbound` | `InboundIdentity` is a closed enum. A `security.inbound` block with no `mode` is `SettingsError::InboundModeUndeclared` and the process does not start. **A deployment with no block at all is a single-player deployment and is unaffected**, which is the consequence this record already names |
-| `BehindGateway` is not a header | `TransitProof` | Its fields are an issuer, an audience, a key set and a pinned algorithm. There is no field for the name of a header holding a username, and the subject is derived from the claims of a token whose signature checked out. A test presents a header holding `admin@example.com` and it establishes nobody |
+| `BehindGateway` is not a header | `TransitProof` | Its fields are an issuer, an audience, a key set, a pinned algorithm, a required class and a lifetime ceiling. There is no field for the name of a header holding a username, and the subject is derived from the claims of a token whose signature checked out. A test presents a header holding `admin@example.com` and it establishes nobody |
 | Algorithm pinning, `none` and symmetric refused | `sutura_config::SigningAlgorithm` and `sutura_http::inbound::keys` | **Unrepresentable rather than checked, in two places**: the enum has no `None` and no `HS*` variant, so a configuration naming either cannot produce a value; and a key set holding an `oct` key is refused at load, because otherwise the library would build an HMAC verifier from a secret the issuer published. Nothing reads the `alg` of the token being validated in order to choose one |
-| Key rotation with a **rate-limited** refetch | `sutura_http::inbound::keys::KeySetCache` | The window is measured from the last *attempt*, so a failing source is limited too, and `key_for` takes the instant as an argument - which is what makes "ten forged key ids cost one read" assertable without a sleep. `MIN_REFETCH_INTERVAL` is a constant and not a key: a knob here would only ever be set wrong |
+| Key rotation with a **rate-limited** refetch, and revocation with an **age bound** | `sutura_http::inbound::keys::KeySetCache` | Two triggers answering two questions. *Added*: a key has been added → refetch on an unknown key id, at most once per `MIN_REFETCH_INTERVAL`, measured from the last *attempt* so a failing source is limited too. *Removed* → re-read once per `MAX_KEY_SET_AGE`, on a timer and on the first request past the horizon. **Review found the second one missing and the reason it could not be the first:** a caller presenting a revoked key presents a `kid` the cache *has*, so a caller-driven refetch never triggers. A candidate that will not parse is logged and **not** adopted, which is the trade `crate::tls` already makes. `key_for` and `poll_once` both take the instant, which is what makes both windows assertable without a sleep |
+| The token's **class** | `sutura_config::RequiredTokenType` and `sutura_http::inbound::token` | RFC 9068's `at+jwt`, default-on in `direct`, checked on `decoded.header` **after** the signature - so it is a rule applied to a document the issuer signed rather than to an unauthenticated header. **Review found this missing and it was the serious one:** without it, any JWT the issuer signed with this audience verifies, an OIDC ID token included wherever the resource identifier is also a client id, which is the ordinary arrangement. `at+jwt`, `AT+JWT` and `application/at+jwt` are one value (RFC 7515 §4.1.9); a token with **no** `typ` is refused, so the check cannot be satisfied by omission; `any` is the written opt-out and the startup log prints it at `WARN`. In `behind-gateway` the class is a **required** key, because a component's `typ` is a fact only the deployment knows |
+| A ceiling on a gateway assertion's lifetime | `sutura_config::ProofLifetime` | `iat` **required** and `exp - iat` capped at `transit_max_lifetime_seconds`; an `iat` dated forward past the leeway is refused too, or a component could buy a longer window by dating forward. **Review demonstrated the gap:** an assertion with no `iat` and an `exp` ten years out was accepted, twice, on a replay of the identical token - so this record's own word *short-lived* was one the code did not enforce. `iat` is checked by us and not by the library, whose `required_spec_claims` honours only `exp`, `nbf`, `aud`, `iss` and `sub` |
 | The audience, unconditionally | `sutura_http::inbound::token` | One value - this deployment's own resource identifier - and `aud` is in `required_spec_claims`, so a token carrying **no** audience is refused rather than passing an audience check that had nothing to compare. `ResourceIdentifier` is stored exactly as written, because a URL parser's normalisation would make us accept a token minted for a different spelling |
 | A subject with something behind it | `sutura_http::principal::of_verified` | `Subject::Verified` has a constructor at last, and `act` becomes an ordered `ActorChain` - RFC 8693 nests backwards in time and the domain's chain runs the other way, so the conversion reverses it. Every audit record for such a call names the person |
 | Wired | `sutura-serve` | The key set is read before the listener opens, so an unreadable one is a refusal to start. `sutura_http::router` refuses to assemble when the settings declare an inbound identity and no gate was attached, which is what makes forgetting it a startup failure rather than an open door |
@@ -364,6 +369,30 @@ Two findings the record did not anticipate, both now refusals:
    `feat/agent-surface-scope`, the raw tool's gate is
    [a raw SQL tool](0013-a-raw-sql-tool-off-by-default.md), and a per-caller budget has no port to
    live behind. A reader must not take the presence of that type as a control.
+5. **Binding a gateway assertion to a request, and any record of what has been seen.** Added by
+   review, and it is the reason Decision 1's wording changed - see the correction below.
+
+### The correction review forced, and it is to this record rather than only to the code
+
+**Decision 1 said `BehindGateway` validates "a short-lived proof that the request transited that
+component". The code delivered neither half, and the wording was the defect.**
+
+- *Short-lived* was the component's word, not ours: nothing capped the lifetime, and an assertion with
+  no `iat` and an `exp` ten years out was accepted. **Fixed**, by the ceiling in the table above.
+- *That the request transited* is a claim a signature cannot support. A signature says the component
+  **issued** the token. Nothing binds one to a method, a path or a body, and nothing records which
+  assertions have been seen - so within the lifetime window an intercepted assertion replays, which
+  review demonstrated by replaying the identical token. **Not fixed, and downgraded rather than left
+  standing:** this record, `sutura_config::inbound` and `docs/serving.md` now call it a
+  **gateway-issued identity assertion**, and they say that the hop between the component and this
+  process is a **trusted transport boundary** - which is what `security.tls_termination` is for.
+
+The stronger claim is still available and is not built. It needs the component to compute a binding
+over the request and this deployment to verify it, or a store of seen assertions with the eviction and
+the shared-state questions that come with one. Either is a change to what a deployment must run, not a
+patch, and neither should be written into this record before it exists. **The rule this applies to
+itself is `AGENTS.md`'s: a control described as stronger than it is spends trust a reviewer needed
+elsewhere, so an overstated claim is itself the defect.**
 
 And Decision 3 - the exchange chain - is untouched: leg 1 establishes who is asking and performs no
 exchange. The verification it is blocked on is still open.

@@ -2,10 +2,11 @@
 //!
 //! `docs/adr/0014` decides two inbound modes and says plainly that **neither of them is a default**.
 //! A deployment either *is* the resource server and validates the caller's token itself, or it sits
-//! behind a component that already authenticated the caller and validates a proof the request
-//! transited that component. Both defaults are wrong in opposite directions: defaulting to
+//! behind a component that already authenticated the caller and validates a short-lived **identity
+//! assertion that component signed**. Both defaults are wrong in opposite directions: defaulting to
 //! [`InboundIdentity::Direct`] makes a gateway deployment reject every caller, and defaulting to
-//! [`InboundIdentity::BehindGateway`] makes a directly exposed deployment accept a forged proof.
+//! [`InboundIdentity::BehindGateway`] makes a directly exposed deployment accept an assertion anybody
+//! can mint.
 //!
 //! So the mode is a required key **inside** the declaration, and the declaration as a whole is
 //! optional. Those are two different absences and the difference matters:
@@ -36,10 +37,21 @@
 //! a token whose signature checked out. There is no shape in this module that could hold "the name of
 //! the header the username is in".
 //!
-//! **The limit, stated next to the claim:** under `BehindGateway` this deployment trusts the
-//! component's *authentication of the caller*, because that is what the mode means. What it does not
-//! trust is a string. The signature says the claims came from the component; nothing here can say the
-//! component authenticated correctly, and no configuration could.
+//! **The limits, stated next to the claim, and there are three.** Under `BehindGateway` this
+//! deployment trusts the component's *authentication of the caller*, because that is what the mode
+//! means; what it does not trust is a string. The signature says the claims came from the component,
+//! and nothing here can say the component authenticated correctly.
+//!
+//! And what a signed assertion proves is that **the component issued it**, not that *this request*
+//! carried it there first. Review found the wording overstating exactly that: a proof was replayable
+//! for as long as its `exp` allowed, and its `exp` was the component's to choose. Two of those three
+//! are now bounded - [`ProofLifetime`] caps `exp - iat` and an `iat` is required, so the replay window
+//! is a number this deployment chose rather than one it was handed. **Binding an assertion to a
+//! particular request is not built**: there is no nonce store and nothing hashes a method, a path or a
+//! body into the proof, so inside the lifetime window an intercepted assertion replays. That is why
+//! this module and `docs/adr/0014` now call it a *gateway-issued identity assertion* rather than a
+//! proof that the request transited anything, and why the trusted transport boundary - the hop between
+//! the component and this process - is load-bearing rather than incidental.
 //!
 //! # One derived view, two named modes
 //!
@@ -52,9 +64,85 @@
 mod primitive;
 
 pub use crate::inbound::primitive::{
-    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ResourceIdentifier,
-    SigningAlgorithm,
+    InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime,
+    ResourceIdentifier, SigningAlgorithm, TokenType,
 };
+
+/// Which class of token this deployment will accept, out of the `typ` header.
+///
+/// **Two variants because the check has to be switchable and must not be switchable by silence.** The
+/// finding it answers is cross-JWT substitution: without it, any JWT the issuer signed with this
+/// audience verifies, an OIDC ID token included whenever the resource identifier equals the client id.
+/// So [`Self::Exactly`] is the default in the `direct` mode - RFC 9068's `at+jwt` - and turning it off
+/// is a value an operator writes, `any`, which the startup log prints at `WARN`.
+///
+/// There is no `Option<TokenType>` here, for the reason `docs/adr/0014` gives about `mode`: an absent
+/// value reads as "not configured yet" at every call site, and the one thing that has to be legible is
+/// whether a deployment decided to accept every class of token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequiredTokenType {
+    /// A token whose `typ` is this, compared after the signature verified.
+    Exactly { typ: TokenType },
+    /// Any class of token the issuer signed for this audience.
+    ///
+    /// **Not a default anywhere.** In the `direct` mode it is written as `token_type: "any"`; in
+    /// `behind-gateway` as `transit_token_type: "any"`, where it is also the only way to say "this
+    /// component sets no `typ`". Either way [`InboundIdentity::type_check`] renders a sentence the
+    /// startup log prints, so a deployment running with it is visible on every boot.
+    Any,
+}
+
+impl RequiredTokenType {
+    /// Reads the configured word: `any`, or a media type.
+    ///
+    /// `any` is compared on the folded value, so `Any` and `ANY` are the same answer - and a deployment
+    /// whose component really does emit a `typ` of `any` cannot express it. That collision is worth
+    /// having: the word is checked before the media type precisely so that turning the check off cannot
+    /// happen by accident.
+    pub fn parse(key: &'static str, raw: impl AsRef<str>) -> Result<Self, InvalidInboundValue> {
+        let raw = raw.as_ref();
+        if raw.trim().eq_ignore_ascii_case(TokenType::ANY) {
+            return Ok(Self::Any);
+        }
+        TokenType::parse(key, raw).map(|typ| Self::Exactly { typ })
+    }
+
+    /// RFC 9068's access-token type. The `direct` mode's default.
+    #[must_use]
+    pub fn access_token() -> Self {
+        Self::Exactly {
+            typ: TokenType::access_token(),
+        }
+    }
+
+    /// Does a presented `typ` satisfy this?
+    ///
+    /// `None` is an ABSENT `typ` header, and it satisfies nothing but [`Self::Any`]: a token carrying no
+    /// type is exactly the shape a class check exists to refuse, and treating absence as acceptable
+    /// would make the check satisfiable by omission.
+    #[must_use]
+    pub fn accepts(&self, presented: Option<&TokenType>) -> bool {
+        match *self {
+            Self::Any => true,
+            Self::Exactly { ref typ } => presented == Some(typ),
+        }
+    }
+
+    /// What is required, as a word for a log line and for a refusal message.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        match *self {
+            Self::Any => TokenType::ANY,
+            Self::Exactly { ref typ } => typ.as_str(),
+        }
+    }
+}
+
+impl core::fmt::Display for RequiredTokenType {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
 
 /// Where the token being validated arrives.
 ///
@@ -92,10 +180,24 @@ pub struct TransitProof {
     audience: ResourceIdentifier,
     key_set: KeySetFile,
     algorithms: PinnedAlgorithms,
+    /// The class of token the component emits. See [`RequiredTokenType`].
+    token_type: RequiredTokenType,
+    /// The ceiling this deployment puts on a lifetime the component chose. See [`ProofLifetime`].
+    max_lifetime: ProofLifetime,
 }
 
 impl TransitProof {
     /// Assembles a declaration from parts that have each already been parsed.
+    ///
+    /// Seven arguments, over `clippy.toml`'s threshold of five, and taken rather than grouped
+    /// deliberately: a parts struct would need public fields, which `cargo xtask check-boundaries`
+    /// refuses on a public struct in a library crate - for the reason it exists, that a public field is
+    /// a second way to build a value without its invariant. Every one of these is already a parsed
+    /// newtype, so the list is seven invariants rather than seven strings.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a parts struct would need public fields, which check-boundaries refuses; each argument is an already-parsed newtype"
+    )]
     #[inline]
     #[must_use]
     pub const fn new(
@@ -104,6 +206,8 @@ impl TransitProof {
         audience: ResourceIdentifier,
         key_set: KeySetFile,
         algorithms: PinnedAlgorithms,
+        token_type: RequiredTokenType,
+        max_lifetime: ProofLifetime,
     ) -> Self {
         Self {
             header,
@@ -111,6 +215,8 @@ impl TransitProof {
             audience,
             key_set,
             algorithms,
+            token_type,
+            max_lifetime,
         }
     }
 
@@ -137,10 +243,19 @@ pub enum InboundIdentity {
         authorization_server: IssuerUrl,
         key_set: KeySetFile,
         algorithms: PinnedAlgorithms,
+        /// Which class of token, out of the `typ` header. Defaults to RFC 9068's `at+jwt`.
+        token_type: RequiredTokenType,
     },
-    /// A fronting component authenticated the caller. This deployment validates a short-lived proof
-    /// that the request transited that component, and derives the subject from the claims of that
-    /// proof rather than from a string somebody set.
+    /// A fronting component authenticated the caller. This deployment validates a **signed identity
+    /// assertion** the component issued, and derives the subject from that assertion's own claims
+    /// rather than from a string somebody set.
+    ///
+    /// **The wording used to say "a short-lived proof that the request transited that component", and
+    /// review showed the code did not deliver either half.** The lifetime was the component's to choose
+    /// and nothing capped it, and nothing bound an assertion to a request - so replaying the identical
+    /// token worked for as long as its `exp` allowed. `docs/adr/0014` now says the same thing this doc
+    /// comment does; the lifetime half is fixed by [`ProofLifetime`], and the binding half is a stated
+    /// limit rather than a claim.
     BehindGateway { transit: TransitProof },
 }
 
@@ -156,6 +271,14 @@ pub struct TokenRequirement<'inbound> {
     audience: &'inbound ResourceIdentifier,
     key_set: &'inbound KeySetFile,
     algorithms: &'inbound PinnedAlgorithms,
+    token_type: &'inbound RequiredTokenType,
+    /// The ceiling on `exp - iat`, where this deployment puts one.
+    ///
+    /// `None` in the `direct` mode, and that asymmetry is the decision rather than an omission: an
+    /// access token's lifetime is the authorization server's to choose and a ceiling here would refuse
+    /// tokens an issuer minted correctly. In `behind-gateway` there is a ceiling because the record
+    /// calls the assertion short-lived, and a claim nothing enforces is what review found.
+    max_lifetime: Option<ProofLifetime>,
 }
 
 impl<'inbound> TokenRequirement<'inbound> {
@@ -197,6 +320,20 @@ impl<'inbound> TokenRequirement<'inbound> {
     #[must_use]
     pub const fn algorithms(&self) -> &'inbound PinnedAlgorithms {
         self.algorithms
+    }
+
+    /// Which class of token, out of the `typ` header, checked after the signature verified.
+    #[inline]
+    #[must_use]
+    pub const fn token_type(&self) -> &'inbound RequiredTokenType {
+        self.token_type
+    }
+
+    /// The ceiling on `exp - iat`, where this deployment puts one. See the field.
+    #[inline]
+    #[must_use]
+    pub const fn max_lifetime(&self) -> Option<ProofLifetime> {
+        self.max_lifetime
     }
 }
 
@@ -266,6 +403,7 @@ impl InboundIdentity {
                 ref authorization_server,
                 ref key_set,
                 ref algorithms,
+                ref token_type,
             } => TokenRequirement {
                 // Where RFC 6750 puts it, and where an OAuth 2.1 client has no option but to put it.
                 // That is what makes `security.access_token` and this mode a collision on one
@@ -275,6 +413,10 @@ impl InboundIdentity {
                 audience: resource,
                 key_set,
                 algorithms,
+                token_type,
+                // No ceiling: an access token's lifetime belongs to the authorization server. See the
+                // field on `TokenRequirement` for why the two modes differ here.
+                max_lifetime: None,
             },
             Self::BehindGateway { ref transit } => TokenRequirement {
                 location: TokenLocation::Header { name: &transit.header },
@@ -282,8 +424,40 @@ impl InboundIdentity {
                 audience: &transit.audience,
                 key_set: &transit.key_set,
                 algorithms: &transit.algorithms,
+                token_type: &transit.token_type,
+                max_lifetime: Some(transit.max_lifetime),
             },
         }
+    }
+
+    /// What the `typ` check does on this deployment, as a sentence for the startup log.
+    ///
+    /// **A sentence rather than a boolean, because the interesting value is the one that reads as
+    /// nothing.** A deployment that wrote `any` has switched off the check that stops an OIDC ID token
+    /// from establishing a caller, and `type_check = "any"` on a log line does not say that. This does,
+    /// and `crate::security::SecuritySettings` prints it at `WARN`.
+    #[must_use]
+    pub const fn type_check(&self) -> &'static str {
+        match *self.requirement().token_type() {
+            RequiredTokenType::Exactly { .. } => {
+                "a token of another class - an OIDC ID token, most of all - is refused even when its \
+                 issuer and audience match"
+            }
+            RequiredTokenType::Any => {
+                "ANY class of token this issuer signed for this audience is accepted, an OIDC ID token \
+                 included wherever the resource identifier is also a client id. That is a deployment \
+                 decision and it is written down as `any`"
+            }
+        }
+    }
+
+    /// Is the class check switched off?
+    ///
+    /// Read by the startup log to decide the level, so the answer is a value rather than a comparison
+    /// somebody writes at the call site.
+    #[must_use]
+    pub const fn accepts_any_token_class(&self) -> bool {
+        matches!(*self.requirement().token_type(), RequiredTokenType::Any)
     }
 
     /// Does this deployment read the deployment bearer token's own header?

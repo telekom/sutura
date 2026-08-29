@@ -4,12 +4,12 @@
 //! piece of this in the transport on purpose: *"All of it is transport: it parses a wire shape and
 //! produces a domain value, and it decides nothing about what a question may ask."* That is what this
 //! module is - a header becomes a [`VerifiedCaller`], which becomes a
-//! `sutura_domain::identity::RequestContext` through [`crate::principal::of_verified`], and nothing
+//! `sutura_domain::identity::RequestContext` through `crate::principal::of_verified`, and nothing
 //! here can widen, narrow or parameterize what executes.
 //!
 //! | File | What it owns |
 //! | --- | --- |
-//! | [`keys`] | the key set, its cache, and the **rate-limited** refetch on an unknown key id |
+//! | [`keys`] | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
 //! | [`token`] | algorithm pinning, the audience check, and claims into a principal chain |
 //! | [`caller`] | [`VerifiedCaller`] and [`Scopes`] - the conclusion of a verification, as a type nothing can deserialize |
 //! | [`gate`] | the layer, and the `401` with its challenge |
@@ -31,9 +31,9 @@
 //! boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 //! infer it.
 //!
-//! # The four things `docs/adr/0014` describes and this does not build
+//! # The five things this does not build, and each is named rather than left to be discovered
 //!
-//! Named here rather than left to be discovered, because an overstated claim is itself the defect:
+//! An overstated claim is itself the defect, so each of these is written down here rather than found:
 //!
 //! 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
 //!    limit on it are built and are what a URL source would need anyway - see [`keys`] for the whole
@@ -48,6 +48,12 @@
 //! 4. **A ceiling derived from a scope.** [`Scopes`] is parsed and carried and *nothing reads it* - see
 //!    [`caller`]. Scope-filtered advertisement is `feat/agent-surface-scope`, the raw tool's gate is
 //!    `docs/adr/0013`, and a per-caller budget has no port to live behind.
+//! 5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+//!    replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
+//!    deployment chose - and inside that window an intercepted assertion replays. There is no nonce
+//!    store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+//!    calls it a proof that *this request* transited anything, and why the hop between the component
+//!    and this process is a trusted transport boundary rather than an incidental one.
 //!
 //! # Why this is not shared with the agent surface
 //!
@@ -66,10 +72,10 @@ pub mod token;
 pub use crate::inbound::caller::{InvalidScope, Scopes, VerifiedCaller};
 pub use crate::inbound::gate::{InboundGate, InboundNotUsable, require_verified_caller};
 pub use crate::inbound::keys::{
-    FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetSource, KeySetUnavailable, KeyUnavailable, MIN_REFETCH_INTERVAL,
-    NotAKeyId,
+    FileKeySet, InvalidKeySet, KeyId, KeySet, KeySetCache, KeySetSource, KeySetUnavailable, KeyUnavailable, MAX_KEY_SET_AGE,
+    MIN_REFETCH_INTERVAL, NotAKeyId, Refreshed,
 };
-pub use crate::inbound::token::{MAX_TOKEN_BYTES, TokenRejected, TokenValidator};
+pub use crate::inbound::token::{MAX_TOKEN_BYTES, PresentedType, TokenRejected, TokenValidator};
 
 #[cfg(test)]
 mod tests;

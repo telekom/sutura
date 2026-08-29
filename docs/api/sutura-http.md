@@ -415,7 +415,7 @@ here can widen, narrow or parameterize what executes.
 
 | File | What it owns |
 | --- | --- |
-| `keys` | the key set, its cache, and the **rate-limited** refetch on an unknown key id |
+| `keys` | the key set, its cache, the **rate-limited** refetch on an unknown key id, and the **age bound** that is what makes revocation bounded |
 | `token` | algorithm pinning, the audience check, and claims into a principal chain |
 | `caller` | `VerifiedCaller` and `Scopes` - the conclusion of a verification, as a type nothing can deserialize |
 | `gate` | the layer, and the `401` with its challenge |
@@ -437,9 +437,9 @@ is asking and still reads every row as one identity. The startup log prints that
 boot, out of `sutura_config::InboundIdentity::what_it_does_not_do`, rather than leaving a reader to
 infer it.
 
-# The four things `docs/adr/0014` describes and this does not build
+# The five things this does not build, and each is named rather than left to be discovered
 
-Named here rather than left to be discovered, because an overstated claim is itself the defect:
+An overstated claim is itself the defect, so each of these is written down here rather than found:
 
 1. **A JWKS endpoint.** Keys are read from a file. The cache, the unknown-key refetch and the rate
    limit on it are built and are what a URL source would need anyway - see `keys` for the whole
@@ -454,6 +454,12 @@ Named here rather than left to be discovered, because an overstated claim is its
 4. **A ceiling derived from a scope.** `Scopes` is parsed and carried and *nothing reads it* - see
    `caller`. Scope-filtered advertisement is `feat/agent-surface-scope`, the raw tool's gate is
    `docs/adr/0013`, and a per-caller budget has no port to live behind.
+5. **Binding a gateway assertion to a request.** Added by review: in the `behind-gateway` mode the
+   replay *window* is bounded - an `iat` is required and `exp - iat` is capped by a value this
+   deployment chose - and inside that window an intercepted assertion replays. There is no nonce
+   store and nothing hashes a method, a path or a body into the assertion. That is why nothing here
+   calls it a proof that *this request* transited anything, and why the hop between the component
+   and this process is a trusted transport boundary rather than an incidental one.
 
 # Why this is not shared with the agent surface
 
@@ -463,6 +469,12 @@ output, where there is no header for a token to arrive in. **Nothing here is rea
 an adapter never calls another adapter, and that rule is what keeps this module from being the
 shape a second transport has to bend around. Which crate this code moves to when that surface
 acquires an inbound transport is an architecture decision, not a refactor.
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 
@@ -721,14 +733,21 @@ attach one a startup failure rather than an open door.
 ##### Methods
 
 ```rust
-pub fn challenge(&self) -> String
+pub fn challenge(&self) -> Option<String>
 ```
 
-The RFC 6750 challenge a refused request carries.
+The RFC 6750 challenge a refused request carries, where one is meaningful.
 
-**No `error_description`**, and that is the same decision the response body makes: a
-description would have to say which check failed to be worth anything, and that is the one
-thing a caller must not learn.
+**`None` in the `behind-gateway` mode, and that is a fix rather than an omission.** A `Bearer`
+challenge tells a client to present a bearer token to *this* resource; behind a component, the
+caller holds no token for us and the thing that was missing was a header the component sets.
+Sending the challenge anyway would send a well-formed instruction that cannot be followed, and a
+client that followed it would start putting credentials in a header this deployment refuses to
+read.
+
+**No `error_description`** in the direct case, and that is the same decision the response body
+makes: a description would have to say which check failed to be worth anything, and that is the
+one thing a caller must not learn.
 
 ```rust
 pub async fn describe_keys(&self) -> (usize, Vec<String>)
@@ -767,6 +786,21 @@ pub fn header(&self) -> &str
 
 The header this gate reads, for a startup log line and for a test.
 
+```rust
+pub fn watch_keys_until_shutdown(&self, shutdown: Shutdown)
+```
+
+Starts the timer that bounds how long a revoked key keeps verifying.
+
+Called from the composition root, inside the runtime, for the reason
+`crate::tls::Renewal::watch_until_shutdown` is: the gate is built before a runtime exists, so it
+cannot spawn its own task at construction.
+
+**Forgetting it does not leave revocation unbounded**, and that is deliberate rather than
+forgiving: `crate::inbound::keys::KeySetCache::key_for` checks the age itself, so a deployment
+serving traffic re-reads within the same horizon. What the timer adds is the bound holding while
+nothing is being asked.
+
 ##### Implements
 
 `Debug`
@@ -802,7 +836,7 @@ rest on that alone - is replaced rather than joined.
 
 ### Module `keys`
 
-The signing keys, the cache in front of them, and the rate limit on refetching.
+The signing keys, the cache in front of them, and the two things that make it re-read.
 
 `docs/adr/0014` names key rotation as one of three things a directly validating deployment newly
 owns, and it names the standard way to get it wrong: *"Cache the key set, honour its cache
@@ -810,10 +844,34 @@ headers, refetch on an unknown key id - and **rate-limit that refetch**. Without
 forged key id turns every request into an outbound call to the authorization server, which is a
 denial-of-service primitive pointed at our own dependency."*
 
-So the rate limit is the mechanism in this file, and it is the reason `KeySetCache::key_for`
-takes the current instant as an argument rather than reading the clock itself: that is what makes
-the interesting case - the second request with a forged key id, arriving inside the window -
-assertable without a sleep.
+# Two triggers, and the second one is a REVOCATION bound rather than a rotation one
+
+The rate limit was the whole mechanism here once, and review found what that left open: a key
+**removed** from the set kept verifying until an unrelated unknown key id happened to arrive. A
+caller-driven refetch cannot bound revocation, because the caller presenting a revoked key
+presents a `kid` this deployment *has* - so nothing triggers.
+
+So there are two triggers and they answer different questions:
+
+| Trigger | Answers | Bounded by |
+| --- | --- | --- |
+| an unknown key id | "has a key been ADDED that I have not seen" | `MIN_REFETCH_INTERVAL`, because the trigger is caller-controlled |
+| age | "has a key been REMOVED" | `MAX_KEY_SET_AGE`, because the trigger is the clock and a caller cannot make it fire faster |
+
+The age trigger fires from two places, deliberately. `KeySetCache::watch_until_shutdown` is a
+timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
+composition root inside the runtime - so revocation latency is bounded *whether or not this
+deployment is serving traffic*. And `KeySetCache::key_for` checks the age itself, so a
+composition root that never armed the timer still cannot serve a stale key set indefinitely: the
+first request past the horizon pays one file read. Neither is a second code path - both call
+`KeySetCache::poll_once`.
+
+# Why `now` is a parameter everywhere
+
+`KeySetCache::key_for` and `KeySetCache::poll_once` take the current instant rather than
+reading the clock. That is what makes the two interesting cases - a forged key id arriving inside
+the window, and a key set going stale - assertable without a sleep, which is the same reason
+`Renewal::poll_once` is public.
 
 # What a key set is read from, and the gap that is named rather than hidden
 
@@ -823,17 +881,14 @@ own review, and `docs/adr/0014` says plainly that the authorization server then 
 runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
 is built.
 
-What is built is everything that a URL source would need anyway - the cache, the unknown-key
-refetch, and the limit on it - behind `KeySetSource`, which is one method. A JWKS endpoint
-arrives as a second implementor and changes nothing else in this file. A file is also a real
-deployment shape rather than a placeholder: a sidecar that refreshes a mounted key set is how a
-process with no egress gets rotation.
+What is built is everything that a URL source would need anyway - the cache, both triggers, and
+the limit on the caller-driven one - behind `KeySetSource`, which is one method returning the
+document's **bytes**. A JWKS endpoint arrives as a second implementor and changes nothing else in
+this file. A file is also a real deployment shape rather than a placeholder: a sidecar that
+rewrites a mounted key set is how a process with no egress gets rotation.
 
 **The honest cost of the file source:** it does not honour a cache header, because a file has
-none. Staleness is bounded by whatever rewrites the file, plus this cache's own refetch on an
-unknown key id - so a key that rotated *without* its id changing is a key this deployment keeps
-using until something asks for an id it has not got. Issuers do not do that, and nothing here
-stops one that did.
+none. What bounds staleness is `MAX_KEY_SET_AGE` and nothing the issuer says.
 
 #### `struct KeyId`
 
@@ -900,8 +955,10 @@ Why a document is not a usable key set.
 - `NoUsableKey`
 - `KeyWithoutAnId` - A key with no `kid`.
 - `UnusableKeyId`
+- `DuplicateKeyId` - Two keys under one id.
 - `SymmetricKey` - A symmetric key.
 - `UnusableKey`
+- `NoKeyOfThePinnedFamily` - Not one key of the family the pinned algorithms need.
 
 ##### Implements
 
@@ -938,6 +995,17 @@ verify: a `DecodingKey` is a small owned value - a modulus and an exponent, or a
 holding a read lock across the verification would serialise every request behind it.
 
 ```rust
+pub fn holds(&self, family: KeyFamily) -> bool
+```
+
+Does this set hold a key of `family`?
+
+The question `InvalidKeySet::NoKeyOfThePinnedFamily` is asked of. **At least one** rather
+than all of them, deliberately: an issuer legitimately publishes RSA and elliptic-curve keys in
+one document, and what makes a deployment unable to authenticate anybody is holding *none* of
+the kind it pinned.
+
+```rust
 pub fn ids(&self) -> Vec<&KeyId>
 ```
 
@@ -969,8 +1037,14 @@ Where a key set is read from.
 One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
 the module documentation for why the only implementor today reads a file.
 
+**It returns the document's BYTES rather than a parsed key set**, and that is what lets
+`KeySetCache::poll_once` tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+comparison of parsed keys could not: the library's key type implements no equality, so the
+alternative was comparing key *ids*, which would miss a key whose material rotated under the same
+id.
+
 **Synchronous, deliberately.** The one implementor reads a small local file, at most once per
-`MIN_REFETCH_INTERVAL`, and making the trait `async` would either need a boxed future in the
+`MAX_KEY_SET_AGE`, and making the trait `async` would either need a boxed future in the
 signature or force the file source to pretend. A URL source arrives with a real decision about
 where its I/O runs, and that decision belongs in the same change as the client.
 
@@ -1005,8 +1079,8 @@ A key set on the local filesystem.
 pub fn at(path: impl Into<PathBuf>) -> Self
 ```
 
-Names the file. Does not read it: `Self::fetch` is the read, and the composition root calls
-it once before the listener opens so an unreadable key set is a refusal to start.
+Names the file. Does not read it: `Self::read` is the read, and the composition root reads
+once before the listener opens so an unreadable key set is a refusal to start.
 
 ```rust
 pub fn path(&self) -> &Path
@@ -1040,18 +1114,44 @@ either a rotation this deployment has not caught up with or a caller guessing.
 
 `Debug`, `Display`, `Error`
 
+#### `enum Refreshed`
+
+```rust
+pub enum Refreshed
+```
+
+What one look at the source did.
+
+The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
+is not a change, and a candidate that was examined and rejected is recorded as examined so
+identical bytes on the next tick are silent rather than logging a rejection once per interval
+forever.
+
+##### Variants
+
+- `Unchanged` - The document is byte-for-byte what is already in use, or it could not be read.
+- `Rotated` - A new document parsed, held a key of the pinned family, and is now in use.
+- `Rejected` - A new document was read and is NOT usable. The previous key set keeps verifying.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 #### `struct KeySetCache`
 
 ```rust
 pub struct KeySetCache
 ```
 
-The key set, cached, with a rate-limited refetch on an unknown key id.
+The key set, cached, with a rate-limited refetch on an unknown key id and an age bound on the
+whole set.
 
 `tokio::sync::RwLock` rather than `std::sync::RwLock`, which `clippy.toml` bans: this is held
-across an `await` in an async middleware, which is exactly the deadlock that ban is for. The write
-side is taken only when a key id is missing *and* the window has opened, so the ordinary request
-takes a read lock and nothing else.
+across an `await` in an async middleware, which is exactly the deadlock that ban is for.
+
+**No read of the source happens while the write lock is held**, which review asked for: the lock
+is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
+under the first lock is what keeps two concurrent misses from becoming two reads.
 
 ##### Methods
 
@@ -1065,26 +1165,52 @@ How many keys are cached, and their ids. For a startup log line and for a test.
 pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable>
 ```
 
-The verifier for a key id, refetching at most once per window when the id is unknown.
+The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
 
-**`now` is a parameter and not `Instant::now()`**, so the case that matters - a second forged
-key id arriving inside the window - is assertable without a sleep. The middleware passes the
-real clock, once, at the top of the request.
-
-The order is: read, then window, then write-and-recheck. The recheck under the write lock is
-not belt-and-braces: two requests naming the same unknown id race here, and without it the
-second would fetch again immediately after the first - one refetch per concurrent request,
-which is the limit not holding.
+The order is: read, then age, then window, then read-and-swap. The recheck under the write lock
+is not belt-and-braces - two requests naming the same unknown id race here, and without it the
+second would read again immediately after the first, which is one read per concurrent request.
 
 ```rust
-pub fn primed(source: Box<dyn KeySetSource>, now: Instant) -> Result<Self, KeySetUnavailable>
+pub async fn poll_once(&self, now: Instant) -> Refreshed
+```
+
+Looks at the source once, and swaps the key set if what came back is usable and different.
+
+Public and taking `now`, for the reason `crate::tls::Renewal::poll_once` is public: a test
+rotating a key set must not have to wait for a timer, and asserting that a timer fires is a
+different assertion from asserting that a rotation works.
+
+**Loud, and then carry on with what works.** A document that will not parse, or that holds no
+key of the pinned family, is `Refreshed::Rejected` and the previous set keeps verifying -
+adopting a broken set would turn a rotation mistake into a total outage, which is the trade
+`crate::tls` already makes for the same reason.
+
+```rust
+pub fn primed(source: Box<dyn KeySetSource>, family: KeyFamily, pinned: String, now: Instant) -> Result<Self, KeySetUnavailable>
 ```
 
 Reads the source once and caches what it returned.
 
 **Fails rather than starting empty**, which is what makes an unreadable key set a refusal to
 start: a cache that began empty would answer every request `401` while looking healthy, and the
-rate limit would keep it that way for thirty seconds at a time.
+rate limit would keep it that way for thirty seconds at a time. It also fails when the document
+holds no key of the pinned family - see `InvalidKeySet::NoKeyOfThePinnedFamily`.
+
+```rust
+pub fn watch_until_shutdown(cache: &Arc<Self>, interval: Duration, shutdown: Shutdown)
+```
+
+Polls on an interval until shutdown is asked for.
+
+A `tokio` task rather than the OS thread `crate::middleware::spawn_reaper` uses, and the
+difference is where it is started from - the same difference `crate::tls::Renewal` records: the
+reaper is spawned while the router is assembled, before a runtime exists, and this is spawned
+from inside the served future.
+
+**Forgetting to arm it does not leave revocation unbounded**, which is why it is not the only
+trigger: `Self::key_for` checks the age itself, so a deployment serving traffic re-reads
+anyway. What the timer adds is a bound that holds while nothing is being asked.
 
 ##### Implements
 
@@ -1100,9 +1226,37 @@ here would only ever be set wrong, in the direction that reopens the denial-of-s
 Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
 forged key id.
 
+#### `constant MAX_KEY_SET_AGE`
+
+How stale a cached key set may be before it is re-read whatever a caller asks for.
+
+**This is the revocation bound**, and it is the number a reviewer should argue with if they argue
+with anything here: a key removed from the set keeps verifying for at most this long. A constant
+rather than a key for the same reason the limit above is one - and unlike that limit, this one
+only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
+minute per process, which is the same order as
+`crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+
 ### Module `token`
 
 Verifying one token, and turning its claims into a principal chain.
+
+# The check review found missing, and it is the serious one
+
+**A signature, an issuer and an audience do not identify a token's CLASS.** Without a `typ` check,
+any JWT the issuer signed with this audience verifies - and an OIDC ID token has the same issuer
+and, whenever the resource identifier equals the client id, the same audience. That is the ordinary
+identity-provider arrangement rather than an exotic one, so the substitution is cheap: a document
+minted to describe a login establishes a caller for an API call. Review demonstrated it against
+this file.
+
+`TokenValidator::verify` now checks `typ` against `sutura_config::RequiredTokenType`, which
+defaults to RFC 9068's `at+jwt` in the `direct` mode. **The check happens on `decoded.header`,
+after the signature**, and that placement is the point: `TokenValidator::key_id`'s whole doc
+comment is that nothing configured applies yet because a JWT header is unauthenticated input, so a
+`typ` read there would be a rule applied to a document nobody signed. After `decode` it is a rule
+applied to a document the issuer signed - the same reasoning that already puts the actor-nesting
+bound there.
 
 # The three things `docs/adr/0014` says a direct deployment owns
 
@@ -1160,6 +1314,7 @@ and an error is not a place for credential material.
 ##### Variants
 
 - `Absent` - No token where this deployment reads one.
+- `NotABearerToken` - A header with some other authentication scheme.
 - `TooLong`
 - `UnreadableHeader` - The header is not a JWT header, or names no key.
 - `NoKeyId` - No `kid`.
@@ -1170,10 +1325,37 @@ and an error is not a place for credential material.
 - `UnusableActor`
 - `TooManyActors` - More nesting in `act` than `MAX_ACTORS` allows.
 - `UnusableScope`
+- `WrongTokenType` - The token is of a class this deployment does not accept.
+- `NoIssuedAt` - A transit proof with no `iat`.
+- `LifetimeTooLong` - A transit proof declaring a longer life than this deployment will call short-lived.
+- `IssuedInTheFuture` - An `iat` in the future by more than the leeway.
 
 ##### Implements
 
 `Debug`, `Display`, `Error`
+
+#### `enum PresentedType`
+
+```rust
+pub enum PresentedType
+```
+
+The `typ` a refused token presented, where it was one at all.
+
+A named type rather than an `Option<TokenType>` in the variant, so the *absent* case renders as a
+sentence rather than as `None` - and so the case where a `typ` was present but unusable is
+distinguishable from the case where there was none. Both are refusals; they are different
+diagnostics.
+
+##### Variants
+
+- `Named` - A `typ` that parsed, and is not the one required.
+- `Absent` - No `typ` header at all. Refused by anything but `any` - see `sutura_config::RequiredTokenType::accepts`.
+- `Unusable` - A `typ` header holding something no media type could be. Not rendered, for the reason `TokenRejected::WrongTokenType` gives.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `PartialEq`
 
 #### `struct TokenValidator`
 
@@ -1233,8 +1415,10 @@ pub fn verify(&self, token: &str, key: &DecodingKey) -> Result<VerifiedCaller, T
 Verifies the token with the key and turns its claims into a caller.
 
 The order is the library's and it is the right one: signature first, then the registered
-claims, and only then is the claim payload deserialized into `Claims` - so the nesting bound
-in `chain_from` is applied to a document an issuer signed rather than to one a caller wrote.
+claims, and only then is the claim payload deserialized into `Claims` - so every check below
+is applied to a document an issuer signed rather than to one a caller wrote. That is why the
+class check, the actor-nesting bound and the lifetime ceiling all live here and not in
+`Self::key_id`.
 
 ##### Implements
 

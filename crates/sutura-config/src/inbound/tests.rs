@@ -5,7 +5,7 @@
 
 use super::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
-    ResourceIdentifier, SigningAlgorithm, TokenLocation, TransitProof,
+    ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenType, TransitProof,
 };
 
 fn resource() -> ResourceIdentifier {
@@ -30,6 +30,7 @@ fn direct() -> InboundIdentity {
         authorization_server: issuer(),
         key_set: key_set(),
         algorithms: rs256(),
+        token_type: RequiredTokenType::access_token(),
     }
 }
 
@@ -41,6 +42,8 @@ fn behind_gateway() -> InboundIdentity {
             ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
             key_set(),
             PinnedAlgorithms::of(SigningAlgorithm::Es256),
+            RequiredTokenType::Any,
+            ProofLifetime::default_lifetime(),
         ),
     }
 }
@@ -288,4 +291,114 @@ fn what_each_mode_says_at_startup_is_read_from_the_type_and_never_claims_leg_two
         assert!(!mode.mode().is_empty());
         assert!(InboundIdentity::MODES.contains(&mode.mode()), "{}", mode.mode());
     }
+}
+
+#[test]
+fn the_three_spellings_of_one_media_type_compare_equal_and_nothing_else_does() {
+    // RFC 7515 section 4.1.9 says `typ` is a media type and that the `application/` prefix may be
+    // omitted, so a comparison that treated these as three values would refuse tokens that are
+    // correct. Folded at construction, which is why the comparison downstream needs no normalising.
+    let required = RequiredTokenType::access_token();
+    for spelling in ["at+jwt", "AT+JWT", "application/at+jwt", "Application/AT+JWT", "  at+jwt  "] {
+        let presented = TokenType::parse(TokenType::KEY, spelling).expect("a spelling of a media type is one");
+        assert!(required.accepts(Some(&presented)), "{spelling} should satisfy at+jwt");
+    }
+    // And what must NOT satisfy it: the class an OIDC ID token carries, and no `typ` at all.
+    let id_token = TokenType::parse(TokenType::KEY, "JWT").expect("`JWT` is a media type");
+    assert!(
+        !required.accepts(Some(&id_token)),
+        "a plain `JWT` is the class an ID token carries and is not an access token"
+    );
+    assert!(
+        !required.accepts(None),
+        "a token with no `typ` satisfies nothing but `any` - the check must not be satisfiable by omission"
+    );
+}
+
+#[test]
+fn turning_the_class_check_off_is_a_word_and_never_a_silence() {
+    // The half that makes the default safe: `any` has to be written, and a deployment running with it
+    // is legible on every boot because the sentence the log prints comes off the type.
+    let off = RequiredTokenType::parse(TokenType::KEY, "any").expect("`any` is a word");
+    assert_eq!(off, RequiredTokenType::Any);
+    assert_eq!(RequiredTokenType::parse(TokenType::KEY, "ANY"), Ok(RequiredTokenType::Any));
+    assert!(off.accepts(None), "`any` accepts a token with no typ at all");
+    assert_eq!(off.as_str(), "any");
+
+    let gateway = InboundIdentity::BehindGateway {
+        transit: TransitProof::new(
+            ProofHeader::parse("x-transit-proof").expect("a test header is a header"),
+            IssuerUrl::parse_transit_issuer("https://gateway.example.com").expect("a test issuer is an issuer"),
+            ResourceIdentifier::parse_transit_audience("https://sutura.example.com").expect("a test audience is one"),
+            key_set(),
+            PinnedAlgorithms::of(SigningAlgorithm::Es256),
+            RequiredTokenType::Any,
+            ProofLifetime::default_lifetime(),
+        ),
+    };
+    assert!(gateway.accepts_any_token_class());
+    assert!(gateway.type_check().contains("ANY class"), "{}", gateway.type_check());
+    // And the default: the sentence names the substitution it prevents rather than the rule it applies.
+    assert!(!direct().accepts_any_token_class());
+    assert!(direct().type_check().contains("ID token"), "{}", direct().type_check());
+}
+
+#[test]
+fn a_typ_that_could_not_be_a_media_type_does_not_parse() {
+    // A `typ` is read off a token header as well as out of configuration, and the same parser reads
+    // both - so this bounds the caller-supplied side too.
+    assert!(matches!(
+        TokenType::parse(TokenType::KEY, "at jwt"),
+        Err(InvalidInboundValue::NotPermitted { position: 2, .. })
+    ));
+    assert!(matches!(
+        TokenType::parse(TokenType::KEY, "at\u{202E}jwt"),
+        Err(InvalidInboundValue::NotPermitted { .. })
+    ));
+    assert!(matches!(
+        TokenType::parse(TokenType::KEY, "application/"),
+        Err(InvalidInboundValue::Empty { .. })
+    ));
+    assert!(matches!(
+        TokenType::parse(TokenType::KEY, "a".repeat(513)),
+        Err(InvalidInboundValue::TooLong { .. })
+    ));
+}
+
+#[test]
+fn a_transit_lifetime_ceiling_is_bounded_at_both_ends_and_only_the_gateway_mode_has_one() {
+    // The ceiling exists because the record calls a gateway assertion short-lived while its lifetime is
+    // the component's to choose. A zero would refuse every assertion, and a year is not a ceiling.
+    assert_eq!(ProofLifetime::default_lifetime().seconds(), ProofLifetime::DEFAULT_SECONDS);
+    assert_eq!(ProofLifetime::parse(1).expect("one second is a lifetime").seconds(), 1);
+    assert_eq!(
+        ProofLifetime::parse(ProofLifetime::MAX_SECONDS)
+            .expect("the ceiling itself is a lifetime")
+            .seconds(),
+        ProofLifetime::MAX_SECONDS
+    );
+    assert_eq!(
+        ProofLifetime::parse(0).expect_err("a zero refuses every proof"),
+        InvalidInboundValue::LifetimeOutOfRange {
+            found: 0,
+            limit: ProofLifetime::MAX_SECONDS
+        }
+    );
+    assert!(matches!(
+        ProofLifetime::parse(ProofLifetime::MAX_SECONDS + 1),
+        Err(InvalidInboundValue::LifetimeOutOfRange { .. })
+    ));
+
+    // Only the gateway mode carries one, and that asymmetry is the decision: an access token's
+    // lifetime belongs to the authorization server, so a ceiling in the direct mode would refuse
+    // tokens an issuer minted correctly.
+    assert_eq!(
+        behind_gateway().requirement().max_lifetime(),
+        Some(ProofLifetime::default_lifetime())
+    );
+    assert_eq!(
+        direct().requirement().max_lifetime(),
+        None,
+        "an access token's lifetime is its issuer's to choose"
+    );
 }

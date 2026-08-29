@@ -132,6 +132,24 @@ pub(crate) struct RawInbound {
     /// pinning is the control and a default here would be this crate choosing it.
     #[serde(default)]
     pub(crate) algorithms: Vec<String>,
+    /// `direct`: which class of token, out of the `typ` header. Absent means RFC 9068's `at+jwt`.
+    ///
+    /// **Absent is the SAFE value here, unlike `mode`**, which is why it has a default at all: the
+    /// unsafe reading is `any`, and that is a word an operator writes and the startup log prints at
+    /// `WARN`. Defaulting the other way would have made the check switchable by silence, which is the
+    /// shape review found.
+    #[serde(default)]
+    pub(crate) token_type: Option<String>,
+    /// `behind-gateway`: which class of token the component emits. **Required**, because a component's
+    /// `typ` is a fact only the deployment knows - there is no value this crate could guess that does
+    /// not either reject every request or check nothing. `any` is how a deployment says its component
+    /// sets none.
+    #[serde(default)]
+    pub(crate) transit_token_type: Option<String>,
+    /// `behind-gateway`: the longest lifetime a proof may declare, in seconds. Absent means
+    /// `ProofLifetime::DEFAULT_SECONDS`.
+    #[serde(default)]
+    pub(crate) transit_max_lifetime_seconds: Option<u64>,
 }
 
 #[derive(serde::Deserialize)]

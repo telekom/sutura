@@ -1,4 +1,4 @@
-//! The signing keys, the cache in front of them, and the rate limit on refetching.
+//! The signing keys, the cache in front of them, and the two things that make it re-read.
 //!
 //! `docs/adr/0014` names key rotation as one of three things a directly validating deployment newly
 //! owns, and it names the standard way to get it wrong: *"Cache the key set, honour its cache
@@ -6,10 +6,34 @@
 //! forged key id turns every request into an outbound call to the authorization server, which is a
 //! denial-of-service primitive pointed at our own dependency."*
 //!
-//! So the rate limit is the mechanism in this file, and it is the reason [`KeySetCache::key_for`]
-//! takes the current instant as an argument rather than reading the clock itself: that is what makes
-//! the interesting case - the second request with a forged key id, arriving inside the window -
-//! assertable without a sleep.
+//! # Two triggers, and the second one is a REVOCATION bound rather than a rotation one
+//!
+//! The rate limit was the whole mechanism here once, and review found what that left open: a key
+//! **removed** from the set kept verifying until an unrelated unknown key id happened to arrive. A
+//! caller-driven refetch cannot bound revocation, because the caller presenting a revoked key
+//! presents a `kid` this deployment *has* - so nothing triggers.
+//!
+//! So there are two triggers and they answer different questions:
+//!
+//! | Trigger | Answers | Bounded by |
+//! | --- | --- | --- |
+//! | an unknown key id | "has a key been ADDED that I have not seen" | [`MIN_REFETCH_INTERVAL`], because the trigger is caller-controlled |
+//! | age | "has a key been REMOVED" | [`MAX_KEY_SET_AGE`], because the trigger is the clock and a caller cannot make it fire faster |
+//!
+//! The age trigger fires from two places, deliberately. [`KeySetCache::watch_until_shutdown`] is a
+//! timer - the same shape `crate::tls::Renewal::watch_until_shutdown` already uses, spawned from the
+//! composition root inside the runtime - so revocation latency is bounded *whether or not this
+//! deployment is serving traffic*. And [`KeySetCache::key_for`] checks the age itself, so a
+//! composition root that never armed the timer still cannot serve a stale key set indefinitely: the
+//! first request past the horizon pays one file read. Neither is a second code path - both call
+//! [`KeySetCache::poll_once`].
+//!
+//! # Why `now` is a parameter everywhere
+//!
+//! [`KeySetCache::key_for`] and [`KeySetCache::poll_once`] take the current instant rather than
+//! reading the clock. That is what makes the two interesting cases - a forged key id arriving inside
+//! the window, and a key set going stale - assertable without a sleep, which is the same reason
+//! `Renewal::poll_once` is public.
 //!
 //! # What a key set is read from, and the gap that is named rather than hidden
 //!
@@ -19,24 +43,24 @@
 //! runtime dependency whose outage must stay *distinguishable from a dead data system*. None of that
 //! is built.
 //!
-//! What is built is everything that a URL source would need anyway - the cache, the unknown-key
-//! refetch, and the limit on it - behind [`KeySetSource`], which is one method. A JWKS endpoint
-//! arrives as a second implementor and changes nothing else in this file. A file is also a real
-//! deployment shape rather than a placeholder: a sidecar that refreshes a mounted key set is how a
-//! process with no egress gets rotation.
+//! What is built is everything that a URL source would need anyway - the cache, both triggers, and
+//! the limit on the caller-driven one - behind [`KeySetSource`], which is one method returning the
+//! document's **bytes**. A JWKS endpoint arrives as a second implementor and changes nothing else in
+//! this file. A file is also a real deployment shape rather than a placeholder: a sidecar that
+//! rewrites a mounted key set is how a process with no egress gets rotation.
 //!
 //! **The honest cost of the file source:** it does not honour a cache header, because a file has
-//! none. Staleness is bounded by whatever rewrites the file, plus this cache's own refetch on an
-//! unknown key id - so a key that rotated *without* its id changing is a key this deployment keeps
-//! using until something asks for an id it has not got. Issuers do not do that, and nothing here
-//! stops one that did.
+//! none. What bounds staleness is [`MAX_KEY_SET_AGE`] and nothing the issuer says.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Weak};
 use std::time::{Duration, Instant};
 
 use jsonwebtoken::DecodingKey;
 use jsonwebtoken::jwk::{AlgorithmParameters, Jwk, JwkSet};
+use sutura_config::KeyFamily;
+use sutura_runtime::Shutdown;
 
 /// The longest key id accepted.
 ///
@@ -54,6 +78,16 @@ const MAX_KEY_ID: usize = 128;
 /// Thirty seconds is far below any horizon at which a rotation is late and far above the cost of a
 /// forged key id.
 pub const MIN_REFETCH_INTERVAL: Duration = Duration::from_secs(30);
+
+/// How stale a cached key set may be before it is re-read whatever a caller asks for.
+///
+/// **This is the revocation bound**, and it is the number a reviewer should argue with if they argue
+/// with anything here: a key removed from the set keeps verifying for at most this long. A constant
+/// rather than a key for the same reason the limit above is one - and unlike that limit, this one
+/// only ever wants to be *smaller*, so the cost is what sets it. One minute is one small read per
+/// minute per process, which is the same order as
+/// `crate::middleware::REAP_INTERVAL` and is nothing next to a signature verification.
+pub const MAX_KEY_SET_AGE: Duration = Duration::from_secs(60);
 
 /// A key identifier, out of a token header or out of a key set.
 ///
@@ -144,6 +178,17 @@ pub enum InvalidKeySet {
         #[source]
         cause: NotAKeyId,
     },
+    /// Two keys under one id.
+    ///
+    /// **Refused rather than last-wins, which is what review found here.** A map insert made the last
+    /// entry silently displace the first, so a key set holding two keys under one `kid` decided which
+    /// one verifies by its position in a JSON array - and a rotation performed by *appending* the new
+    /// key under the old id would then work, while the same document written the other way round
+    /// would not. There is no reading of a JWK set in which two keys share an id on purpose.
+    #[error(
+        "the key set holds two keys under the id {id}, so which one verifies would be decided by their order in the document"
+    )]
+    DuplicateKeyId { id: KeyId },
     /// A symmetric key.
     ///
     /// **The second place algorithm confusion dies, and it is here rather than only in the pinned
@@ -162,6 +207,20 @@ pub enum InvalidKeySet {
         #[source]
         cause: jsonwebtoken::errors::Error,
     },
+    /// Not one key of the family the pinned algorithms need.
+    ///
+    /// **The refusal review asked for, and the failure it prevents is a deployment that starts and
+    /// answers `401` to everybody.** The library verifies a token with one key and refuses a
+    /// permitted-algorithm list whose family disagrees with that key, so a key set of RSA keys under
+    /// `algorithms: ["ES256"]` cannot verify anything - and every request would be a `401` with
+    /// nothing in the log connecting the two. `sutura_config::InvalidAlgorithms::MixedFamilies`
+    /// refuses the same shape from the configuration side; this is the half that reads the keys.
+    #[error(
+        "the key set holds no {family} key, and this deployment pinned {pinned} - so no token could \
+         ever verify. The key set and security.inbound.algorithms have to agree about the kind of \
+         key"
+    )]
+    NoKeyOfThePinnedFamily { family: &'static str, pinned: String },
 }
 
 /// The verifying keys this deployment holds, by id.
@@ -171,7 +230,18 @@ pub enum InvalidKeySet {
 /// lookup key at all.
 #[derive(Clone)]
 pub struct KeySet {
-    keys: BTreeMap<KeyId, DecodingKey>,
+    keys: BTreeMap<KeyId, Verifier>,
+}
+
+/// One verifying key, and the kind of key it is.
+///
+/// The family is carried alongside rather than read back out of the library's own key, whose
+/// equivalent field is private. It exists for [`KeySet::holds`], which is what makes
+/// [`InvalidKeySet::NoKeyOfThePinnedFamily`] checkable at load rather than discoverable from a `401`.
+#[derive(Clone)]
+struct Verifier {
+    key: DecodingKey,
+    family: KeyFamily,
 }
 
 impl KeySet {
@@ -183,7 +253,7 @@ impl KeySet {
     /// outage. `docs/adr/0014`'s posture is fail-closed on the query path and this is that.
     pub fn parse(document: &str) -> Result<Self, InvalidKeySet> {
         let set: JwkSet = serde_json::from_str(document).map_err(|cause| InvalidKeySet::NotAJwkSet { cause })?;
-        let mut keys = BTreeMap::new();
+        let mut keys: BTreeMap<KeyId, Verifier> = BTreeMap::new();
         for jwk in &set.keys {
             let id = jwk
                 .common
@@ -191,6 +261,9 @@ impl KeySet {
                 .as_deref()
                 .ok_or(InvalidKeySet::KeyWithoutAnId)
                 .and_then(|raw| KeyId::parse(raw).map_err(|cause| InvalidKeySet::UnusableKeyId { cause }))?;
+            if keys.contains_key(&id) {
+                return Err(InvalidKeySet::DuplicateKeyId { id });
+            }
             drop(keys.insert(id, verifier_for(jwk)?));
         }
         if keys.is_empty() {
@@ -206,7 +279,18 @@ impl KeySet {
     /// holding a read lock across the verification would serialise every request behind it.
     #[must_use]
     pub fn get(&self, id: &KeyId) -> Option<DecodingKey> {
-        self.keys.get(id).cloned()
+        self.keys.get(id).map(|held| held.key.clone())
+    }
+
+    /// Does this set hold a key of `family`?
+    ///
+    /// The question [`InvalidKeySet::NoKeyOfThePinnedFamily`] is asked of. **At least one** rather
+    /// than all of them, deliberately: an issuer legitimately publishes RSA and elliptic-curve keys in
+    /// one document, and what makes a deployment unable to authenticate anybody is holding *none* of
+    /// the kind it pinned.
+    #[must_use]
+    pub fn holds(&self, family: KeyFamily) -> bool {
+        self.keys.values().any(|held| held.family == family)
     }
 
     /// How many keys are held. For a startup log line, so an operator can see the set was read.
@@ -236,16 +320,19 @@ impl core::fmt::Debug for KeySet {
 /// Builds a verifier for one JWK, refusing the kinds that must not be here.
 ///
 /// Split out of [`KeySet::parse`] so the symmetric refusal is one named branch rather than an arm
-/// inside a loop inside a fold.
-fn verifier_for(jwk: &Jwk) -> Result<DecodingKey, InvalidKeySet> {
-    match jwk.algorithm {
+/// inside a loop inside a fold. The family comes from the JWK's own parameters rather than from its
+/// `alg`, which is optional and advisory.
+fn verifier_for(jwk: &Jwk) -> Result<Verifier, InvalidKeySet> {
+    let family = match jwk.algorithm {
         // See `InvalidKeySet::SymmetricKey`. This arm exists before the `from_jwk` call and not
         // after, because `from_jwk` would happily build an HMAC verifier out of it.
-        AlgorithmParameters::OctetKey(_) => Err(InvalidKeySet::SymmetricKey),
-        AlgorithmParameters::RSA(_) | AlgorithmParameters::EllipticCurve(_) | AlgorithmParameters::OctetKeyPair(_) => {
-            DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })
-        }
-    }
+        AlgorithmParameters::OctetKey(_) => return Err(InvalidKeySet::SymmetricKey),
+        AlgorithmParameters::RSA(_) => KeyFamily::Rsa,
+        AlgorithmParameters::EllipticCurve(_) => KeyFamily::EllipticCurve,
+        AlgorithmParameters::OctetKeyPair(_) => KeyFamily::EdwardsCurve,
+    };
+    let key = DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })?;
+    Ok(Verifier { key, family })
 }
 
 /// Where a key set is read from.
@@ -253,13 +340,19 @@ fn verifier_for(jwk: &Jwk) -> Result<DecodingKey, InvalidKeySet> {
 /// One method, so a JWKS endpoint is a second implementor and nothing else in this file moves. See
 /// the module documentation for why the only implementor today reads a file.
 ///
+/// **It returns the document's BYTES rather than a parsed key set**, and that is what lets
+/// [`KeySetCache::poll_once`] tell "changed" from "unchanged" the way `crate::tls::Renewal` does. A
+/// comparison of parsed keys could not: the library's key type implements no equality, so the
+/// alternative was comparing key *ids*, which would miss a key whose material rotated under the same
+/// id.
+///
 /// **Synchronous, deliberately.** The one implementor reads a small local file, at most once per
-/// [`MIN_REFETCH_INTERVAL`], and making the trait `async` would either need a boxed future in the
+/// [`MAX_KEY_SET_AGE`], and making the trait `async` would either need a boxed future in the
 /// signature or force the file source to pretend. A URL source arrives with a real decision about
 /// where its I/O runs, and that decision belongs in the same change as the client.
 pub trait KeySetSource: Send + Sync + 'static {
-    /// Reads the current key set.
-    fn fetch(&self) -> Result<KeySet, KeySetUnavailable>;
+    /// Reads the key set document as it is now.
+    fn read(&self) -> Result<String, KeySetUnavailable>;
 }
 
 /// The source could not be read, or what it returned is not a key set.
@@ -286,8 +379,8 @@ pub struct FileKeySet {
 }
 
 impl FileKeySet {
-    /// Names the file. Does not read it: [`Self::fetch`] is the read, and the composition root calls
-    /// it once before the listener opens so an unreadable key set is a refusal to start.
+    /// Names the file. Does not read it: [`Self::read`] is the read, and the composition root reads
+    /// once before the listener opens so an unreadable key set is a refusal to start.
     #[must_use]
     pub fn at(path: impl Into<PathBuf>) -> Self {
         Self { path: path.into() }
@@ -302,12 +395,8 @@ impl FileKeySet {
 }
 
 impl KeySetSource for FileKeySet {
-    fn fetch(&self) -> Result<KeySet, KeySetUnavailable> {
-        let document = std::fs::read_to_string(&self.path).map_err(|cause| KeySetUnavailable::Unreadable {
-            path: self.path.clone(),
-            cause,
-        })?;
-        KeySet::parse(&document).map_err(|cause| KeySetUnavailable::Invalid {
+    fn read(&self) -> Result<String, KeySetUnavailable> {
+        std::fs::read_to_string(&self.path).map_err(|cause| KeySetUnavailable::Unreadable {
             path: self.path.clone(),
             cause,
         })
@@ -340,9 +429,28 @@ pub enum KeyUnavailable {
     },
 }
 
+/// What one look at the source did.
+///
+/// The same three outcomes `crate::tls::Renewed` has, and for the same reasons: an unreadable source
+/// is not a change, and a candidate that was examined and rejected is recorded as examined so
+/// identical bytes on the next tick are silent rather than logging a rejection once per interval
+/// forever.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Refreshed {
+    /// The document is byte-for-byte what is already in use, or it could not be read.
+    Unchanged,
+    /// A new document parsed, held a key of the pinned family, and is now in use.
+    Rotated,
+    /// A new document was read and is NOT usable. The previous key set keeps verifying.
+    Rejected,
+}
+
 /// What the cache holds between reads.
 struct Cached {
     keys: KeySet,
+    /// The bytes [`Cached::keys`] was parsed from, so a re-read can be compared rather than reparsed
+    /// into a value nothing can compare.
+    document: String,
     /// When the source was last **attempted**, whether or not it answered.
     ///
     /// Attempted and not succeeded, and that is the whole rate limit: an issuer that is down would
@@ -351,15 +459,23 @@ struct Cached {
     last_attempt: Instant,
 }
 
-/// The key set, cached, with a rate-limited refetch on an unknown key id.
+/// The key set, cached, with a rate-limited refetch on an unknown key id and an age bound on the
+/// whole set.
 ///
 /// `tokio::sync::RwLock` rather than `std::sync::RwLock`, which `clippy.toml` bans: this is held
-/// across an `await` in an async middleware, which is exactly the deadlock that ban is for. The write
-/// side is taken only when a key id is missing *and* the window has opened, so the ordinary request
-/// takes a read lock and nothing else.
+/// across an `await` in an async middleware, which is exactly the deadlock that ban is for.
+///
+/// **No read of the source happens while the write lock is held**, which review asked for: the lock
+/// is taken to stamp the attempt, released, the document read, and taken again to swap. The stamp
+/// under the first lock is what keeps two concurrent misses from becoming two reads.
 pub struct KeySetCache {
     source: Box<dyn KeySetSource>,
     refetch_interval: Duration,
+    max_age: Duration,
+    /// The family the pinned algorithms need, so a swap cannot adopt a key set that verifies nothing.
+    family: KeyFamily,
+    /// What the pinned algorithms are, for the refusal's message alone.
+    pinned: String,
     state: tokio::sync::RwLock<Cached>,
 }
 
@@ -368,85 +484,144 @@ impl KeySetCache {
     ///
     /// **Fails rather than starting empty**, which is what makes an unreadable key set a refusal to
     /// start: a cache that began empty would answer every request `401` while looking healthy, and the
-    /// rate limit would keep it that way for thirty seconds at a time.
-    pub fn primed(source: Box<dyn KeySetSource>, now: Instant) -> Result<Self, KeySetUnavailable> {
-        let keys = source.fetch()?;
-        Ok(Self {
-            source,
-            refetch_interval: MIN_REFETCH_INTERVAL,
-            state: tokio::sync::RwLock::new(Cached { keys, last_attempt: now }),
-        })
-    }
-
-    /// The same, with a refetch window a test can shorten.
-    ///
-    /// `#[cfg(test)]` and `pub(crate)`, which together are the point: the window is not a deployment's
-    /// choice - see [`MIN_REFETCH_INTERVAL`] - and the only reason it is a parameter at all is that a
-    /// test asserting the window *reopens* would otherwise have to sleep for thirty seconds. Compiling
-    /// it out of a shipped build is what keeps it from becoming a second constructor somebody reaches
-    /// for.
-    #[cfg(test)]
-    pub(crate) fn primed_with_window(
+    /// rate limit would keep it that way for thirty seconds at a time. It also fails when the document
+    /// holds no key of the pinned family - see [`InvalidKeySet::NoKeyOfThePinnedFamily`].
+    pub fn primed(
         source: Box<dyn KeySetSource>,
-        refetch_interval: Duration,
+        family: KeyFamily,
+        pinned: String,
         now: Instant,
     ) -> Result<Self, KeySetUnavailable> {
-        let keys = source.fetch()?;
+        Self::primed_with_window(source, family, pinned, MIN_REFETCH_INTERVAL, MAX_KEY_SET_AGE, now)
+    }
+
+    /// The same, with the two windows a test can shorten.
+    ///
+    /// `pub(crate)` and `cfg(test)`-free because the two windows are not a deployment's choice - see
+    /// [`MIN_REFETCH_INTERVAL`] and [`MAX_KEY_SET_AGE`] - and the only reason they are parameters at
+    /// all is that a test asserting a window *reopens* would otherwise have to sleep for it. It is not
+    /// `cfg(test)` because [`Self::primed`] is written in terms of it.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a parts struct would need public fields, which check-boundaries refuses; the two windows exist only so a test need not sleep for them"
+    )]
+    pub(crate) fn primed_with_window(
+        source: Box<dyn KeySetSource>,
+        family: KeyFamily,
+        pinned: String,
+        refetch_interval: Duration,
+        max_age: Duration,
+        now: Instant,
+    ) -> Result<Self, KeySetUnavailable> {
+        let document = source.read()?;
+        let keys = parse_for(&document, family, &pinned).map_err(|cause| KeySetUnavailable::Invalid {
+            path: PathBuf::from("the configured key set"),
+            cause,
+        })?;
         Ok(Self {
             source,
             refetch_interval,
-            state: tokio::sync::RwLock::new(Cached { keys, last_attempt: now }),
+            max_age,
+            family,
+            pinned,
+            state: tokio::sync::RwLock::new(Cached {
+                keys,
+                document,
+                last_attempt: now,
+            }),
         })
     }
 
-    /// The verifier for a key id, refetching at most once per window when the id is unknown.
+    /// The verifier for a key id, re-reading the source when the set is stale or the id is unknown.
     ///
-    /// **`now` is a parameter and not `Instant::now()`**, so the case that matters - a second forged
-    /// key id arriving inside the window - is assertable without a sleep. The middleware passes the
-    /// real clock, once, at the top of the request.
-    ///
-    /// The order is: read, then window, then write-and-recheck. The recheck under the write lock is
-    /// not belt-and-braces: two requests naming the same unknown id race here, and without it the
-    /// second would fetch again immediately after the first - one refetch per concurrent request,
-    /// which is the limit not holding.
+    /// The order is: read, then age, then window, then read-and-swap. The recheck under the write lock
+    /// is not belt-and-braces - two requests naming the same unknown id race here, and without it the
+    /// second would read again immediately after the first, which is one read per concurrent request.
     pub async fn key_for(&self, id: &KeyId, now: Instant) -> Result<DecodingKey, KeyUnavailable> {
         // The read guard is taken, read from twice, and dropped inside this statement. Written as one
-        // expression rather than as a block with two early returns because `clippy` flags a lock guard
-        // that outlives its last use, and here that lint and the right shape agree: nothing between
-        // the read and the decision needs the lock held.
+        // expression rather than as a block with early returns because `clippy` flags a lock guard
+        // that outlives its last use, and here that lint and the right shape agree.
         let (found, since) = {
             let cached = self.state.read().await;
             (cached.keys.get(id), now.saturating_duration_since(cached.last_attempt))
         };
         if let Some(key) = found {
-            return Ok(key);
+            // A HIT is still subject to the age bound, and that is the revocation fix: the caller
+            // presenting a revoked key presents an id this deployment holds, so nothing else here
+            // would ever trigger a re-read. The read is skipped while the set is fresh, so the
+            // ordinary request pays a lock and a map lookup.
+            if since < self.max_age {
+                return Ok(key);
+            }
+            let _refreshed = self.poll_once(now).await;
+            // Re-read after the refresh: the key may have been REVOKED by it, and then falling through
+            // to the unknown-id refusal is exactly right. The guard is taken and dropped inside this
+            // statement, for the reason the one above is.
+            let current = { self.state.read().await.keys.get(id) };
+            return current.ok_or(KeyUnavailable::UnknownKeyId);
         }
         if since < self.refetch_interval {
             return Err(KeyUnavailable::RefetchRateLimited {
                 ago_ms: since.as_millis(),
             });
         }
-        let mut cached = self.state.write().await;
-        // Re-read under the write lock: another task may have refetched while this one waited for it,
-        // and then this id is either present or was already looked for.
-        if let Some(key) = cached.keys.get(id) {
-            return Ok(key);
+        match self.poll_once(now).await {
+            Refreshed::Unchanged | Refreshed::Rotated | Refreshed::Rejected => {}
         }
-        let since = now.saturating_duration_since(cached.last_attempt);
-        if since < self.refetch_interval {
-            return Err(KeyUnavailable::RefetchRateLimited {
-                ago_ms: since.as_millis(),
-            });
+        self.state.read().await.keys.get(id).ok_or(KeyUnavailable::UnknownKeyId)
+    }
+
+    /// Looks at the source once, and swaps the key set if what came back is usable and different.
+    ///
+    /// Public and taking `now`, for the reason `crate::tls::Renewal::poll_once` is public: a test
+    /// rotating a key set must not have to wait for a timer, and asserting that a timer fires is a
+    /// different assertion from asserting that a rotation works.
+    ///
+    /// **Loud, and then carry on with what works.** A document that will not parse, or that holds no
+    /// key of the pinned family, is [`Refreshed::Rejected`] and the previous set keeps verifying -
+    /// adopting a broken set would turn a rotation mistake into a total outage, which is the trade
+    /// `crate::tls` already makes for the same reason.
+    pub async fn poll_once(&self, now: Instant) -> Refreshed {
+        // Stamped BEFORE the read, and the lock released before it: a source that fails, or one that
+        // hangs and then fails, has still consumed the window - and nothing blocks on I/O while
+        // holding the write lock, which is what review asked for.
+        {
+            let mut cached = self.state.write().await;
+            cached.last_attempt = now;
         }
-        // Stamped BEFORE the fetch, so a source that fails - or one that hangs and then fails - has
-        // still consumed the window. See `Cached::last_attempt`.
-        cached.last_attempt = now;
-        let fetched = self
-            .source
-            .fetch()
-            .map_err(|cause| KeyUnavailable::SourceUnavailable { cause })?;
-        cached.keys = fetched;
-        cached.keys.get(id).ok_or(KeyUnavailable::UnknownKeyId)
+        let read = match self.source.read() {
+            Ok(document) => document,
+            Err(cause) => {
+                // Unreadable is deliberately not "changed": a mounted secret being swapped can make a
+                // path briefly absent, and treating that as a rotation would reject on every swap.
+                tracing::warn!(error = %cause, "could not re-read the key set; keeping the keys in use");
+                return Refreshed::Unchanged;
+            }
+        };
+        let candidate = parse_for(&read, self.family, &self.pinned);
+        // The guard is taken after the parse and dropped inside this statement, so nothing holds it
+        // across work it does not need held.
+        let outcome = {
+            let mut cached = self.state.write().await;
+            adopt(&mut cached, read, candidate)
+        };
+        announce(outcome);
+        outcome
+    }
+
+    /// Polls on an interval until shutdown is asked for.
+    ///
+    /// A `tokio` task rather than the OS thread `crate::middleware::spawn_reaper` uses, and the
+    /// difference is where it is started from - the same difference `crate::tls::Renewal` records: the
+    /// reaper is spawned while the router is assembled, before a runtime exists, and this is spawned
+    /// from inside the served future.
+    ///
+    /// **Forgetting to arm it does not leave revocation unbounded**, which is why it is not the only
+    /// trigger: [`Self::key_for`] checks the age itself, so a deployment serving traffic re-reads
+    /// anyway. What the timer adds is a bound that holds while nothing is being asked.
+    pub fn watch_until_shutdown(cache: &Arc<Self>, interval: Duration, shutdown: Shutdown) {
+        let watched = Arc::downgrade(cache);
+        drop(tokio::spawn(poll_until_shutdown(watched, interval, shutdown)));
     }
 
     /// How many keys are cached, and their ids. For a startup log line and for a test.
@@ -459,12 +634,106 @@ impl KeySetCache {
     }
 }
 
+/// Decides what a freshly read document does to the cache, under the write lock.
+///
+/// Split out of [`KeySetCache::poll_once`] because the three outcomes plus two log sites were over the
+/// cognitive-complexity threshold in `clippy.toml` - and the split is where the reasoning is anyway:
+/// this function is *what a candidate does to the state*, and nothing in it awaits or reads a source.
+///
+/// **The document is recorded whichever way it went**, including when it was rejected. That is the
+/// distinction `crate::tls::Renewal::seen` already carries: a candidate that was examined and refused
+/// is still examined, so identical bytes on the next tick are silent rather than logging a rejection
+/// once per interval forever. The first look at it said everything, loudly.
+fn adopt(cached: &mut Cached, read: String, candidate: Result<KeySet, InvalidKeySet>) -> Refreshed {
+    if read == cached.document {
+        return Refreshed::Unchanged;
+    }
+    cached.document = read;
+    match candidate {
+        Ok(keys) => {
+            cached.keys = keys;
+            Refreshed::Rotated
+        }
+        Err(_refused) => Refreshed::Rejected,
+    }
+}
+
+/// Says what one look did, at the level the outcome deserves.
+///
+/// A function of its own so [`KeySetCache::poll_once`] holds no lock while a `tracing` macro expands,
+/// and so the levels are decided in one place: a rotation is `info`, a refused candidate is `error`
+/// because the deployment is now serving keys that disagree with what is on disk, and no change says
+/// nothing at all - a quiet deployment must not emit a line a minute saying so.
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "each arm is a tracing macro expanding into branches; the control flow is one match over three variants"
+)]
+fn announce(outcome: Refreshed) {
+    match outcome {
+        Refreshed::Unchanged => {}
+        Refreshed::Rotated => tracing::info!("the key set was re-read and replaced"),
+        Refreshed::Rejected => tracing::error!(
+            "the key set at the configured path changed and is NOT usable; still verifying with the \
+             previous keys. Nothing will rotate until it parses and holds a key of the pinned family"
+        ),
+    }
+}
+
+/// Parses a document and refuses one that cannot verify anything this deployment would accept.
+///
+/// The family check is here rather than in [`KeySet::parse`] so that every path which adopts a key
+/// set - priming and every refresh - goes through the same refusal. A swap that skipped it would turn
+/// a startup refusal into a `401` for everybody an hour later.
+fn parse_for(document: &str, family: KeyFamily, pinned: &str) -> Result<KeySet, InvalidKeySet> {
+    let keys = KeySet::parse(document)?;
+    if keys.holds(family) {
+        return Ok(keys);
+    }
+    Err(InvalidKeySet::NoKeyOfThePinnedFamily {
+        family: family.as_str(),
+        pinned: String::from(pinned),
+    })
+}
+
+/// The refresh watch's body. Stops when shutdown is asked for, or when the gate is dropped.
+///
+/// `Weak` and not `Arc`, so the watch cannot be the reason a gate stays alive - the same argument
+/// `crate::middleware::LimiterHandle::watch` makes: a test that builds a gate per test must not
+/// accumulate one task per test.
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
+)]
+#[expect(
+    clippy::cognitive_complexity,
+    reason = "the `select!` macro and the tracing calls expand into branches; the control flow is one loop with two arms"
+)]
+async fn poll_until_shutdown(watched: Weak<KeySetCache>, interval: Duration, shutdown: Shutdown) {
+    loop {
+        tokio::select! {
+            () = tokio::time::sleep(interval) => {
+                let Some(cache) = watched.upgrade() else {
+                    tracing::debug!("the inbound identity gate was dropped; the key set watch is stopping");
+                    return;
+                };
+                let _outcome = cache.poll_once(Instant::now()).await;
+            }
+            reason = shutdown.requested() => {
+                tracing::debug!(%reason, "the key set watch is stopping");
+                return;
+            }
+        }
+    }
+}
+
 impl core::fmt::Debug for KeySetCache {
     /// Hand-written because the source is a trait object and the state is behind a lock this must not
     /// take to render a log line.
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         f.debug_struct("KeySetCache")
             .field("refetch_interval", &self.refetch_interval)
+            .field("max_age", &self.max_age)
+            .field("family", &self.family)
             .finish_non_exhaustive()
     }
 }

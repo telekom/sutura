@@ -105,7 +105,8 @@ pub use crate::catalog::{CatalogSettings, InvalidCatalogSettings};
 pub use crate::environment::{Environment, UnknownEnvironment};
 pub use crate::inbound::{
     InboundIdentity, InvalidAlgorithms, InvalidInboundValue, IssuerUrl, KeyFamily, KeySetFile, PinnedAlgorithms, ProofHeader,
-    ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenRequirement, TransitProof,
+    ProofLifetime, RequiredTokenType, ResourceIdentifier, SigningAlgorithm, TokenLocation, TokenRequirement, TokenType,
+    TransitProof,
 };
 pub use crate::limits::{InvalidQuota, Quota, RateLimitSettings};
 pub use crate::prompt::{CatalogProse, InstructionsFile, InvalidPromptSettings, PromptSettings, UnknownCatalogProse};

@@ -694,7 +694,7 @@ const DIRECT_INBOUND: &str = "  inbound:\n    mode: \"direct\"\n    resource: \"
 const GATEWAY_INBOUND: &str = "  inbound:\n    mode: \"behind-gateway\"\n    transit_header: \"X-Transit-Proof\"\n    \
                                transit_issuer: \"https://gateway.example.com\"\n    \
                                transit_audience: \"https://sutura.example.com\"\n    key_set_file: \"/k.json\"\n    \
-                               algorithms: [\"ES256\"]\n";
+                               algorithms: [\"ES256\"]\n    transit_token_type: \"at+jwt\"\n";
 
 #[test]
 fn an_inbound_block_with_no_mode_does_not_start() {

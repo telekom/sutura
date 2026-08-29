@@ -266,14 +266,37 @@ fn announce_identity(settings: &Settings) {
              question is answered with whatever access this process already had, whoever asked it. \
              `security.inbound` is the key that changes it"
         ),
-        Some(inbound) => tracing::warn!(
-            per_caller_identity = security.describes_identity(),
-            inbound_mode = security.inbound_mode(),
-            establishes = inbound.who_authenticated(),
-            limit = InboundIdentity::what_it_does_not_do(),
-            "PER-CALLER IDENTITY IS ESTABLISHED AND IS NOT PER-CALLER ACCESS"
-        ),
+        Some(inbound) => {
+            tracing::warn!(
+                per_caller_identity = security.describes_identity(),
+                inbound_mode = security.inbound_mode(),
+                establishes = inbound.who_authenticated(),
+                token_class = inbound.type_check(),
+                limit = InboundIdentity::what_it_does_not_do(),
+                "PER-CALLER IDENTITY IS ESTABLISHED AND IS NOT PER-CALLER ACCESS"
+            );
+            announce_token_class(inbound);
+        }
     }
+}
+
+/// The line a deployment that switched off the token-class check must not be able to miss.
+///
+/// **A line of its own, and only when the check is off.** Review found that without a `typ` check any
+/// JWT the issuer signed with this audience verifies, an OIDC ID token included - so a deployment that
+/// wrote `any` has accepted that, deliberately, and the log has to say so rather than carry the fact as
+/// one field among six. The sentence comes off the configuration type, so this function cannot describe
+/// a posture the code does not have.
+fn announce_token_class(inbound: &InboundIdentity) {
+    if !inbound.accepts_any_token_class() {
+        return;
+    }
+    tracing::warn!(
+        token_class = inbound.type_check(),
+        "THE TOKEN CLASS CHECK IS OFF: `any` was written, so a token of any class this issuer signs \
+         for this audience establishes a caller. Where the resource identifier is also a client id, \
+         that includes an OIDC ID token"
+    );
 }
 
 #[cfg(test)]

@@ -5,7 +5,10 @@
 //! group in it. Everything here is private to [`crate::settings`]; the types being produced live in
 //! [`crate::inbound`], and the refusals it produces are [`crate::settings::SettingsError`] variants.
 
-use crate::inbound::{InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ResourceIdentifier, TransitProof};
+use crate::inbound::{
+    InboundIdentity, IssuerUrl, KeySetFile, PinnedAlgorithms, ProofHeader, ProofLifetime, RequiredTokenType, ResourceIdentifier,
+    TokenType, TransitProof,
+};
 use crate::raw::RawInbound;
 use crate::settings::SettingsError;
 
@@ -57,6 +60,22 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
                 key_set,
                 algorithms,
+                // REQUIRED here and defaulted in `direct`, and the asymmetry is the point: RFC 9068
+                // fixes what an access token's `typ` is, and nothing fixes what a fronting
+                // component's is. A guess would either refuse every request or check nothing.
+                RequiredTokenType::parse(
+                    "security.inbound.transit_token_type",
+                    required(
+                        written.transit_token_type.as_deref(),
+                        "security.inbound.transit_token_type",
+                        mode,
+                    )?,
+                )
+                .map_err(|cause| SettingsError::InboundValue { cause })?,
+                match written.transit_max_lifetime_seconds {
+                    None => ProofLifetime::default_lifetime(),
+                    Some(seconds) => ProofLifetime::parse(seconds).map_err(|cause| SettingsError::InboundValue { cause })?,
+                },
             ),
         }),
         // `direct` and nothing else, because the match above already refused every other spelling.
@@ -69,6 +88,16 @@ pub(super) fn parse_inbound(written: &RawInbound) -> Result<InboundIdentity, Set
                 .map_err(|cause| SettingsError::InboundValue { cause })?,
             key_set,
             algorithms,
+            // Absent means RFC 9068's `at+jwt`, which is the safe reading, and an empty string is
+            // treated as absent the way `security.access_token` treats one: an unset variable arrives
+            // in a shell as `""`, and reading that as "check nothing" would be the check switching
+            // itself off. Turning it off is the word `any`.
+            token_type: match written.token_type.as_deref().map(str::trim) {
+                None | Some("") => RequiredTokenType::access_token(),
+                Some(written) => {
+                    RequiredTokenType::parse(TokenType::KEY, written).map_err(|cause| SettingsError::InboundValue { cause })?
+                }
+            },
         }),
     }
 }
