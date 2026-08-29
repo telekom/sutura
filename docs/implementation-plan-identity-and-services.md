@@ -2,7 +2,8 @@
 
 The second half of [the implementation plan](implementation-plan.md), and one document with it: the
 stack table lives there and stays the only owner of a step number, the ordering decisions are stated
-there, and this page carries the branch sections for rows 12 to 21 - plus the work that is deferred
+there, and this page carries the branch sections for rows 12 to 14 and 17 to 24 - BigQuery's two
+steps are on [their own page](implementation-plan-bigquery.md) - plus the work that is deferred
 rather than scheduled, and what is out of scope entirely.
 
 Split from that page because the two together crossed the 1000-line limit `cargo xtask max-lines`
