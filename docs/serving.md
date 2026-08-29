@@ -119,6 +119,7 @@ depends on why:
 | `dimension_value_not_allowed` | `403` | Use a value the catalog declares. The rejected value is never echoed back |
 | `plan_spans_two_sources` | `409` | Nothing. This deployment will not span two data systems |
 | `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
+| `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 
 **The `403`s are not about your credential.** There is no per-caller identity here, so no token
@@ -133,6 +134,12 @@ as is the body shape, because only a refusal carries `outcome`:
   **answer** was over the row cap.
 - `503` is `unavailable` or `at_capacity` from the failure side, and `source_unavailable` from the
   refusal side.
+
+**And `422` rather than `503` for an exhausted working set, which is a distinction worth keeping.**
+RFC 9110 defines 422 as a request that "repeating ... without modification will fail with the same
+error" - exactly true of a configured bound. Exhaustion used to arrive as `503 unavailable`, which is
+what a dead data system returns, so a caller was told to retry against a bound that would fire again.
+The two are now separable by `code` as well as by status, and a test asserts the refusal is not 503.
 
 This used to be a `200` for both outcomes, on the argument that an error status invites a client
 library to retry a governance decision until it succeeds. The second half of that is right and the

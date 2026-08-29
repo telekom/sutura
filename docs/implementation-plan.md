@@ -429,7 +429,11 @@ each leg ran under, and the expiry the credentials carried.
 and sutura cannot vouch for a sink it does not retain. A deployment that attaches a sink which drops
 records, or attaches none, has no audit trail on this side and nothing here can tell it so - which is
 why the sources' own logs, written under the asking subject, carry the part of the obligation that
-matters. Searched rather than assumed: no `AuditSink` type exists anywhere in the workspace today.
+matters. **BUILT**, and by `feat/principal-chain` rather than by a later step: `sutura_domain::audit::AuditSink`
+is the port and `sutura_runtime::TracingAuditSink` is its first implementor, because `AGENTS.md` requires
+a port to arrive with one. `LocalService::start` now REQUIRES a sink, so a deployment that forgot to
+attach one is not a state that exists - which is a stronger guarantee than the sentence this replaced
+assumed was unavailable.
 
 **Tests.**
 - `a_principal_with_no_actor_is_a_bare_subject_and_says_so`.
@@ -540,8 +544,12 @@ process death for every caller, not an error for one.
 
 ## The startup refusals that already hold
 
-**Goal.** Test what is already true. The more-than-one-source arm of `open_engine` has no test in
-either binary, and it is the refusal that actually protects a deployment today.
+**Goal.** Test what is already true. **DONE**, and the count in this paragraph was wrong: it said the
+more-than-one-source arm had no test in either binary, which undercounted. `test/startup-source-refusals`
+found **four** untested arms - more than one source, an empty catalog, a source this build has no adapter
+for, and a model with no data file behind it - and **seven** missing tests across the two binaries, since
+`sutura-serve` had none at all. Two arms were already covered and got nothing added; two remain untested
+and are named there rather than papered over, one being unreachable (a `const` that parses).
 
 **Touches.** `crates/sutura-serve/src/main.rs` and `crates/sutura-cli/src/commands.rs` test modules
 only. No production code.
