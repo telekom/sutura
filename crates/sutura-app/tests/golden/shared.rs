@@ -104,7 +104,7 @@ pub(crate) fn question(file: &str) -> Query {
 /// A table rather than a test each, so the exhaustiveness assertion can be written against it.
 ///
 /// Three variants are absent on purpose, because no question file can reach one, and each has its
-/// own test in `golden/service.rs` instead. `PlanSpansTwoSources` needs a catalog naming two data
+/// own test in `golden/service.rs` instead. `FederationNotExecutable` needs a plan naming two data
 /// systems and `SourceUnavailable` a plan for a data system nobody opened - both decided above the
 /// port, by the service rather than by the compiler. `ResultTooLarge` is the third and is absent for
 /// a different reason worth keeping straight: it is decided AFTER a data system has answered, and

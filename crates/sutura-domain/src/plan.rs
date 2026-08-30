@@ -33,7 +33,7 @@ pub mod leg;
 #[cfg(test)]
 mod anchor_tests;
 
-pub use crate::plan::federated::{FederatedFailure, FederatedPlan, labels};
+pub use crate::plan::federated::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, LegSide, labels};
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 
 /// The most rows any plan may return.

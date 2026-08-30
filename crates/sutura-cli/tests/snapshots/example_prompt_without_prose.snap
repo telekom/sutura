@@ -93,10 +93,23 @@ Every reason you can be given, and what to do about each:
   Narrow the period, drop a dimension, or add a filter, and ask again. Retrying the same question
   returns the same refusal: the ceiling is a configured number, not a passing condition, so this is
   not an outage to wait out.
-- **PlanSpansTwoSources** - answering would need to read from two data systems, and a question is
-  answered from one.
+- **PlanSpansTooManySources** - answering would need to read from more data systems than this
+  deployment serves (two at most).
   Nothing you can change. Report it to a person: it is a fact about how the metric is defined, not
   about how you asked. Do not retry and do not try a different dimension in the hope of avoiding it.
+- **FederationNotExecutable** - this deployment has no adapter that can execute one half of a
+  question spanning two data systems, so the question cannot be answered yet.
+  Nothing you can change by re-asking, and do not retry it as if it were an outage: this is not a
+  data system being down. Ask the same metric without the dimension on the second data system, or
+  report it to a person.
+- **FederationLinkAmbiguous** - the question's dimensions on the second data system join the metric
+  through more than one relationship, and the two legs link on a single column.
+  Nothing you can change about the question. Report it to a person: it is a fact about how the
+  metric is defined.
+- **MeasureDoesNotFederate** - across two data systems this measure cannot be computed and
+  recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
+  Nothing you can change about the question. Ask the same metric without the dimension that sits on
+  the second data system, or report it to a person.
 - **SourceUnavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

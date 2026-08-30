@@ -532,9 +532,9 @@ pub(crate) fn warehouse_that_answers_past_the_row_cap() -> sutura_app::Warehouse
 
 /// A bundle whose two models sit on two data systems, so one question spans both.
 ///
-/// For `PlanSpansTwoSources`. Not reachable from the single-model [`bundle`] above and it cannot be:
-/// the refusal needs a catalog whose models are on different data systems, and making that the
-/// default fixture would make every other test in this crate span two.
+/// For the federated question (a `Compiled::Federated` plan). Not reachable from the single-model
+/// [`bundle`] above and it cannot be: the plan needs a catalog whose models are on different data
+/// systems, and making that the default fixture would make every other test in this crate span two.
 ///
 /// **Unanchored, deliberately.** An anchor is asked with no dimensions, so it would resolve to the
 /// metric's own model and validate - but the point of this fixture is what happens on the request

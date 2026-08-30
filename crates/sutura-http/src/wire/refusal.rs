@@ -61,6 +61,12 @@ use super::RefusalBody;
 /// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
 /// rather than in three matches that could drift apart. A refusal variant added to the domain fails
 /// to compile here until it is given a status, a code and a sentence.
+// Kept as one match so a new refusal cannot be given a status without a code or a sentence: splitting
+// these three by concern is the exact drift this function exists to forbid.
+#[expect(
+    clippy::too_many_lines,
+    reason = "every refusal names status, code and sentence together, in one exhaustive match"
+)]
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     let (status, code, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
@@ -191,10 +197,23 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // deployment will not answer it: each source is a separate identity to satisfy, and a plan
         // that runs partly as somebody else is the failure the whole design is arranged against.
         // Two are served - that is what the status does NOT say.
-        RefusalReason::PlanSpansTwoSources { sources } => (
+        RefusalReason::PlanSpansTooManySources { sources, limit } => (
             StatusCode::CONFLICT,
-            "plan_spans_two_sources",
-            format!("answering this would read from {sources} data systems, and a plan runs against two at most"),
+            "plan_spans_too_many_sources",
+            format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
+        ),
+        // A question that would need federation execution this deployment cannot do yet, and a link
+        // shape the combiner does not express - both 409, because neither is a data system being down
+        // and a caller must not retry either as an outage.
+        RefusalReason::FederationNotExecutable => (
+            StatusCode::CONFLICT,
+            "federation_not_executable",
+            String::from("this deployment has no adapter that can execute one half of a question spanning two data systems"),
+        ),
+        RefusalReason::FederationLinkAmbiguous { ref source } => (
+            StatusCode::CONFLICT,
+            "federation_link_ambiguous",
+            format!("the dimensions on `{source}` join through more than one relationship"),
         ),
         // The same 409 - a question this deployment will not answer - for a measure that would have
         // to be recombined into a number it cannot make.
@@ -257,7 +276,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use sutura_domain::model::{DimensionName, Grain, MetricName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName};
     use sutura_domain::query::RefusalReason;
 
     use super::refused;
@@ -281,6 +300,10 @@ mod tests {
     /// A list rather than one test per variant, and it is the same list the exhaustive match above
     /// is checked against: a variant added to `RefusalReason` breaks the compile in `refused`, and
     /// this is where somebody then writes down what they decided.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this is the exhaustive enum's table of status and code per refusal"
+    )]
     fn every_reason() -> Vec<Expected> {
         vec![
             (
@@ -348,9 +371,21 @@ mod tests {
                 "resources_exhausted",
             ),
             (
-                RefusalReason::PlanSpansTwoSources { sources: 3 },
+                RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
                 StatusCode::CONFLICT,
-                "plan_spans_two_sources",
+                "plan_spans_too_many_sources",
+            ),
+            (
+                RefusalReason::FederationNotExecutable,
+                StatusCode::CONFLICT,
+                "federation_not_executable",
+            ),
+            (
+                RefusalReason::FederationLinkAmbiguous {
+                    source: SourceName::parse("warehouse").expect("a test source is a source"),
+                },
+                StatusCode::CONFLICT,
+                "federation_link_ambiguous",
             ),
             (
                 RefusalReason::MeasureDoesNotFederate {

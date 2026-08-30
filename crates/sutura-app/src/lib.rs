@@ -426,7 +426,7 @@ where
             // the adapter's refusal as a 503, the status reserved for a retryable outage; refusing
             // here first keeps a two-source question a clean 409 until an adapter executes a leg.
             return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::PlanSpansTwoSources { sources: 2 },
+                reason: RefusalReason::FederationNotExecutable,
             }));
         }
         Compiled::Planned { plan } => plan,

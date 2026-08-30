@@ -339,7 +339,11 @@ fn every_refusal() -> Vec<RefusalReason> {
         RefusalReason::ResourcesExhausted {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
-        RefusalReason::PlanSpansTwoSources { sources: 3 },
+        RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+        RefusalReason::FederationNotExecutable,
+        RefusalReason::FederationLinkAmbiguous {
+            source: SourceName::parse("geo").expect("a test source is a source"),
+        },
         RefusalReason::MeasureDoesNotFederate {
             metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
             aggregate: Aggregate::CountDistinct,

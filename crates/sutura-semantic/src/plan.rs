@@ -41,11 +41,15 @@ use sutura_domain::warehouse::ParamValue;
 use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter};
 
 /// What the plan stage decided to execute.
+///
+/// The plans are held behind pointers on purpose: both are large values, and this enum is handed
+/// around (matched, returned, stashed in a `Compiled`) far more often than it is reconstructed. An
+/// enum sized to the larger of the two would copy a whole plan every time it moved.
 pub(crate) enum Plan {
     /// One whole answer from one data system.
-    Mono(QueryPlan),
+    Mono(Box<QueryPlan>),
     /// Two legs from two data systems, combined above.
-    Federated(FederatedPlan),
+    Federated(Box<FederatedPlan>),
 }
 
 /// Turns a resolution into a plan, or refuses it.
@@ -58,11 +62,12 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
         .collect();
 
     match remote.len() {
-        0 => Ok(Plan::Mono(mono_plan(resolution)?)),
-        1 => Ok(Plan::Federated(federated_plan(resolution)?)),
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)))),
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
         // Two are served; three or more refused, because each source is a separate identity.
-        _ => Err(RefusalReason::PlanSpansTwoSources {
+        _ => Err(RefusalReason::PlanSpansTooManySources {
             sources: 1 + remote.len(),
+            limit: 2,
         }),
     }
 }
@@ -79,7 +84,7 @@ fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
-fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
+fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
     let metric = resolution.metric;
     let model = resolution.model;
     let own_table = model.table();
@@ -115,7 +120,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
 
-    Ok(QueryPlan::new(
+    QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
         own_table.clone(),
@@ -127,7 +132,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
         filters,
         params,
         resolution.range,
-    ))
+    )
 }
 
 /// Splits a two-source question into a fact leg and a lookup leg.
@@ -136,6 +141,13 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 /// remote data system forms the lookup leg. The link between them is the relationship's join column,
 /// grouped into the fact leg and projected from the lookup leg under the same label - so the combiner
 /// can find it. A measure that cannot decompose is refused rather than pulled up.
+// The splitter builds both legs, their keys, their filters and the link in one pass over the
+// resolution; it is a single act of splitting a resolved question, and it returns Err from several
+// places that far apart to make a reviewer see the splitter's refusals together.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the splitter builds both legs and all their parts in one pass over the resolution"
+)]
 fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
@@ -159,10 +171,10 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     // a join by construction - but a panic here would be reachable from a catalog plus a question, so
     // they refuse instead.
     let Some(first_remote) = every_remote_dimension(resolution).next() else {
-        return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
     };
     let Some(first_join) = first_remote.join.as_ref() else {
-        return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
     };
     let relationship = first_join.relationship;
     let remote_table = first_join.model.table();
@@ -172,7 +184,9 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
             continue;
         };
         if join.relationship.name() != relationship.name() {
-            return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
+            return Err(RefusalReason::FederationLinkAmbiguous {
+                source: remote_source.clone(),
+            });
         }
     }
 
@@ -289,33 +303,37 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         params: lookup_params,
     };
 
-    let fact_key_labels: Vec<String> = resolution
+    // The answer's group-by keys in question order, each naming which leg's result it is read from.
+    // Question order is the mono path's column order too, so a federated answer aligns with a
+    // single-source one (and with a future federated differential that reads rows by position).
+    let answer_keys: Vec<sutura_domain::plan::AnswerKey> = resolution
         .keys
         .iter()
-        .filter(|key| !is_remote(key, model.source()))
-        .map(|key| String::from(key.dimension.name().as_str()))
-        .collect();
-    let lookup_key_labels: Vec<String> = resolution
-        .keys
-        .iter()
-        .filter(|key| is_remote(key, model.source()))
-        .map(|key| String::from(key.dimension.name().as_str()))
+        .map(|key| {
+            let label = String::from(key.dimension.name().as_str());
+            if is_remote(key, model.source()) {
+                sutura_domain::plan::AnswerKey::lookup(label)
+            } else {
+                sutura_domain::plan::AnswerKey::fact(label)
+            }
+        })
         .collect();
 
-    Ok(FederatedPlan::new(
+    FederatedPlan::new(
         metric.name().clone(),
         String::from(metric.name().as_str()),
         bucket,
-        fact_key_labels,
-        lookup_key_labels,
-        vec![fact, lookup],
+        fact,
+        lookup,
         link_label.clone(),
         link_label,
         // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it
         // does. `docs/adr/0009` decides the direction.
         remote_filters.is_empty(),
         federation,
-    ))
+        answer_keys,
+    )
+    .map_err(|_never| RefusalReason::FederationNotExecutable)
 }
 
 /// The predicates a statement carries, paired with the parameters they bind.

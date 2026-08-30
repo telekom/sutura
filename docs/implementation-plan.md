@@ -697,9 +697,10 @@ source it has no entry for.
 
 **Four: a CATALOG spanning two sources stops being a boot refusal**, which is the point of the branch
 and worth stating because it deletes a second test from the step before it. Two declared sources are
-now two engines, and only a QUESTION whose plan would span both is refused - `PlanSpansTwoSources`, at
-plan time, where it always belonged. What survives is the half that is still a misconfiguration: a
-source the catalog reads and the deployment never declared.
+now two engines, and a QUESTION whose plan would span two is split into a fact leg and a lookup leg
+and refused as `FederationNotExecutable` by `answer` while no adapter executes a leg - three or more
+refuse at plan time as `PlanSpansTooManySources`. What survives is the half that is still a
+misconfiguration: a source the catalog reads and the deployment never declared.
 
 **Two things this step does NOT deliver, so the next reader does not assume them.** `Warehouses<W>` is
 generic in one adapter type, so two sources are two engines over two directories and a file engine

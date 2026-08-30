@@ -316,7 +316,7 @@ async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes(
     )
     .await;
     assert_eq!(status, StatusCode::CONFLICT, "{detail}");
-    assert_eq!(code, "plan_spans_two_sources", "{detail}");
+    assert_eq!(code, "federation_not_executable", "{detail}");
 }
 
 #[tokio::test]

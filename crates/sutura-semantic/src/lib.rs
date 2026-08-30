@@ -95,10 +95,8 @@ pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, Bu
         Err(ResolveError::Bundle(cause)) => return Err(cause),
     };
     match plan::plan(&resolution) {
-        Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: Box::new(query) }),
-        Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated {
-            plan: Box::new(federated),
-        }),
+        Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
+        Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Err(reason) => Ok(Compiled::Refused { reason }),
     }
 }

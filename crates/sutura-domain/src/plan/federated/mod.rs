@@ -31,7 +31,7 @@ use std::collections::BTreeMap;
 
 use crate::federation::{Above, Federation};
 use crate::measure::ZeroDenominator;
-use crate::model::{Aggregate, MetricName};
+use crate::model::{Aggregate, MetricName, SourceName};
 use crate::plan::PlanBucket;
 use crate::plan::leg::LegPlan;
 use crate::warehouse::{Real, RowSet, Value};
@@ -67,25 +67,27 @@ pub fn labels(federation: &Federation, metric: &MetricName) -> Vec<String> {
 /// The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
 /// another, linked by a single column.
 ///
-/// **Two legs and no more, recorded as a vector because a match over [`LegPlan`] is exhaustive.**
-/// The shape is deliberately the one [`crate::plan::leg`] pins in its goldens: the metric's own rows
-/// (and any same-source dimension) form the [`Fact`](LegPlan::Fact) leg, and a dimension on a second
-/// data system forms the [`Lookup`](LegPlan::Lookup) leg. The final answer groups by the local keys
-/// from the fact leg and the remote keys from the lookup leg, bucketed and measured under the
+/// **Two legs, as two named fields.** A match over [`LegPlan`] is exhaustive, so the fact leg *is*
+/// the [`Fact`](LegPlan::Fact) variant and the lookup leg the [`Lookup`](LegPlan::Lookup) one, and
+/// a plan that had anything other than exactly these two is a type that does not exist rather than a
+/// count a caller checks. The shape is deliberately the one [`crate::plan::leg`] pins in its goldens:
+/// the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
+/// second data system forms the lookup leg. The final answer groups by the answer's keys - each
+/// named by which leg's result it is read from, in question order - bucketed and measured under the
 /// metric's own name.
+///
+/// **The [`serde::Serialize`] derive exists for the CLI's plan dump and nothing else.** A plan is
+/// serialized to be printed; nothing in the workspace gains [`serde::Deserialize`], so a plan cannot
+/// be reconstructed from its serialized form and no field here is a request a caller writes.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct FederatedPlan {
     metric: MetricName,
     measure_label: String,
     bucket: PlanBucket,
-    /// The answer's group-by keys, local first then remote.
-    ///
-    /// Labels into the fact result for the local half and the lookup result for the remote half,
-    /// kept apart so the combiner knows which rowset to read each from.
-    fact_keys: Vec<String>,
-    lookup_keys: Vec<String>,
-    /// Exactly two: the fact leg followed by the lookup leg.
-    legs: Vec<LegPlan>,
+    /// The metric's own share of the question: the same-source rows and leaves.
+    fact: LegPlan,
+    /// The second data system's share: the remote dimensions the answer groups by.
+    lookup: LegPlan,
     /// The label of the column that links the two legs, in each leg's own result.
     fact_join: String,
     lookup_join: String,
@@ -96,40 +98,144 @@ pub struct FederatedPlan {
     include_unmatched: bool,
     /// The combine tree above the legs, and the metric that names its leaves.
     federation: Federation,
+    /// The answer's group-by keys in question order, each naming which leg's result it is read from.
+    ///
+    /// This is the one honest statement of the answer's column order, matching the mono path which
+    /// emits dimensions as the question ordered them. Fact keys are read from the fact result,
+    /// lookup keys from the lookup result, and the two never overlap because a dimension belongs to
+    /// exactly one leg.
+    keys: Vec<AnswerKey>,
+}
+
+/// Which leg's result an answer key is read from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum LegSide {
+    /// The metric's own leg.
+    Fact,
+    /// The second data system's leg.
+    Lookup,
+}
+
+/// One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct AnswerKey {
+    side: LegSide,
+    label: String,
+}
+
+impl AnswerKey {
+    /// A key read from the fact leg's result, under `label`.
+    #[inline]
+    pub const fn fact(label: String) -> Self {
+        Self {
+            side: LegSide::Fact,
+            label,
+        }
+    }
+
+    /// A key read from the lookup leg's result, under `label`.
+    #[inline]
+    pub const fn lookup(label: String) -> Self {
+        Self {
+            side: LegSide::Lookup,
+            label,
+        }
+    }
+
+    /// Which leg this key is read from.
+    #[inline]
+    pub const fn side(&self) -> LegSide {
+        self.side
+    }
+
+    /// The label this key carries in its leg's result.
+    #[inline]
+    pub fn label(&self) -> &str {
+        &self.label
+    }
 }
 
 impl FederatedPlan {
-    /// Constructs a federated plan from its parts.
-    #[expect(clippy::too_many_arguments, reason = "a plan is what the splitter decided, in one place")]
-    pub const fn new(
+    /// Constructs a federated plan from its two legs and the answer's key order.
+    ///
+    /// A `Result` constructor is this workspace's convention for a value with an invariant: a plan
+    /// that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
+    /// a plan and cannot be built.
+    // The constructor takes the shape of the question as the splitter decided it; a bundle of named
+    // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
+    // instantiations it exists to forbid.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "a federated plan is shaped by the splitter in one place"
+    )]
+    pub fn new(
         metric: MetricName,
         measure_label: String,
         bucket: PlanBucket,
-        fact_keys: Vec<String>,
-        lookup_keys: Vec<String>,
-        legs: Vec<LegPlan>,
+        fact: LegPlan,
+        lookup: LegPlan,
         fact_join: String,
         lookup_join: String,
         include_unmatched: bool,
         federation: Federation,
-    ) -> Self {
-        Self {
+        keys: Vec<AnswerKey>,
+    ) -> Result<Self, FederatedPlanError> {
+        let is_fact = matches!(fact, LegPlan::Fact { .. });
+        let is_lookup = matches!(lookup, LegPlan::Lookup { .. });
+        if !is_fact {
+            return Err(FederatedPlanError::NotFact {
+                source_name: fact.source().clone(),
+            });
+        }
+        if !is_lookup {
+            return Err(FederatedPlanError::NotLookup {
+                source_name: lookup.source().clone(),
+            });
+        }
+        if fact.source() == lookup.source() {
+            return Err(FederatedPlanError::SameSource {
+                source_name: fact.source().clone(),
+            });
+        }
+        for key in &keys {
+            match key.side() {
+                LegSide::Fact => leg_has_key(&fact, &key.label).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+                    side: LegSide::Fact,
+                    label: String::from(label),
+                })?,
+                LegSide::Lookup => leg_has_key(&lookup, &key.label).map_err(|label| FederatedPlanError::KeyNotOnLeg {
+                    side: LegSide::Lookup,
+                    label: String::from(label),
+                })?,
+            }
+        }
+        Ok(Self {
             metric,
             measure_label,
             bucket,
-            fact_keys,
-            lookup_keys,
-            legs,
+            fact,
+            lookup,
             fact_join,
             lookup_join,
             include_unmatched,
             federation,
-        }
+            keys,
+        })
     }
 
     /// Every leg, in execution order: the fact leg, then the lookup leg.
-    pub fn legs(&self) -> &[LegPlan] {
-        &self.legs
+    pub const fn legs(&self) -> [&LegPlan; 2] {
+        [&self.fact, &self.lookup]
+    }
+
+    /// The fact leg.
+    pub const fn fact(&self) -> &LegPlan {
+        &self.fact
+    }
+
+    /// The lookup leg.
+    pub const fn lookup(&self) -> &LegPlan {
+        &self.lookup
     }
 
     /// The metric this answer is measured in.
@@ -137,23 +243,47 @@ impl FederatedPlan {
         &self.metric
     }
 
-    /// Every data system this plan reads from.
-    pub fn sources(&self) -> impl Iterator<Item = &crate::model::SourceName> {
-        self.legs.iter().map(LegPlan::source)
+    /// Every data system this plan reads from, in execution order.
+    pub fn sources(&self) -> impl Iterator<Item = &crate::model::SourceName> + '_ {
+        [&self.fact, &self.lookup].into_iter().map(LegPlan::source)
     }
+
+    /// The answer's group-by keys, in question order.
+    pub fn keys(&self) -> &[AnswerKey] {
+        &self.keys
+    }
+}
+
+/// Why a federated plan could not be built.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum FederatedPlanError {
+    /// The leg meant to be the fact leg is not a [`LegPlan::Fact`].
+    #[error("the fact leg reads `{source_name}`, which is not a fact leg")]
+    NotFact { source_name: SourceName },
+    /// The leg meant to be the lookup leg is not a [`LegPlan::Lookup`].
+    #[error("the lookup leg reads `{source_name}`, which is not a lookup leg")]
+    NotLookup { source_name: SourceName },
+    /// Both legs name the same data system, which is a single-source question, not a federated one.
+    #[error("both legs read from `{source_name}`, which is not a federated question")]
+    SameSource { source_name: SourceName },
+    /// An answer key names a column the leg it belongs to does not project.
+    #[error("the {side:?} leg projects no key `{label}`")]
+    KeyNotOnLeg { side: LegSide, label: String },
+}
+
+/// Whether a [`LegPlan`] projects a key under `label`.
+fn leg_has_key<'a>(leg: &LegPlan, label: &'a str) -> Result<(), &'a str> {
+    leg.keys().iter().any(|key| key.label() == label).then_some(()).ok_or(label)
 }
 
 /// Why a federated answer could not be assembled.
 ///
 /// The shape failures are defects in this workspace's own wiring - a leg result missing a column
-/// [`labels`] named, or a count of legs that is not two. The [`NonFinite`](FederatedFailure::NonFinite)
+/// [`labels`] named, or a row narrower than its result's own columns. The [`NonFinite`](FederatedFailure::NonFinite)
 /// variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 /// value for.
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FederatedFailure {
-    /// The two legs this plan claims do not both render one rowset each.
-    #[error("a federated question needs one result per leg, and {legs} were combined")]
-    LegCount { legs: usize },
     /// A column `combine` reached for by label was absent from a leg's result.
     ///
     /// The labelling contract is one function - the splitter and the combiner both call [`labels`] -
@@ -178,7 +308,7 @@ pub enum FederatedFailure {
     AmbiguousLink { key: String },
     /// A leaf cell that was not a number reached a re-aggregating aggregate.
     ///
-    /// The DuckDB adapter deliberately returns `DECIMAL` and wide integer columns as
+    /// The `DuckDB` adapter deliberately returns `DECIMAL` and wide integer columns as
     /// [`Value::Text`] to keep them exact; a sum reaching such a cell cannot certify a number, so
     /// it is refused rather than counted as zero.
     #[error("a `{aggregate:?}` re-aggregation met a non-numeric leaf cell (`{value:?}`)")]
@@ -192,6 +322,23 @@ pub enum FederatedFailure {
     /// caller must receive a failure, not silent data.
     #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
     UnsupportedAggregate { aggregate: Aggregate },
+    /// Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion
+    /// boundary.
+    ///
+    /// The legs have no row cap - that measured key cardinality rather than bytes, which is exactly
+    /// what 0009 retired - so this is the bound on the answer `combine` builds. A refusal is honest
+    /// in the way a truncated one is not: the caller sees a `federation_not_executable`-adjacent
+    /// refusal rather than a row set that stopped early.
+    #[error("the federated answer exceeds the {ceiling_bytes}-byte working-set ceiling")]
+    ResourcesExhausted { ceiling_bytes: u64 },
+    /// A row whose width contradicts the result's own column count.
+    ///
+    /// Unreachable by construction on both halves: a leg result is built by [`RowSet::new`], which
+    /// refuses a ragged row up front, and the answer is projected from a single fixed key list. It is
+    /// this slice's defensive arm - the named, reachable-if-the-type-lying shape the old `LegCount`
+    /// catch-all used to swallow.
+    #[error("a row of the {side} result had the wrong number of cells")]
+    MalformedRow { side: &'static str },
 }
 
 #[expect(
@@ -202,38 +349,66 @@ impl FederatedPlan {
     /// Turns one result per leg into one answer's rows.
     ///
     /// The fact and lookup results are joined on the recorded link column, grouped by the answer's
-    /// keys and the bucket, re-aggregated by each leaf's own [`Carried::combine`], and only then
-    /// divided through the [`Above`] tree.
-    pub fn combine(&self, leg_results: &[RowSet]) -> Result<RowSet, FederatedFailure> {
-        let fact = leg_results
-            .first()
-            .ok_or(FederatedFailure::LegCount { legs: leg_results.len() })?;
-        let lookup = leg_results
-            .get(1)
-            .ok_or(FederatedFailure::LegCount { legs: leg_results.len() })?;
-
+    /// keys - in the order the question asked them, matching the mono path - and the bucket,
+    /// re-aggregated by each leaf's own [`Carried::combine`], and only then divided through the
+    /// [`Above`] tree.
+    ///
+    /// `byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
+    /// the answer materialised here is counted as it is built, and a question that would cross it is
+    /// refused as [`FederatedFailure::ResourcesExhausted`] rather than truncated, so a caller never
+    /// reads a result that stopped early as a result that returned.
+    // A join, a group, a re-aggregation and a divide in one pass over two rowsets; splitting it up
+    // would scatter the budget across three functions and lose the single conversion boundary it is.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "the combine walks join, group, aggregate and divide in one pass, keeping the budget to one boundary"
+    )]
+    pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure> {
         distinct_columns(fact, "fact")?;
         distinct_columns(lookup, "lookup")?;
 
         let fact_join_index = column_index(fact, &self.fact_join, "fact")?;
         let lookup_join_index = column_index(lookup, &self.lookup_join, "lookup")?;
-        let fact_key_indexes = self.indexes(fact, &self.fact_keys, "fact")?;
-        let lookup_key_indexes = self.indexes(lookup, &self.lookup_keys, "lookup")?;
         let bucket_index = column_index(fact, self.bucket.label(), "fact")?;
-        let leaf_indexes = self.indexes(fact, &labels(&self.federation, &self.metric), "fact")?;
+
+        // Where each answer key is read from. A fact key is a column of the fact result; a lookup
+        // key is projected from the lookup result by its own column index, and addressed in the
+        // resulting remote value vector by its position among the lookup keys.
+        let mut fact_index: BTreeMap<&str, usize> = BTreeMap::new();
+        let mut lookup_columns: Vec<(&str, usize)> = Vec::new();
+        for key in &self.keys {
+            match key.side() {
+                LegSide::Fact => {
+                    fact_index.insert(key.label(), column_index(fact, key.label(), "fact")?);
+                }
+                LegSide::Lookup => {
+                    lookup_columns.push((key.label(), column_index(lookup, key.label(), "lookup")?));
+                }
+            }
+        }
+        let lookup_pos: BTreeMap<&str, usize> = lookup_columns
+            .iter()
+            .enumerate()
+            .map(|(index, (label, _))| (*label, index))
+            .collect();
+        let leaf_labels = labels(&self.federation, &self.metric);
+        let leaf_indexes: Vec<usize> = leaf_labels
+            .iter()
+            .map(|label| column_index(fact, label, "fact"))
+            .collect::<Result<_, _>>()?;
 
         // The fact leg already grouped by its keys, so one fact row per (local keys, link, bucket);
         // several rows can share a link value (one per local-key group), so each link maps to a list.
         // A null link never joins, and a real link is refused by the float-key rule.
-        let mut fact_by_link: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for (row_index, row) in fact.rows().iter().enumerate() {
+        let mut fact_by_link: FactByLink<'_> = BTreeMap::new();
+        for row in fact.rows() {
             let Some(link) = row.get(fact_join_index) else {
                 continue;
             };
             let Some(key) = link_key(link)? else {
                 continue;
             };
-            fact_by_link.entry(key).or_default().push(row_index);
+            fact_by_link.entry(key).or_default().push(row);
         }
 
         // The lookup result maps a link value to the remote keys that share it. More than one lookup
@@ -246,7 +421,10 @@ impl FederatedPlan {
             let Some(key) = link_key(link)? else {
                 continue;
             };
-            let remote: Option<Vec<Value>> = lookup_key_indexes.iter().map(|index| row.get(*index).cloned()).collect();
+            let remote: Option<Vec<Value>> = lookup_columns
+                .iter()
+                .map(|(label, index)| cell(row, *index, "lookup", label).cloned().ok())
+                .collect();
             let Some(remote) = remote else {
                 continue;
             };
@@ -257,34 +435,60 @@ impl FederatedPlan {
             entry.push(remote);
         }
 
-        // A final answer's group is identified by its key cells in answer order (plan keys, then the
-        // bucket) and collects the leaf cells of every fact row it joined to.
+        // A final answer's group is identified by its key cells in question order, plus the bucket,
+        // and collects the leaf cells of every fact row that joined to it. The budget counts the
+        // answer as it is projected, which is the conversion boundary 0009 puts the bound at.
+        let mut budget = ByteBudget::new(byte_budget);
+        let column_bytes: u64 = self.keys.iter().map(|key| key.label().len() as u64).sum::<u64>()
+            + self.bucket.label().len() as u64
+            + self.measure_label.len() as u64;
+        budget.add(column_bytes, byte_budget)?;
         let mut groups: BTreeMap<Vec<String>, Group> = BTreeMap::new();
         for (link_key, fact_rows) in &fact_by_link {
-            let keys = match lookup_by_link.get(link_key) {
-                Some(remote_rows) => remote_rows.clone(),
-                None if self.include_unmatched => vec![vec![Value::Null; self.lookup_keys.len()]],
+            let remote_rows: Vec<Vec<Value>> = match lookup_by_link.get(link_key) {
+                Some(rows) => rows.clone(),
+                None if self.include_unmatched => vec![vec![Value::Null; lookup_columns.len()]],
                 None => continue,
             };
-            for &row_index in fact_rows {
-                let Some(fact_row) = fact.rows().get(row_index) else {
-                    return Err(FederatedFailure::LegCount { legs: leg_results.len() });
-                };
-                let local: Option<Vec<Value>> = fact_key_indexes.iter().map(|index| fact_row.get(*index).cloned()).collect();
-                let Some(local) = local else {
-                    return Err(FederatedFailure::LegCount { legs: leg_results.len() });
-                };
-                let Some(bucket_cell) = fact_row.get(bucket_index) else {
-                    return Err(FederatedFailure::LegCount { legs: leg_results.len() });
-                };
-                let leaves: Option<Vec<Value>> = leaf_indexes.iter().map(|index| fact_row.get(*index).cloned()).collect();
-                let Some(leaves) = leaves else {
-                    return Err(FederatedFailure::LegCount { legs: leg_results.len() });
-                };
-                for remote in &keys {
-                    let mut cells = local.clone();
-                    cells.extend(remote.iter().cloned());
+            for fact_row in fact_rows {
+                let bucket_cell = cell(fact_row, bucket_index, "fact", self.bucket.label())?.clone();
+                let leaves: Vec<Value> = leaf_indexes
+                    .iter()
+                    .zip(&leaf_labels)
+                    .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
+                    .collect();
+                for remote in &remote_rows {
+                    let mut cells = Vec::with_capacity(self.keys.len() + 1);
+                    for key in &self.keys {
+                        let value = match key.side() {
+                            LegSide::Fact => {
+                                let index =
+                                    fact_index
+                                        .get(key.label())
+                                        .copied()
+                                        .ok_or_else(|| FederatedFailure::MissingColumn {
+                                            side: "fact",
+                                            label: String::from(key.label()),
+                                        })?;
+                                cell(fact_row, index, "fact", key.label())?.clone()
+                            }
+                            LegSide::Lookup => {
+                                let index =
+                                    lookup_pos
+                                        .get(key.label())
+                                        .copied()
+                                        .ok_or_else(|| FederatedFailure::MissingColumn {
+                                            side: "lookup",
+                                            label: String::from(key.label()),
+                                        })?;
+                                cell(remote, index, "lookup", key.label())?.clone()
+                            }
+                        };
+                        cells.push(value);
+                    }
                     cells.push(bucket_cell.clone());
+                    budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
+                    budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
                     let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
                     groups
                         .entry(map_key)
@@ -299,34 +503,37 @@ impl FederatedPlan {
         }
 
         // Re-aggregate each leaf across its group, then walk the divide tree.
-        let mut rows: Vec<Vec<Value>> = Vec::new();
+        let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
         for group in groups.into_values() {
             let aggregated = leaf_values(&self.federation, &group.leaves, &self.metric)?;
             let measure = apply_above(self.federation.above(), &aggregated, &mut 0, &self.metric)?;
+            let measure_bytes = value_bytes(&measure);
             let mut row = group.cells;
             row.push(measure);
+            budget.add(measure_bytes, byte_budget)?;
             rows.push(row);
         }
 
-        let mut columns: Vec<String> = self.fact_keys.clone();
-        columns.extend(self.lookup_keys.iter().cloned());
+        let mut columns: Vec<String> = self.keys.iter().map(|key| String::from(key.label())).collect();
         columns.push(String::from(self.bucket.label()));
         columns.push(self.measure_label.clone());
 
-        // Deterministic order: an answer's rows should not depend on hash iteration or on the order a
-        // data system happened to return. Compared by the rendered key cells a caller sees.
+        // Deterministic order. The answer's rows are ordered by their key cells **typed** - a null
+        // before a number, integers by value, reals by value - and not by their rendered text, so an
+        // integer key `10` orders after `9` the way the mono path's ORDER BY would, rather than
+        // before it because `"10" < "9"`.
         let key_width = columns.len().saturating_sub(1);
         rows.sort_by(|a, b| {
-            let a_key: Vec<String> = a.iter().take(key_width).map(Value::render).collect();
-            let b_key: Vec<String> = b.iter().take(key_width).map(Value::render).collect();
-            a_key.cmp(&b_key)
+            for (a_cell, b_cell) in a.iter().zip(b).take(key_width) {
+                let order = compare_cells(a_cell, b_cell);
+                if order != std::cmp::Ordering::Equal {
+                    return order;
+                }
+            }
+            std::cmp::Ordering::Equal
         });
 
-        RowSet::new(columns, rows).map_err(|_malformed| FederatedFailure::LegCount { legs: leg_results.len() })
-    }
-
-    fn indexes(&self, rows: &RowSet, labels: &[String], side: &'static str) -> Result<Vec<usize>, FederatedFailure> {
-        labels.iter().map(|label| column_index(rows, label, side)).collect()
+        RowSet::new(columns, rows).map_err(|_malformed| FederatedFailure::MalformedRow { side: "answer" })
     }
 }
 
@@ -373,6 +580,12 @@ fn link_key(value: &Value) -> Result<Option<String>, FederatedFailure> {
 /// One link value's remote-key rows.
 type RemoteByLink = BTreeMap<String, Vec<Vec<Value>>>;
 
+/// The fact rows that share one link value, addressed by reference so the join clones nothing.
+///
+/// A link value is shared by several fact rows (one per local-key group), each still owned by the
+/// fact result this function borrows for its own duration.
+type FactByLink<'a> = BTreeMap<String, Vec<&'a Vec<Value>>>;
+
 /// One final answer's group: its key cells (as they should appear in the answer) and every fact
 /// row's leaf values that joined to it.
 struct Group {
@@ -390,6 +603,84 @@ fn key_cell_str(value: &Value) -> String {
         Value::Integer(v) => format!("I:{v}"),
         Value::Real(v) => format!("R:{}", v.get()),
         Value::Text(v) => format!("T:{v}"),
+    }
+}
+
+/// One cell by column index, with a named error for a read that cannot happen.
+///
+/// `column_index` validates that the column exists, and [`RowSet::new`] guarantees every row has as
+/// many cells as columns, so this is always `Some`; the `MissingColumn` fallback is how a typed arm
+/// stands in for the case the type has already ruled out, rather than an `index` panicking.
+fn cell<'a>(row: &'a [Value], index: usize, side: &'static str, label: &str) -> Result<&'a Value, FederatedFailure> {
+    row.get(index).ok_or_else(|| FederatedFailure::MissingColumn {
+        side,
+        label: String::from(label),
+    })
+}
+
+/// `docs/adr/0009`'s byte budget over the answer `combine` materialises.
+///
+/// A running total with a ceiling: the budget never goes backward, and an overflow of the total (or
+/// a total that passes the ceiling) is refused as [`FederatedFailure::ResourcesExhausted`] rather
+/// than saturated. The ceiling is carried to the error so a caller can report the number that fired.
+struct ByteBudget {
+    /// What a row set may not exceed.
+    ceiling: u64,
+    /// The bytes counted so far.
+    used: u64,
+}
+
+impl ByteBudget {
+    const fn new(ceiling: u64) -> Self {
+        Self { ceiling, used: 0 }
+    }
+
+    const fn add(&mut self, bytes: u64, ceiling: u64) -> Result<(), FederatedFailure> {
+        self.used = match self.used.checked_add(bytes) {
+            Some(total) => total,
+            None => return Err(FederatedFailure::ResourcesExhausted { ceiling_bytes: ceiling }),
+        };
+        if self.used > self.ceiling {
+            return Err(FederatedFailure::ResourcesExhausted { ceiling_bytes: ceiling });
+        }
+        Ok(())
+    }
+}
+
+/// A conservative estimate of one cell's size in memory, for the working-set budget.
+const fn value_bytes(value: &Value) -> u64 {
+    match value {
+        Value::Null => 1,
+        Value::Integer(_) | Value::Real(_) => 8,
+        Value::Text(v) => v.len() as u64,
+    }
+}
+
+/// A total order over key cells, matching the mono path's `ORDER BY` rather than rendered text.
+///
+/// Nulls sort first, then integers by value, then reals by value, then text lexicographically, so a
+/// numeric column is ordered numerically (`9` before `10`) and not by its string form (`"10"` before
+/// `"9"`). Cells of different scalar types never compare equal.
+fn compare_cells(a: &Value, b: &Value) -> std::cmp::Ordering {
+    use std::cmp::Ordering::Equal;
+    const fn rank(value: &Value) -> u8 {
+        match value {
+            Value::Null => 0,
+            Value::Integer(_) => 1,
+            Value::Real(_) => 2,
+            Value::Text(_) => 3,
+        }
+    }
+    let order = rank(a).cmp(&rank(b));
+    if order != Equal {
+        return order;
+    }
+    match (a, b) {
+        (Value::Integer(x), Value::Integer(y)) => x.cmp(y),
+        (Value::Real(x), Value::Real(y)) => x.get().total_cmp(&y.get()),
+        (Value::Text(x), Value::Text(y)) => x.cmp(y),
+        // The sole same-rank pair not caught above is Null/Null, and different ranks returned early.
+        _ => Equal,
     }
 }
 
@@ -433,7 +724,7 @@ fn aggregate<'a>(
                     Value::Integer(v) => {
                         sum_i = sum_i.checked_add(*v).ok_or(FederatedFailure::Overflow {
                             aggregate: Aggregate::Sum,
-                        })?
+                        })?;
                     }
                     Value::Real(v) => {
                         has_real = true;
@@ -556,404 +847,4 @@ const fn to_f64(value: &Value) -> Option<f64> {
 }
 
 #[cfg(test)]
-mod tests {
-    use crate::catalog::TIME_BUCKET_LABEL;
-    use crate::federation::Federation;
-    use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
-    use crate::model::{Aggregate, ColumnName, Grain, MetricName, TableName};
-    use crate::plan::{FederatedFailure, FederatedPlan, PlanBucket, PlanColumn};
-    use crate::warehouse::{Real, RowSet, Value};
-
-    const FACT: &str = "fct_subscription_monthly";
-
-    fn metric(name: &str) -> MetricName {
-        MetricName::parse(name).expect("a test metric is a metric")
-    }
-
-    fn column(name: &str) -> ColumnName {
-        ColumnName::parse(name).expect("a test column is a column")
-    }
-
-    fn term(aggregate: Aggregate, name: &str) -> Term {
-        Term::Aggregate(AggregatedColumn::new(aggregate, column(name)))
-    }
-
-    fn bucket() -> PlanBucket {
-        PlanBucket::new(
-            String::from(TIME_BUCKET_LABEL),
-            Grain::Month,
-            PlanColumn::new(TableName::parse(FACT).expect("a table"), column("month")),
-        )
-    }
-
-    fn plan_for(measure_name: &str, measure: Measure, include_unmatched: bool) -> FederatedPlan {
-        let name = metric(measure_name);
-        let federation = Federation::of(&measure);
-        FederatedPlan::new(
-            name,
-            String::from(measure_name),
-            bucket(),
-            vec![String::from("product_family")],
-            vec![String::from("region")],
-            Vec::new(),
-            String::from("customer_key"),
-            String::from("customer_key"),
-            include_unmatched,
-            federation,
-        )
-    }
-
-    fn sum_plan(include_unmatched: bool) -> FederatedPlan {
-        plan_for(
-            "revenue",
-            Measure::Simple(term(Aggregate::Sum, "mrr_cents")),
-            include_unmatched,
-        )
-    }
-
-    fn avg_plan() -> FederatedPlan {
-        plan_for(
-            "mean_subscription_mrr",
-            Measure::Simple(term(Aggregate::Avg, "mrr_cents")),
-            true,
-        )
-    }
-
-    fn failing_ratio_plan() -> FederatedPlan {
-        plan_for(
-            "mean_subscription_mrr",
-            Measure::Ratio {
-                numerator: term(Aggregate::Sum, "mrr_cents"),
-                denominator: term(Aggregate::Count, "mrr_cents"),
-                zero_denominator: ZeroDenominator::Fail,
-            },
-            true,
-        )
-    }
-
-    fn fact(rows: Vec<Vec<Value>>) -> RowSet {
-        RowSet::new(
-            vec![
-                String::from("product_family"),
-                String::from("customer_key"),
-                String::from(TIME_BUCKET_LABEL),
-                String::from("revenue"),
-            ],
-            rows,
-        )
-        .expect("a test fact result is well formed")
-    }
-
-    fn lookup(rows: Vec<Vec<Value>>) -> RowSet {
-        RowSet::new(vec![String::from("customer_key"), String::from("region")], rows)
-            .expect("a test lookup result is well formed")
-    }
-
-    #[test]
-    fn joins_two_legs_and_reaggregates_by_remote_key() {
-        let plan = sum_plan(true);
-        let fact = fact(vec![
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ],
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c2".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(200),
-            ],
-            vec![
-                Value::Text("B".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(50),
-            ],
-        ]);
-        let lookup = lookup(vec![
-            vec![Value::Text("c1".into()), Value::Text("north".into())],
-            vec![Value::Text("c2".into()), Value::Text("north".into())],
-        ]);
-
-        let combined = plan.combine(&[fact, lookup]).expect("a two-leg question combines");
-        assert_eq!(combined.columns(), &["product_family", "region", "period", "revenue"]);
-        assert_eq!(
-            combined.rows(),
-            &[
-                vec![
-                    Value::Text("A".into()),
-                    Value::Text("north".into()),
-                    Value::Text("2026-06".into()),
-                    Value::Integer(300)
-                ],
-                vec![
-                    Value::Text("B".into()),
-                    Value::Text("north".into()),
-                    Value::Text("2026-06".into()),
-                    Value::Integer(50)
-                ],
-            ]
-        );
-    }
-
-    #[test]
-    fn an_inner_join_drops_an_unmatched_fact_row() {
-        let plan = sum_plan(false);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c9".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        let combined = plan.combine(&[fact, lookup]).expect("combines");
-        assert!(
-            combined.rows().is_empty(),
-            "an unmatched fact row is dropped by an inner join"
-        );
-    }
-
-    #[test]
-    fn a_left_join_keeps_an_unmatched_fact_row_with_null_remote() {
-        let plan = sum_plan(true);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c9".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        let combined = plan.combine(&[fact, lookup]).expect("combines");
-        assert_eq!(
-            combined.rows(),
-            &[vec![
-                Value::Text("A".into()),
-                Value::Null,
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ]]
-        );
-    }
-
-    fn avg_fact(rows: Vec<Vec<Value>>) -> RowSet {
-        RowSet::new(
-            vec![
-                String::from("product_family"),
-                String::from("customer_key"),
-                String::from(TIME_BUCKET_LABEL),
-                String::from("mean_subscription_mrr__0"),
-                String::from("mean_subscription_mrr__1"),
-            ],
-            rows,
-        )
-        .expect("an average fact result is well formed")
-    }
-
-    #[test]
-    fn an_average_is_undivided_in_the_leg_and_divided_above() {
-        let plan = avg_plan();
-        let fact = avg_fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c1".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(300),
-            Value::Integer(3),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-
-        let combined = plan.combine(&[fact, lookup]).expect("an average combines");
-        assert_eq!(
-            combined.columns(),
-            &["product_family", "region", "period", "mean_subscription_mrr"]
-        );
-        match &combined.rows()[0][3] {
-            Value::Real(r) => assert_eq!(r.get(), 100.0),
-            other => panic!("an average answers a real number, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn a_failing_ratio_guard_errors_on_a_zero_denominator() {
-        let plan = failing_ratio_plan();
-        let fact = avg_fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c1".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(300),
-            Value::Integer(0),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::NonFinite { .. })
-        ));
-    }
-
-    #[test]
-    fn a_decomposed_average_with_zero_over_zero_is_null() {
-        let plan = avg_plan();
-        let fact = avg_fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c1".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(0),
-            Value::Integer(0),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        let combined = plan.combine(&[fact, lookup]).expect("a null guard answers");
-        assert!(matches!(combined.rows()[0][3], Value::Null));
-    }
-
-    #[test]
-    fn a_missing_leaf_label_is_an_error() {
-        let plan = sum_plan(true);
-        let fact = RowSet::new(
-            vec![
-                String::from("product_family"),
-                String::from("customer_key"),
-                String::from(TIME_BUCKET_LABEL),
-            ],
-            vec![vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-            ]],
-        )
-        .expect("a fact result missing the measure column");
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::MissingColumn { .. })
-        ));
-    }
-
-    #[test]
-    fn a_non_numeric_leaf_is_refused_not_counted_as_zero() {
-        // The DuckDB adapter returns a DECIMAL money column as Text to keep it exact; a sum that
-        // meets it must refuse rather than certify a zero.
-        let plan = sum_plan(true);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c1".into()),
-            Value::Text("2026-06".into()),
-            Value::Text("1234.56".into()),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::NonNumericLeaf {
-                aggregate: Aggregate::Sum,
-                ..
-            })
-        ));
-    }
-
-    #[test]
-    fn a_float_link_key_is_refused() {
-        let plan = sum_plan(true);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Real(Real::parse(1001.0).expect("a finite real")),
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::FloatLinkKey { .. })
-        ));
-    }
-
-    #[test]
-    fn an_integer_link_and_a_text_link_do_not_false_match() {
-        // Integer(1001) and Text("1001") are different cells; comparing them as rendered text would
-        // join them, which is the false match the typed link key refuses. Under an inner join the
-        // non-matching fact row is dropped.
-        let plan = sum_plan(false);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Integer(1001),
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        // The lookup holds the same digits as text.
-        let lookup = lookup(vec![vec![Value::Text("1001".into()), Value::Text("north".into())]]);
-        let combined = plan.combine(&[fact, lookup]).expect("combines");
-        assert!(
-            combined.rows().is_empty(),
-            "an integer link must not join to a text link with the same digits"
-        );
-    }
-
-    #[test]
-    fn a_null_link_never_joins() {
-        let plan = sum_plan(false);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Null,
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        let combined = plan.combine(&[fact, lookup]).expect("combines");
-        assert!(
-            combined.rows().is_empty(),
-            "a null link value never joins, not even to itself"
-        );
-    }
-
-    #[test]
-    fn a_duplicate_leaf_label_is_refused() {
-        // Two columns under one name would be traced to one of them arbitrarily, so the boundary
-        // refuses the result rather than answer a wrong number.
-        let plan = sum_plan(true);
-        let fact = RowSet::new(
-            vec![
-                String::from("product_family"),
-                String::from("customer_key"),
-                String::from(TIME_BUCKET_LABEL),
-                String::from("revenue"),
-                String::from("revenue"),
-            ],
-            vec![vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-                Value::Integer(200),
-            ]],
-        )
-        .expect("a fact result with a duplicated label");
-        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::DuplicateLabels { .. })
-        ));
-    }
-
-    #[test]
-    fn an_ambiguous_lookup_link_is_refused() {
-        let plan = sum_plan(true);
-        let fact = fact(vec![vec![
-            Value::Text("A".into()),
-            Value::Text("c1".into()),
-            Value::Text("2026-06".into()),
-            Value::Integer(100),
-        ]]);
-        // Two lookup rows for one link would double the measure.
-        let lookup = RowSet::new(
-            vec![String::from("customer_key"), String::from("region")],
-            vec![
-                vec![Value::Text("c1".into()), Value::Text("north".into())],
-                vec![Value::Text("c1".into()), Value::Text("south".into())],
-            ],
-        )
-        .expect("a lookup result with two rows for one link");
-        assert!(matches!(
-            plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::AmbiguousLink { .. })
-        ));
-    }
-}
+mod tests;

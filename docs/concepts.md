@@ -200,10 +200,12 @@ problem, it is a second identity to satisfy, and a plan whose legs cannot all ru
 is refused rather than run partly as somebody else.
 
 **Enforced today.** The plan stage collects the source of the metric's own model and of every model
-reached through a join into a set, and refuses `PlanSpansTwoSources` unless exactly one name is in
-it. The count is computed from the plan rather than asserted about it afterwards, and a golden
-builds a two-source catalogue to provoke the refusal. **The identity half of that reasoning is a
-design target:** there is no per-leg credential, so nothing tests that two subjects get different
+reached through a join into a set. Three or more sources refuse as `PlanSpansTooManySources`; exactly
+two are split into a fact leg and a lookup leg - and `answer` refuses them as `FederationNotExecutable`
+while no adapter executes a leg - so no leg answers partly as somebody else. The count is computed
+from the plan rather than asserted about it afterwards, and a golden builds a two-source catalogue to
+provoke the split. **The identity half of that reasoning is a design target:** there is no per-leg
+credential, so nothing tests that two subjects get different
 rows, and nothing can until one exists.
 
 ## Provenance, and why results are meant to be Arrow

@@ -87,9 +87,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "time_range_too_long",
             format!("the period asked about is {days} days; at most {limit} are allowed"),
         ),
-        RefusalReason::PlanSpansTwoSources { sources } => (
-            "plan_spans_two_sources",
-            format!("this question would read from {sources} data systems, and one answer reads from two at most"),
+        RefusalReason::PlanSpansTooManySources { sources, limit } => (
+            "plan_spans_too_many_sources",
+            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most"),
+        ),
+        RefusalReason::FederationNotExecutable => (
+            "federation_not_executable",
+            String::from(
+                "this deployment has no adapter that can execute one half of a question spanning two \
+                 data systems. Nothing you can change in the question helps and this is not an outage \
+                 to retry; ask without the dimension on the second data system, or report it.",
+            ),
+        ),
+        RefusalReason::FederationLinkAmbiguous { ref source } => (
+            "federation_link_ambiguous",
+            format!(
+                "the dimensions on `{source}` join through more than one relationship, and the two \
+                 legs link on a single column"
+            ),
         ),
         RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
             "measure_does_not_federate",
@@ -171,7 +186,11 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTwoSources { sources: 3 },
+            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::FederationNotExecutable,
+            RefusalReason::FederationLinkAmbiguous {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
             RefusalReason::MeasureDoesNotFederate {
                 metric: metric(),
                 aggregate: Aggregate::CountDistinct,
@@ -195,10 +214,15 @@ mod tests {
     fn the_code_is_the_variant_name_in_snake_case() {
         for reason in every_reason() {
             let value = serde_json::to_value(&reason).expect("a refusal serializes");
-            let object = value.as_object().expect("every variant carries fields, so it is an object");
-            let variant = object.keys().next().expect("an externally tagged enum has one key");
+            // A struct variant serializes externally tagged, so its one key IS the variant name; a
+            // unit variant (`FederationNotExecutable`) serializes as the bare name string.
+            let variant = match value {
+                serde_json::Value::Object(map) => map.keys().next().cloned().expect("an externally tagged enum has one key"),
+                serde_json::Value::String(name) => name,
+                _ => panic!("a refusal serializes to an object or a unit string"),
+            };
             let (code, _) = refused(&reason);
-            assert_eq!(code, &snake_case(variant), "{variant}");
+            assert_eq!(code, &snake_case(&variant), "{variant}");
         }
     }
 
