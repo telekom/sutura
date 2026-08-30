@@ -374,7 +374,7 @@ fn failed(failure: &SurfaceFailure) -> Failure {
         }
         // Our own wiring, so it carries nothing outward. An operator finds it in this line.
         SurfaceFailure::Miswired { ref cause } => {
-            tracing::error!(error = %cause, chain = ?chain, "the credentials that came back do not cover this plan");
+            tracing::error!(error = %cause, chain = ?chain, "the credentials that came back do not fit this request");
             Failure::Internal
         }
     }

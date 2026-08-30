@@ -495,7 +495,7 @@ mod tests {
             let question = read_question(&path);
             let answered = sutura_app::answer(&validated, &question, &a_caller(), &single_user_broker(), &warehouse);
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
-            settings().bind(|| match answered {
+            settings().bind(|| match answered.map(sutura_app::Answered::into_outcome) {
                 Ok(sutura_domain::query::ToolOutcome::Refusal { ref reason }) => {
                     assert!(
                         expected_refusal,

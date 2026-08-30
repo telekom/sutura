@@ -321,7 +321,11 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         // `Subject::TheDeploymentItself` is the honest subject: there is no transport and no caller,
         // and the identity the files are read under is the process's own.
         let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
-        let outcome = sutura_app::answer(&validated, &question, &context, &broker, &engine).map_err(|e| render(&e))?;
+        // `into_outcome` because this command writes no audit record: the deadline `Answered` also
+        // carries is for a sink, and this binary answers one question on a terminal and exits.
+        let outcome = sutura_app::answer(&validated, &question, &context, &broker, &engine)
+            .map_err(|e| render(&e))?
+            .into_outcome();
         print_outcome(&outcome)?;
         Ok(())
     })())

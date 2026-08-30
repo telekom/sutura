@@ -5,18 +5,29 @@ description: What end-to-end impersonation concretely requires of BigQuery, Post
 
 # A credential per leg, for the calling subject
 
-Status: **accepted, and the port is built - along with four corrections to this record's own signature
-and, after a review of the code that landed, four amendments to those.** *What is built, and the four
+Status: **accepted, and the port is built - along with five corrections to this record's own signature
+and, after two reviews of the code that landed, five `> **Amended.**` blocks inside them.** *What is built, and the five
 places this record was wrong about its own signature*, at the foot, is the authority on the state:
 every "not built" above it is older than the code, and each `> **Amended.**` block inside it is newer
 still. The line that used to be here - *"nothing in it is built"* - was true when it was written.
+**Both numbers in that line are countable against this document** - five numbered corrections, five
+`> **Amended.**` blocks - and the line was wrong once, claiming four amendments where the record held
+three. That is the drift a hand-counted number invites, so count it against the document rather than
+against this sentence.
 
-**What the review changed, in one place so it can be found:** the boot path's method takes an
-`AnchorPlan` rather than a bare plan, so the one signature with no credential cannot be handed a
-question (correction 2); each adapter compares the leg against its DECLARED posture and not only
-against its own capability, which is a hole this record's own *not built* list described as already
-closed (not-built item 4); and `Expiry` lost a derived ordering that made "the earliest" answer
-"nothing expires" (correction 4).
+**What the first review changed:** the boot path's method takes an `AnchorPlan` rather than a bare
+plan, so the one signature with no credential cannot be handed a question (correction 2); each adapter
+compares the leg against its DECLARED posture and not only against its own capability, which is a hole
+this record's own *not built* list described as already closed (not-built item 4); and `Expiry` lost a
+derived ordering that made "the earliest" answer "nothing expires" (correction 4).
+
+**What the second review changed, and all four of these were reproduced with a diagnostic broker
+rather than argued:** the broker's answer is now compared with the request it was made for - subject,
+source set, deadline, and the source a refusal names - as one guard whose result is the only way to a
+`Presented` (correction 5); the deadline is enforced at both boundaries a credential crosses and
+recorded in the audit record (correction 4's second amendment); and the leg-against-posture comparison
+moved into `sutura_app::answer`, because `Warehouse` is a trait and an adapter can omit its own copy
+(not-built item 4's second amendment).
 
 It decides the shape of the identity path before the first adapter that needs one, because both
 halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
@@ -1485,11 +1496,15 @@ that would start after `not_after` is not attempted, which is a case the paralle
 It is the same check against the same one field, before each leg rather than only before the first, and
 it lives in the same component for the same reason: the domain reads no clock.
 
-Which means `Expiry` is, for now, a field the domain holds and nothing in the domain reads - the shape
-`ParamValue::Integer` had before it was deleted, stated rather than hidden. It arrives with the broker
-adapter that refuses on it or the audit sink that prints it, and a variant for "expiring too soon"
-arrives the same way: a fake broker can provoke `CredentialUnavailable` from the day the port exists,
-and could not provoke that one.
+This paragraph used to conclude that `Expiry` is *"a field the domain holds and nothing in the domain
+reads"*, and a review of the implementation showed why that conclusion was too comfortable: a value
+carried and read by nobody is not a deadline, and a broker minting an already-expired credential had
+it presented to an adapter. **The FLOOR still belongs in the broker** for the reason above - it needs
+a clock and the configured query timeout. What does not need either is the fact that a deadline has
+already passed, and that is now checked in the domain, against an instant the application resolved:
+`Expiry::passed_by` is the comparison and `Minted::agreeing_with` is where it is made. The domain
+still reads no clock, exactly as this part requires; what changed is that the direction of the
+comparison lives with the value instead of being left to whoever has a clock.
 
 ### 7. `Secret` composes; it does not grow an expiry
 
@@ -1835,7 +1850,7 @@ the table above. Second, the *Invariants* row for "an unvalidated bundle is neve
 mechanism untouched and needs its reach stated: an anchor is verified under a declared verification
 identity, which is not necessarily any caller's.
 
-## What is built, and the four places this record was wrong about its own signature
+## What is built, and the five places this record was wrong about its own signature
 
 Added when the credential port landed. **This section is the authority on the state of the code**, and
 where it contradicts a sentence above it, it wins: the body was written before any of it existed, and
@@ -1857,7 +1872,7 @@ below and still true for the rest.
 | A broker outage is neither a refusal nor a data system | `ServiceError::Broker`, `SurfaceFailure::Broker`, `Failure::IdentityUnavailable` | `503 identity_unavailable`: the same status as a dead data system and a different code, which is what 0014 asks for. A test asserts the two share a status and not a code |
 | The implementor, and it is not a fake | `sutura_config::StaticCredentialBroker` | Mints from the `sources:` tree an operator wrote: a source declared `shared-service-user` gets that source's own acknowledgement witness, and a source declared `impersonation-at-source` gets **nothing** - so a question against one is refused rather than answered as the process. Wired in both roots: `sutura-serve` builds it from the registry, `sutura` from the one declaration that command makes in code |
 
-### The four places this record was wrong, and each correction is to the record rather than only to the code
+### The five places this record was wrong, and each correction is to the record rather than only to the code
 
 1. **`Caller { subject, assertion }` is not what the port takes.** It takes the `RequestContext`, which
    already existed, already reaches `Surface::answer`, and whose own documentation said the credential
@@ -1923,6 +1938,34 @@ below and still true for the rest.
    > `Expiry::earliest` are the operation, written out, with `NothingExpires` as the fold's identity;
    > there is no comparison operator left for a call site to reach for instead.
 
+   > **Amended again, and this one is the other half: computing the earliest correctly is worth nothing
+   > if nobody reads it.** *"Nothing in the domain compares it to a clock"* was true, and the review
+   > after that one demonstrated the cost - a broker returning `Expiry::At { unix_seconds: 0 }` had its
+   > credential presented to both warehouse calls and the question was answered. `Expiry::passed_by` is
+   > the comparison now, in the type that owns the deadline, taking the instant as an argument the way
+   > `TimeRange` carries dates a caller resolved - so the domain still reads no clock and there is one
+   > direction to get wrong. It is asked at both boundaries the credential crosses in
+   > `sutura_app::answer`: once when the grant comes back, so nothing already dead is ever presented,
+   > and once between the pre-flight and the execution, because a pre-flight against a networked data
+   > system is a round trip. The deadline is also recorded - `CallRecord::executed_until` - which is
+   > what this record's own content list asked for and had no way to reach. **The FLOOR is still part
+   > 6's and still unbuilt**, and so is a check during execution: `Warehouse::execute` takes a
+   > `&Presented` and no deadline, so an adapter cannot make part 4's before-leg check, and a
+   > credential that ages out mid-statement is refused by the data system rather than here.
+
+5. **The broker's answer is checked against the request it was made for, and that was missing.** A
+   review reproduced three shapes of it with a diagnostic broker: a grant minted for
+   `Subject::TheDeploymentItself` while a verified person asked, which executed and answered; the
+   already-expired grant above; and `Minted::Refused` naming a source the request never asked about,
+   which reached the caller as `403 credential_unavailable` about that source - a broker defect
+   presented as a statement about the asker's access, disclosing a source alias they never named.
+
+   `Minted::agreeing_with` is one guard for all three, plus the coverage check asked about the set the
+   REQUEST named rather than the one the broker passed to `LegCredentials::minted`. Every disagreement
+   is a typed `Err`: a broker contradicting the request says nothing about the caller. `BoundToTheRequest`
+   is what stops the guard being skippable by placement - it is the only type in `identity::credential`
+   that hands out a `Presented`, and only that comparison builds one.
+
 ### Not built, and named rather than left to be discovered
 
 1. **Any adapter that can carry a per-subject credential.** Both shipped ones declare
@@ -1931,10 +1974,22 @@ below and still true for the rest.
    foot of this record is still unwritable* - which is the honest state of leg 2: a question cannot
    execute without a credential, and no credential a broker can mint makes a source evaluate anybody's
    own authorization.
-2. **The deadline check.** `Expiry` is carried and nothing reads it. Part 6 puts the floor in the
-   broker adapter, which is the only component with a clock and the configured timeout, and the
-   implementor that ships has nothing that expires - so there is no number to check yet. Part 4's
-   per-leg check needs a splitter, which does not exist.
+2. **The FLOOR, and no longer the deadline itself.** This item read *"`Expiry` is carried and nothing
+   reads it"*, and a review demonstrated what that costs: a broker returning
+   `Expiry::At { unix_seconds: 0 }` had its credential presented to an adapter and the question was
+   answered. So the deadline now has an enforced consumer. `Expiry::passed_by` is the comparison,
+   `Minted::agreeing_with` makes it, and `sutura_app::answer` supplies the instant - the domain still
+   reads no clock, exactly as part 6 says, and the direction of the comparison lives with the value
+   rather than with whoever holds a clock. `a_credential_whose_deadline_has_passed_never_reaches_an_adapter`
+   is the test, with a deadline of zero because that is in the past for every clock.
+   **What is still not built is the FLOOR** - is there enough life left for what this query may take -
+   which part 6 puts in the broker adapter for the reason it gives, and the implementor that ships has
+   nothing that expires so there is no number to compare. Neither is the RE-CHECK while an answer is in
+   flight: `agreeing_with` runs once, before anything reaches an adapter, so a credential whose life is
+   shorter than a pre-flight plus an execution can still age out at the data system, which is where it
+   would be refused. Covering that needs a clock the application can advance in a test rather than a
+   `SystemTime` call - a port, and an architecture decision. Part 4's per-leg check needs a splitter,
+   which does not exist.
 3. **A per-leg credential on a second leg.** `LegCredentials` holds N legs and nothing constructs a
    second one: there is no splitter and no combiner, and both `Warehouse` implementors answer a leg
    with a typed error.
@@ -1953,3 +2008,14 @@ below and still true for the rest.
    > beside their capability check, and each has a regression test that a fabricated witness is
    > refused and the source's own is not. The sentence is now true because there is a mechanism, which
    > is the only way this repository lets a sentence like it be written.
+
+   > **Amended again, by the review after that one, and the correction is where the check lives rather
+   > than whether it is made.** Both adapters do call `agrees_with` - and `Warehouse` is a trait, so an
+   > implementor can simply not, which this workspace's own `sutura_app` fake demonstrated: a fake
+   > declared `impersonation-at-source`, handed the deployment's own identity, executed and was
+   > reported as impersonated. So the comparison is made in `sutura_app::answer`, which holds both the
+   > leg and `Warehouse::posture()` and therefore reaches every adapter a registry can hold. It leaves
+   > as `ServiceError::Posture`, an internal failure and never a refusal. The adapters keep their own
+   > copy - an adapter is the last thing before a driver and may not assume who called it - and what
+   > moved is the *claim*: it is now a property of the application rather than a convention each
+   > adapter is trusted to follow.

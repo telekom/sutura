@@ -40,7 +40,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::{MetricName, SourceName};
 use sutura_domain::pinned::PinnedDefinitions;
 use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
-use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
+use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, RowSet, Value, Warehouse};
 
 use crate::adapters::source;
@@ -61,14 +61,15 @@ pub(crate) struct Never;
 ///
 /// It is a `OnceLock` so [`Warehouse::posture`] can hand back a `&'static` and none of the five fakes
 /// needs a constructor argument it would have nothing to vary.
+///
+/// **It reads the matrix's own declaration rather than writing a second sentence**, and that is not
+/// tidiness: the tests here are answered with `crate::adapters::shared_credential()`, and
+/// `sutura_app::answer` compares the leg a broker minted against the posture the adapter was opened
+/// with - witness included. Two fixtures writing two acknowledgements made every question in this
+/// file a wiring defect rather than whatever it was about.
 fn fake_posture() -> &'static SourcePosture {
     static POSTURE: std::sync::OnceLock<SourcePosture> = std::sync::OnceLock::new();
-    POSTURE.get_or_init(|| SourcePosture::SharedServiceUser {
-        declared: SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a fake over no data system, executing in this process")
-                .expect("a fixture reason is a reason"),
-        ),
-    })
+    POSTURE.get_or_init(crate::adapters::posture)
 }
 
 /// What a fake in this file is handed to execute one leg as.

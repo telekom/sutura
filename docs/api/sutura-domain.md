@@ -112,15 +112,25 @@ incident question is then "whose access filtered these rows". The answer is
 `CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
 that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
 
-**`asked_by` is the chain, and it is deliberately not a second field.** `LegCredentials::asked_by`
-is the broker's copy of who asked and the chain is the transport's; they agree by construction,
-because `mint` reads the request context. A record carrying both would be a second place for them
-to disagree, which is the argument this whole port is built on - so who asked is
-`CallRecord::chain`, once.
+**`asked_by` is the chain, and it is deliberately not a second field - and that sentence used to
+be an assumption rather than a fact.** `LegCredentials::asked_by` is the broker's copy of who
+asked and the chain is the transport's. This paragraph said they *agree by construction, because
+`mint` reads the request context* - and a review pointed out that this is a claim about what a
+well-behaved broker does, not a property of the types: `LegCredentials::minted` is `pub` and takes
+any `crate::identity::Subject`, so a broker that returned somebody else's grant would have
+executed under one principal and been recorded under another. **It is a fact now**, because
+`sutura_app::answer` compares the two and refuses a disagreement before anything reaches an
+adapter - see `crate::identity::Minted::agreeing_with`. So the reason there is one field stands,
+and what makes it safe is a check somebody can point at rather than a habit brokers are trusted to
+have.
 
-**Still absent: the expiry.** `crate::identity::Expiry` is carried on the credentials and is not
-in the `ToolOutcome`, so reaching it here is a change to what a record is made of rather than an
-accessor. Nothing that ships has a credential that expires, so there is no number to record yet.
+**The expiry IS here**, as `CallRecord::executed_until`, and it arrived for the same reason the
+posture did: a review found the value carried and read by nobody. It is enforced first - a
+credential whose deadline has passed never reaches an adapter - and recorded second, so an
+incident can ask how much life the credential that read these rows had left. `None` means nothing
+was minted for this call, which is the honest answer for a question refused before the broker was
+asked.
+
 A plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
 what makes that true - so the source set is one name a reader already has from the bundle.
 
@@ -190,7 +200,27 @@ verified subject's question was filtered by that subject's own access or by the 
 deployment holds for the source.
 
 ```rust
-pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome) -> Self
+pub const fn executed_until(&self) -> Option<Expiry>
+```
+
+How long the credentials this call ran under were good for.
+
+**A field rather than a derivation, unlike `Self::executed_as`**, because the deadline is
+deliberately absent from the `ToolOutcome`: the outcome's provenance is caller-facing, and a
+credential's lifetime is this deployment's business rather than the asker's.
+
+Three states and a reader has to name all three, which is why it is an `Option<Expiry>` rather
+than a number: nothing was minted for this call, the credential does not expire, or it expires
+at an instant. The first is the honest answer for a question declined before the broker was
+asked - `sutura_app`'s own suite pins that a refused question never reaches it - and the second
+is what every credential the shipping broker mints answers, because it mints from a file.
+
+**Recording is not the control.** A credential whose deadline had passed never reached an
+adapter, and `crate::identity::Minted::agreeing_with` is where that is decided; this is what
+lets an incident ask afterwards how much life was left.
+
+```rust
+pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome, executed_until: Option<Expiry>) -> Self
 ```
 
 The only constructor, and it derives the outcome half from the outcome itself.
@@ -199,6 +229,11 @@ There is no way to build a record that describes an answer as a refusal or the o
 round: the match is here, once, rather than at every call site that would otherwise be
 trusted to get it right. That is the same reason `crate::pinned::PinnedDefinitions::pin`
 takes no digest parameter.
+`executed_until` is the deadline the credentials this call ran under carried, and `None` means
+nothing was minted for it - a question refused before the broker was asked. It is a parameter
+rather than something derived from the outcome because the credential is deliberately not on
+the `ToolOutcome`: provenance rides to the caller, and what a credential's lifetime is is
+not the caller's business.
 
 ```rust
 pub const fn outcome(&self) -> &RecordedOutcome<'a>
@@ -1728,6 +1763,12 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 

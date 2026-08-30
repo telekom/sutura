@@ -16,7 +16,10 @@ use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::Value;
 
-use sutura_domain::identity::{PrincipalChain, RequestContext, Subject, SubjectId};
+use sutura_domain::identity::{
+    CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture, PrincipalChain,
+    RequestContext, Subject, SubjectId,
+};
 
 use super::tests_support::{AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse};
 use super::{
@@ -44,10 +47,14 @@ fn source() -> SourceName {
     SourceName::parse("local").expect("a test source is a source")
 }
 
-fn shared(text: &str) -> SourcePosture {
-    SourcePosture::SharedServiceUser {
-        declared: SharedIdentityDeclared::of(AcknowledgementReason::parse(text).expect("a test reason is a reason")),
-    }
+/// The posture every fake warehouse here is opened with.
+///
+/// **One value rather than a sentence per call site, and `answer` is why.** The leg a broker mints is
+/// now compared against the posture the adapter was opened with, witness included - so a test that
+/// wrote its own acknowledgement prose would provoke that wiring defect rather than whatever it was
+/// about. `tests_support` owns the one witness both halves read.
+fn shared() -> SourcePosture {
+    super::tests_support::shared_posture()
 }
 
 /// The June range the test bundle's anchor declares, which is also the only range a question
@@ -110,10 +117,7 @@ fn a_failed_anchor_check_keeps_the_adapters_own_cause() {
     // Asserted over the chain rather than over the message alone: the message was never the part
     // that went missing.
     let pinned = bundle();
-    let report = verify_anchors(
-        &pinned,
-        &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
-    );
+    let report = verify_anchors(&pinned, &Warehouses::of(FixedWarehouse::new(source(), shared())));
     let check = report.checks().get(&metric()).expect("the anchored metric was checked");
     let AnchorCheck::NotExecuted {
         reason: NotExecutedReason::Failed { ref message, ref chain },
@@ -138,7 +142,7 @@ fn a_check_for_a_source_nobody_configured_says_so_rather_than_looking_like_an_ou
     let pinned = bundle();
     let elsewhere = Warehouses::of(FixedWarehouse::new(
         SourceName::parse("somewhere_else").expect("a test source is a source"),
-        shared("a directory of CSVs"),
+        shared(),
     ));
     let report = verify_anchors(&pinned, &elsewhere);
     let check = report.checks().get(&metric()).expect("the anchored metric was checked");
@@ -161,11 +165,7 @@ fn an_anchor_runs_against_the_data_system_its_own_metric_names() {
         SourceName::parse("somewhere_else").expect("a test source is a source"),
         SourcePosture::ImpersonationAtSource,
     ))
-    .and(FixedWarehouse::answering(
-        source(),
-        shared("a directory of CSVs"),
-        certified(),
-    ))
+    .and(FixedWarehouse::answering(source(), shared(), certified()))
     .expect("two sources");
     let report = verify_anchors(&pinned, &registry);
     let check = report.checks().get(&metric()).expect("the anchored metric was checked");
@@ -179,49 +179,143 @@ fn an_anchor_runs_against_the_data_system_its_own_metric_names() {
 
 #[test]
 fn a_posture_is_recorded_in_provenance_per_leg() {
-    // The Done-when of the source registry: an answer says which mode produced it. Asserted for
-    // BOTH postures against the same bundle, the same question and the same rows, so the only
-    // thing that moves is what the adapter was handed - which is the whole claim. Nothing in this
-    // test holds a settings tree, so the value cannot have come from configuration.
+    // The Done-when of the source registry: an answer says which mode produced it, read off the
+    // adapter that executed rather than off a settings tree - nothing in this test holds one.
+    //
+    // **This test used to loop over BOTH postures and assert an answer for each, and a review was
+    // right that the second half was blessing an unsafe pairing.** It handed an adapter declared
+    // `impersonation-at-source` a leg carrying the deployment's own identity, and got an answer whose
+    // provenance said `impersonation-at-source` - a leg that ran as the process, reported as the
+    // asker's own access. That pairing is refused now, and the test below is what asserts it.
+    //
+    // So what is left here is the honest claim: the posture that CAN execute on this build is
+    // recorded. The other one is untestable rather than untested - no adapter in this workspace can
+    // carry a per-subject credential, so an `impersonation-at-source` leg cannot execute here at all.
     let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
-    for posture in [
-        shared("a directory of CSVs this deployment owns"),
+    let registry = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
+    let outcome = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &registry,
+    )
+    .expect("the fake answers")
+    .into_outcome();
+    let ToolOutcome::Answer { ref provenance, .. } = outcome else {
+        panic!("a certified question is answered, not {outcome:?}");
+    };
+    assert_eq!(
+        provenance.executed_as().posture(&source()).map(SourcePosture::as_str),
+        Some(shared().as_str()),
+        "the answer records the posture the adapter that executed it was holding"
+    );
+    assert_eq!(provenance.executed_as().legs().count(), 1, "a mono-source answer has one leg");
+    // And the two halves of provenance stay separable: the digest is over authored content, so it
+    // does not move when the posture does.
+    assert_eq!(provenance.digest(), bundle().digest());
+}
+
+#[test]
+fn a_leg_that_disagrees_with_the_adapters_posture_never_executes() {
+    // **The port cannot make an adapter check this, so the application does.** Both shipped adapters
+    // compare the leg they were handed against their own declared posture; `Warehouse` is a trait, so
+    // an implementor can simply omit it - and this crate's own fake did. A review found what that
+    // costs: pairing a `FixedWarehouse` declared `impersonation-at-source` with a broker granting the
+    // deployment's own identity ANSWERED, and provenance then reported the leg as
+    // `impersonation-at-source` because provenance is read off the adapter's posture. A question
+    // answered as the process, recorded as the asker.
+    //
+    // Made in `answer`, the rule reaches every adapter this registry can hold, including the next one.
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let impersonating = Warehouses::of(FixedWarehouse::answering(
+        source(),
         SourcePosture::ImpersonationAtSource,
-    ] {
-        let expected = posture.as_str();
-        let registry = Warehouses::of(FixedWarehouse::answering(source(), posture, certified()));
-        let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
-        let outcome = answer(
+        certified(),
+    ));
+    let validated = verify_and_validate(bundle(), &impersonating).expect("the anchor reproduces its number");
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &impersonating,
+    )
+    .expect_err("a leg that is not the posture's shape is a wiring failure, not an answer");
+    let ServiceError::Posture {
+        cause:
+            PresentedDisagreesWithPosture::ShapeIsNotThePosture {
+                ref at,
+                posture,
+                presented,
+            },
+    } = failure
+    else {
+        panic!("the leg does not agree with the posture, and the failure says how: {failure:?}");
+    };
+    assert_eq!(at, &source());
+    assert_eq!(posture, "impersonation-at-source");
+    assert_eq!(presented, "the deployment's own identity for this source");
+
+    // The second direction, which the shape check cannot see: both say shared, and the witness on the
+    // leg is not this source's. The broker's witness is `tests_support`'s one acknowledgement, so a
+    // posture built from a different sentence is another source's declaration.
+    let elsewheres_witness = Warehouses::of(FixedWarehouse::answering(
+        source(),
+        SourcePosture::SharedServiceUser {
+            declared: SharedIdentityDeclared::of(
+                AcknowledgementReason::parse("a different operator's acknowledgement, for a different source")
+                    .expect("a test reason is a reason"),
+            ),
+        },
+        certified(),
+    ));
+    let validated = verify_and_validate(bundle(), &elsewheres_witness).expect("the anchor reproduces its number");
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &elsewheres_witness,
+    )
+    .expect_err("a shared leg carrying another acknowledgement is a wiring failure");
+    assert!(
+        matches!(
+            failure,
+            ServiceError::Posture {
+                cause: PresentedDisagreesWithPosture::WitnessIsNotThisSources { .. }
+            }
+        ),
+        "{failure:?}"
+    );
+
+    // And the agreeing pairing answers, so neither assertion above is passing against a check that
+    // refuses everything - the test above this one is the same registry answering.
+    let agreeing = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &agreeing).expect("the anchor reproduces its number");
+    assert!(matches!(
+        answer(
             &validated,
             &question,
             &asked_by_a_person(),
             &FixedBroker::GrantsShared,
-            &registry,
+            &agreeing
         )
-        .expect("the fake answers");
-        let ToolOutcome::Answer { ref provenance, .. } = outcome else {
-            panic!("a certified question is answered, not {outcome:?}");
-        };
-        assert_eq!(
-            provenance.executed_as().posture(&source()).map(SourcePosture::as_str),
-            Some(expected),
-            "the answer records the posture the adapter that executed it was holding"
-        );
-        assert_eq!(provenance.executed_as().legs().count(), 1, "a mono-source answer has one leg");
-        // And the two halves of provenance stay separable: the digest is over authored content, so
-        // it does not move when the posture does.
-        assert_eq!(provenance.digest(), bundle().digest());
-    }
+        .expect("the fake answers")
+        .into_outcome(),
+        ToolOutcome::Answer { .. }
+    ));
 }
 
 #[test]
 fn a_question_for_a_source_nobody_configured_is_refused_rather_than_run_elsewhere() {
     // The query-path half of the same lookup. `SourceUnavailable` now means what its name says.
-    let registry = Warehouses::of(FixedWarehouse::answering(source(), shared("csv"), certified()));
+    let registry = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
     let elsewhere = Warehouses::of(FixedWarehouse::answering(
         SourceName::parse("somewhere_else").expect("a test source is a source"),
-        shared("csv"),
+        shared(),
         certified(),
     ));
     let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
@@ -232,7 +326,8 @@ fn a_question_for_a_source_nobody_configured_is_refused_rather_than_run_elsewher
         &FixedBroker::GrantsShared,
         &elsewhere,
     )
-    .expect("a refusal is an Ok");
+    .expect("a refusal is an Ok")
+    .into_outcome();
     let ToolOutcome::Refusal {
         reason: sutura_domain::query::RefusalReason::SourceUnavailable { ref source },
     } = outcome
@@ -252,11 +347,7 @@ type Ready = (super::Validated<PinnedDefinitions>, Warehouses<FixedWarehouse>, Q
 /// One helper because all four differ in exactly one thing - which broker answers - and that is
 /// the property each of them is about.
 fn ready() -> Ready {
-    let registry = Warehouses::of(FixedWarehouse::answering(
-        source(),
-        shared("a directory of CSVs this deployment owns"),
-        certified(),
-    ));
+    let registry = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
     let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
     (
         validated,
@@ -282,7 +373,8 @@ fn a_subject_with_no_credential_is_refused_rather_than_downgraded() {
         &FixedBroker::RefusesEverything,
         &registry,
     )
-    .expect("a refusal is an Ok, so a client cannot retry it into an answer");
+    .expect("a refusal is an Ok, so a client cannot retry it into an answer")
+    .into_outcome();
     let ToolOutcome::Refusal {
         reason: RefusalReason::CredentialUnavailable { ref source },
     } = outcome
@@ -302,7 +394,8 @@ fn a_subject_with_no_credential_is_refused_rather_than_downgraded() {
             &FixedBroker::GrantsShared,
             &registry
         )
-        .expect("the fake answers"),
+        .expect("the fake answers")
+        .into_outcome(),
         ToolOutcome::Answer { .. }
     ));
 }
@@ -342,7 +435,21 @@ fn an_adapter_that_receives_the_wrong_posture_returns_an_err_rather_than_a_refus
     // **This is the direction that is silent if it is not checked:** an adapter that quietly
     // ACCEPTED subject material it cannot use would answer, and provenance would report the leg
     // as impersonated when it ran as the process.
-    let (validated, registry, question) = ready();
+    //
+    // **The adapter is opened `impersonation-at-source` here, and it did not have to be before.**
+    // `answer` now compares the leg against the adapter's posture before the adapter is called, so
+    // subject material against a source declared SHARED is refused one step earlier - as
+    // `ServiceError::Posture`, which the test above owns. What is left for the adapter is the case the
+    // application cannot decide: a source the deployment declared impersonating, served by an adapter
+    // whose CAPABILITY has nowhere for a subject to arrive. The composition root refuses that pairing
+    // at boot; `answer` is not the boot path, so the adapter is the thing that stops it.
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let registry = Warehouses::of(FixedWarehouse::answering(
+        source(),
+        SourcePosture::ImpersonationAtSource,
+        certified(),
+    ));
+    let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
     let failure = answer(
         &validated,
         &question,
@@ -377,10 +484,279 @@ fn credentials_that_do_not_cover_the_plan_are_a_failure_rather_than_an_execution
         &registry,
     )
     .expect_err("a grant that does not cover the plan is a failure");
-    let ServiceError::Credentials { ref cause } = failure else {
+    let ServiceError::Credentials {
+        cause:
+            CredentialsDoNotFitTheRequest::Coverage {
+                cause: CredentialsDoNotCoverThePlan::Missing { ref at },
+            },
+    } = failure
+    else {
         panic!("it is the credentials that are wrong, not the data system: {failure:?}");
     };
-    assert_eq!(cause.at(), &source());
+    assert_eq!(at, &source());
+}
+
+#[test]
+fn a_grant_minted_for_another_subject_never_reaches_an_adapter() {
+    // **THE CONFUSED DEPUTY, and the one hole in the claim this whole port makes.**
+    // `LegCredentials::minted` is `pub` and takes any `Subject` - it has to be, because a broker
+    // adapter lives in another crate - so nothing but a comparison stops a broker from returning a
+    // credential minted for somebody else. Reproduced by a review with exactly this fixture: the
+    // mismatched grant reached execution and the question was answered.
+    //
+    // The consequence is worse than the label. The audit record takes the subject from the request
+    // while the leg carries whatever the broker chose, so a bad mapping executes as one principal
+    // and is recorded as another - which is the one question an incident asks first, answered
+    // wrongly rather than not at all.
+    let (validated, registry, question) = ready();
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsAnotherSubjectsCredential,
+        &registry,
+    )
+    .expect_err("a grant for somebody else is a wiring failure, not an answer and not a refusal");
+    let ServiceError::Credentials {
+        cause: CredentialsDoNotFitTheRequest::AnotherSubject { ref asked, ref granted },
+    } = failure
+    else {
+        panic!("the grant names another subject, and the failure says so: {failure:?}");
+    };
+    assert_eq!(
+        asked,
+        &Subject::Verified {
+            id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
+        }
+    );
+    assert_eq!(granted, &Subject::TheDeploymentItself);
+    // And it is an `Err` rather than a refusal, because a caller can do nothing about it and being
+    // told "you have no credential there" would be a false statement about their access.
+    assert!(!matches!(failure, ServiceError::Warehouse { .. }));
+    // The same registry, the same question and the same context answer for a broker that mints for
+    // the asker - so this test is not passing against a deployment that refuses everything.
+    assert!(matches!(
+        answer(
+            &validated,
+            &question,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &registry
+        )
+        .expect("the fake answers")
+        .into_outcome(),
+        ToolOutcome::Answer { .. }
+    ));
+}
+
+#[test]
+fn a_credential_whose_deadline_has_passed_never_reaches_an_adapter() {
+    // **`Expiry` was dead metadata, and a review proved it by answering a question with a credential
+    // that expired at the Unix epoch.** The earlier fix in this branch made `Expiry::earliest`
+    // compute the deadline correctly; computing it correctly is worth nothing while nobody reads it.
+    //
+    // The deadline of zero is what makes this assertion independent of the clock `answer` reads:
+    // there has never been a clock for which the epoch is in the future.
+    //
+    // **The data system this question is asked of FAILS every statement, and that is what makes the
+    // test's name true rather than plausible.** The bundle is validated against a registry that
+    // answers, and the question is asked of one that does not - so if the deadline were checked after
+    // the pre-flight rather than before it, this would come back as the adapter's own complaint
+    // instead. There is a second deadline check after the pre-flight, and this is how the two are told
+    // apart.
+    let (validated, answering, question) = ready();
+    let refuses_every_statement = Warehouses::of(FixedWarehouse::new(source(), shared()));
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsSomethingAlreadyExpired,
+        &refuses_every_statement,
+    )
+    .expect_err("a credential that has already expired is not something to execute with");
+    let ServiceError::Credentials {
+        cause: CredentialsDoNotFitTheRequest::Expired {
+            deadline_unix_seconds,
+            now_unix_seconds,
+        },
+    } = failure
+    else {
+        panic!("the deadline had passed, and the failure says when: {failure:?}");
+    };
+    assert_eq!(deadline_unix_seconds, 0, "the deadline the broker minted");
+    assert!(
+        now_unix_seconds > 0,
+        "and the instant it was compared against, which is this machine's clock: {now_unix_seconds}"
+    );
+    // And nothing that does not expire is caught by it: the shipping broker mints
+    // `Expiry::NothingExpires`, and the whole suite would be red if this guard refused that.
+    assert!(matches!(
+        answer(
+            &validated,
+            &question,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsShared,
+            &answering
+        )
+        .expect("the fake answers")
+        .into_outcome(),
+        ToolOutcome::Answer { .. }
+    ));
+}
+
+#[test]
+fn a_credential_that_expires_during_the_pre_flight_never_reaches_the_execution() {
+    // **The second deadline check, and the one that can fire in production.** The check after minting
+    // runs microseconds after the broker returned, so what it catches is a broker minting something
+    // already dead. This one runs after the pre-flight - a round trip against a networked data system
+    // - so a credential with seconds left when it was minted may have none when the statement would
+    // run. A review asked for exactly this: enforcement "including after pre-flight / before
+    // execution".
+    //
+    // Provoked without a clock a test can advance: the broker mints a deadline at the next whole
+    // second, and this fake's pre-flight takes longer than that. The pre-flight itself succeeds, which
+    // is what makes the failure about the second check rather than the first.
+    let registry = Warehouses::of(FixedWarehouse::answering_after(
+        source(),
+        shared(),
+        certified(),
+        std::time::Duration::from_millis(1200),
+    ));
+    let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
+    let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsSomethingExpiringWithinTheSecond,
+        &registry,
+    )
+    .expect_err("a credential that ran out during the pre-flight is not something to execute with");
+    let ServiceError::Credentials {
+        cause: CredentialsDoNotFitTheRequest::Expired {
+            deadline_unix_seconds,
+            now_unix_seconds,
+        },
+    } = failure
+    else {
+        panic!("the deadline passed between the pre-flight and the execution: {failure:?}");
+    };
+    assert!(
+        now_unix_seconds >= deadline_unix_seconds,
+        "the clock read after the pre-flight is at or past the deadline: {now_unix_seconds} vs {deadline_unix_seconds}"
+    );
+    // And the same grant answers against a data system whose pre-flight returns at once, so this test
+    // is about the deadline passing rather than about the grant being refusable.
+    let quick = Warehouses::of(FixedWarehouse::answering(source(), shared(), certified()));
+    let validated = verify_and_validate(bundle(), &quick).expect("the anchor reproduces its number");
+    assert!(matches!(
+        answer(
+            &validated,
+            &question,
+            &asked_by_a_person(),
+            &FixedBroker::GrantsSomethingExpiringWithinTheSecond,
+            &quick
+        )
+        .expect("a credential with life left answers")
+        .into_outcome(),
+        ToolOutcome::Answer { .. }
+    ));
+}
+
+#[test]
+fn what_a_call_ran_under_travels_to_the_record_and_not_to_the_caller() {
+    // `docs/adr/0008` fixes the audit record's content as the chain, the outcome, the posture per leg
+    // AND the expiry the credentials carried. The last of those had nowhere to travel: `answer`
+    // returned a `ToolOutcome` and the deadline was on a value it dropped. A review's objection was
+    // sharper than "a missing field" - a deadline nothing reads is not a control, and one nothing
+    // records cannot be reviewed afterwards either.
+    //
+    // It rides on `Answered` and not on `Provenance`, deliberately: provenance goes to the caller, and
+    // how long this deployment's credential for a data system is good for is not the asker's business.
+    let (validated, registry, question) = ready();
+    let answered = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &registry,
+    )
+    .expect("the fake answers");
+    assert!(matches!(answered.outcome(), &ToolOutcome::Answer { .. }));
+    assert_eq!(
+        answered.executed_until(),
+        Some(Expiry::NothingExpires),
+        "the shipping broker mints from a file, and `NothingExpires` is a case a record can carry"
+    );
+
+    // A question declined before the broker was asked has nothing to report, and `None` says so
+    // rather than claiming a credential that never existed does not expire.
+    let unknown = Query::new(
+        MetricName::parse("no_such_metric").expect("a test metric name is a name"),
+        Grain::Month,
+        june(),
+        Vec::new(),
+        Vec::new(),
+    );
+    let declined = answer(
+        &validated,
+        &unknown,
+        &asked_by_a_person(),
+        &FixedBroker::GrantsShared,
+        &registry,
+    )
+    .expect("a refusal is an Ok");
+    assert!(matches!(declined.outcome(), &ToolOutcome::Refusal { .. }));
+    assert_eq!(
+        declined.executed_until(),
+        None,
+        "nothing was minted for a question the bundle declined"
+    );
+}
+
+#[test]
+fn a_refusal_naming_a_source_nobody_asked_about_is_a_failure_rather_than_a_refusal() {
+    // The refusal path used to trust an arbitrary `SourceName`. A review asked a broker for `local`,
+    // had it refuse `elsewhere`, and got a caller-facing `CredentialUnavailable` naming a source the
+    // caller had never asked about - a broker defect reported as the caller's own lack of access, with
+    // an unrequested source alias disclosed in the process.
+    let (validated, registry, question) = ready();
+    let failure = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::RefusesASourceNobodyAsked,
+        &registry,
+    )
+    .expect_err("a refusal about a source nobody asked about is a wiring failure");
+    let ServiceError::Credentials {
+        cause: CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { ref at },
+    } = failure
+    else {
+        panic!("the refused source was never asked about, and the failure says which: {failure:?}");
+    };
+    assert_eq!(at.as_str(), "elsewhere");
+    // The direction that makes this a security fix rather than a tidy-up: a refusal about the source
+    // that WAS asked about is still a refusal, and still names it. One guard, and it does not refuse
+    // the honest case.
+    let refused = answer(
+        &validated,
+        &question,
+        &asked_by_a_person(),
+        &FixedBroker::RefusesEverything,
+        &registry,
+    )
+    .expect("a refusal about a source the request named is an Ok")
+    .into_outcome();
+    assert!(
+        matches!(
+            refused,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::CredentialUnavailable { ref source }
+            } if source == &self::source()
+        ),
+        "{refused:?}"
+    );
 }
 
 #[test]
@@ -389,11 +765,8 @@ fn a_bundle_whose_anchor_could_not_run_does_not_come_back_validated() {
     // `Validated` bundle runs the anchors, so a data system that answers nothing yields no
     // bundle at all. Before this operation existed, the same situation was a report a caller was
     // free to ignore - and `Validated::new` was happy to be handed a different one.
-    let error = verify_and_validate(
-        bundle(),
-        &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
-    )
-    .expect_err("a data system that fails every statement cannot validate a bundle");
+    let error = verify_and_validate(bundle(), &Warehouses::of(FixedWarehouse::new(source(), shared())))
+        .expect_err("a data system that fails every statement cannot validate a bundle");
     let NotValidated::AnchorNotExecuted { ref metric, .. } = error else {
         panic!("a failed anchor check is a not-executed verdict, not {error:?}");
     };
@@ -455,7 +828,9 @@ fn a_refused_question_never_reaches_the_broker() {
         Vec::new(),
         Vec::new(),
     );
-    let outcome = answer(&validated, &unknown, &asked_by_a_person(), &broker, &registry).expect("a refusal is an Ok");
+    let outcome = answer(&validated, &unknown, &asked_by_a_person(), &broker, &registry)
+        .expect("a refusal is an Ok")
+        .into_outcome();
     assert!(
         matches!(
             outcome,
@@ -473,7 +848,9 @@ fn a_refused_question_never_reaches_the_broker() {
 
     // And the count moves for a question that IS accepted, so the assertion above is not passing
     // against a broker nothing calls: one mint per answer, over the whole source set at once.
-    let outcome = answer(&validated, &question, &asked_by_a_person(), &broker, &registry).expect("the fake answers");
+    let outcome = answer(&validated, &question, &asked_by_a_person(), &broker, &registry)
+        .expect("the fake answers")
+        .into_outcome();
     assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
     assert_eq!(broker.asked(), 1, "one mint per accepted question, and not one per leg");
 }

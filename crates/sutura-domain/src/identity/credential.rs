@@ -24,6 +24,21 @@
 //! - **The error is typed per adapter.** An unreachable authorization server and a malformed
 //!   response are not the same thing to whoever is paged.
 //!
+//! # What a broker says is not trusted, and there is one place that decides it
+//!
+//! A port outside the hexagon returns values the interior then acts on, so *who checks the answer*
+//! is part of the port's design rather than an implementation detail of its caller. Here nothing did,
+//! and a review found three ways that shows: [`LegCredentials::minted`] is `pub` and takes any
+//! [`Subject`], so a broker could hand back a grant minted for somebody else; [`Expiry`] was
+//! computed, carried and read by nobody; and [`Minted::Refused`] carried a [`SourceName`] the caller
+//! turned into a refusal without checking it was one of the sources it had asked about.
+//!
+//! [`Minted::agreeing_with`] is the single guard that closes all three, and [`BoundToTheRequest`] is
+//! what makes it un-skippable rather than merely conventional: **no type in this module hands out a
+//! [`Presented`] except that one, and only the guard builds one.** The three findings were one
+//! defect - a broker's answer being used without being compared with the request it was made for -
+//! and one comparison is what they get.
+//!
 //! # What this port cannot express yet, said with the claim
 //!
 //! **A broker that has to exchange the caller's OWN token has nowhere to read it from.** `mint`
@@ -98,13 +113,23 @@ impl core::fmt::Display for PrincipalName {
 /// expiring token is not a secret with a date on it, and a pre-shared bearer token has no date at
 /// all.
 ///
-/// **Nothing in the domain compares this to a clock, and nothing here can.** The domain reads no
-/// clock, in either crate - the way [`crate::calendar::TimeRange`] carries dates a caller resolved.
-/// `docs/adr/0008` part 6 puts the floor - is there enough life left for what this query may take -
-/// in the broker adapter, which is the only component holding both a clock and the configured query
-/// timeout, and part 4 puts the same check before each leg for the same reason. What this value is
-/// for HERE is the audit record: a record that cannot say how long the credential it used was good
-/// for cannot answer the question an incident asks first.
+/// **The domain reads no clock and it does compare this value**, and the distinction is the whole of
+/// why [`Self::passed_by`] takes an argument. The instant arrives from a caller that has a clock, the
+/// way [`crate::calendar::TimeRange`] carries dates a caller resolved; what lives here is the
+/// direction of the comparison, once, in the type that owns the deadline.
+///
+/// **That is a correction rather than a refinement.** This paragraph used to say nothing in the
+/// domain compares this to a clock and nothing here can, and it was true - which was the defect a
+/// review found: a deadline computed correctly by [`Self::earliest`], carried through the port, and
+/// read by nobody. A broker could mint a credential that had already expired and the question was
+/// answered with it. `sutura_app::answer` reads the clock and [`Minted::agreeing_with`] makes the
+/// comparison, before anything reaches an adapter.
+///
+/// `docs/adr/0008` part 6 still puts the FLOOR - is there enough life left for what this query may
+/// take - in the broker adapter, which is the only component holding both a clock and the configured
+/// query timeout. That is a different question from this one: the floor is a judgement about a query
+/// that has not run, and [`Self::passed_by`] is a fact about a credential that is about to be
+/// presented.
 /// **No `Ord`, and its absence is the fix for a defect a review found.** This used to derive
 /// `PartialOrd` and `Ord`, and a derived ordering on an enum is DECLARATION ORDER - so
 /// [`Self::NothingExpires`] was the minimum, and `.min()` over a set holding one static credential
@@ -163,6 +188,33 @@ impl Expiry {
         match self {
             Self::NothingExpires => None,
             Self::At { unix_seconds } => Some(unix_seconds),
+        }
+    }
+
+    /// The deadline, if it has already passed at `now_unix_seconds`.
+    ///
+    /// **The comparison, written once, in the type that owns the value.** The paragraphs above say
+    /// the domain reads no clock and they still hold: the instant arrives as an argument, the way
+    /// [`crate::calendar::TimeRange`] carries dates a caller resolved. What changed is that the
+    /// comparison itself is no longer scattered to whoever has a clock - there is one direction to
+    /// get wrong and one place it is written.
+    ///
+    /// An `Option<u64>` rather than a `bool`, because the caller that finds a passed deadline has to
+    /// report it and the instant is the half worth reporting: a deadline in the past by a decade and
+    /// one in the past by two seconds are a defect and a clock-skew problem.
+    ///
+    /// **The boundary second counts as passed**, and the direction is deliberate. `not_after` is
+    /// whole seconds, so at equality the credential has under a second of life left at the source -
+    /// less than any query takes - and this control rounds against the deployment rather than
+    /// against the data system.
+    #[inline]
+    #[must_use]
+    pub const fn passed_by(self, now_unix_seconds: u64) -> Option<u64> {
+        match self {
+            Self::At { unix_seconds } if unix_seconds <= now_unix_seconds => Some(unix_seconds),
+            // One arm for the two ways there is no passed deadline, because `match_same_arms` is
+            // denied and they genuinely are one answer: nothing expires, and a deadline still ahead.
+            Self::NothingExpires | Self::At { .. } => None,
         }
     }
 }
@@ -417,7 +469,7 @@ impl SourceSet {
 ///     &SourceSet::of(source),
 ///     presented,
 /// )?;
-/// assert_eq!(credentials.legs().count(), 1);
+/// assert_eq!(credentials.count(), 1);
 /// # Ok::<(), Box<dyn core::error::Error>>(())
 /// ```
 #[derive(Debug)]
@@ -464,21 +516,35 @@ impl LegCredentials {
         sources: &SourceSet,
         presented: BTreeMap<SourceName, Presented>,
     ) -> Result<Self, CredentialsDoNotCoverThePlan> {
+        let credentials = Self {
+            asked_by,
+            not_after,
+            by_source: presented,
+        };
+        credentials.covers(sources)?;
+        Ok(credentials)
+    }
+
+    /// Whether these legs are exactly the sources `sources` names, in both directions.
+    ///
+    /// **Extracted from [`Self::minted`] rather than duplicated beside it, because it is asked
+    /// twice about two different sets.** The constructor asks it about the set the BROKER passed,
+    /// which a broker chooses and a defective one chooses wrongly. [`Minted::agreeing_with`] asks it
+    /// about the set the REQUEST was made for, which a broker does not choose - and that second
+    /// question is the one a confused deputy fails. Two call sites, one comparison, so the two
+    /// cannot drift.
+    pub fn covers(&self, sources: &SourceSet) -> Result<(), CredentialsDoNotCoverThePlan> {
         for source in sources.iter() {
-            if !presented.contains_key(source) {
+            if !self.by_source.contains_key(source) {
                 return Err(CredentialsDoNotCoverThePlan::Missing { at: source.clone() });
             }
         }
-        for source in presented.keys() {
+        for source in self.by_source.keys() {
             if !sources.contains(source) {
                 return Err(CredentialsDoNotCoverThePlan::Unasked { at: source.clone() });
             }
         }
-        Ok(Self {
-            asked_by,
-            not_after,
-            by_source: presented,
-        })
+        Ok(())
     }
 
     /// Who asked. One field, so N legs cannot disagree about it.
@@ -491,27 +557,28 @@ impl LegCredentials {
     /// When the earliest thing in this set stops being usable.
     ///
     /// One field for the whole answer, so there is one thing to check and no way for two legs to be
-    /// checked against different clocks. Nothing in the domain checks it - see [`Expiry`].
+    /// checked against different clocks. It IS checked, by [`Minted::agreeing_with`], against an
+    /// instant the application resolved - see [`Expiry::passed_by`] for why the clock is not here.
     #[inline]
     #[must_use]
     pub const fn not_after(&self) -> Expiry {
         self.not_after
     }
 
-    /// What to present on the leg that reads `source`.
+    /// How many legs. At least one, and equal to the size of the set this was minted for.
     ///
-    /// `Option` because a caller may ask about a source this value was not minted for, and the
-    /// honest answer is that there is nothing here for it. It cannot be `None` for a source in the
-    /// [`SourceSet`] this was minted from - [`Self::minted`] refuses that set - which is what makes
-    /// a missing leg a construction-time error rather than an execution-time one.
+    /// **The only thing this type says about its legs, and the absence of the other two accessors is
+    /// the mechanism.** There used to be a `presented_for` and a `legs` here, and they were the
+    /// second and third paths from a broker's answer to a value an adapter executes with - so the
+    /// comparison [`Minted::agreeing_with`] makes was skippable by anybody who read a leg out
+    /// directly. Both moved to [`BoundToTheRequest`], which only that comparison can build. What is
+    /// left here is a count, which nothing can execute.
+    ///
+    /// Named `count` for the reason [`SourceSet::count`] is: a `len` invites an `is_empty` that can
+    /// only answer `false`.
     #[must_use]
-    pub fn presented_for(&self, source: &SourceName) -> Option<&Presented> {
-        self.by_source.get(source)
-    }
-
-    /// Every leg, by source, in source order.
-    pub fn legs(&self) -> impl Iterator<Item = (&SourceName, &Presented)> {
-        self.by_source.iter()
+    pub fn count(&self) -> usize {
+        self.by_source.len()
     }
 }
 
@@ -535,6 +602,248 @@ pub enum Minted {
     /// This subject has no credential at that source, and asking differently will not help: what is
     /// missing is a grant at the data system, or a different subject.
     Refused { source: SourceName },
+}
+
+/// What a broker answered, checked against the request it was asked about.
+///
+/// **One guard rather than three, and the reason is that the three defects it closes were one
+/// defect.** A review of this port found a grant minted for another subject, a deadline nothing
+/// read, and a refusal naming a source nobody asked about - three findings, each with an obvious
+/// local fix, and three local fixes are three places the fourth case gets forgotten. All three are
+/// the same question: **does the broker's answer agree with the request it was made for?**
+/// [`Minted::agreeing_with`] asks it once, and a value of this type is what an affirmative looks
+/// like.
+///
+/// **The check is not skippable by placement**, which is the difference between this and a rule.
+/// [`BoundToTheRequest`] is the only type in this module that hands out a [`Presented`], its field
+/// is private, and [`Minted::agreeing_with`] is the only thing that builds one - so the path from a
+/// broker's answer to a value an adapter can execute with runs through the comparison. `Minted` is
+/// still an enum whose variants a caller may match on; what it can get out of the granted one is a
+/// [`LegCredentials`] with no accessor that yields a leg.
+#[derive(Debug)]
+pub enum Agreed {
+    /// The grant agrees with the request: one asker, exactly these sources, not yet expired.
+    Granted { credentials: BoundToTheRequest },
+    /// This subject has no credential at that source - and the source is one the request named.
+    Refused { source: SourceName },
+}
+
+/// A grant that has been checked against the request it came back for.
+///
+/// The wrapper is the mechanism rather than the documentation: the field is private, there is no
+/// constructor beside [`Minted::agreeing_with`], and [`LegCredentials`] itself has no accessor that
+/// yields a [`Presented`]. So a leg reaching `crate::warehouse::Warehouse::execute` came out of a
+/// grant that was compared with the asker, the source set and the deadline - or it was fabricated
+/// by its caller, which is the limit this type does not close and the adapters' own
+/// [`Presented::agrees_with`] partly does.
+#[derive(Debug)]
+pub struct BoundToTheRequest(LegCredentials);
+
+impl BoundToTheRequest {
+    /// What to present on the leg that reads `source`.
+    ///
+    /// A `Result` rather than an `Option`, and the `Err` is unreachable: [`Minted::agreeing_with`]
+    /// refuses a grant that does not cover the request's own [`SourceSet`] exactly, so a source in
+    /// that set has a leg here. It is answered for rather than unwrapped because `unwrap_used` is
+    /// denied and a panic on this path is process death under `panic = "abort"` - and it is answered
+    /// HERE, once, rather than at each caller inventing what an absence means.
+    pub fn presented_for(&self, source: &SourceName) -> Result<&Presented, CredentialsDoNotFitTheRequest> {
+        self.0
+            .by_source
+            .get(source)
+            .ok_or_else(|| CredentialsDoNotFitTheRequest::Coverage {
+                cause: CredentialsDoNotCoverThePlan::Missing { at: source.clone() },
+            })
+    }
+
+    /// Every leg, by source, in source order.
+    pub fn legs(&self) -> impl Iterator<Item = (&SourceName, &Presented)> {
+        self.0.by_source.iter()
+    }
+
+    /// Who asked, as the grant states it - which the check above has already compared with the
+    /// subject the request arrived under.
+    #[inline]
+    #[must_use]
+    pub const fn asked_by(&self) -> &Subject {
+        self.0.asked_by()
+    }
+
+    /// When the earliest thing in this set stops being usable.
+    #[inline]
+    #[must_use]
+    pub const fn not_after(&self) -> Expiry {
+        self.0.not_after()
+    }
+
+    /// Whether this grant is still usable at `now_unix_seconds`.
+    ///
+    /// **One comparison, asked at every boundary a credential crosses**, which is what makes the
+    /// deadline a control rather than a field. [`Minted::agreeing_with`] asks it before the grant
+    /// exists, so nothing already expired is ever presented; the application asks it again between a
+    /// pre-flight and an execution, because a pre-flight against a networked data system is a round
+    /// trip and a credential with seconds left when it was minted may have none by the time the
+    /// statement runs. The direction lives in [`Expiry::passed_by`] and is written once.
+    pub const fn still_usable_at(&self, now_unix_seconds: u64) -> Result<(), CredentialsDoNotFitTheRequest> {
+        // `match` and not `map_or`, and `const` is what makes that uncontroversial: a `const fn`
+        // cannot call a combinator taking a closure, so `option_if_let_else` does not fire here.
+        match self.not_after().passed_by(now_unix_seconds) {
+            None => Ok(()),
+            Some(deadline_unix_seconds) => Err(CredentialsDoNotFitTheRequest::Expired {
+                deadline_unix_seconds,
+                now_unix_seconds,
+            }),
+        }
+    }
+}
+
+/// The broker's answer does not fit the request it was made for.
+///
+/// **An `Err` and not a refusal, for every variant, and the argument is the same one each time.** A
+/// refusal is a governance outcome the caller could act on - "this subject has no credential at that
+/// source" is one, and asking a different question will not change it. None of these is that. A
+/// broker that answers about another subject, about another source, or with a credential that was
+/// already dead when it arrived is not answering this request: either it is misconfigured or the
+/// plan is, and the half that is wrong may be either one. Offering any of it as
+/// `crate::query::RefusalReason::CredentialUnavailable` would tell a caller they lack access to
+/// data they may be entitled to, and would let a client library retry a wiring defect forever.
+///
+/// **What the `#[error]` sentences carry, and what they deliberately do not.** A `SurfaceFailure` is
+/// logged by the transport and never returned to a caller, so these sentences are written for
+/// whoever is paged. They name the subject the way a record does - what established it, and the
+/// identifier where there is one, which is what makes a bad broker mapping findable - and they carry
+/// no credential material, because none of these variants holds any.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum CredentialsDoNotFitTheRequest {
+    /// The grant names a subject other than the one this question arrived under.
+    ///
+    /// **The confused deputy, and it is the one defect this port cannot merely document away.**
+    /// [`LegCredentials::minted`] is `pub` and takes any [`Subject`], because a broker adapter lives
+    /// in another crate and that is its only way to return a value - so nothing but a comparison
+    /// stops a broker from handing back a credential minted for somebody else, by defect or by
+    /// compromise. The consequence is not the label: the audit record takes the subject from the
+    /// request while the leg carries whatever the broker chose, so a bad mapping executes as one
+    /// principal and is recorded as another.
+    #[error("the grant was minted for a different subject than the one that asked: this question is attributed to {}, and the grant says {}", attributable(.asked), attributable(.granted))]
+    AnotherSubject {
+        /// The subject the transport established for this request.
+        asked: Subject,
+        /// The subject the broker says it minted for.
+        granted: Subject,
+    },
+    /// The grant covers a different set of sources than this answer reads.
+    ///
+    /// Wraps [`CredentialsDoNotCoverThePlan`] rather than restating it: the same two directions are
+    /// already spelled there, and [`LegCredentials::minted`] refuses them against the set the BROKER
+    /// passed. This is the same check against the set the REQUEST asked about, which is the one a
+    /// broker cannot choose.
+    #[error("the grant does not cover the sources this answer reads")]
+    Coverage {
+        #[from]
+        #[source]
+        cause: CredentialsDoNotCoverThePlan,
+    },
+    /// The refusal names a source the request did not ask about.
+    ///
+    /// The granted path is checked by [`Self::Coverage`]; this is the refusal path, which used to
+    /// trust an arbitrary name. Answering it as a refusal would turn a broker defect into a caller
+    /// being told they lack access to a source they never named - and would put that name in front
+    /// of them.
+    #[error("the broker refused source `{at}`, which this answer does not read")]
+    RefusalNamesAnUnaskedSource {
+        /// The source the broker refused.
+        at: SourceName,
+    },
+    /// The deadline on the grant had already passed when it arrived.
+    ///
+    /// **The variant that makes [`Expiry`] a control rather than a field.** A broker mints and this
+    /// is checked immediately afterwards, so an expired credential here is a broker that minted
+    /// something dead or a clock that disagrees - not a credential that ran out during the answer.
+    /// The instants are both carried, because a deadline in the past by a decade and one in the past
+    /// by two seconds are a defect and a clock-skew problem respectively.
+    #[error("the grant expired at {deadline_unix_seconds}, and it is now {now_unix_seconds}")]
+    Expired {
+        /// The deadline the grant carried, as seconds since the Unix epoch.
+        deadline_unix_seconds: u64,
+        /// The instant it was compared against, as the caller resolved it.
+        now_unix_seconds: u64,
+    },
+}
+
+/// One subject, as a line an operator reads can carry it.
+///
+/// What established it, and the identifier where there is one. Both halves, because
+/// [`Subject::established`] alone cannot tell two verified people apart and an identifier alone
+/// cannot say what proved it. A `SubjectId` is not credential material - it is what the audit record
+/// already writes as its own field - and this is the same operator's log.
+fn attributable(subject: &Subject) -> String {
+    subject.id().map_or_else(
+        || format!("a {} subject", subject.established()),
+        |id| format!("a {} subject `{id}`", subject.established()),
+    )
+}
+
+impl Minted {
+    /// Checks this answer against the request it was made for, and refuses one that disagrees.
+    ///
+    /// **The one guard, and the three ways a broker's answer can contradict the request are three
+    /// arms of it.** `asked_by` is the subject the transport established, `sources` is the set the
+    /// broker was asked about, and `now_unix_seconds` is an instant the caller resolved.
+    ///
+    /// | Checked | Because |
+    /// | --- | --- |
+    /// | The grant's subject is the asker | Nothing else stops a broker returning somebody else's credential, and the answer would be recorded under the asker either way |
+    /// | The grant covers exactly `sources` | [`LegCredentials::minted`] checks the set the broker passed, which a broker chooses; this checks the set the request asked about, which it does not |
+    /// | The deadline has not passed | Otherwise [`Expiry`] is metadata: computed correctly, carried, and read by nobody |
+    /// | A refusal names a source in `sources` | Otherwise a broker defect becomes a caller-facing refusal about a source they never named |
+    ///
+    /// # It takes the instant rather than reading a clock
+    ///
+    /// The domain reads no clock, in either crate, the way `crate::calendar::TimeRange` carries
+    /// dates a caller resolved - so the comparison is here, where the deadline is, and the reading
+    /// is the application's. That is also what makes an expired grant testable without waiting: a
+    /// deadline of zero is in the past for every clock there has ever been.
+    ///
+    /// **The window this does not close, stated with the claim.** It runs once, before anything
+    /// reaches an adapter, so what it guarantees is that no credential a broker had already let
+    /// expire is presented anywhere. It does not re-check while the answer is in flight, so a
+    /// credential whose life is shorter than a pre-flight plus an execution can still expire at the
+    /// data system - and it is the data system that would refuse it. Covering that needs a clock
+    /// this side can advance in a test rather than a `SystemTime` call, which is a port and an
+    /// architecture decision; `docs/adr/0008` part 6 already puts the "is there enough life left for
+    /// what this query may take" floor in the broker adapter, which is the component holding both a
+    /// clock and the configured query timeout.
+    pub fn agreeing_with(
+        self,
+        asked_by: &Subject,
+        sources: &SourceSet,
+        now_unix_seconds: u64,
+    ) -> Result<Agreed, CredentialsDoNotFitTheRequest> {
+        match self {
+            Self::Refused { source } => {
+                if sources.contains(&source) {
+                    Ok(Agreed::Refused { source })
+                } else {
+                    Err(CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { at: source })
+                }
+            }
+            Self::Granted { credentials } => {
+                if credentials.asked_by() != asked_by {
+                    return Err(CredentialsDoNotFitTheRequest::AnotherSubject {
+                        asked: asked_by.clone(),
+                        granted: credentials.asked_by().clone(),
+                    });
+                }
+                credentials.covers(sources)?;
+                let bound = BoundToTheRequest(credentials);
+                // The same comparison the application makes again after its pre-flight, through the
+                // same method: one direction, written once, asked at every boundary the credential
+                // crosses. Here it catches a broker that minted something already dead.
+                bound.still_usable_at(now_unix_seconds)?;
+                Ok(Agreed::Granted { credentials: bound })
+            }
+        }
+    }
 }
 
 /// Mints the credentials one answer needs, all as one subject.

@@ -70,7 +70,7 @@ where
             &crate::adapters::shared_credential(),
             &warehouse,
         );
-        settings(W::NAME).bind(|| match answered {
+        settings(W::NAME).bind(|| match answered.map(sutura_app::Answered::into_outcome) {
             Ok(ToolOutcome::Refusal { ref reason }) => {
                 insta::assert_yaml_snapshot!(format!("{name}__refused"), reason);
             }
@@ -179,7 +179,8 @@ where
             &crate::adapters::shared_credential(),
             &warehouse,
         )
-        .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME));
+        .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME))
+        .into_outcome();
         let ToolOutcome::Answer { ref rows, .. } = outcome else {
             panic!("{file} was refused: {outcome:?}");
         };
@@ -264,7 +265,8 @@ where
         &crate::adapters::shared_credential(),
         &warehouse,
     )
-    .expect("a non-zero denominator answers");
+    .expect("a non-zero denominator answers")
+    .into_outcome();
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
         panic!("June has terminations, so it is an answer, not {outcome:?}");
     };
