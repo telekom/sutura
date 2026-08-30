@@ -56,7 +56,20 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    // Both data systems first, so a missing one is the same refusal the mono path gives before any
+    // The capability gate comes FIRST, and that ordering is pinned by an HTTP test: on a build whose
+    // adapters cannot run a leg (`EXECUTES_LEGS = false`), a two-source question is refused as
+    // `FederationNotExecutable` no matter which sources it names - a build that cannot federate at all
+    // says so deterministically, rather than first reporting one of its sources as closed. Only a
+    // build that CAN execute a leg then falls through to the per-source availability check. Decided
+    // here rather than in an adapter: a shipped binary's adapters declare `false`, so this refuses
+    // cleanly before minting or running anything, instead of surfacing a typed leg refusal as a
+    // retryable 503.
+    if !W::EXECUTES_LEGS {
+        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+            reason: RefusalReason::FederationNotExecutable,
+        }));
+    }
+    // Both data systems, so a missing one is the same refusal the mono path gives before any
     // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
     // registry lookups cannot collide.
     let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
@@ -65,14 +78,6 @@ where
     let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
         return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
     };
-    // Whether this build CAN run a leg, decided here rather than in an adapter: a shipped binary's
-    // adapters declare `false`, so this refuses cleanly before minting or running anything, instead
-    // of surfacing a typed leg refusal as a retryable 503.
-    if !W::EXECUTES_LEGS {
-        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-            reason: RefusalReason::FederationNotExecutable,
-        }));
-    }
     // Execution records for BOTH legs, so provenance names both identities. `FederatedPlan::new`
     // refuses same-source legs, so the two records belong to distinct sources and `and` cannot
     // collide; the Err arm of `and` is kept (rather than an expect) because the compile cannot know
