@@ -11,14 +11,11 @@ use sutura_semantic::compile;
 use crate::shared::{PROVOKED, question, settings};
 
 #[test]
-fn a_plan_that_would_reach_a_second_data_system_is_refused() {
+fn a_question_that_would_reach_a_second_data_system_is_split_into_two_legs() {
     // Not reachable from a question file: it needs a catalog whose models sit on two data systems,
-    // which `SourceUnavailable` and this variant are the only defences against. Built in code
-    // rather than as a directory of documents, because a corpus with a second source would make
-    // every other test in the suite span two - which is also why it is not a registry entry.
-    //
-    // The refusal exists because a second data system is a second identity to satisfy, and a plan
-    // that runs partly as somebody else is the failure the whole design is arranged against.
+    // which is why it is not a registry entry. The two-source fake spans exactly one more source,
+    // and a question whose dimension sits on it now compiles into a fact leg and a lookup leg rather
+    // than into the refusal this test used to assert.
     use sutura_domain::pinned::SemanticCatalog as _;
 
     let split = crate::support::two_source_catalog()
@@ -31,12 +28,13 @@ fn a_plan_that_would_reach_a_second_data_system_is_refused() {
         vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
         Vec::new(),
     );
-    let compiled = compile(&asked, &split).expect("this is a refusal");
-    assert!(
-        matches!(compiled.refusal(), Some(&RefusalReason::PlanSpansTwoSources { sources: 2 })),
-        "expected a two-source refusal, got {:?}",
-        compiled.refusal()
-    );
+    let compiled = compile(&asked, &split).expect("this is a plan, not an error");
+    match compiled {
+        sutura_semantic::Compiled::Federated { ref plan } => {
+            assert_eq!(plan.legs().len(), 2, "a fact leg and a lookup leg");
+        }
+        other => panic!("a two-source question should federate, got {other:?}"),
+    }
 }
 
 #[test]

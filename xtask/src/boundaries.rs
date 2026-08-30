@@ -107,6 +107,13 @@ const ALLOWED_IN_DOMAIN: &[&str] = &[
     "hashbrown",
     "indexmap",
     "libc",
+    // The Postgres driver's SCRAM client enables `digest`'s `mac` feature, which pulls its two
+    // constant-time helpers into the one `digest` the workspace shares - the same whole-workspace
+    // feature unification as `const-oid` above. `sutura-domain` hashes with `sha2` and calls none
+    // of this: the inner loop is `cargo check -p sutura-domain --no-default-features`, which
+    // compiles neither.
+    "cmov",
+    "ctutils",
 ];
 
 const DOMAIN: &str = "sutura-domain";

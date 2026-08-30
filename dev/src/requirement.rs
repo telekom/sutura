@@ -17,23 +17,25 @@
 //!
 //! **So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
 //! distinction was learned rather than designed: this module first read `CI`, on the reasoning that
-//! CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
-//! provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
-//! job that runs the suite never brings the services up - so `CI=true` made a missing tier fatal in
-//! the one place its absence is expected, and it failed on the first push of the branch that added
-//! it, in a step that had tested nothing needing docker.
+//! CI is where a silent skip costs most. The reasoning was right and the signal was wrong, and the
+//! event that proved it happened IN CI: the branch that added this module provisioned no tier, so
+//! `CI=true` made a missing tier fatal right where its absence was expected - on its first push, in
+//! a step that had provisioned nothing. And nothing has changed that shape: no CI job sets `CI`
+//! only when it has provisioned a tier. What DOES opt in is the nix `checks.nextest` derivation,
+//! which provisions its own Postgres over a unix socket (`nix/postgres-tier.nix`) and sets the
+//! variable below; a docker tier needs docker on the host and opts in the same way.
 //!
-//! Only the job that provisions the tier knows that it did. So that job opts in by setting the
+//! Only the thing that provisions the tier knows that it did. So that thing opts in by setting the
 //! variable below and gets the fail-closed direction; everything else skips loudly and names what did
-//! not run. **The limit, stated with the claim:** nothing here verifies that a job setting the
-//! variable really did provision anything - it is a declaration, and a job that lies about it gets
-//! the failure it asked for.
+//! not run. **The limit, stated with the claim:** nothing here verifies that a process setting the
+//! variable really did provision anything - it is a declaration, and a process that lies about it
+//! gets the failure it asked for.
 
 /// The variable that overrides the machine class, in **both** directions.
 ///
 /// Named once, here, because a message that tells somebody to set it and a read that spells it
 /// differently is a fix that does not work and looks like it should.
-pub const FORCE: &str = "SUTURA_DEV_REQUIRE_DOCKER";
+pub const FORCE: &str = "SUTURA_DEV_REQUIRE_TIER";
 
 /// Whether a missing tier is fatal.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

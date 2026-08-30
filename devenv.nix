@@ -49,6 +49,11 @@ let
   # three, flake.nix does not import it: CI neither runs stax nor has an opinion about it.
   stax = import ./nix/stax.nix { inherit pkgs; };
 
+  # The shared nix-native Postgres tier - the SAME derivation `checks.nextest` runs in the
+  # sandbox. Exposed here so `just test` can start it and run the postgres cells rather than
+  # skip them, which keeps one provisioner for both the sandbox and the developer's shell.
+  postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
+
   # NIGHTLY is what the interactive shell gets, because cranelift is nightly-only and it is
   # the reason the inner loop is fast. STABLE is what the gates get - see `stableBin` below.
   rustToolchain = toolchains.nightly;
@@ -115,6 +120,12 @@ in
     # because `duckdb` is a let-binding in this file and reading it as `pkgs.duckdb` in one place
     # and the binding in another is exactly the drift nix/duckdb.nix exists to remove.
     duckdb.package
+
+    # The nix-native Postgres tier script, shared with `checks.nextex`'s sandbox. `just test`
+    # calls `sutura-postgres-tier start|stop` so the postgres corpus and differential cells run
+    # in the developer's shell too. Listed here rather than in the `with pkgs` block for the same
+    # reason as duckdb: `postgresTier` is a let-binding in this file.
+    postgresTier.tier
 
     # The CRAP gate. Two tools because the metric needs two inputs and neither produces both:
     # cargo-llvm-cov runs the tests under LLVM coverage and writes LCOV, cargo-crap reads that

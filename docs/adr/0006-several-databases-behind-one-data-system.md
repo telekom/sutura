@@ -455,7 +455,7 @@ A survey of the tree found **six** independent single-source assumptions, and th
 names is neither the first nor the most important. In the order a question meets them: the startup
 refusal in both composition roots, which rejects a catalog naming more than one source; the
 compile-time engine-source constant the declared source must equal; the service holding exactly one
-warehouse; the plan stage's source set, which refuses `PlanSpansTwoSources`; the plan having one
+warehouse; the plan stage's source set (one is a mono plan, exactly two are split into legs, three or more refuse as `PlanSpansTooManySources`); the plan having one
 source field while a join carries only a table name; and `answer` refusing when the plan's source is
 not the warehouse's.
 

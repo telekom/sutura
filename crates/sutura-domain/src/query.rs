@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{DimensionName, Grain, MetricName, SourceName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -258,12 +258,41 @@ pub enum RefusalReason {
     /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
     /// reflect into a message that reaches a log, a UI and an agent's context.
     TimeRangeTooLong { days: i32, limit: i32 },
-    /// The plan would need to read from more than one data system.
+    /// The plan would need to read from more than the deployment serves.
     ///
-    /// Refused rather than run in parts, because a second data system is a second identity to
-    /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
-    /// prevent.
-    PlanSpansTwoSources { sources: usize },
+    /// Refused rather than run in parts, because each data system is a separate identity to satisfy,
+    /// and a plan that runs partly as somebody else is the failure this design exists to prevent.
+    ///
+    /// **Exactly two is served** - a question that spans two sources is split into two legs and
+    /// combined above them (the splitter reaches `sutura_semantic::Plan::Federated`, and `answer`
+    /// either executes it or refuses it as [`FederationNotExecutable`](RefusalReason::FederationNotExecutable)
+    /// while no adapter executes a leg). So this is the bound on an unbounded fan-out: the "too many"
+    /// is a named count against the limit the deployment serves.
+    PlanSpansTooManySources { sources: usize, limit: usize },
+    /// The question asked is served by two sources, but this build has no adapter that can execute
+    /// a leg.
+    ///
+    /// The splitter and the combiner exist, but every shipped adapter answers an execution leg with
+    /// a typed refusal, so a two-source question cannot be answered yet - only the compile-side is
+    /// built. `answer` refuses here rather than surface the adapter's refusal as a retryable 503:
+    /// this is not a data system being down, and a caller must not retry it.
+    FederationNotExecutable,
+    /// The question's remote dimensions join the metric's own through more than one relationship.
+    ///
+    /// The combiner links the two legs on a single column; two relationships on one remote data
+    /// system would need two link columns, which the lookup leg does not carry. Refused rather than
+    /// guess a link, and named as a link ambiguity rather than a source count: it is not that too
+    /// many sources are involved.
+    FederationLinkAmbiguous { source: SourceName },
+    /// The question's measure cannot be decomposed into one leg per source.
+    ///
+    /// A measure federates only when its aggregate can be recomputed above the legs. A distinct count
+    /// cannot: two exact distinct counts added together over-count every key the two legs share, and
+    /// no re-aggregating function repairs it. The honest answer is to refuse rather than to pull the
+    /// rows up through a combiner that would have to guess.
+    ///
+    /// Carries the metric and the aggregate that cannot descend, so a caller sees why.
+    MeasureDoesNotFederate { metric: MetricName, aggregate: Aggregate },
     /// The plan named a data system this process did not open.
     ///
     /// **What raises it today is a name comparison, not an identity check**, and the doc comment

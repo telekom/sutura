@@ -690,7 +690,9 @@ The data systems this process opened, keyed by the name a plan selects them with
 
 # Why a registry rather than one warehouse
 
-A plan resolves to exactly one source - that is refused as `PlanSpansTwoSources` otherwise - but a
+A plan resolves to a single source for one answer - a question spanning two is federated and
+refused as `FederationNotExecutable` while no adapter executes a leg (three or more are refused at
+plan time) - but a
 *deployment* holds as many as its catalog names, and until now the service held exactly one. That
 made two facts indistinguishable: "this question is for a data system nobody configured" and "this
 question is for the other one of the two we opened". The first is a refusal an operator has to fix
