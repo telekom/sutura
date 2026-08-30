@@ -41,13 +41,16 @@
 //!   `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
 //!   delivered count short of the reported total is refused here - see [`WireError::MoreThanOnePage`]
 //!   and [`WireError::NotComplete`] - because to `answer()` a first page would read as *under the
-//!   cap, not truncated*, which is the exact row the row-cap invariant exists to hold. **The cost, and
-//!   it is a real one:** a wide result reaches a caller as `BigQueryError::Endpoint`, which the
-//!   transports answer as a `503` - a status that invites a retry that will produce the same page.
-//!   `ResultTooLarge` is what it means, and the port cannot say it: `Warehouse::working_set_exhausted`
-//!   is a predicate returning a ceiling in bytes precisely so an adapter cannot mint an arbitrary
-//!   `RefusalReason`. Widening that port is an architecture decision, so this is flagged rather than
-//!   taken, and AGENTS.md's row says so out loud.
+//!   cap, not truncated*, which is the exact row the row-cap invariant exists to hold. **And a wide
+//!   result now leaves as a REFUSAL rather than as a `503`, which is a correction to what this header
+//!   used to say was the cost.** It used to reach a caller as `BigQueryError::Endpoint`, which both
+//!   transports answer as the status a dead endpoint produces - inviting a retry that returns the same
+//!   page. `ResultTooLarge` is what it means, and the port can now say it: `result_did_not_fit` on
+//!   [`crate::transport::JobTransport`] answers it for [`WireError::MoreThanOnePage`], the adapter
+//!   passes it up through `Warehouse::result_did_not_fit`, and a caller gets `413 result_too_large`
+//!   carrying `ResultBound::Volume` - a bound with no number, because the reply cap is the service's
+//!   and it reports neither that nor the size of the reply that hit it. `NotComplete` deliberately
+//!   answers `false`: a job that ran out of time may finish on a retry.
 //! - **The service's own result cache is turned OFF.** Not for cost: an anchor that reproduces from a
 //!   cache has reproduced the cache, which is `differential.rs`'s own argument. And a cached answer
 //!   under a *shared* identity is shared across every asker, so leaving it on would put the

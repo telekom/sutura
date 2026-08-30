@@ -5083,7 +5083,7 @@ somebody else's input.
 - `DimensionValueNotAllowed` - The dimension is filterable and the value is not one the bundle declares.
 - `DuplicateDimension` - The same dimension appears twice in one question. Refused rather than deduplicated: a caller who sent it twice believes something we do not.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
-- `ResultTooLarge` - The result would carry more rows than `plan::MAX_ROWS`.
+- `ResultTooLarge` - The result was too much data to certify, and `ResultBound` says which bound said so.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
 - `SourceUnavailable` - The plan named a data system this process did not open.
@@ -5093,6 +5093,34 @@ somebody else's input.
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum ResultBound`
+
+```rust
+pub enum ResultBound
+```
+
+Which bound a result was too large for.
+
+**The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
+is one sentence - *too much data, ask a narrower question* - and
+`RefusalReason::ResultTooLarge` is that one answer. This is what the deployment knows about why,
+and the two arms differ in who measured it: the row cap is a number an operator configured here,
+and the volume bound belongs to the data system and is not one this process was told.
+
+**Closed, and read by exhaustive matches with no wildcard arm in both transports and in the
+agent-facing prompt.** A third bound is a compile error in each of them rather than a case one
+renders as another - which is what stops a bound with no number being described using somebody
+else's number.
+
+#### Variants
+
+- `Rows` - The plan's row cap, in rows.
+- `Volume` - The data system would not hand this result back in one piece.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum ToolOutcome`
 

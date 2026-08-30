@@ -283,7 +283,7 @@ depends on why:
 | `dimension_not_filterable` | `403` | It can be grouped by and not filtered on |
 | `dimension_value_not_allowed` | `403` | Use a value the catalog declares. The rejected value is never echoed back |
 | `plan_spans_two_sources` | `409` | Nothing. This deployment will not span two data systems |
-| `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
+| `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit. **One code for two bounds:** more rows than this service's cap, or more data than the data system would return at once. The sentence says which, and names a number only for the first - the second bound belongs to the data system and is not reported to us |
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
 | `credential_unavailable` | `403` | Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system |
@@ -315,7 +315,7 @@ places.
 as is the body shape, because only a refusal carries `outcome`:
 
 - `413` is `too_large` when the **request body** was over the limit, and `result_too_large` when the
-  **answer** was over the row cap.
+  **answer** was too much data - over the row cap, or over what the data system would return at once.
 - `503` is `unavailable` or `at_capacity` from the failure side, and `source_unavailable` from the
   refusal side.
 
