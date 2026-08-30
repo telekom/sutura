@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **federation**: Split, combine and serve a two-source question (#72) (#76)
 - **catalog**: Split the catalog matrix by adapter kind (#77)
 - **bigquery**: The fourth dialect, the adapter, and what a test runs against (#64)
 - **xtask**: Clean-branches, because --merged cannot see a squash merge (#74)
