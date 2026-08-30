@@ -1,7 +1,7 @@
 # The Postgres tier as a test-input, so the corpus and differential cells that need a real server
 # run inside the `checks.nextest` sandbox instead of a second, separately-compiling CI job.
 #
-# The nix build sandbox has no network and no docker socket (`dev/src/requirement.rs`), so the
+# The nix build sandbox has no network and no docker socket (see `flake.nix`'s own notes), so the
 # server has to be bundled and reached over a unix socket. nixpkgs' `postgresqlTestHook` already
 # does the lifecycle: `initdb -U postgres` + `pg_ctl` under `$NIX_BUILD_TOP`, `listen_addresses=''`
 # (no TCP at all), exporting `PGHOST` as the socket directory. It is the standard "database up
@@ -36,7 +36,7 @@
     '';
     postgresqlTestSetupPost = ''
       mkdir -p .sutura-dev
-      printf '{"project":"nix-sandbox","services":{"postgres":{"host":"%s","port":5432}}}\n' "$PGHOST" \
+      printf '{"project":"nix-sandbox","provisioner":"nix-sandbox","services":{"postgres":{"host":"%s","port":5432}}}\n' "$PGHOST" \
         > .sutura-dev/endpoints.json
     '';
     postgresqlExtraSettings = "fsync = off\nsynchronous_commit = off";

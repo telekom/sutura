@@ -55,30 +55,33 @@ mod tests {
         }
     }
 
-    /// Whether the discovered tier is docker's, not the nix sandbox's.
+    /// Whether the discovered tier is docker's, and if not, why the skip.
     ///
     /// These tests validate the DOCKER provisioner - an ephemeral port, a worktree-derived
     /// project, a live socket. The nix sandbox tier (`nix/postgres-tier.nix`) writes the same
-    /// discovery file with its own project name and a socket-directory host, so where that is what
-    /// is discovered there is no docker tier to exercise and the test skips, the way it did before
-    /// any tier existed.
+    /// discovery file but declares its own provisioner, so where that is what is discovered there
+    /// is no docker tier to exercise. Read here (not via `provisioned::here`) because `here`
+    /// honours `SUTURA_DEV_REQUIRE_TIER`, which the nix tier sets - asking for a service it did
+    /// not provision would then fail rather than skip.
     ///
-    /// Read here (not via `provisioned::here`) because `here` honours `SUTURA_DEV_REQUIRE_TIER`,
-    /// which the nix tier sets - asking for a service it did not provision would then fail rather
-    /// than skip.
+    /// The skip is written to stderr and names the tier, because this file's contract is that a
+    /// green run nobody can see is a green run that tested nothing.
     fn docker_tier() -> bool {
-        let root = match provisioned::worktree_root(inside()) {
-            Some(root) => root,
-            None => return false,
-        };
-        let scope = match Scope::from_root(&root) {
-            Ok(scope) => scope,
-            Err(_) => return false,
-        };
-        match sutura_dev::discovery::Endpoints::discover(&scope) {
-            Ok(endpoints) => endpoints.project() == scope.project(),
-            Err(_) => false,
+        let provisioner = sutura_dev::discovery::Endpoints::discover(&provisioned_scope())
+            .ok()
+            .and_then(|endpoints| endpoints.provisioner().map(str::to_owned))
+            .unwrap_or_else(|| "absent/unmarked".to_owned());
+        if provisioner != "docker" {
+            eprintln!("SKIPPED: the docker-provisioner wiring tests do not apply to the tier here ({provisioner})");
+            return false;
         }
+        true
+    }
+
+    /// This worktree's scope, for reading the discovery file without going through `here`.
+    fn provisioned_scope() -> Scope {
+        let root = provisioned::worktree_root(inside()).expect("this test crate is inside a checkout");
+        Scope::from_root(&root).expect("the worktree root resolves")
     }
 
     /// The claim, over every service a default provision starts.
@@ -124,8 +127,7 @@ mod tests {
         if !docker_tier() {
             return;
         }
-        let root = provisioned::worktree_root(inside()).expect("this test crate is inside a checkout");
-        let scope = Scope::from_root(&root).expect("the worktree root resolves");
+        let scope = provisioned_scope();
 
         let Some(_endpoint) = provisioned("postgres") else {
             return;

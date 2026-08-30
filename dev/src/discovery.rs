@@ -95,6 +95,9 @@ impl std::fmt::Display for Endpoint {
 pub struct Endpoints {
     /// The compose project these came from. Carried so a harness can say which worktree answered.
     project: String,
+    /// What wrote the file - `docker` (`xtask dev-up`) or `nix-sandbox` (the nix check). A fact in
+    /// the file rather than an inference, so a reader need not guess docker from the project name.
+    provisioner: Option<String>,
     /// Service name to endpoint. Ordered, so output and any digest over it are stable.
     services: BTreeMap<String, Endpoint>,
 }
@@ -122,6 +125,15 @@ impl Endpoints {
     #[must_use]
     pub fn project(&self) -> &str {
         &self.project
+    }
+
+    /// What provisioned this tier, where the file says.
+    ///
+    /// `docker` for `xtask dev-up`, `nix-sandbox` for the nix check. `None` when an older file (or
+    /// a hand-written one) carried no marker - a reader must not assume docker from the absence.
+    #[must_use]
+    pub fn provisioner(&self) -> Option<&str> {
+        self.provisioner.as_deref()
     }
 
     /// Where `service` is listening.
@@ -195,6 +207,11 @@ pub enum Malformed {
     NoServices,
     /// A service entry without a readable `host` and `port`.
     ServiceEntry,
+    /// A service host that is neither loopback nor a `/`-prefixed socket directory.
+    ///
+    /// The docker tier connects on loopback, the nix tier on a socket path. Anything else would
+    /// let a discovery file hand a harness an arbitrary host, so it is refused rather than trusted.
+    HostNeitherLoopbackNorSocket,
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -259,6 +276,7 @@ pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, Di
 
     let document = serde_json::json!({
         "project": scope.project(),
+        "provisioner": "docker",
         "root": scope.root().to_string_lossy(),
         "services": serde_json::Value::Object(services),
     });
@@ -338,6 +356,10 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
         .get("project")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| bad(Malformed::NoProject))?;
+    let provisioner = document
+        .get("provisioner")
+        .and_then(serde_json::Value::as_str)
+        .map(String::from);
     let entries = document
         .get("services")
         .and_then(serde_json::Value::as_object)
@@ -349,6 +371,10 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
             .get("host")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| bad(Malformed::ServiceEntry))?;
+        let valid_host = host == "127.0.0.1" || host == "::1" || host.starts_with('/');
+        if !valid_host {
+            return Err(bad(Malformed::HostNeitherLoopbackNorSocket));
+        }
         let port = value
             .get("port")
             .and_then(serde_json::Value::as_u64)
@@ -366,6 +392,7 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
 
     Ok(Endpoints {
         project: String::from(project),
+        provisioner,
         services,
     })
 }
@@ -418,7 +445,7 @@ mod tests {
         // `discover` is the only entry that produces endpoints; the rest read one they were given,
         // name the file, or write it.
         const SURFACE: &[&str] = &[
-            "host", "port", "discover", "project", "endpoint", "services", "path_for", "publish", "forget",
+            "host", "port", "discover", "project", "provisioner", "endpoint", "services", "path_for", "publish", "forget",
         ];
 
         let source = include_str!("discovery.rs");
@@ -489,10 +516,16 @@ mod tests {
             ("not json at all", Malformed::NotJson),
             (r#"{"services":{}}"#, Malformed::NoProject),
             (r#"{"project":"p"}"#, Malformed::NoServices),
-            (r#"{"project":"p","services":{"pg":{"host":"h"}}}"#, Malformed::ServiceEntry),
+            (r#"{"project":"p","services":{"pg":{"host":"127.0.0.1"}}}"#, Malformed::ServiceEntry),
             (
-                r#"{"project":"p","services":{"pg":{"host":"h","port":0}}}"#,
+                r#"{"project":"p","services":{"pg":{"host":"127.0.0.1","port":0}}}"#,
                 Malformed::ServiceEntry,
+            ),
+            (
+                // A host that is neither loopback nor a socket path is refused, so a discovery
+                // file cannot hand the harness an arbitrary remote host.
+                r#"{"project":"p","services":{"pg":{"host":"db.internal","port":5432}}}"#,
+                Malformed::HostNeitherLoopbackNorSocket,
             ),
         ];
         for (text, expected) in cases {

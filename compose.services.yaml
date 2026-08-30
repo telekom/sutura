@@ -144,8 +144,10 @@ services:
       POSTGRES_PASSWORD: *fixture-password
       POSTGRES_DB: sutura
       # C collation, matching the nix tier (`nix/postgres-tier.nix`) and what DuckDB/DataFusion
-      # do, so the differential's row order does not depend on a libc.
-      POSTGRES_INITDB_ARGS: "--locale=C"
+      # do, so the differential's row order does not depend on a libc. `--encoding=UTF8` is NOT
+      # redundant: `initdb` derives the encoding from the locale, and `C` carries none, so
+      # `--locale=C` alone would leave this tier SQL_ASCII while the nix tier declares UTF8.
+      POSTGRES_INITDB_ARGS: "--locale=C --encoding=UTF8"
     ports:
       - 5432
     volumes:

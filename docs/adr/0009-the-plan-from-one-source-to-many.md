@@ -391,9 +391,11 @@ Letting the allocator allocate has neither defect, and it costs exactly one thin
 developer could memorise. The discovery file replaces it with a value that is correct rather than
 remembered, and a `just` task that prints the endpoints costs a line.
 
-**The compose tier cannot be a nix check.** A nix check builds in a sandbox with no network and no
-docker socket, which is why `just validate` builds without network. It is a CI job and a `just` task
-that CONSUME nix-built artifacts. The strongest version of it runs the OCI image that actually ships.
+**The compose (docker) tier cannot be a nix check.** A docker tier needs a network and a docker
+socket, and a nix build sandbox has neither - which is why `just validate` builds without network.
+A service needing neither, like the Unix-socket Postgres tier the adapter hosts inside its check,
+CAN be one (`nix/postgres-tier.nix`). The docker tier is a CI job and a `just` task that CONSUME
+nix-built artifacts. The strongest version of it runs the OCI image that actually ships.
 
 **Absent docker is a SKIP locally and a FAILURE in CI, and those are not the same default.** An earlier
 version of this record said the tier prints SKIPPED and exits 0, and said in the same breath that a

@@ -34,8 +34,10 @@
 //!
 //! # Not a nix check, deliberately
 //!
-//! The nix sandbox has no network and no docker socket, so this cannot be a `checks.*` derivation.
-//! It is a `just` task and a CI job over nix-built artifacts instead.
+//! The nix sandbox has neither a network nor a docker socket, so a DOCKER-based tier cannot be a
+//! `checks.*` derivation. (A service needing neither, like the sandbox's Unix-socket Postgres, can
+//! be - see `nix/postgres-tier.nix`.) This one is a `just` task and a CI job over nix-built
+//! artifacts instead.
 
 mod docker;
 mod lock;

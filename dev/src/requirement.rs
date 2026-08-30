@@ -17,11 +17,13 @@
 //!
 //! **So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
 //! distinction was learned rather than designed: this module first read `CI`, on the reasoning that
-//! CI is where a silent skip costs most. The reasoning was right and the signal was wrong. Nothing
-//! sets `CI` only when it has provisioned a tier - the nix `checks.nextest` derivation provisions
-//! its own Postgres over a unix socket (`nix/postgres-tier.nix`), and a docker tier needs docker on
-//! the host - so `CI=true` made a missing tier fatal in a plain dev shell, where its absence is
-//! expected.
+//! CI is where a silent skip costs most. The reasoning was right and the signal was wrong, and the
+//! event that proved it happened IN CI: the branch that added this module provisioned no tier, so
+//! `CI=true` made a missing tier fatal right where its absence was expected - on its first push, in
+//! a step that had provisioned nothing. And nothing has changed that shape: no CI job sets `CI`
+//! only when it has provisioned a tier. What DOES opt in is the nix `checks.nextest` derivation,
+//! which provisions its own Postgres over a unix socket (`nix/postgres-tier.nix`) and sets the
+//! variable below; a docker tier needs docker on the host and opts in the same way.
 //!
 //! Only the thing that provisions the tier knows that it did. So that thing opts in by setting the
 //! variable below and gets the fail-closed direction; everything else skips loudly and names what did

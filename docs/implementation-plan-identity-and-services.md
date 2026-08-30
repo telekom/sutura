@@ -291,8 +291,9 @@ thing to tell somebody whose tier is already up and whose service is behind a pr
 alone, which was correct while provisioning was the only caller; a second copy in the harness would
 be a fail-open/fail-closed decision made twice and edited months apart. `sutura_dev::requirement` is
 that place now, and `xtask` reads it. **The limit worth stating:** "CI" is an environment variable, so
-a nix check is not in CI by this definition - and it has neither a network nor a docker socket, so
-the docker-gated tests skip there rather than failing.
+a nix check is not in CI by this definition, and it does not provision a docker tier (no network, no
+docker socket), so the docker-gated tests skip there rather than failing. The Postgres cells do not
+skip: `checks.nextest` provisions Postgres itself over a unix socket (see `nix/postgres-tier.nix`).
 
 **And a skip has to be visible, which libtest cannot express.** There are three outcomes - pass, fail,
 ignored - and `#[ignore]` is a compile-time decision, so a test that discovers at runtime that there
@@ -325,8 +326,10 @@ The mechanism is one flag read from the environment, and the direction it points
 where the flag is read - which is what `AGENTS.md` asks for: neither direction is the default, and what
 a wrong answer costs decides it per mechanism.
 
-**Note it cannot be a nix check** - the sandbox has no network and no docker socket - so it is a CI job
-and a `just` task that consume nix-built artifacts. The strongest version runs the OCI image that ships.
+**Note the docker tier cannot be a nix check** - a docker tier needs a network and a docker socket,
+which the sandbox does not have (a service needing neither, like the Unix-socket Postgres the
+adapter hosts inside its check, can be one) - so it is a CI job and a `just` task that consume
+nix-built artifacts. The strongest version runs the OCI image that ships.
 
 **Tests.** These are testable without docker, and the ones that matter are:
 
