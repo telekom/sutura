@@ -163,7 +163,7 @@ pub(crate) fn presented() -> Presented {
     Presented::SharedServiceUser { declared: declared() }
 }
 
-/// The adapter, opened over the connection under the given source name.
+/// The adapter, opened over the connection under the given source name, bounded as told.
 ///
 /// **The composition, and it is a thing these legs are evidence for beside the round trip:** one
 /// [`WireAgent`] carrying the bounds, one [`Credential`] behind the token port, one transport behind
@@ -174,12 +174,19 @@ pub(crate) fn presented() -> Presented {
 /// The source NAME is a parameter because the two legs need different ones: the smoke leg names its
 /// own, and the corpus leg has to answer to the name the example catalog's models declare, since that
 /// is what a plan selects a warehouse with.
-pub(crate) fn opened(source: SourceName, connection: Connection) -> Wired {
+///
+/// **The BOUNDS are a parameter for a reason measured in CI rather than reasoned about.** [`bounds`]
+/// derives its deadline from `server.request_timeout_seconds`, which is the budget for ANSWERING A
+/// CALLER - and the corpus leg's fixture LOAD answers nobody. A run on 2026-08-31 failed with
+/// `NotComplete` on an eight-row `CREATE OR REPLACE TABLE`: the endpoint had not finished the job
+/// inside the request-derived share, which is around twelve seconds. So the caller decides, and the
+/// corpus leg gives its loader a deadline of its own while keeping the money ceiling identical.
+pub(crate) fn opened(source: SourceName, connection: Connection, bounds: JobBounds) -> Wired {
     BigQueryWarehouse::new(
         source,
         posture(),
         connection.billing_project,
         connection.dataset,
-        BigQueryWire::new(WireAgent::pinned(bounds()), connection.credentials),
+        BigQueryWire::new(WireAgent::pinned(bounds), connection.credentials),
     )
 }
