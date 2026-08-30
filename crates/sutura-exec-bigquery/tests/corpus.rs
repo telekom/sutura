@@ -105,6 +105,20 @@
 //! and where the fail-rather-than-skip argument lives. `SUTURA_BQ_TABLE` is NOT needed here: this leg
 //! creates its own four tables.
 //!
+//! # The one way this leg is known to be FLAKY, and what bounds it
+//!
+//! **A load can come back `NotComplete`.** `jobs.query` reports an unfinished job rather than waiting,
+//! and a CI run on 2026-08-31 hit it on an eight-row `CREATE OR REPLACE TABLE` that had succeeded
+//! twice before - so the variable is the endpoint's speed, not the fixture's size. `loading_bounds`
+//! answers it by giving the LOADS a deadline of their own, two minutes, because a fixture load is
+//! setup and answers no caller; the money ceiling is unchanged.
+//!
+//! **It is headroom rather than a guarantee, deliberately.** `transport::JobTransport::apply` requires
+//! `jobComplete`, because answering `Ok` to an unfinished `CREATE` is a half-loaded fixture whose
+//! corpus run then disagrees with the engine for a reason that looks like a dialect bug. So a slow
+//! endpoint makes this leg go red on the LOAD, naming the table - which is what happened, and is the
+//! right failure to have.
+//!
 //! **It WRITES to the dataset**, which the smoke leg does not, and the consequence is worth stating:
 //! four tables named after the example models - `dim_customer`, `dim_product`,
 //! `fct_subscription_monthly` and `fct_usage_daily` - are replaced on every run. The names are fixed
@@ -135,7 +149,41 @@ mod tests {
     use sutura_domain::query::{Query, ToolOutcome};
     use sutura_domain::warehouse::{PreFlight, RowSet, Value, Warehouse as _};
 
-    use crate::support::{Connection, Wired, opened, presented};
+    use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline};
+
+    use crate::support::{Connection, Wired, bounds, opened, presented};
+
+    /// What the fixture LOADS are bounded by, which is not what the questions are bounded by.
+    ///
+    /// **Measured, not guessed.** `support::bounds` derives its deadline from
+    /// `server.request_timeout_seconds` - the budget for answering a caller - and a fixture load
+    /// answers nobody. A CI run on 2026-08-31 failed with `NotComplete` on an EIGHT-ROW
+    /// `CREATE OR REPLACE TABLE`: the endpoint had not finished the job inside the request-derived
+    /// share, which is around twelve seconds, and `jobs.query` reports an unfinished job rather than
+    /// waiting. Size is not the variable - the same load had succeeded twice in the two runs before -
+    /// so what this buys is headroom against a slow DDL rather than room for a big one.
+    ///
+    /// **The MONEY ceiling is deliberately identical**, because that is the bound that protects an
+    /// invoice and a load has no reason to be allowed to scan more than a question. Only the clock
+    /// moves.
+    ///
+    /// **The limit, and it is why the header names this as a known flake:** a longer deadline makes an
+    /// incomplete load less likely and cannot make it impossible. `apply` requires `jobComplete` on
+    /// purpose - answering `Ok` to an unfinished `CREATE` is a half-loaded fixture whose corpus run
+    /// then disagrees with the engine for a reason that looks like a dialect bug - so the honest
+    /// outcome of a slow endpoint is this leg going red on the load, naming the table, which is what
+    /// happened.
+    fn loading_bounds() -> JobBounds {
+        JobBounds::of(
+            QueryDeadline::parse(120).expect("two minutes is a deadline"),
+            BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
+        )
+    }
+
+    /// The adapter, opened to LOAD - the long deadline, and nothing else different.
+    fn loader() -> Wired {
+        opened(source(), Connection::required(), loading_bounds())
+    }
 
     /// The source name every model in the example catalog declares.
     ///
@@ -507,8 +555,8 @@ mod tests {
         // fails with `notFound`, which is the shape a developer would otherwise read as a generator
         // defect.
         let pinned = bundle();
-        let warehouse = opened(source(), Connection::required());
-        let loaded = load_the_corpus(&pinned, &warehouse);
+        let warehouse = opened(source(), Connection::required(), bounds());
+        let loaded = load_the_corpus(&pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
@@ -571,8 +619,8 @@ mod tests {
         // parse cleanly when wrong - `docs/adr/0017` measured that - so a golden cannot see them and
         // this can: a Sunday bucketed into the wrong week is a different row here.
         let pinned = bundle();
-        let warehouse = opened(source(), Connection::required());
-        let loaded = load_the_corpus(&pinned, &warehouse);
+        let warehouse = opened(source(), Connection::required(), bounds());
+        let loaded = load_the_corpus(&pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
@@ -703,8 +751,8 @@ mod tests {
         // what would catch an arithmetic difference that a row comparison over this corpus happened
         // not to touch.
         let pinned = bundle();
-        let warehouse = opened(source(), Connection::required());
-        let loaded = load_the_corpus(&pinned, &warehouse);
+        let warehouse = opened(source(), Connection::required(), bounds());
+        let loaded = load_the_corpus(&pinned, &loader());
         assert!(
             loaded > 1000,
             "the example corpus is over a thousand rows and {loaded} loaded"
