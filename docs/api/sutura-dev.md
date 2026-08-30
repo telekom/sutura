@@ -520,8 +520,9 @@ container is the worst outcome available: a test passes because the *other* bran
 migration ran, and the failure appears in whichever branch is unlucky.
 
 Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
-it is nix-native, provisioned by `nix/postgres-tier.nix`, and the sandbox's `checks.nextest`
-runs it on a unix socket under the build tree - see that module).
+it is nix-native, provisioned by `nix/postgres-tier.nix` and run by `checks.nextest` and by
+`just test`, over a unix socket in a short per-worktree directory under `$TMPDIR` - see that
+module).
 
 So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 of the worktree's CANONICAL path.

@@ -1,33 +1,15 @@
-//! A [`Warehouse`] adapter over PostgreSQL.
+//! A [`Warehouse`] adapter over PostgreSQL - one connection under the deployment's declared
+//! identity (`SharedServiceUser`). The static half of Postgres: no OAuth, no impersonation.
 //!
-//! One connection, under the deployment's declared identity (`SharedServiceUser`). The static
-//! half of Postgres: no OAuth, no impersonation. That is row 18.
-//!
-//! Two things this adapter proves:
-//!
-//! 1. **The artifact question.** `tokio-postgres` is pure Rust and links nothing, so Postgres is
-//!    the first source whose driver does not pull a native library.
-//! 2. **Acceptance.** `DuckDB` was the only data system that showed a rendered statement is *accepted*
-//!    rather than just parsed. This makes it two, over the wire.
-//!
-//! Rendering is `sutura-sql`'s (`generate(plan, Dialect::Postgres)`); the parameters are bound by
-//! hand. Nothing here is compiled or translated.
-//!
-//! The client is async; the [`Warehouse`] port is not, so this adapter owns a `tokio` runtime and
-//! `block_on`s each call - the engine's own pattern. It was chosen over `sqlx` because its
-//! protocol and SASL support underpin the OAuth work already done against a live Postgres, which
-//! keeps row 18's door open.
+//! The client is async and the [`Warehouse`] port is not, so this adapter owns a `tokio` runtime
+//! and `block_on`s each call. `tokio-postgres` is pure Rust and links nothing native. SQL renders
+//! through `sutura-sql` (`Dialect::Postgres`); nothing here is compiled or translated.
 //!
 //! ## Limits
 //!
-//! - `NoTls`, unconditional. SCRAM protects the password, not the rows; a `hostssl`-only server
-//!   refuses this connection. Fine for a localhost tier (all this ships for). TLS is a change to
-//!   `connect`.
-//! - The corpus cells run only where a tier is provisioned, and skip loudly elsewhere. The signal
-//!   is `SUTURA_DEV_REQUIRE_TIER`, not `CI` - whoever provisions the tier sets it and gets
-//!   fail-closed.
-//! - A `statement_timeout` is set at connect so a slow server statement cannot hold a blocking-pool
-//!   thread past the caller's request deadline.
+//! - `NoTls`, unconditional: a `hostssl`-only server refuses this connection.
+//! - A `statement_timeout` is set at connect, so a slow server statement cannot hold a
+//!   blocking-pool thread past the caller's request deadline.
 
 mod importer;
 
@@ -68,26 +50,15 @@ pub enum PostgresError {
         cause: tokio_postgres::Error,
     },
     /// The server refused a statement as `division by zero` (SQLSTATE `22012`).
-    ///
-    /// Postgres raises this where `DuckDB` and the engine hand back a non-finite cell to refuse. The
-    /// raw server error stays as the `#[source]`.
     #[error("the statement was refused by the server as a division by zero")]
     DivisionByZero {
         #[source]
         cause: tokio_postgres::Error,
     },
-    /// A `NUMERIC` wider than this build can carry exactly.
-    ///
-    /// Refused rather than rounded, so an approximated total never answers under the certified
-    /// number.
+    /// A `NUMERIC` wider than this build can carry exactly. Refused, not rounded.
     #[error("column {column} came back as a number wider than this build can carry exactly")]
     NumericNotCarryable { column: String },
-    /// A column came back as a type this adapter does not map.
-    ///
-    /// An error rather than a stringified fallback, for the reason the `DuckDB` adapter gives its own
-    /// copy of this variant: a value rendered with `Debug` would flow into an answer looking like
-    /// data. Named by its column's LABEL, which is what both adapters do, so an error from either is
-    /// readable against the same projection.
+    /// A column came back as a type this adapter does not map. An error, not a stringified value.
     #[error("column {column} came back as {postgres_type}, which this adapter does not map")]
     UnsupportedType { column: String, postgres_type: &'static str },
     /// A floating-point (or `NUMERIC`) column came back as a value that is not a number.
@@ -128,17 +99,13 @@ pub enum PostgresError {
         #[source]
         cause: std::io::Error,
     },
-    /// A CSV header named a column that is not a valid identifier. A fixture is repo-committed, so
-    /// there is no live hole - but `load_csv` is a `pub` DDL renderer, and a name reaching the
-    /// `CREATE TABLE` / `COPY` unparsed is the shape "a document read off disk gets the treatment a
-    /// question off the wire gets" is about.
+    /// A CSV header named a column that is not a valid identifier. Refused, not interpolated.
     #[error("a CSV header named a column that is not a valid identifier")]
     InvalidColumnName {
         #[source]
         cause: sutura_domain::model::InvalidIdentifier,
     },
-    /// A schema name this adapter was asked to open that is not a word, so it is refused rather than
-    /// interpolated into `CREATE SCHEMA`.
+    /// A schema name this adapter was asked to open that is not a word. Refused, not interpolated.
     #[error("the schema name {schema} is not a single word character")]
     InvalidSchemaName { schema: String },
     /// The credential broker handed this adapter subject material it has nowhere to put.
@@ -177,8 +144,8 @@ impl core::fmt::Debug for PostgresWarehouse {
 }
 
 impl PostgresWarehouse {
-    /// Opens a connection under the supplied [`tokio_postgres::Config`] - host and the ephemeral port
-    /// the compose tier allocated, user, password and database - and keeps one connection under it.
+    /// Opens one connection under the supplied [`tokio_postgres::Config`] and keeps it for this
+    /// adapter's life.
     pub fn connect(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
@@ -221,14 +188,9 @@ impl PostgresWarehouse {
         })
     }
 
-    /// Opens a connection whose every unqualified table name resolves to a fresh, private schema.
-    ///
-    /// The corpus runs several warehouses against ONE shared Postgres, in parallel threads; a shared
-    /// schema would let one cell's drop-and-recreate clobber another mid-query. A per-connection
-    /// schema makes each cell's tables its own.
-    ///
-    /// The schema name is caller-supplied (a corpus-generated name), so it is validated to a word
-    /// before it reaches `CREATE SCHEMA`.
+    /// Like `connect`, but every unqualified table name resolves to a fresh,
+    /// private schema - so several warehouses can share one Postgres without clobbering each other.
+    /// The caller-supplied schema name is validated to a word before it reaches `CREATE SCHEMA`.
     pub fn connect_in_schema(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
@@ -257,7 +219,7 @@ impl PostgresWarehouse {
         Ok(warehouse)
     }
 
-    /// A connection config for the fixture tier, honouring the same `SUTURA_DEV_*` overrides the
+    /// A connection config for the fixture tier, honouring the `SUTURA_DEV_*` overrides the
     /// compose file reads, so a host that objects to a weak default can change one value.
     #[must_use]
     pub fn local_config(host: &str, port: u16) -> tokio_postgres::Config {
@@ -271,9 +233,9 @@ impl PostgresWarehouse {
         config
     }
 
-    /// Exposes a fixture CSV as a table: infer column types from the values, drop and recreate the
-    /// table, then push the rows through `COPY ... FROM STDIN`. Re-inferring every run from a
-    /// committed CSV cannot drift from it, and recreating makes a run idempotent.
+    /// Exposes a fixture CSV as a table: infers column types, recreates the table, then pushes the
+    /// rows through `COPY ... FROM STDIN`. Re-inferring from the committed CSV each run cannot
+    /// drift from it, and recreating makes a run idempotent.
     pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError> {
         let text = std::fs::read_to_string(path).map_err(|cause| PostgresError::FixtureRead {
             path: path.display().to_string(),
