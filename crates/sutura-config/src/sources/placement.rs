@@ -221,6 +221,18 @@ pub enum SourcePlacement {
         data_dir: PathBuf,
     },
     /// A `BigQuery` dataset, plus the project its jobs are billed to.
+    ///
+    /// **The limit, worth stating because the deployment it cannot describe is the one this file's
+    /// other argument names:** the dataset's OWN project is unrepresentable. The endpoint's
+    /// `defaultDataset` resolves an omitted project in the request's project - the billing one - so
+    /// this placement can only describe a dataset that lives inside the project paying for the job. A
+    /// dataset owned by a different project than the payer is precisely the case where payer and data
+    /// owner are different parties because they are different projects, which is the same argument
+    /// [`BillingProject`] makes for existing. `location` is the same question one size smaller: a
+    /// dataset outside the two multi-regions needs it on the endpoint's result-paging call. Neither a
+    /// `project` nor a `location` field is added yet because this seam has no transport consuming
+    /// them; the limit is also stated in `docs/adr/0017`, and the change that adds the wire is the one
+    /// that decides the fields.
     BigQuery {
         /// Declared, never inferred. See [`BillingProject`].
         billing_project: BillingProject,

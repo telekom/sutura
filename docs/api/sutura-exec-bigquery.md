@@ -26,6 +26,11 @@ What it contains is everything this adapter DECIDES:
 - the refusal of a federated leg, because there is no combiner above it;
 - the value mapping, which is where a wrong number would come from.
 
+**A limit of that mapping, stated because it decides what a time column on this source is:**
+`transport::FieldType` reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
+as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
+answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
+
 What it does not contain is the **wire**: `transport::JobTransport` is the seam, and no
 implementor of it ships. Two reasons, and the second is the one that decides it:
 
@@ -88,6 +93,7 @@ an owned `#[source]`.
 - `NotFinite` - A double came back non-finite.
 - `NotADate` - A cell declared as a date did not parse as one.
 - `RowWidth` - A row had more or fewer cells than the schema had columns.
+- `Incomplete` - The endpoint delivered a page whose row count is not what it reported as total.
 - `Shape` - The result set could not be built.
 
 ### Implements
@@ -328,6 +334,20 @@ produces an error NAMING it rather than a null.
 - `Date` - A calendar date, as ISO text.
 - `Unmapped` - A type this adapter does not map, under the name the endpoint used for it.
 
+#### Methods
+
+```rust
+pub fn parse(name: &str) -> Self
+```
+
+Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
+
+A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
+variants here are named after their modern spellings. The transport that reads an answer's
+schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
+lives, and not in the unbuilt transport. A name nobody maps becomes `Self::Unmapped` under
+the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -393,7 +413,14 @@ fake and the real implementor would each have to do it and could disagree.
 pub struct JobRows
 ```
 
-A job's result: what the columns are, and the rows under them.
+A job's result: what the columns are, the rows under them, and how many the job produced.
+
+**The count is part of the result, and that is what makes a partial answer not a result.** The
+endpoint's `jobs.query` answers one page - "as many results as can be contained within the
+maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
+single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
+truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
+endpoint reported as total - see `super::BigQueryError::Incomplete`.
 
 #### Methods
 
@@ -404,16 +431,25 @@ pub fn fields(&self) -> &[Field]
 The columns, in the order the statement projected them.
 
 ```rust
-pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>) -> Self
+pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self
 ```
 
 Assembles a result.
+
+`total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
+complete - so an incomplete job has no value to fill it with, and the transport has to error.
 
 ```rust
 pub fn rows(&self) -> &[Vec<Cell>]
 ```
 
-The rows.
+The rows on this page.
+
+```rust
+pub const fn total_rows(&self) -> usize
+```
+
+What the endpoint said the job's total is, which a delivered page is compared against.
 
 #### Implements
 

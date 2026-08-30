@@ -63,7 +63,7 @@ impl Recording {
     }
 
     fn empty() -> Self {
-        Self::answering(JobRows::of(Vec::new(), Vec::new()))
+        Self::answering(JobRows::of(Vec::new(), Vec::new(), 0))
     }
 
     fn record(&self, request: &JobRequest<'_>) {
@@ -226,7 +226,7 @@ type Case = (FieldType, Cell, Value);
 
 /// One column and one row of it, for the value-mapping table.
 fn one_cell(kind: FieldType, cell: Cell) -> JobRows {
-    JobRows::of(vec![Field::of(String::from("value"), kind)], vec![vec![cell]])
+    JobRows::of(vec![Field::of(String::from("value"), kind)], vec![vec![cell]], 1)
 }
 
 // -------------------------------------------------------------------------------- tests ----
@@ -389,10 +389,13 @@ fn every_type_this_adapter_maps_answers_what_the_other_sql_adapter_answers() {
 
 #[test]
 fn a_non_finite_double_is_refused_rather_than_answered() {
-    // **The arm that decides whether `zero_denominator: fails` means what its word says.** A division
-    // by zero in IEEE arithmetic answers `inf` rather than failing, so a `FLOAT64` column is where an
-    // unguarded division lands. `sutura-exec-duckdb` has the same arm for the same reason.
-    for hostile in ["inf", "-inf", "NaN"] {
+    // **The arm that keeps a stored non-finite value from answering under a certified number.** A
+    // `FLOAT64` column holding a non-finite value is refused here - in GoogleSQL the unguarded `/`
+    // raises on a zero divisor, so this arm is not the ratio case that `zero_denominator: fails`
+    // carries on DuckDB; it is a STORED `Infinity`. The fixture spells the values the way the endpoint
+    // does - `Infinity`/`-Infinity`/`NaN` - rather than the standard library's `inf`, so the test
+    // keeps measuring the wire's shape.
+    for hostile in ["Infinity", "-Infinity", "NaN"] {
         let error = BigQueryWarehouse::<Recording>::rows(&one_cell(FieldType::Float64, Cell::Text(String::from(hostile))))
             .expect_err("a non-finite double is refused");
         assert!(matches!(error, BigQueryError::NotFinite { .. }), "{hostile}: {error:?}");
@@ -456,6 +459,7 @@ fn a_row_at_the_wrong_width_is_refused_and_names_which_row() {
             vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
             vec![Cell::Text(String::from("3"))],
         ],
+        2,
     );
     let error = BigQueryWarehouse::<Recording>::rows(&rows).expect_err("a ragged result is refused");
     match error {
@@ -463,6 +467,30 @@ fn a_row_at_the_wrong_width_is_refused_and_names_which_row() {
             assert_eq!((row, cells, columns), (1, 1, 2));
         }
         other => panic!("expected a row-width refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_result_shorter_than_what_the_endpoint_reported_is_refused() {
+    // `jobs.query` answers ONE page; completeness is the endpoint's `totalRows`, never the rows alone.
+    // A first page, or an incomplete job's empty `rows`, would otherwise read to `answer()` as *under
+    // the cap, not truncated* - a wrong number under a certified name, through the exact row the
+    // row-cap invariant exists to hold. This is the seam refusing it.
+    let answered = JobRows::of(
+        vec![
+            Field::of(String::from("a"), FieldType::Int64),
+            Field::of(String::from("b"), FieldType::Int64),
+        ],
+        vec![
+            vec![Cell::Text(String::from("1")), Cell::Text(String::from("2"))],
+            vec![Cell::Text(String::from("3")), Cell::Text(String::from("4"))],
+        ],
+        3,
+    );
+    let error = BigQueryWarehouse::<Recording>::rows(&answered).expect_err("a partial result is refused");
+    match error {
+        BigQueryError::Incomplete { delivered, total } => assert_eq!((delivered, total), (2, 3)),
+        other => panic!("expected an incomplete-result refusal, got {other:?}"),
     }
 }
 

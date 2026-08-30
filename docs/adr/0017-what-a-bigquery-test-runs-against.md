@@ -67,6 +67,14 @@ declares, so the step can be built and demonstrated with nothing more.
 be.** A developer names it in their own environment, for the reason the plan page gives: this
 repository is public, so the value belongs on the machine and only the hook belongs here.
 
+And the *fields* for two of those are not in this repository for the same reason the value is not:
+`SourcePlacement::BigQuery` declares a billing project and a dataset and nothing else. A dataset's own
+project is unrepresentable - an omitted `defaultDataset.projectId` resolves in the request's (billing)
+project, so a dataset owned by a different project than the payer cannot be declared - and neither is
+`location`, which the result-paging call needs for a dataset outside the two multi-regions. Stated
+rather than added because no transport consumes them; the change that adds the wire is the one that
+decides the fields.
+
 ## What the corpus therefore claims, exactly
 
 **Rendering and parse-checking. Not acceptance.** In CI, for this dialect:
@@ -148,7 +156,10 @@ When it lands, what it has to assert is what would actually be new information:
 - the corpus's statements are **accepted** and return rows, which is the claim CI cannot make;
 - the rows agree with the engine's for the same plan, which is `differential.rs`'s shape pointed at a
   second data source;
-- the bucket is right, which is the one thing above that no local check reaches.
+- the bucket is right, which is the one thing above that no local check reaches;
+- the result is the endpoint's **complete** answer and not the first page - a job `jobComplete` with
+  `totalRows` equalling the delivered count, which is what the seam's `JobRows::of` now forces a
+  transport to vouch for rather than leaving completeness to the shape of a page.
 
 And it stays out of `just validate`, because a gate that needs a cloud project is a gate that fails
 for an environment reason on somebody else's machine.

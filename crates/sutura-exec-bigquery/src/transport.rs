@@ -92,6 +92,17 @@ impl<'job> JobRequest<'job> {
     /// revisited - which is the right amount of friction for that change.
     pub const PARAMETER_MODE: ParameterMode = ParameterMode::Positional;
 
+    /// `useLegacySql` is `false`, written rather than taken, because the endpoint's default is the
+    /// wrong one.
+    ///
+    /// Everything this crate renders is `GoogleSQL` - backticks, `DATE_TRUNC(col, MONTH)`, and `?`
+    /// parameters, which the endpoint describes as *"`GoogleSQL` only"*. The request's `useLegacySql`
+    /// flag **defaults to `true`**, so a transport that writes [`Self::PARAMETER_MODE`] and does not
+    /// remember this sends a legacy-SQL request. A transport writes `JobRequest::USE_LEGACY_SQL` and
+    /// gets the same answer - the flag is a decision this adapter makes about the dialect, not one per
+    /// request.
+    pub const USE_LEGACY_SQL: bool = false;
+
     /// The project this job is billed to.
     #[inline]
     #[must_use]
@@ -224,6 +235,28 @@ pub enum FieldType {
     Unmapped(String),
 }
 
+impl FieldType {
+    /// Decodes a type name the endpoint sends, into the closed vocabulary this adapter maps.
+    ///
+    /// A query response spells the types the legacy way - `INTEGER`/`FLOAT`/`BOOLEAN` - while the
+    /// variants here are named after their modern spellings. The transport that reads an answer's
+    /// schema calls this, so which spellings become `Int64` is decided HERE, where the value mapping
+    /// lives, and not in the unbuilt transport. A name nobody maps becomes [`Self::Unmapped`] under
+    /// the endpoint's own spelling, so an answer is refused NAMING it rather than answered as null.
+    #[must_use]
+    pub fn parse(name: &str) -> Self {
+        match name {
+            "INT64" | "INTEGER" => Self::Int64,
+            "FLOAT64" | "FLOAT" => Self::Float64,
+            "BOOL" | "BOOLEAN" => Self::Bool,
+            "NUMERIC" | "BIGNUMERIC" => Self::Numeric,
+            "STRING" => Self::String,
+            "DATE" => Self::Date,
+            other => Self::Unmapped(String::from(other)),
+        }
+    }
+}
+
 /// One column, as the endpoint described it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Field {
@@ -268,18 +301,33 @@ pub enum Cell {
     Text(String),
 }
 
-/// A job's result: what the columns are, and the rows under them.
+/// A job's result: what the columns are, the rows under them, and how many the job produced.
+///
+/// **The count is part of the result, and that is what makes a partial answer not a result.** The
+/// endpoint's `jobs.query` answers one page - "as many results as can be contained within the
+/// maximum permitted reply size" - and `totalRows` "can be more than the number of rows in this
+/// single page". A first page, or an incomplete job's empty `rows`, is *under the cap, not
+/// truncated*, and this adapter's `rows` refuses a delivered count that does not equal what the
+/// endpoint reported as total - see [`super::BigQueryError::Incomplete`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JobRows {
     fields: Vec<Field>,
     rows: Vec<Vec<Cell>>,
+    total_rows: usize,
 }
 
 impl JobRows {
     /// Assembles a result.
+    ///
+    /// `total_rows` is what the endpoint reported as `totalRows`, which is present only when a job is
+    /// complete - so an incomplete job has no value to fill it with, and the transport has to error.
     #[must_use]
-    pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>) -> Self {
-        Self { fields, rows }
+    pub const fn of(fields: Vec<Field>, rows: Vec<Vec<Cell>>, total_rows: usize) -> Self {
+        Self {
+            fields,
+            rows,
+            total_rows,
+        }
     }
 
     /// The columns, in the order the statement projected them.
@@ -289,11 +337,18 @@ impl JobRows {
         &self.fields
     }
 
-    /// The rows.
+    /// The rows on this page.
     #[inline]
     #[must_use]
     pub fn rows(&self) -> &[Vec<Cell>] {
         &self.rows
+    }
+
+    /// What the endpoint said the job's total is, which a delivered page is compared against.
+    #[inline]
+    #[must_use]
+    pub const fn total_rows(&self) -> usize {
+        self.total_rows
     }
 }
 
@@ -375,5 +430,30 @@ mod tests {
                 .as_str(),
             "analytics-prod"
         );
+    }
+
+    #[test]
+    fn a_type_name_the_endpoint_sends_decodes_to_the_vocabulary_this_adapter_maps() {
+        // A query response spells the legacy names; the closed vocabulary is named after the modern
+        // forms. Decoding belongs HERE so a transport written from the variant names cannot map
+        // `INTEGER` to `Unmapped` and hand a live answer a type nobody mapped.
+        use super::FieldType;
+        for (wire, expected) in [
+            ("INTEGER", FieldType::Int64),
+            ("INT64", FieldType::Int64),
+            ("FLOAT", FieldType::Float64),
+            ("FLOAT64", FieldType::Float64),
+            ("BOOLEAN", FieldType::Bool),
+            ("BOOL", FieldType::Bool),
+            ("NUMERIC", FieldType::Numeric),
+            ("BIGNUMERIC", FieldType::Numeric),
+            ("STRING", FieldType::String),
+            ("DATE", FieldType::Date),
+        ] {
+            assert_eq!(FieldType::parse(wire), expected, "{wire}");
+        }
+        // The limit the crate documentation names: a time column is a time the endpoint has and this
+        // adapter does not, so it stays named rather than becoming a column that answers.
+        assert_eq!(FieldType::parse("TIMESTAMP"), FieldType::Unmapped(String::from("TIMESTAMP")));
     }
 }

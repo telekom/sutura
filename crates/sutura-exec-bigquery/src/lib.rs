@@ -17,6 +17,11 @@
 //! - the refusal of a federated leg, because there is no combiner above it;
 //! - the value mapping, which is where a wrong number would come from.
 //!
+//! **A limit of that mapping, stated because it decides what a time column on this source is:**
+//! [`transport::FieldType`] reads `DATE` and refuses `TIMESTAMP` and `DATETIME` - a timestamp arrives
+//! as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
+//! answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
+//!
 //! What it does not contain is the **wire**: [`transport::JobTransport`] is the seam, and no
 //! implementor of it ships. Two reasons, and the second is the one that decides it:
 //!
@@ -143,10 +148,14 @@ where
     NotABool { column: String },
     /// A double came back non-finite.
     ///
-    /// **Checked rather than taken, and the two SQL adapters have to agree here.** A `FLOAT64` column
-    /// is where an unguarded division lands, and a division by zero in IEEE arithmetic answers `inf`
-    /// rather than failing - so this arm is what decides whether a metric declaring that a zero
-    /// denominator fails actually does.
+    /// **What this arm actually guards, on THIS target, is narrower than the two SQL adapters
+    /// agreeing.** In `GoogleSQL` the `/` operator raises on a zero divisor for every numeric type -
+    /// only `IEEE_DIVIDE` answers `inf`/`NaN` - so an unguarded zero-division ratio fails at the
+    /// service first, as [`Self::Endpoint`] with the same `503` as a dead data system. What reaches
+    /// this arm is a non-finite value STORED in a `FLOAT64` column, and the check keeps that stored
+    /// `Infinity` from answering a real under a certified metric name. It is `sutura-exec-duckdb`'s
+    /// same arm that gives `zero_denominator: fails` its meaning, because there the unguarded `/`
+    /// does answer `inf`; the sentence that credits this arm with the ratio case belongs to `DuckDB`.
     #[error("column {column} came back as a non-finite number")]
     NotFinite {
         column: String,
@@ -166,6 +175,15 @@ where
     /// a row is built, so the position of the offending row is reportable.
     #[error("row {row} came back with {cells} cells and the schema declared {columns} columns")]
     RowWidth { row: usize, cells: usize, columns: usize },
+    /// The endpoint delivered a page whose row count is not what it reported as total.
+    ///
+    /// `jobs.query` answers one page at a time, and completeness is stated as `totalRows` beside the
+    /// rows - never by the rows alone. A first page, or an incomplete job's empty `rows`, would read
+    /// to `answer()` as *under the cap, not truncated*: a wrong number under a certified name, through
+    /// the exact row the row-cap invariant exists to hold. So a delivered count that does not equal the
+    /// reported total is refused here, at the seam, rather than certified.
+    #[error("the endpoint delivered {delivered} rows and reported {total} total")]
+    Incomplete { delivered: usize, total: usize },
     /// The result set could not be built.
     #[error("the rows did not form a result set")]
     Shape {
@@ -324,6 +342,15 @@ where
 
     /// A job's result, as a domain result set.
     fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
+        // The first check, because it is the cheapest and the one that refuses a wrong number before
+        // any cell work. A page whose delivered count is not what the endpoint reported is refused
+        // here rather than read as *under the cap, not truncated* - see `BigQueryError::Incomplete`.
+        if answered.rows().len() != answered.total_rows() {
+            return Err(BigQueryError::Incomplete {
+                delivered: answered.rows().len(),
+                total: answered.total_rows(),
+            });
+        }
         let columns: Vec<String> = answered.fields().iter().map(|f| String::from(f.name())).collect();
         let mut out: Vec<Vec<Value>> = Vec::with_capacity(answered.rows().len());
         for (index, row) in answered.rows().iter().enumerate() {
