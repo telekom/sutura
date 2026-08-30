@@ -7,7 +7,8 @@
 //!
 //! Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
 //! it is nix-native, provisioned by `nix/postgres-tier.nix` and run by `checks.nextest` and by
-//! `just test`, on a unix socket under the worktree - see that module).
+//! `just test`, over a unix socket in a short per-worktree directory under `$TMPDIR` - see that
+//! module).
 //!
 //! So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 //! of the worktree's CANONICAL path.

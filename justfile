@@ -482,7 +482,9 @@ doctor:
 # are just tasks and a CI job over nix-built artifacts.
 #
 # A missing docker SKIPS here and FAILS in CI. Both directions come from one flag: export
-# SUTURA_DEV_REQUIRE_DOCKER=1 to get the CI direction on this machine, or =0 to get this one there.
+# SUTURA_DEV_REQUIRE_TIER=1 to get the CI direction on this machine, or =0 to get this one there.
+# (`just test` provisions Postgres from nix itself, so Postgres is not a dev-up service - see
+# nix/postgres-tier.nix.)
 
 # This worktree's services, on ports docker allocates, with a discovery file a harness reads.
 dev-up:
@@ -499,7 +501,7 @@ dev-endpoints:
     cargo run -q -p xtask -- dev-endpoints
 
 # One service's host:port, on stdout and nothing else, so a shell can substitute it:
-# `PGPORT="${$(just dev-endpoint postgres)##*:}"`. Anyone following `examples/` uses this instead
+# `PORT="${$(just dev-endpoint clickhouse)##*:}"`. Anyone following `examples/` uses this instead
 # of learning what a scope or an ephemeral port is. `just dev-endpoints` is the readable table.
 @dev-endpoint service:
     cargo run -q -p xtask -- dev-endpoint {{ service }}
