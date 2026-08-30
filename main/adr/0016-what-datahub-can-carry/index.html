@@ -3022,7 +3022,15 @@ degradation</strong> - the adapter declares that it does not provide cardinality
 in the declaration rather than discovering it when a dimension is missing. The relationship still
 arrives; what it cannot do on its own is license a join.</p>
 <p><strong>6. <code>agrees_with_the_oracle</code> is NOT weakened, and a declaring adapter needs a different assertion.</strong></p>
-<p>Specified here and deliberately not written in this branch. The golden adapters keep the oracle test.
+<p><strong>Status: implemented.</strong> What this decision specified was the <em>split in the conformance matrix</em> - the
+part that "deliberately not written" left open - and the catalog-matrix diff writes it: a required
+<code>SemanticCatalog::KIND</code> (<code>CatalogKind</code>, golden or declaring) with no default, a <code>GoldenCatalog</code> marker
+that routes the golden-only cells, and a registration whose <code>declaring</code>/<code>golden</code> tag is a compile-time
+assertion against that constant - so a registration that disagrees with its own declaration does not
+build, and <code>agrees_with_the_oracle</code> (and the three example-corpus cells) cannot be expanded for a
+declaring adapter at all. The AGENTS.md registration row states the same split. The oracle test itself
+is untouched, held by the golden adapters only, exactly as this decision says it must be. The golden
+adapters keep the oracle test.
 A declaring adapter gets <strong>declaration fidelity</strong>, which is two assertions rather than one:</p>
 <ul>
 <li><em>everything it declared, it produced</em> - for each declared kind, the bundle carries content of that
