@@ -25,6 +25,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Fixes
 
+- **xtask**: A lock file naming no holder is not PID 0, and it is never visibly empty (#68)
 - **identity**: The anchor door was a shape check, not an authority (#61)
 - **identity**: A broker's answer was trusted, and now it is checked (#62)
 - **tooling**: A rebase could push a tree nothing had compiled (#55)
