@@ -365,6 +365,217 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
     assert_eq!(opened.attached, tables(&["dim_customer"]));
 }
 
+/// One `sources:` entry for a `BigQuery` dataset, with every key that kind is opened with.
+///
+/// The credential file points at a path that is not there ON PURPOSE, and the tests below say what
+/// each of them is proving with it: a refusal naming that key is proof the composition reached the
+/// credential layer, which is the furthest a test with no project can get.
+fn bigquery_entry(alias: &str, posture: &str, extra: &str) -> String {
+    format!(
+        "  {alias}:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
+         \"warehouse\"\n    credential_file: \"/nonexistent/sutura-test-bigquery.json\"\n    \
+         max_bytes_billed: 1073741824\n    posture: \"{posture}\"\n{extra}"
+    )
+}
+
+/// The startup a `bigquery` source produces, whichever way this binary was built.
+fn opened_bigquery(entries: &str) -> Result<OpenedSources, String> {
+    open_engine(
+        &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+        &registry(entries),
+        one_worker(),
+        default_timeout(),
+    )
+}
+
+#[test]
+fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
+    // **A settings-tree refusal rather than a boot one, and it belongs here for the reason the
+    // unknown-kind half above belongs here:** this is the binary that would otherwise serve it, and
+    // it is where a reader looks for the check. `sutura-config` owns the mechanism and tests each key
+    // separately; what this asserts is that the refusal survives `Settings::load` with its key
+    // attached, which is the only part a composition root depends on.
+    //
+    // `credential_file` and not `billing_project`, because it is the key this step added and the one
+    // whose absence used to be answerable from the environment - see its own note in `sutura-config`.
+    let overlay = format!(
+        "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n{}",
+        "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
+         \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
+    );
+    let error = sutura_config::Settings::load(
+        &sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay),
+    )
+    .expect_err("a bigquery source with no credential file is not a source this deployment can open");
+    let rendered = crate::flatten(error);
+    assert!(
+        rendered.contains("credential_file"),
+        "the refusal must name the key: {rendered}"
+    );
+    assert!(
+        rendered.contains("warehouse"),
+        "the refusal must name the entry: {rendered}"
+    );
+}
+
+#[test]
+#[cfg(not(feature = "bigquery"))]
+fn a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter() {
+    // **The refusal that used to be about the KIND and is now about the FEATURE.** It parses - the
+    // vocabulary of kinds is the repository's and the repository has this adapter - and the
+    // composition root refuses it, because only this file can see what was linked.
+    //
+    // It names the feature as well as the source, because the two available actions are in two
+    // different files: change the `kind:`, or build with `--features bigquery`. Under
+    // `--all-features` this test is not compiled and its twin below is; that split is the honest
+    // consequence of a behaviour that differs by build, and one test cannot assert both.
+    let error = refusal(
+        opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
+        "a build with no BigQuery adapter must not start against a bigquery source",
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    assert!(
+        error.contains("bigquery` feature") || error.contains("--features bigquery"),
+        "the refusal must name the feature that would link it: {error}"
+    );
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
+    // **What this proves, and it is deliberately the furthest a test with no project can reach:** the
+    // kind DISPATCHED to the BigQuery adapter, the shared posture was accepted against that adapter's
+    // own `IMPERSONATION`, both bounds parsed, and the composition asked for the credential file the
+    // settings tree named. A refusal about that path is the proof; a refusal about the feature, the
+    // kind or the posture would mean it stopped earlier.
+    //
+    // It cannot go further here by construction: `wire::BigQueryWire`'s host is a `const` and its
+    // agent is `https_only`, so there is no loopback to point it at - `docs/adr/0018` states that as a
+    // coverage hole paid for with a security property, and `just bigquery-acceptance` is the leg that
+    // closes it against a real dataset.
+    let error = refusal(
+        opened_bigquery(&bigquery_entry("warehouse", "shared-service-user", "")),
+        "the declared credential file is not there, so this deployment does not start",
+    );
+    assert!(
+        error.contains("credential_file"),
+        "the refusal must name the key that could not be read: {error}"
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    // NOT the neighbouring arms, which is the half that stops this passing on the wrong branch: a
+    // build that linked no adapter, or a posture cross-check that fired, would both be green on the
+    // two assertions above if they only checked for a refusal.
+    assert!(
+        !error.contains("--features bigquery"),
+        "this build DID link the adapter: {error}"
+    );
+    assert!(
+        !error.contains("no fallback"),
+        "the shared posture is deliverable by this adapter: {error}"
+    );
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_bigquery_source_configured_to_impersonate_refuses_before_the_credential_is_read() {
+    // The same cross-check the file engine gets, against a DIFFERENT adapter's constant - which is the
+    // whole point of `deliverable_by` being called per adapter rather than per deployment.
+    // `sutura-exec-bigquery` declares `NoPlaceForASubject` honestly for today: a service account
+    // reaching the dataset for everybody who asks is the shared posture, and per-subject execution
+    // needs a token exchange that does not exist. So an `impersonation-at-source` entry against it is
+    // a deployment that believes it impersonates and would read every row as one identity.
+    //
+    // **Refused BEFORE the credential file is read**, and the assertions below are what pin that
+    // order: a posture nobody can deliver is not worth a filesystem read, and an operator told about
+    // a missing file would fix the wrong thing.
+    let error = refusal(
+        opened_bigquery(&bigquery_entry(
+            "warehouse",
+            "impersonation-at-source",
+            "    verification_identity: \"sutura_anchor_reader\"\n",
+        )),
+        "an impersonating posture on an adapter with nowhere to put a subject must not start",
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    assert!(
+        error.contains("per-subject credential"),
+        "the refusal must say what the adapter cannot do: {error}"
+    );
+    assert!(error.contains("no fallback"), "the refusal must say there is no fallback: {error}");
+    assert!(
+        !error.contains("credential_file"),
+        "the posture is refused before the credential file is read: {error}"
+    );
+}
+
+#[test]
+#[cfg(feature = "bigquery")]
+fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_key() {
+    // The other half of leaving `max_bytes_billed` a bare number in the settings tree: the RANGE
+    // belongs to `sutura_exec_bigquery::wire::BytesBilledCeiling`, so there is one parse of it and it
+    // happens here. What this asserts is that the refusal still names the key an operator has to
+    // change - a range error from a newtype with no key attached would be a support request.
+    //
+    // Zero rather than a value above the cap, because zero is the one an operator reaches by writing
+    // a placeholder: it would refuse every question rather than bounding one.
+    let entry = bigquery_entry("warehouse", "shared-service-user", "").replace("1073741824", "0");
+    let error = refusal(
+        opened_bigquery(&entry),
+        "a ceiling of zero would refuse every question rather than bounding one",
+    );
+    assert!(
+        error.contains("max_bytes_billed"),
+        "the refusal must name the key: {error}"
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+    assert!(
+        !error.contains("credential_file"),
+        "the bound is parsed before the credential file is read: {error}"
+    );
+}
+
+#[test]
+fn a_catalog_reading_two_kinds_of_source_does_not_start() {
+    // **The limit `sutura_app::Warehouses` documents, made a startup refusal instead of a surprise.**
+    // That registry is generic in one adapter type, so this process holds two file sources or two
+    // datasets and cannot hold one of each; federating across two kinds needs a closed enum over the
+    // adapter types or dynamic dispatch, which that module records as an architecture decision.
+    //
+    // The alternative is what makes this worth a refusal rather than a comment: whichever kind lost
+    // would be a source nothing opened, and the first question against it would answer
+    // `SourceUnavailable` - a refusal that reads as "nobody configured that" about a source the
+    // operator configured.
+    let both = format!(
+        "{}{}",
+        entry(ENGINE_SOURCE, "shared-service-user", ""),
+        bigquery_entry("warehouse", "shared-service-user", "")
+    );
+    let error = refusal(
+        open_engine(
+            &bundle_over(&[
+                ("customers", ENGINE_SOURCE, "dim_customer"),
+                ("products", "warehouse", "dim_product"),
+            ]),
+            &registry(&both),
+            one_worker(),
+            default_timeout(),
+        ),
+        "one process opens one kind of data system at a time",
+    );
+    assert!(
+        error.contains(ENGINE_SOURCE) && error.contains("warehouse"),
+        "the refusal must name both entries: {error}"
+    );
+    assert!(
+        error.contains("files") && error.contains("bigquery"),
+        "the refusal must name both kinds: {error}"
+    );
+    assert!(
+        error.contains("one kind of data system at a time"),
+        "the refusal must say what the limit is: {error}"
+    );
+}
+
 #[test]
 fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot() {
     // **The cross-check, and it is HERE rather than in `sutura-config` because half of it is a
