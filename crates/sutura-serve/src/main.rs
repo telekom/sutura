@@ -703,8 +703,14 @@ fn build_bigquery(
         .posture()
         .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(flatten)?;
-    let deadline = QueryDeadline::parse(request_timeout.seconds())
-        .map_err(|cause| format!("`server.request_timeout_seconds` is not a usable BigQuery job deadline: {cause}"))?;
+    // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
+    // under load.** What a job may spend is not the request timeout: an answer makes
+    // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin on top of its own budget,
+    // so a 30-second deadline inside a 30-second request timeout overruns the transport that promised
+    // it. That arithmetic lives in the adapter, next to the constant it depends on, which is why a
+    // composition root asks for the SHARE rather than computing one.
+    let deadline = QueryDeadline::within_request_timeout(request_timeout.seconds())
+        .map_err(|cause| format!("`server.request_timeout_seconds` leaves no BigQuery job deadline: {cause}"))?;
     let ceiling = BytesBilledCeiling::parse(max_bytes_billed)
         .map_err(|cause| format!("`sources.{source}.max_bytes_billed` is not a usable ceiling: {cause}"))?;
     let bounds = JobBounds::of(deadline, ceiling);
@@ -712,7 +718,12 @@ fn build_bigquery(
     // is read before the listener opens: a credential file that is missing, unreadable or not a
     // credential has to stop the process, not become a deployment that answers every question with a
     // failure while its startup log says it opened a dataset.
-    let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), WireAgent::pinned(bounds))
+    // ONE agent, cloned, and not two `pinned` calls - which is what `Credential::read` taking an agent
+    // is for: the token exchange and the job then share one connection pool and one set of pins by
+    // construction rather than because two call sites happened to pass the same bounds. `WireAgent` is
+    // `Clone` and a `ureq::Agent`'s clone shares its pool, so the clone is the cheap half of that.
+    let agent = WireAgent::pinned(bounds);
+    let credentials = Credential::read(&CredentialFile::at(credential_file.clone()), agent.clone())
         .map_err(|cause| format!("`sources.{source}.credential_file` could not be read: {}", flatten(cause)))?;
     // The two resource newtypes are parsed a SECOND time here, and that is not a redundant check: the
     // settings tree's `BillingProject` and the transport's `ProjectId` are two types in two crates,
@@ -727,7 +738,7 @@ fn build_bigquery(
         identity.posture().clone(),
         project,
         dataset,
-        BigQueryWire::new(WireAgent::pinned(bounds), credentials),
+        BigQueryWire::new(agent, credentials),
     ))
 }
 

@@ -531,6 +531,38 @@ fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_
 }
 
 #[test]
+#[cfg(feature = "bigquery")]
+fn a_request_timeout_that_leaves_no_job_budget_does_not_start() {
+    // **The subtle one, and it is a bug this test exists to have caught rather than a range check.**
+    // A job's deadline is not `server.request_timeout_seconds`: an answer makes
+    // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin, so filling the deadline
+    // with the whole timeout would produce a job allowed to outlive the request that promised it -
+    // green in every test here and an overrun under load. `within_request_timeout` owns that
+    // arithmetic, next to the constant it depends on.
+    //
+    // Ten seconds is the smallest number that makes the point: half of it is five, the connect margin
+    // is five, and what is left is nothing - so a deployment whose timeout cannot fit a query is told
+    // so at startup rather than being handed a clamped value nobody chose.
+    let error = refusal(
+        open_engine(
+            &bundle_over(&[("customers", "warehouse", "dim_customer")]),
+            &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
+            one_worker(),
+            sutura_config::RequestTimeout::parse(10).expect("ten seconds is a request timeout"),
+        ),
+        "a request timeout with no room for a job is not a servable deployment",
+    );
+    assert!(
+        error.contains("server.request_timeout_seconds"),
+        "the refusal must name the key an operator has to change: {error}"
+    );
+    assert!(
+        !error.contains("credential_file"),
+        "the budget is worked out before the credential file is read: {error}"
+    );
+}
+
+#[test]
 fn a_catalog_reading_two_kinds_of_source_does_not_start() {
     // **The limit `sutura_app::Warehouses` documents, made a startup refusal instead of a surprise.**
     // That registry is generic in one adapter type, so this process holds two file sources or two
