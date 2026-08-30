@@ -61,12 +61,13 @@ use super::RefusalBody;
 /// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
 /// rather than in three matches that could drift apart. A refusal variant added to the domain fails
 /// to compile here until it is given a status, a code and a sentence.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive match over every refusal, deciding status, code and detail together - so \
-              it grows by one arm per domain variant and splitting it would need a wildcard arm, which \
-              is exactly the gap the exhaustiveness exists to close"
-)]
+// No `#[expect(clippy::too_many_lines)]` any more, and that is worth a line rather than a silent
+// deletion: this function carried one, because the match grows by an arm per domain variant and
+// splitting it would need a wildcard arm - exactly the gap the exhaustiveness exists to close. Moving
+// the per-bound sentence for `ResultTooLarge` into `too_much_data` brought it back under the bound,
+// so the suppression's cause is gone and *a suppression cannot outlive its cause*. The next variant
+// that pushes it over is the one that decides whether the arm's PROSE moves out the same way or the
+// expectation comes back.
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     let (status, code, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
