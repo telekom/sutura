@@ -37,10 +37,24 @@ use crate::resolve::{Resolution, ResolvedDimension};
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
-    let own_table = model.table();
+    // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
+    // dataset and project included, where the model declares them. `own_table` is the bare name, which
+    // is what every column is qualified by: `FROM a.b.c` gives the reference an implicit alias of `c`
+    // in all four dialects rendered for, so a `PlanColumn` holds `c` and never the path.
+    let own_path = model.table();
+    let own_table = model.table_name();
 
     // Every table the statement will read, which is the definition of "one data system" a join
     // cannot get around.
+    //
+    // **A source is a credential plus a billing project, not a project - so two datasets or two
+    // projects reached by ONE credential in one statement is ONE source, and this refusal must not
+    // fire on it.** That is why what is collected here is `SourceName` and never any part of a table
+    // path: cross-project is not federation. `BigQuery` joins across projects natively, in one job, and
+    // pushes the join down; routing that through a splitter and a client-side combiner would replace a
+    // pushed-down join with a slower one and discard exactly the pushdown that makes the adapter worth
+    // having. Two SOURCES is a second credential, and that is the case this refuses.
+    // `sutura_domain::model::qualified`'s header carries the same boundary from the naming side.
     let mut sources: BTreeSet<&SourceName> = BTreeSet::new();
     sources.insert(model.source());
     for resolved in every_dimension(resolution) {
@@ -65,10 +79,13 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
             }
             joins.push(PlanJoin::new(
                 name,
+                // The joined model's own path: a dimension table in another dataset is still one
+                // statement. Its columns are qualified by the bare name beside it, for the reason
+                // `own_table` above gives.
                 join.model.table().clone(),
                 join.relationship.join_type(),
                 PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table().clone(), join.relationship.target_column().clone()),
+                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
             ));
         }
     }
@@ -93,7 +110,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
     Ok(QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
-        own_table.clone(),
+        own_path.clone(),
         joins,
         PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
         keys,
@@ -189,6 +206,6 @@ fn column_of(resolved: &ResolvedDimension<'_>, own_table: &TableName) -> PlanCol
     let table = resolved
         .join
         .as_ref()
-        .map_or_else(|| own_table.clone(), |join| join.model.table().clone());
+        .map_or_else(|| own_table.clone(), |join| join.model.table_name().clone());
     PlanColumn::new(table, resolved.dimension.column().clone())
 }

@@ -310,7 +310,7 @@ fn fixture_tables(pinned: &PinnedDefinitions) -> Vec<(TableName, PathBuf)> {
         .models()
         .values()
         .map(|model| {
-            let table = model.table().clone();
+            let table = model.table_name().clone();
             let csv = data_root().join(format!("{table}.csv"));
             (table, csv)
         })

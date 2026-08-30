@@ -59,7 +59,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(),
         metric: MetricName::parse("recurring_revenue").expect("a test metric is a metric"),
-        table: table("fct_subscription_monthly"),
+        table: table("fct_subscription_monthly").into(),
         joins: Vec::new(),
         bucket: bucket(),
         keys: vec![key("customer_key", "fct_subscription_monthly", "customer_key")],
@@ -79,7 +79,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
 fn lookup() -> LegPlan {
     LegPlan::Lookup {
         source: other_source(),
-        table: table("dim_customer"),
+        table: table("dim_customer").into(),
         keys: vec![
             key("customer_key", "dim_customer", "customer_key"),
             key("region", "dim_customer", "region"),
@@ -147,7 +147,7 @@ fn a_lookup_leg_has_no_measure_and_no_bucket() {
         panic!("the lookup fixture is a lookup");
     };
     assert_eq!(source.as_str(), "crm");
-    assert_eq!(table.as_str(), "dim_customer");
+    assert_eq!(table.to_string(), "dim_customer");
     assert_eq!(keys.len(), 2);
     assert!(filters.is_empty());
     assert!(params.is_empty());

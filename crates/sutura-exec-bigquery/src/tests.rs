@@ -519,7 +519,7 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
     sutura_domain::plan::LegPlan::Fact {
         source: source(),
         metric: MetricName::parse("mrr").expect("a test metric is a metric"),
-        table: table.clone(),
+        table: table.clone().into(),
         joins: Vec::new(),
         bucket: PlanBucket::new(String::from("period"), Grain::Month, column("month")),
         keys: Vec::new(),

@@ -30,6 +30,12 @@
 //! **How the date bucket is spelled.** [`DateTruncShape`] carries the argument order and whether the
 //! grain is a string literal or a bare keyword, and it exists because the parse check cannot catch
 //! getting it wrong - see that type.
+//!
+//! **How deep a qualifier a table may carry.** [`Dialect::qualification`] declares it, and the reason
+//! it is not delegated is that the layer will happily RENDER `a.b.c` for a target with no third
+//! position to put `a` in. See that accessor.
+
+use sutura_domain::model::Qualification;
 
 /// The data systems a statement can be rendered for.
 ///
@@ -215,6 +221,52 @@ impl Dialect {
             Self::BigQuery => DateTruncShape::DateFirstAsKeyword,
         }
     }
+
+    /// The deepest table path this data system resolves.
+    ///
+    /// A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
+    /// the [`DateTruncShape`] and [`identifier_quote`](Dialect::identifier_quote) precedent, and for
+    /// the same reason: **the dialect layer renders `catalog.schema.name` for ANY target given three
+    /// parts.** Its `TableRef` is a name plus two `Option`s with no per-dialect arity check, so
+    /// without this declaration a `project.dataset.table` rendered for a target with no third
+    /// position produces a statement that either fails at the data system or, worse, resolves the
+    /// leading part as something else. [`mod@crate::generate`] refuses past what this returns.
+    ///
+    /// The vocabulary is [`sutura_domain::model::Qualification`], shared with the type that reports
+    /// how deep a *name* is - so the comparison is an ordering rather than a hand-written match.
+    ///
+    /// **`BigQuery` is the reason the feature exists.** `project.dataset.table` is a first-class path
+    /// there, one credential reaches several projects, and a cross-project join is native and pushed
+    /// down. That is what makes cross-project **not** federation - see
+    /// `sutura_domain::model::qualified`'s header.
+    ///
+    /// **Postgres is `Dataset`, and stops there because cross-DATABASE is not a thing it does.** Its
+    /// three-part form `database.schema.table` parses and is accepted only when the leading part is
+    /// the database already connected to, so rendering one would be a statement that works or fails
+    /// depending on a connection detail no catalog can see. A schema qualifier is the real capability
+    /// and is what a `schema.table` model gets.
+    ///
+    /// **`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
+    /// them. Its arm is a rendering claim and not an execution one: nothing in this workspace
+    /// executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+    ///
+    /// **`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
+    /// schemas and attached catalogs, so this is narrower than what the engine can parse. It is
+    /// declared for what a `DuckDB` deployment HERE can resolve: `sutura-exec-duckdb` registers one
+    /// view per model in the default schema of the default catalog, and `sutura-exec-datafusion`
+    /// registers one file per model in its own table registry. A qualified name resolves to nothing in
+    /// either, so a refusal naming the path is the useful outcome and a rendered `a.b.c` that returns
+    /// `Catalog with name a does not exist` is not. Widening this arm is a change to what those
+    /// adapters ATTACH, not to what this renders.
+    #[inline]
+    #[must_use]
+    pub const fn qualification(self) -> Qualification {
+        match self {
+            Self::DuckDb => Qualification::TableOnly,
+            Self::Postgres | Self::ClickHouse => Qualification::Dataset,
+            Self::BigQuery => Qualification::ProjectAndDataset,
+        }
+    }
 }
 
 impl core::fmt::Display for Dialect {
@@ -225,6 +277,8 @@ impl core::fmt::Display for Dialect {
 
 #[cfg(test)]
 mod tests {
+    use sutura_domain::model::Qualification;
+
     use super::{ALL, DateTruncShape, Dialect, IdentifierQuote, PlaceholderStyle};
 
     #[test]
@@ -285,6 +339,22 @@ mod tests {
             assert_eq!(dialect.identifier_quote(), IdentifierQuote::Double, "{dialect}");
             assert_eq!(dialect.identifier_quote().character(), '"', "{dialect}");
         }
+    }
+
+    #[test]
+    fn bigquery_is_the_one_that_resolves_a_project_and_duckdb_resolves_nothing_above_a_table() {
+        // The declaration behind a cross-project read, and behind the refusal that stops a qualified
+        // path being rendered for a target that would resolve its leading part as something else.
+        // Pinned by value per dialect rather than by a loop, because each arm is a separate claim
+        // about a separate data system and the accessor's own doc says which.
+        assert_eq!(Dialect::BigQuery.qualification(), Qualification::ProjectAndDataset);
+        assert_eq!(Dialect::Postgres.qualification(), Qualification::Dataset);
+        assert_eq!(Dialect::ClickHouse.qualification(), Qualification::Dataset);
+        assert_eq!(Dialect::DuckDb.qualification(), Qualification::TableOnly);
+        // And the ordering this is read through: a name is renderable when it is no deeper than the
+        // target. `Qualification`'s own suite pins the variant order that makes this mean that.
+        assert!(Qualification::Dataset <= Dialect::BigQuery.qualification());
+        assert!(Qualification::Dataset > Dialect::DuckDb.qualification());
     }
 
     #[test]

@@ -888,16 +888,36 @@ pub const fn name(&self) -> &ModelName
 ```
 
 ```rust
-pub const fn new(name: ModelName, source: SourceName, table: TableName, columns: BTreeSet<ColumnName>, description: Description) -> Self
+pub fn new(name: ModelName, source: SourceName, table: impl Into<QualifiedTable>, columns: BTreeSet<ColumnName>, description: Description) -> Self
 ```
+
+A model over one physical table, wherever that table lives.
+
+**`impl Into<QualifiedTable>` and not `QualifiedTable`, and that is the compatibility hinge
+rather than a convenience.** `From<TableName>` yields an unqualified path, so every existing
+caller - a catalog document naming only a table, and every fixture in this workspace - passes
+a `TableName` and compiles unchanged, meaning exactly what it used to. It costs the `const`
+this constructor used to be, which nothing depended on.
 
 ```rust
 pub const fn source(&self) -> &SourceName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the table lives: the whole path, which is what a `FROM` clause names.
+
+Read `Self::table_name` instead wherever what is wanted is the name a column is qualified by
+or the name a file-registering engine registers under. Two accessors rather than one that
+guesses - `QualifiedTable::name` carries why both readings are real.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, without whatever sits above it.
 
 #### Implements
 
@@ -1211,6 +1231,7 @@ system error rather than as a refusal.
 - `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
 - `DimensionShadowsTimeBucket`
 - `DimensionShadowsMeasure`
+- `LabelShadowsTable` - A label this metric projects is spelled the same as a table its statement reads.
 
 #### Implements
 
@@ -3022,10 +3043,39 @@ variant is the contract and the `#[error]` text is a convenience for a human.
 - `BadFirstCharacter` - Starts with something other than a letter or underscore. A leading digit is legal in some dialects and not others, so accepting it would make a model portable by luck.
 - `IllegalCharacter` - Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the one worth reporting: a message naming all of them tells the reader less.
 - `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here.
+- `TrailingHyphen` - Ends in a hyphen.
 
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum Hyphens`
+
+```rust
+pub enum Hyphens
+```
+
+Whether a hyphen is a character this name may contain.
+
+**A parameter rather than a second parser, for the reason `identifier_newtype` gives:** the
+names in this module are used interchangeably by the resolver, so two parsers would be two places
+for the answer to differ. One body, one flag, one error enum.
+
+**What this flag may NOT be widened to admit, because two golden claims rest on it.** The corpus
+assertions in `sutura-app` strip quoted spans out of a statement with a single toggle, and that is
+sound only because no name can contain `"`, `'` or `` ` ``. A hyphen is none of those, so
+admitting one leaves the argument intact - and that is the *whole* licence this flag has. A
+variant admitting a quote character, a dot or whitespace would silently invalidate the stripping
+rather than fail a test.
+
+#### Variants
+
+- `Rejected` - `[A-Za-z_][A-Za-z0-9_]*`. Every identifier a model, a metric or a column is named with.
+- `Allowed` - `[A-Za-z_][A-Za-z0-9_-]*`, not ending in `-`. The one shape that needs it is a cloud project id, which is where a table's topmost qualifier comes from.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ### `struct ModelName`
 
@@ -3330,6 +3380,18 @@ decides a refusal rather than a plan detail.
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ## Module `pinned`
 
@@ -3911,8 +3973,18 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub const fn new(relationship: RelationshipName, table: TableName, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
 ```
+
+One join to a table, wherever that table lives.
+
+**A joined table carries its own qualifier, and that is the whole point of the feature rather
+than completeness:** a fact table in one dataset joined to a dimension table in another is
+what a multi-project estate looks like, and it is one statement, one job and one credential -
+a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
+so where `PlanSpansTwoSources` is decided.
+
+`impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
 ```rust
 pub const fn origin(&self) -> &PlanColumn
@@ -3923,8 +3995,16 @@ pub const fn relationship(&self) -> &RelationshipName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the joined table lives: the whole path, which is what a `JOIN` clause names.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The joined table's own name, which is what its columns are qualified by.
 
 ```rust
 pub const fn target(&self) -> &PlanColumn
@@ -4179,7 +4259,7 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(source: SourceName, metric: MetricName, table: TableName, joins: Vec<PlanJoin>, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, table: impl Into<QualifiedTable>, joins: Vec<PlanJoin>, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
 
 ```rust
@@ -4220,8 +4300,18 @@ pub const fn source(&self) -> &SourceName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the table lives: the whole path, which is what the `FROM` clause names.
+
+Read `Self::table_name` instead where what is wanted is the name a column is qualified by.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, which is what this plan's columns are qualified by.
 
 #### Implements
 
@@ -4538,10 +4628,10 @@ check somebody runs:
 
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::LegPlan;
 
-fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
+fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
@@ -4554,10 +4644,10 @@ fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
 ```
 
 ```
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::LegPlan;
 
-fn _undated(source: SourceName, table: TableName) -> LegPlan {
+fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
@@ -4613,10 +4703,20 @@ Every leg is mono-source, so *a plan cannot silently span two sources* applies p
 unchanged: neither variant has a second `SourceName` to disagree with this one.
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
 
-The table this leg reads.
+Where the table this leg reads lives: the whole path, which is what its `FROM` names.
+
+A leg qualifies exactly as a whole-answer plan does, and it shares `generate`'s rendering to
+make sure of it - two `FROM`-building paths would be two places for identifier quoting to
+differ, which is the drift `sutura_sql::generate`'s own header is written against.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, which is what this leg's columns are qualified by.
 
 ##### Implements
 

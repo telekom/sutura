@@ -1,0 +1,46 @@
+---
+source: crates/sutura-app/tests/golden/qualified.rs
+expression: plan
+---
+source: warehouse
+metric: revenue
+table: sales.orders
+joins: []
+bucket:
+  label: period
+  grain: month
+  column:
+    table: orders
+    column: order_date
+keys: []
+measure:
+  simple:
+    term:
+      aggregate:
+        aggregate: sum
+        column:
+          table: orders
+          column: amount_cents
+measure_label: revenue
+filters:
+  - origin: definition
+    predicate:
+      at_or_after:
+        column:
+          table: orders
+          column: order_date
+        param: 0
+  - origin: definition
+    predicate:
+      before:
+        column:
+          table: orders
+          column: order_date
+        param: 1
+params:
+  - Date: 2026-06-01
+  - Date: 2026-07-01
+range:
+  start: 2026-06-01
+  end: 2026-07-01
+max_rows: 10000

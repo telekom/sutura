@@ -280,7 +280,7 @@ where
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::BigQuery).map_err(|cause| BigQueryError::Render { cause }),
             Executable::Leg(leg) => Err(BigQueryError::LegWithoutCombiner {
-                table: String::from(leg.table().as_str()),
+                table: leg.table().to_string(),
             }),
         }
     }

@@ -211,6 +211,14 @@ before reading its green as closing the gap: one hand-built `SUM` over a two-col
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
 shape pointed at a dataset, and it is not built.
 
+**One thing that leg now does prove, and it is the reason it grew:** the same table read by its
+**fully qualified** `project.dataset.table` name answers the same numbers as the unqualified read, and
+a qualified path naming a dataset that is not there is refused - which is the control that makes the
+first half a measurement rather than an inference. So *qualification resolves*, not merely renders.
+[`adr/0019`](adr/0019-a-table-outside-the-connections-dataset.md) is that record and says what the run
+does not cover: no second dataset and no second project, because the acceptance credential's IAM
+refuses `datasets.create`.
+
 0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.
 

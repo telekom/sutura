@@ -143,7 +143,7 @@ fn fact_sum_over_a_local_join() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("recurring_revenue"),
-        table: table(FACT_TABLE),
+        table: table(FACT_TABLE).into(),
         joins: vec![PlanJoin::new(
             RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
             table(LOCAL_DIMENSION_TABLE),
@@ -173,7 +173,7 @@ fn fact_decomposed_average() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("mean_subscription_mrr"),
-        table: table(FACT_TABLE),
+        table: table(FACT_TABLE).into(),
         joins: Vec::new(),
         bucket: month_bucket(),
         keys: vec![key("customer_key", FACT_TABLE, "customer_key")],
@@ -198,7 +198,7 @@ fn fact_distinct_keys() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("active_subscriptions"),
-        table: table(FACT_TABLE),
+        table: table(FACT_TABLE).into(),
         joins: Vec::new(),
         bucket: month_bucket(),
         keys: vec![
@@ -220,7 +220,7 @@ fn fact_distinct_keys() -> LegPlan {
 fn lookup_unfiltered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
-        table: table(REMOTE_TABLE),
+        table: table(REMOTE_TABLE).into(),
         keys: vec![
             key("customer_key", REMOTE_TABLE, "customer_key"),
             key("region", REMOTE_TABLE, "region"),
@@ -238,7 +238,7 @@ fn lookup_unfiltered() -> LegPlan {
 fn lookup_filtered() -> LegPlan {
     LegPlan::Lookup {
         source: source("crm"),
-        table: table(REMOTE_TABLE),
+        table: table(REMOTE_TABLE).into(),
         keys: vec![
             key("customer_key", REMOTE_TABLE, "customer_key"),
             key("region", REMOTE_TABLE, "region"),

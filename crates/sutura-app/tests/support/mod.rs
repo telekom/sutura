@@ -103,10 +103,7 @@ fn fake_leg() -> Presented {
 fn whole_plan(executable: Executable<'_>) -> &QueryPlan {
     match executable {
         Executable::Query(plan) => plan,
-        Executable::Leg(leg) => panic!(
-            "no fake in this suite answers a leg, and one arrived against {}",
-            leg.table().as_str()
-        ),
+        Executable::Leg(leg) => panic!("no fake in this suite answers a leg, and one arrived against {}", leg.table()),
     }
 }
 

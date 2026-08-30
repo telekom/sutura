@@ -68,6 +68,7 @@ map" send a reader to three different places.
 - `Runtime` - The runtime this adapter executes on could not be built.
 - `Environment` - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.
 - `Attach`
+- `QualifiedTableUnreachable` - A model names a table this engine has nowhere to look for.
 - `Build` - A logical plan could not be assembled from the query plan.
 - `Analyze` - The engine refused the plan: an unknown table, an unknown column, a type mismatch.
 - `Execute`

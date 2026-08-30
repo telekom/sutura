@@ -21,7 +21,7 @@ use sutura_domain::calendar::TimeRange;
 use sutura_domain::catalog::{Anchor, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::measure::{Measure, RequiredFilter};
 use sutura_domain::model::{
-    ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
 };
 
 // The four knowledge documents. Their own module because this file is already at two thirds of the
@@ -130,7 +130,15 @@ pub struct ModelDoc {
     kind: DocumentKind,
     name: ModelName,
     source: SourceName,
-    table: TableName,
+    /// The table, and where it lives when that is more than the default.
+    ///
+    /// **A dotted path, and `table: orders` is unchanged by this being one.** `QualifiedTable`
+    /// deserializes from a string and parses `table`, `dataset.table` and `project.dataset.table`
+    /// alike, so every document already on disk loads byte for byte - and there is no second key for
+    /// an author to get out of step with this one. The parsing, and why the path is a composition of
+    /// parsed names rather than a string with dots in it, is
+    /// `sutura_domain::model::qualified`.
+    table: QualifiedTable,
     columns: BTreeSet<ColumnName>,
 }
 
@@ -363,6 +371,41 @@ grains: [month]
         assert!(!metric.supports_grain(Grain::Day));
         assert_eq!(metric.description(), "Net revenue.");
         assert!(metric.anchor().is_none());
+    }
+
+    #[test]
+    fn a_model_document_may_name_a_table_in_another_dataset_or_project() {
+        // The authoring surface for a multi-project estate, and there is no second key: the same
+        // `table:` value carries one part, two or three. That is what keeps every document already on
+        // disk unchanged - the bare form is asserted here beside the qualified ones so the
+        // compatibility claim is in the same test as the feature.
+        let doc = |table: &str| {
+            serde_norway::from_str::<ModelDoc>(&format!(
+                "
+kind: model
+name: orders
+source: local
+table: {table}
+columns: [amount_cents]
+"
+            ))
+        };
+        for path in ["orders", "sales.orders", "analytics-prod.sales.orders"] {
+            let model = doc(path)
+                .unwrap_or_else(|e| panic!("{path} is a table a document may name: {e}"))
+                .into_domain(description("Orders."));
+            assert_eq!(model.table().to_string(), path);
+            assert_eq!(
+                model.table_name().as_str(),
+                "orders",
+                "a column is qualified by the last part"
+            );
+        }
+
+        // And what a document may NOT write. A quote inside a part would end the quoting the
+        // generator relies on; a fourth part names nothing.
+        drop(doc("a.b.c.d").expect_err("nothing names a table four deep"));
+        drop(doc("'sales'.orders").expect_err("a quote is not part of a name"));
     }
 
     #[test]

@@ -23,7 +23,7 @@
 use crate::calendar::TimeRange;
 use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
 use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
@@ -88,24 +88,33 @@ impl PlanColumn {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanJoin {
     relationship: RelationshipName,
-    table: TableName,
+    table: QualifiedTable,
     join_type: JoinType,
     origin: PlanColumn,
     target: PlanColumn,
 }
 
 impl PlanJoin {
+    /// One join to a table, wherever that table lives.
+    ///
+    /// **A joined table carries its own qualifier, and that is the whole point of the feature rather
+    /// than completeness:** a fact table in one dataset joined to a dimension table in another is
+    /// what a multi-project estate looks like, and it is one statement, one job and one credential -
+    /// a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
+    /// so where `PlanSpansTwoSources` is decided.
+    ///
+    /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
     #[inline]
-    pub const fn new(
+    pub fn new(
         relationship: RelationshipName,
-        table: TableName,
+        table: impl Into<QualifiedTable>,
         join_type: JoinType,
         origin: PlanColumn,
         target: PlanColumn,
     ) -> Self {
         Self {
             relationship,
-            table,
+            table: table.into(),
             join_type,
             origin,
             target,
@@ -117,9 +126,16 @@ impl PlanJoin {
         &self.relationship
     }
 
+    /// Where the joined table lives: the whole path, which is what a `JOIN` clause names.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         &self.table
+    }
+
+    /// The joined table's own name, which is what its columns are qualified by.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table.name()
     }
 
     #[inline]
@@ -334,7 +350,7 @@ impl PlanFilter {
 pub struct QueryPlan {
     source: SourceName,
     metric: MetricName,
-    table: TableName,
+    table: QualifiedTable,
     joins: Vec<PlanJoin>,
     bucket: PlanBucket,
     keys: Vec<PlanKey>,
@@ -352,10 +368,10 @@ impl QueryPlan {
         reason = "a plan is what the compiler decided, and every field is decided in one place; a \
                   builder would add a half-built state that this type cannot currently have"
     )]
-    pub const fn new(
+    pub fn new(
         source: SourceName,
         metric: MetricName,
-        table: TableName,
+        table: impl Into<QualifiedTable>,
         joins: Vec<PlanJoin>,
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
@@ -368,7 +384,7 @@ impl QueryPlan {
         Self {
             source,
             metric,
-            table,
+            table: table.into(),
             joins,
             bucket,
             keys,
@@ -391,9 +407,18 @@ impl QueryPlan {
         &self.metric
     }
 
+    /// Where the table lives: the whole path, which is what the `FROM` clause names.
+    ///
+    /// Read [`Self::table_name`] instead where what is wanted is the name a column is qualified by.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         &self.table
+    }
+
+    /// The table's own name, which is what this plan's columns are qualified by.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table.name()
     }
 
     #[inline]

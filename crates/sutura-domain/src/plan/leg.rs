@@ -39,7 +39,7 @@
 //! caps one answer's rows; `sutura_sql::generate_leg` emits no `LIMIT` for the same reason.
 
 use crate::calendar::TimeRange;
-use crate::model::{MetricName, SourceName, TableName};
+use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
 use crate::plan::{PlanBucket, PlanFilter, PlanJoin, PlanKey, PlanTerm, QueryPlan};
 use crate::warehouse::ParamValue;
 
@@ -147,10 +147,10 @@ impl LegTerm {
 ///
 /// ```compile_fail
 /// use sutura_domain::calendar::TimeRange;
-/// use sutura_domain::model::{SourceName, TableName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
 /// use sutura_domain::plan::LegPlan;
 ///
-/// fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
+/// fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         table,
@@ -163,10 +163,10 @@ impl LegTerm {
 /// ```
 ///
 /// ```
-/// use sutura_domain::model::{SourceName, TableName};
+/// use sutura_domain::model::{QualifiedTable, SourceName};
 /// use sutura_domain::plan::LegPlan;
 ///
-/// fn _undated(source: SourceName, table: TableName) -> LegPlan {
+/// fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 ///     LegPlan::Lookup {
 ///         source,
 ///         table,
@@ -201,7 +201,7 @@ pub enum LegPlan {
     Fact {
         source: SourceName,
         metric: MetricName,
-        table: TableName,
+        table: QualifiedTable,
         joins: Vec<PlanJoin>,
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
@@ -222,7 +222,7 @@ pub enum LegPlan {
     /// splitter and is deliberately not a field here.
     Lookup {
         source: SourceName,
-        table: TableName,
+        table: QualifiedTable,
         keys: Vec<PlanKey>,
         filters: Vec<PlanFilter>,
         params: Vec<ParamValue>,
@@ -241,12 +241,22 @@ impl LegPlan {
         }
     }
 
-    /// The table this leg reads.
+    /// Where the table this leg reads lives: the whole path, which is what its `FROM` names.
+    ///
+    /// A leg qualifies exactly as a whole-answer plan does, and it shares `generate`'s rendering to
+    /// make sure of it - two `FROM`-building paths would be two places for identifier quoting to
+    /// differ, which is the drift `sutura_sql::generate`'s own header is written against.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         match *self {
             Self::Fact { ref table, .. } | Self::Lookup { ref table, .. } => table,
         }
+    }
+
+    /// The table's own name, which is what this leg's columns are qualified by.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table().name()
     }
 
     /// The columns this leg groups by and projects.

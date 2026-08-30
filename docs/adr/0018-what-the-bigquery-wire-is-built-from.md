@@ -359,7 +359,7 @@ INT64"*. The fault was in the FIXTURE - the plan's metric label was the same wor
 
 ### What is still not claimed, and by what mechanism
 The leg is a **smoke leg**, and it is:
-`crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests, reached by
+`crates/sutura-exec-bigquery/tests/acceptance.rs`, five `#[ignore]`d tests, reached by
 `just bigquery-acceptance`, needing three variables a developer names in their own environment.
 
 **And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that

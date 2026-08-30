@@ -50,7 +50,7 @@ use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
-use sutura_domain::model::{JoinType, SourceName, TableName};
+use sutura_domain::model::{JoinType, QualifiedTable, SourceName, TableName};
 use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
@@ -90,6 +90,22 @@ pub enum DataFusionError {
         #[source]
         cause: datafusion::error::DataFusionError,
     },
+    /// A model names a table this engine has nowhere to look for.
+    ///
+    /// **This engine registers one file per model in its own table registry - there is no catalog and
+    /// no schema above it - so a `dataset.table` or a `project.dataset.table` path names nothing it
+    /// holds.** Refused by name rather than by dropping the qualifier and reading the table of that
+    /// name from the registry, which is the wrong-number failure issue #83 reports: a plausible answer
+    /// under a certified metric, off a table nobody asked for.
+    ///
+    /// A typed error and not a `RefusalReason`, because no question a caller could ask produces one:
+    /// a table path comes from a catalog document. `sutura-serve` refuses the same thing at BOOT, so a
+    /// deployment reaches this only if a model arrived after the engine was opened.
+    ///
+    /// `sutura_sql::Dialect::qualification` declares the same limit for the rendering side, where
+    /// `DuckDb` is `TableOnly` for exactly this reason.
+    #[error("model table {table} is qualified, and this engine registers one file per model with nothing above it")]
+    QualifiedTableUnreachable { table: String },
     /// A logical plan could not be assembled from the query plan.
     ///
     /// A bug here or upstream rather than a refusal: a caller cannot ask anything that causes one.
@@ -527,10 +543,18 @@ impl DataFusionWarehouse {
     /// `into_unoptimized_plan` rather than the optimized one: this is an input to a builder, and
     /// optimizing a fragment that is about to be joined, filtered and aggregated is work thrown
     /// away the moment the whole plan is optimized.
-    async fn scan(&self, table: &TableName) -> Result<LogicalPlan, DataFusionError> {
+    async fn scan(&self, table: &QualifiedTable) -> Result<LogicalPlan, DataFusionError> {
+        // Before the lookup, and it has to be before: `TableReference::bare` of the last part would
+        // find the registered file and answer about it, which is a different table from the one the
+        // catalog named.
+        if table.qualifier().is_some() {
+            return Err(DataFusionError::QualifiedTableUnreachable {
+                table: table.to_string(),
+            });
+        }
         let frame = self
             .context
-            .table(table_reference(table))
+            .table(table_reference(table.name()))
             .await
             .map_err(|cause| DataFusionError::Analyze { cause })?;
         Ok(frame.into_unoptimized_plan())
@@ -634,7 +658,7 @@ impl Warehouse for DataFusionWarehouse {
             // wrong - not that the leg is unanswerable. Nothing reaches this today: there is no
             // splitter to build a leg.
             Executable::Leg(leg) => Err(DataFusionError::LegWithoutCombiner {
-                table: String::from(leg.table().as_str()),
+                table: leg.table().to_string(),
             }),
         }
     }

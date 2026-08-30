@@ -403,7 +403,7 @@ mod tests {
         for model in pinned.definitions().models().values() {
             let csv = data.join(format!("{}.csv", model.table()));
             warehouse
-                .attach_csv(model.table(), &csv)
+                .attach_csv(model.table_name(), &csv)
                 .unwrap_or_else(|e| panic!("could not attach {}: {e}", csv.display()));
         }
         sutura_app::Warehouses::of(warehouse)
@@ -599,7 +599,7 @@ mod tests {
         // checkable over this corpus.
         for model in pinned.definitions().models().values() {
             assert!(
-                !text.contains(model.table().as_str()),
+                !text.contains(model.table_name().as_str()),
                 "table {} reached the prompt",
                 model.table()
             );
