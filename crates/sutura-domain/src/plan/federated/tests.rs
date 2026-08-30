@@ -272,6 +272,46 @@ fn an_average_is_undivided_in_the_leg_and_divided_above() {
 }
 
 #[test]
+fn a_minimum_leaf_reaggregates_across_the_group() {
+    let plan = plan_for("min_mrr", &Measure::Simple(term(Aggregate::Min, "mrr_cents")), true);
+    let fact = RowSet::new(
+        vec![
+            String::from("product_family"),
+            String::from("customer_key"),
+            String::from(TIME_BUCKET_LABEL),
+            String::from("min_mrr"),
+        ],
+        vec![
+            vec![
+                Value::Text("A".into()),
+                Value::Text("c1".into()),
+                Value::Text("2026-06".into()),
+                Value::Integer(300),
+            ],
+            vec![
+                Value::Text("A".into()),
+                Value::Text("c1".into()),
+                Value::Text("2026-06".into()),
+                Value::Integer(100),
+            ],
+        ],
+    )
+    .expect("a min fact result is well formed");
+    let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
+
+    let combined = plan.combine(&fact, &lookup, UNBOUNDED).expect("a minimum combines");
+    assert_eq!(
+        combined.rows(),
+        &[vec![
+            Value::Text("A".into()),
+            Value::Text("north".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100)
+        ]]
+    );
+}
+
+#[test]
 fn a_failing_ratio_guard_errors_on_a_zero_denominator() {
     let plan = failing_ratio_plan();
     let fact = avg_fact(vec![vec![

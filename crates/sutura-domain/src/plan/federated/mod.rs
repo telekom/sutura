@@ -341,9 +341,136 @@ pub enum FederatedFailure {
     MalformedRow { side: &'static str },
 }
 
+/// The column positions [`FederatedPlan::combine`] needs, resolved once.
+///
+/// Resolved together so every label lookup happens in one place and the rest of the combine reads by
+/// position. The maps are owned, so this struct does not borrow from either result set.
+struct LegIndexes {
+    fact_join: usize,
+    lookup_join: usize,
+    bucket: usize,
+    fact_index: BTreeMap<String, usize>,
+    lookup_columns: Vec<(String, usize)>,
+    lookup_pos: BTreeMap<String, usize>,
+    leaf_indexes: Vec<usize>,
+    leaf_labels: Vec<String>,
+}
+
+impl LegIndexes {
+    fn resolve(plan: &FederatedPlan, fact: &RowSet, lookup: &RowSet) -> Result<Self, FederatedFailure> {
+        let mut fact_index: BTreeMap<String, usize> = BTreeMap::new();
+        let mut lookup_columns: Vec<(String, usize)> = Vec::new();
+        for key in &plan.keys {
+            match key.side() {
+                LegSide::Fact => {
+                    fact_index.insert(String::from(key.label()), column_index(fact, key.label(), "fact")?);
+                }
+                LegSide::Lookup => lookup_columns.push((String::from(key.label()), column_index(lookup, key.label(), "lookup")?)),
+            }
+        }
+        let lookup_pos: BTreeMap<String, usize> = lookup_columns
+            .iter()
+            .enumerate()
+            .map(|(index, (label, _))| (label.clone(), index))
+            .collect();
+        let leaf_labels = labels(&plan.federation, &plan.metric);
+        let leaf_indexes: Vec<usize> = leaf_labels
+            .iter()
+            .map(|label| column_index(fact, label, "fact"))
+            .collect::<Result<_, _>>()?;
+        Ok(Self {
+            fact_join: column_index(fact, &plan.fact_join, "fact")?,
+            lookup_join: column_index(lookup, &plan.lookup_join, "lookup")?,
+            bucket: column_index(fact, plan.bucket.label(), "fact")?,
+            fact_index,
+            lookup_columns,
+            lookup_pos,
+            leaf_indexes,
+            leaf_labels,
+        })
+    }
+
+    /// One answer key's cell, read from whichever leg's result owns it.
+    fn read_cell(&self, key: &AnswerKey, fact_row: &[Value], remote: &[Value]) -> Result<Value, FederatedFailure> {
+        match key.side() {
+            LegSide::Fact => {
+                let index = self
+                    .fact_index
+                    .get(key.label())
+                    .copied()
+                    .ok_or_else(|| FederatedFailure::MissingColumn {
+                        side: "fact",
+                        label: String::from(key.label()),
+                    })?;
+                cell(fact_row, index, "fact", key.label()).cloned()
+            }
+            LegSide::Lookup => {
+                let index = self
+                    .lookup_pos
+                    .get(key.label())
+                    .copied()
+                    .ok_or_else(|| FederatedFailure::MissingColumn {
+                        side: "lookup",
+                        label: String::from(key.label()),
+                    })?;
+                cell(remote, index, "lookup", key.label()).cloned()
+            }
+        }
+    }
+}
+
+/// Every fact row that carries a link value, keyed by that value.
+///
+/// A `Null` link never joins and a real link is refused by the float-key rule; both fall through.
+fn facts_by_link<'a>(fact: &'a RowSet, fact_join: usize) -> Result<FactByLink<'a>, FederatedFailure> {
+    let mut by_link: FactByLink<'a> = BTreeMap::new();
+    for row in fact.rows() {
+        let Some(link) = row.get(fact_join) else {
+            continue;
+        };
+        let Some(key) = link_key(link)? else {
+            continue;
+        };
+        by_link.entry(key).or_default().push(row);
+    }
+    Ok(by_link)
+}
+
+/// The remote keys each link value maps to, refusing a link with more than one lookup row.
+///
+/// More than one row for one link would double every measure, so it is refused rather than certified.
+fn lookups_by_link(
+    lookup: &RowSet,
+    lookup_join: usize,
+    lookup_columns: &[(String, usize)],
+) -> Result<RemoteByLink, FederatedFailure> {
+    let mut by_link: RemoteByLink = BTreeMap::new();
+    for row in lookup.rows() {
+        let Some(link) = row.get(lookup_join) else {
+            continue;
+        };
+        let Some(key) = link_key(link)? else {
+            continue;
+        };
+        let remote: Option<Vec<Value>> = lookup_columns
+            .iter()
+            .map(|(label, index)| cell(row, *index, "lookup", label).cloned().ok())
+            .collect();
+        let Some(remote) = remote else {
+            continue;
+        };
+        let entry = by_link.entry(key.clone()).or_default();
+        if !entry.is_empty() {
+            return Err(FederatedFailure::AmbiguousLink { key });
+        }
+        entry.push(remote);
+    }
+    Ok(by_link)
+}
+
 #[expect(
     clippy::multiple_inherent_impl,
-    reason = "the accessors and the combiner span one type, kept apart for readability"
+    reason = "the accessor impl and the combiner impl span one type, kept apart for readability"
 )]
 impl FederatedPlan {
     /// Turns one result per leg into one answer's rows.
@@ -357,150 +484,21 @@ impl FederatedPlan {
     /// the answer materialised here is counted as it is built, and a question that would cross it is
     /// refused as [`FederatedFailure::ResourcesExhausted`] rather than truncated, so a caller never
     /// reads a result that stopped early as a result that returned.
-    // A join, a group, a re-aggregation and a divide in one pass over two rowsets; splitting it up
-    // would scatter the budget across three functions and lose the single conversion boundary it is.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "the combine walks join, group, aggregate and divide in one pass, keeping the budget to one boundary"
-    )]
     pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure> {
         distinct_columns(fact, "fact")?;
         distinct_columns(lookup, "lookup")?;
 
-        let fact_join_index = column_index(fact, &self.fact_join, "fact")?;
-        let lookup_join_index = column_index(lookup, &self.lookup_join, "lookup")?;
-        let bucket_index = column_index(fact, self.bucket.label(), "fact")?;
+        let indexes = LegIndexes::resolve(self, fact, lookup)?;
+        let fact_by_link = facts_by_link(fact, indexes.fact_join)?;
+        let lookup_by_link = lookups_by_link(lookup, indexes.lookup_join, &indexes.lookup_columns)?;
 
-        // Where each answer key is read from. A fact key is a column of the fact result; a lookup
-        // key is projected from the lookup result by its own column index, and addressed in the
-        // resulting remote value vector by its position among the lookup keys.
-        let mut fact_index: BTreeMap<&str, usize> = BTreeMap::new();
-        let mut lookup_columns: Vec<(&str, usize)> = Vec::new();
-        for key in &self.keys {
-            match key.side() {
-                LegSide::Fact => {
-                    fact_index.insert(key.label(), column_index(fact, key.label(), "fact")?);
-                }
-                LegSide::Lookup => {
-                    lookup_columns.push((key.label(), column_index(lookup, key.label(), "lookup")?));
-                }
-            }
-        }
-        let lookup_pos: BTreeMap<&str, usize> = lookup_columns
-            .iter()
-            .enumerate()
-            .map(|(index, (label, _))| (*label, index))
-            .collect();
-        let leaf_labels = labels(&self.federation, &self.metric);
-        let leaf_indexes: Vec<usize> = leaf_labels
-            .iter()
-            .map(|label| column_index(fact, label, "fact"))
-            .collect::<Result<_, _>>()?;
-
-        // The fact leg already grouped by its keys, so one fact row per (local keys, link, bucket);
-        // several rows can share a link value (one per local-key group), so each link maps to a list.
-        // A null link never joins, and a real link is refused by the float-key rule.
-        let mut fact_by_link: FactByLink<'_> = BTreeMap::new();
-        for row in fact.rows() {
-            let Some(link) = row.get(fact_join_index) else {
-                continue;
-            };
-            let Some(key) = link_key(link)? else {
-                continue;
-            };
-            fact_by_link.entry(key).or_default().push(row);
-        }
-
-        // The lookup result maps a link value to the remote keys that share it. More than one lookup
-        // row for one link would double every measure, so it is refused rather than certified.
-        let mut lookup_by_link: RemoteByLink = BTreeMap::new();
-        for row in lookup.rows() {
-            let Some(link) = row.get(lookup_join_index) else {
-                continue;
-            };
-            let Some(key) = link_key(link)? else {
-                continue;
-            };
-            let remote: Option<Vec<Value>> = lookup_columns
-                .iter()
-                .map(|(label, index)| cell(row, *index, "lookup", label).cloned().ok())
-                .collect();
-            let Some(remote) = remote else {
-                continue;
-            };
-            let entry = lookup_by_link.entry(key.clone()).or_default();
-            if !entry.is_empty() {
-                return Err(FederatedFailure::AmbiguousLink { key });
-            }
-            entry.push(remote);
-        }
-
-        // A final answer's group is identified by its key cells in question order, plus the bucket,
-        // and collects the leaf cells of every fact row that joined to it. The budget counts the
-        // answer as it is projected, which is the conversion boundary 0009 puts the bound at.
         let mut budget = ByteBudget::new(byte_budget);
         let column_bytes: u64 = self.keys.iter().map(|key| key.label().len() as u64).sum::<u64>()
             + self.bucket.label().len() as u64
             + self.measure_label.len() as u64;
         budget.add(column_bytes, byte_budget)?;
-        let mut groups: BTreeMap<Vec<String>, Group> = BTreeMap::new();
-        for (link_key, fact_rows) in &fact_by_link {
-            let remote_rows: Vec<Vec<Value>> = match lookup_by_link.get(link_key) {
-                Some(rows) => rows.clone(),
-                None if self.include_unmatched => vec![vec![Value::Null; lookup_columns.len()]],
-                None => continue,
-            };
-            for fact_row in fact_rows {
-                let bucket_cell = cell(fact_row, bucket_index, "fact", self.bucket.label())?.clone();
-                let leaves: Vec<Value> = leaf_indexes
-                    .iter()
-                    .zip(&leaf_labels)
-                    .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
-                    .collect();
-                for remote in &remote_rows {
-                    let mut cells = Vec::with_capacity(self.keys.len() + 1);
-                    for key in &self.keys {
-                        let value = match key.side() {
-                            LegSide::Fact => {
-                                let index =
-                                    fact_index
-                                        .get(key.label())
-                                        .copied()
-                                        .ok_or_else(|| FederatedFailure::MissingColumn {
-                                            side: "fact",
-                                            label: String::from(key.label()),
-                                        })?;
-                                cell(fact_row, index, "fact", key.label())?.clone()
-                            }
-                            LegSide::Lookup => {
-                                let index =
-                                    lookup_pos
-                                        .get(key.label())
-                                        .copied()
-                                        .ok_or_else(|| FederatedFailure::MissingColumn {
-                                            side: "lookup",
-                                            label: String::from(key.label()),
-                                        })?;
-                                cell(remote, index, "lookup", key.label())?.clone()
-                            }
-                        };
-                        cells.push(value);
-                    }
-                    cells.push(bucket_cell.clone());
-                    budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
-                    budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
-                    let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
-                    groups
-                        .entry(map_key)
-                        .or_insert_with(|| Group {
-                            cells: cells.clone(),
-                            leaves: Vec::new(),
-                        })
-                        .leaves
-                        .push(leaves.clone());
-                }
-            }
-        }
+
+        let groups = self.group_facts(&fact_by_link, &lookup_by_link, &indexes, &mut budget, byte_budget)?;
 
         // Re-aggregate each leaf across its group, then walk the divide tree.
         let mut rows: Vec<Vec<Value>> = Vec::with_capacity(groups.len());
@@ -534,6 +532,60 @@ impl FederatedPlan {
         });
 
         RowSet::new(columns, rows).map_err(|_malformed| FederatedFailure::MalformedRow { side: "answer" })
+    }
+
+    /// Project every joined fact row into answer groups, counting the working set as it goes.
+    ///
+    /// This is the join and the grouping, kept out of [`FederatedPlan::combine`] so one function does
+    /// not carry both the whole loop and the budget.
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "the grouping reads both link maps, the resolved indexes and the running budget together"
+    )]
+    fn group_facts(
+        &self,
+        fact_by_link: &FactByLink<'_>,
+        lookup_by_link: &RemoteByLink,
+        indexes: &LegIndexes,
+        budget: &mut ByteBudget,
+        byte_budget: u64,
+    ) -> Result<GroupMap, FederatedFailure> {
+        let mut groups: BTreeMap<Vec<String>, Group> = BTreeMap::new();
+        for (link_key, fact_rows) in fact_by_link {
+            let remote_rows: Vec<Vec<Value>> = match lookup_by_link.get(link_key) {
+                Some(rows) => rows.clone(),
+                None if self.include_unmatched => vec![vec![Value::Null; indexes.lookup_columns.len()]],
+                None => continue,
+            };
+            for fact_row in fact_rows {
+                let bucket_cell = cell(fact_row, indexes.bucket, "fact", self.bucket.label())?.clone();
+                let leaves: Vec<Value> = indexes
+                    .leaf_indexes
+                    .iter()
+                    .zip(&indexes.leaf_labels)
+                    .map(|(&index, label)| cell(fact_row, index, "fact", label).cloned().unwrap_or(Value::Null))
+                    .collect();
+                for remote in &remote_rows {
+                    let mut cells = Vec::with_capacity(self.keys.len() + 1);
+                    for key in &self.keys {
+                        cells.push(indexes.read_cell(key, fact_row, remote)?);
+                    }
+                    cells.push(bucket_cell.clone());
+                    budget.add(cells.iter().map(value_bytes).sum(), byte_budget)?;
+                    budget.add(leaves.iter().map(value_bytes).sum(), byte_budget)?;
+                    let map_key: Vec<String> = cells.iter().map(key_cell_str).collect();
+                    groups
+                        .entry(map_key)
+                        .or_insert_with(|| Group {
+                            cells: cells.clone(),
+                            leaves: Vec::new(),
+                        })
+                        .leaves
+                        .push(leaves.clone());
+                }
+            }
+        }
+        Ok(groups)
     }
 }
 
@@ -592,6 +644,9 @@ struct Group {
     cells: Vec<Value>,
     leaves: Vec<Vec<Value>>,
 }
+
+/// All of a combine's groups, keyed by the typed form of their key cells.
+type GroupMap = BTreeMap<Vec<String>, Group>;
 
 /// A group-key cell ordered and distinguished by type.
 ///
