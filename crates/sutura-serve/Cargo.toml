@@ -21,6 +21,22 @@ path = "src/main.rs"
 # agrees with what is actually linked.
 tls = ["sutura-config/tls", "sutura-http/tls"]
 
+# The BigQuery adapter, and with it the outbound HTTP stack its wire needs.
+#
+# **Default-off, and the reason is the FOUR CROSS BUILDS rather than a preference for narrow
+# defaults.** `sutura-exec-bigquery`'s own `wire` feature pulls `ureq` and its rustls closure -
+# including `ring`, which compiles C and assembly - and two of the four release triples are musl.
+# Those builds pass `--package sutura-cli`, so they never compile THIS crate; what they do compile is
+# the whole workspace's dependency closure, because crane's `buildDepsOnly` is deliberately unscoped
+# so the checks can share it. A non-optional dependency here would therefore put the outbound TLS
+# stack into all four cross dependency derivations, for a binary that links none of it.
+#
+# So the adapter arrives by asking: `cargo build -p sutura-serve --features bigquery`, or
+# `--all-features`, which is what `just lint`, `just test` and every nix check already pass - so the
+# registration below is compiled, linted and tested on every run, and only the four cross builds and
+# a bare `cargo build` are unchanged.
+bigquery = ["dep:sutura-exec-bigquery", "sutura-exec-bigquery/wire"]
+
 [dependencies]
 # For `sources`: which data systems a bundle reads from, so the engine is opened for the ones the
 # catalog actually names rather than for a guess.
@@ -29,6 +45,9 @@ sutura-catalog-local = { workspace = true }
 sutura-config = { workspace = true }
 sutura-domain = { workspace = true }
 sutura-exec-datafusion = { workspace = true }
+# The BigQuery adapter, behind the `bigquery` feature above. Optional is what makes the dependency
+# ABSENT from the default build rather than merely unused, which is the property the cross builds need.
+sutura-exec-bigquery = { workspace = true, optional = true }
 sutura-http = { workspace = true }
 # For `axum::Router` in one signature. The router is BUILT by `sutura-http`; this crate only names
 # the type on its way to `serve`.

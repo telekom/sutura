@@ -18,7 +18,7 @@ use sutura_domain::knowledge::Knowledge;
 use sutura_domain::model::{ColumnName, ModelName, SourceName, TableName};
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
 
-use super::{ENGINE_SOURCE, Opened, open_engine, refuse_unattached};
+use super::{ENGINE_SOURCE, Opened, OpenedSources, open_engine, refuse_unattached};
 
 fn tables(names: &[&str]) -> BTreeSet<TableName> {
     names
@@ -59,8 +59,28 @@ fn one_worker() -> sutura_config::RuntimeSettings {
 /// set. Dropping the success value here rather than deriving `Debug` on it keeps a test's
 /// convenience out of the composition root's types, and the message the caller passes is what
 /// says which arm was expected to fire.
-fn refusal(opened: Result<Opened, String>, expected: &str) -> String {
+fn refusal(opened: Result<OpenedSources, String>, expected: &str) -> String {
     opened.map(drop).expect_err(expected)
+}
+
+/// The request timeout the embedded defaults ship, which is also what a `BigQuery` job's deadline is
+/// filled from - so a test cannot pick a number a deployment would not run with.
+fn default_timeout() -> sutura_config::RequestTimeout {
+    sutura_config::RequestTimeout::parse(30).expect("thirty seconds is a request timeout")
+}
+
+/// The file arm, or a failed test naming which arm came back instead.
+///
+/// Every assertion below about attached tables is about the in-process engine, because it is the only
+/// adapter that ATTACHES anything - so unwrapping the arm here is more honest than an accessor on the
+/// enum that would have to invent an answer for the other one.
+fn files(opened: Result<OpenedSources, String>) -> Opened {
+    match opened.map_err(|error| format!("expected the file engine, got a refusal: {error}")) {
+        Ok(OpenedSources::Files(files)) => files,
+        #[cfg(feature = "bigquery")]
+        Ok(OpenedSources::BigQuery(_)) => panic!("expected the file engine, got the BigQuery arm"),
+        Err(message) => panic!("{message}"),
+    }
 }
 
 /// A `sources:` tree, built through the REAL settings loader.
@@ -206,6 +226,7 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
             ]),
             &engine_declared(),
             one_worker(),
+            default_timeout(),
         ),
         "a catalog reading an undeclared source must not get an engine",
     );
@@ -236,15 +257,15 @@ fn two_declared_sources_both_open_and_each_carries_its_own_posture() {
         entry(ENGINE_SOURCE, "shared-service-user", ""),
         entry("second", "shared-service-user", "")
     ));
-    let opened = open_engine(
+    let opened = files(open_engine(
         &bundle_over(&[
             ("customers", ENGINE_SOURCE, "dim_customer"),
             ("products", ENGINE_SOURCE, "dim_product"),
         ]),
         &two,
         one_worker(),
-    )
-    .expect("two declared sources open");
+        default_timeout(),
+    ));
     assert_eq!(
         opened
             .engines
@@ -261,15 +282,15 @@ fn two_declared_sources_both_open_and_each_carries_its_own_posture() {
     // And the routing itself: a model on the SECOND source gets the second engine, and its table is
     // attached from that source's own directory. A loop that attached every model to every engine
     // would answer a question about one source out of another's files.
-    let routed = open_engine(
+    let routed = files(open_engine(
         &bundle_over(&[
             ("customers", ENGINE_SOURCE, "dim_customer"),
             ("products", "second", "dim_product"),
         ]),
         &two,
         one_worker(),
-    )
-    .expect("a catalog spanning two DECLARED sources is servable");
+        default_timeout(),
+    ));
     assert_eq!(
         routed
             .engines
@@ -325,36 +346,22 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
         "the refusal must list what this build can open: {rendered}"
     );
 
-    // The second refusal: a declared kind this binary links no adapter for. It PARSES - the settings
-    // tree accepts it, because the repository does have that adapter - and the composition root
-    // refuses it, naming the source so an operator knows which entry to change.
-    let declared = "  production_warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
-                    dataset: \"warehouse\"\n    posture: \"shared-service-user\"\n";
-    let error = refusal(
-        open_engine(
-            &bundle_over(&[("customers", "production_warehouse", "dim_customer")]),
-            &registry(declared),
-            one_worker(),
-        ),
-        "a kind this binary links no adapter for must not start",
-    );
-    assert!(
-        error.contains("production_warehouse"),
-        "the refusal must name the source: {error}"
-    );
-    assert!(
-        error.contains("bigquery"),
-        "the refusal must name the kind it cannot open: {error}"
-    );
+    // **The second refusal moved from the KIND to the FEATURE, and the test that asserted it is two
+    // tests below** - `a_bigquery_source_is_refused_by_a_build_that_did_not_link_the_adapter` and
+    // `a_bigquery_source_reaches_the_credential_the_deployment_declared`. It is not weakened and it
+    // is not gone: a `bigquery` source still parses and is still refused by the composition root on a
+    // build that linked no adapter, and the refusal still names the source. What changed is that the
+    // second thing it has to name is the `bigquery` feature rather than the kind, because on a build
+    // that DID link the adapter there is no refusal to make - and one test cannot assert both.
 
     // And the deployment the old rule refused: a files source under an alias that is not the
     // built-in engine's fixture name. It opens, which is the whole point of the change.
-    let opened = open_engine(
+    let opened = files(open_engine(
         &bundle_over(&[("customers", "warehouse", "dim_customer")]),
         &registry(&entry("warehouse", "shared-service-user", "")),
         one_worker(),
-    )
-    .expect("a declared files source opens under whatever alias it was given");
+        default_timeout(),
+    ));
     assert_eq!(opened.attached, tables(&["dim_customer"]));
 }
 
@@ -375,6 +382,7 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
             &bundle_over(&[("customers", ENGINE_SOURCE, "dim_customer")]),
             &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", "")),
             one_worker(),
+            default_timeout(),
         ),
         "an impersonating posture on an adapter that cannot impersonate must not start",
     );
@@ -401,6 +409,7 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
             &bundle_over(&[("customers", ENGINE_SOURCE, "dim_customer")]),
             &engine_declared(),
             one_worker(),
+            default_timeout(),
         )
         .expect("a shared source on a file engine is the ordinary case"),
     );
@@ -423,6 +432,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             &bundle_with_an_anchor(ENGINE_SOURCE),
             &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", "")),
             one_worker(),
+            default_timeout(),
         ),
         "an anchor with no identity to re-run it as must not boot",
     );
@@ -449,6 +459,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
                 "    verification_identity: \"sutura_anchor_reader\"\n",
             )),
             one_worker(),
+            default_timeout(),
         ),
         "the capability cross-check still stops this build",
     );
@@ -462,7 +473,12 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
     // shared identity, and an anchor is a complete claim - every caller reads that source as that
     // one identity, so the number the anchor certifies is the number every caller gets.
     drop(
-        open_engine(&bundle_with_an_anchor(ENGINE_SOURCE), &engine_declared(), one_worker())
+        open_engine(
+            &bundle_with_an_anchor(ENGINE_SOURCE),
+            &engine_declared(),
+            one_worker(),
+            default_timeout(),
+        )
             .expect("a shared source's anchors run as the shared identity"),
     );
 }
@@ -475,7 +491,7 @@ fn a_catalog_declaring_no_models_starts_nothing() {
     // service starts and refuses every question as an unknown metric, which reads as a question
     // problem rather than as a catalog directory holding no models.
     let error = refusal(
-        open_engine(&bundle_over(&[]), &engine_declared(), one_worker()),
+        open_engine(&bundle_over(&[]), &engine_declared(), one_worker(), default_timeout()),
         "a catalog with no models opens nothing",
     );
     assert!(error.contains("declares no models"), "{error}");
@@ -496,6 +512,7 @@ fn a_model_with_no_file_behind_it_starts_nothing() {
             &bundle_over(&[("orders", ENGINE_SOURCE, "fct_order")]),
             &engine_declared(),
             one_worker(),
+            default_timeout(),
         ),
         "a model with no file behind it must not open",
     );
