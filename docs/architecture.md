@@ -187,10 +187,18 @@ differential test runs one plan both ways and compares the rows - but the binary
 an operator needs no `libduckdb` to run `sutura query`. That is also what keeps the musl artifacts
 building: nixpkgs has no musl `libduckdb`, and the binary never asks for one.
 
-*Three dialects are three rendering targets, not three data systems.* `sutura compile` will render a
-statement for `DuckDB`, Postgres or `ClickHouse`, and the goldens parse-check each one. Rendering
-`ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no `ClickHouse`
-adapter: the port takes a plan, and rendering is one adapter's private business.
+*Four dialects are four rendering targets, not four data systems.* `sutura compile` will render a
+statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens parse-check each one.
+Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
+`ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
+
+**`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating.** A
+`BigQuery` adapter *does* exist - `sutura-exec-bigquery` - and it is still not a data system this
+build can reach: it has no transport that speaks to the endpoint, no composition root links it, and
+`sutura-serve` refuses `kind: bigquery` by name.
+[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md) is why, and it also records how much
+narrower parse-checking is than acceptance - measured, not assumed: within one target the parse check
+cannot see a function's argument order.
 
 The engine refuses a catalogue that declares any data system other than the one it is: naming the
 engine after whatever the catalogue said was a real bug, because it satisfied the composition root's

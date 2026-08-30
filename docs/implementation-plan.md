@@ -41,7 +41,7 @@ internal that a stable surface can grow behind.
 | 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
 | 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
-| 15 | `feat/bigquery-adapter` | 8 - **done**, and the fixture decision | **yes** |
+| 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017` | **MOSTLY DONE** - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. **The WIRE is not built**: no `JobTransport` reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
 | 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
 | 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
@@ -117,7 +117,7 @@ project becomes something else.
 | Wren's semantic model and compiler | **present** - markdown and YAML catalog, `Query` to `QueryPlan`, and the wren element set adopted | fan-out arithmetic declined on purpose; calculated fields only through an unwired hatch |
 | Inspiration from Spice | **compared and declined as a dependency**, correctly - and nothing taken as SHAPE | the connector API, connection pooling and Arrow execution patterns are exactly what `feat/source-registry`, `feat/leg-plan-types`, `feat/two-source-execution` and `feat/postgres-adapter` need |
 | Execution from DataFusion | **present**, and it stays the combiner under federation | none |
-| Polyglot for rendering, transpilation if needed | **present for rendering**, three dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
+| Polyglot for rendering, transpilation if needed | **present for rendering**, four dialects compiled | the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled |
 | Flexible sources and metadata systems | **decided, not built - and one of the eleven connectors is now measured rather than assumed** | the connectors, and the metadata capability declaration they conform through - which [what DataHub can carry](adr/0016-what-datahub-can-carry.md) schedules, having found the first source that provides part of a model rather than all of it |
 | Security | **the strongest part of the record** | the credential port is designed and unbuilt |
 | The agent-facing surface | **MISSING FROM THIS PLAN** | there is no `sutura-mcp`, and until now no step for it |
