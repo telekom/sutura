@@ -1238,6 +1238,8 @@
       
         
       
+        
+      
     
     
     
@@ -1728,6 +1730,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1747,6 +1777,8 @@
       
         
           
+        
+      
         
       
         
@@ -1979,6 +2011,34 @@
     
   
     sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
   
 
     
@@ -2655,8 +2715,8 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>15</td>
 <td><code>feat/bigquery-adapter</code></td>
-<td>8 - <strong>done</strong>, and the fixture decision</td>
-<td><strong>yes</strong></td>
+<td>8 - <strong>done</strong>; the fixture decision is <strong>made</strong>, <code>adr/0017</code></td>
+<td><strong>MOSTLY DONE</strong> - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. <strong>The WIRE is not built</strong>: no <code>JobTransport</code> reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it</td>
 </tr>
 <tr>
 <td>16</td>
@@ -2807,7 +2867,7 @@ project becomes something else.</p>
 </tr>
 <tr>
 <td>Polyglot for rendering, transpilation if needed</td>
-<td><strong>present for rendering</strong>, three dialects compiled</td>
+<td><strong>present for rendering</strong>, four dialects compiled</td>
 <td>the per-dialect rewrite layer Oracle needs sits behind a feature deliberately not compiled</td>
 </tr>
 <tr>

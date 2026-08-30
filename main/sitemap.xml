@@ -125,6 +125,10 @@
          <lastmod>2026-08-30</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0017-what-a-bigquery-test-runs-against/</loc>
+         <lastmod>2026-08-30</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/api/</loc>
          <lastmod>2026-08-30</lastmod>
     </url>
@@ -146,6 +150,10 @@
     </url>
     <url>
          <loc>https://telekom.github.io/sutura/main/api/sutura-domain/</loc>
+         <lastmod>2026-08-30</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/api/sutura-exec-bigquery/</loc>
          <lastmod>2026-08-30</lastmod>
     </url>
     <url>

@@ -6,29 +6,35 @@
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1">
       
-        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+        <meta name="description" content="The blocking decision the BigQuery adapter step was gated on - three options priced against what each one can vouch for, why an emulator is refused outright, why the acceptance leg runs on a developer's own project and not in CI, and the consequence that the corpus for this dialect claims rendering and parse-checking and never acceptance, with the one gap that measurement exposed in the parse check itself.">
       
       
       
+        <link rel="canonical" href="https://telekom.github.io/sutura/main/adr/0017-what-a-bigquery-test-runs-against/">
       
+      
+        <link rel="prev" href="../0016-what-datahub-can-carry/">
+      
+      
+        <link rel="next" href="../../api/">
       
       
         
       
       
-      <link rel="icon" href="/sutura/main/assets/favicon.svg">
+      <link rel="icon" href="../../assets/favicon.svg">
       <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
     
     
       
-        <title>sutura</title>
+        <title>What a BigQuery test runs against - sutura</title>
       
     
     
-      <link rel="stylesheet" href="/sutura/main/assets/stylesheets/main.ec1eaa64.min.css">
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
       
         
-        <link rel="stylesheet" href="/sutura/main/assets/stylesheets/palette.ab4e12ef.min.css">
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
       
       
 
@@ -41,9 +47,9 @@
       
     
     
-      <link rel="stylesheet" href="/sutura/main/css/telekom.css">
+      <link rel="stylesheet" href="../../css/telekom.css">
     
-    <script>__md_scope=new URL("/sutura/main",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
 
@@ -67,6 +73,11 @@
     <label class="md-overlay" for="__drawer"></label>
     <div data-md-component="skip">
       
+        
+        <a href="#what-a-bigquery-test-runs-against" class="md-skip">
+          Skip to content
+        </a>
+      
     </div>
     <div data-md-component="announce">
       
@@ -83,9 +94,9 @@
 
 <header class="md-header md-header--shadow" data-md-component="header">
   <nav class="md-header__inner md-grid" aria-label="Header">
-    <a href="/sutura/main/." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     <label class="md-header__button md-icon" for="__drawer">
@@ -102,7 +113,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              
+              What a BigQuery test runs against
             
           </span>
         </div>
@@ -230,9 +241,9 @@
 
 <nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
   <label class="md-nav__title" for="__drawer">
-    <a href="/sutura/main/." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
       
-  <img src="/sutura/main/assets/sutura.svg" alt="logo">
+  <img src="../../assets/sutura.svg" alt="logo">
 
     </a>
     sutura
@@ -259,7 +270,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/." class="md-nav__link">
+      <a href="../.." class="md-nav__link">
         
   
   
@@ -348,7 +359,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/concepts/" class="md-nav__link">
+      <a href="../../concepts/" class="md-nav__link">
         
   
   
@@ -376,7 +387,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/getting-started/" class="md-nav__link">
+      <a href="../../getting-started/" class="md-nav__link">
         
   
   
@@ -404,7 +415,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/qa/" class="md-nav__link">
+      <a href="../../qa/" class="md-nav__link">
         
   
   
@@ -432,7 +443,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/agent-prompt/" class="md-nav__link">
+      <a href="../../agent-prompt/" class="md-nav__link">
         
   
   
@@ -529,7 +540,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/contributing/" class="md-nav__link">
+      <a href="../../contributing/" class="md-nav__link">
         
   
   
@@ -557,7 +568,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/crap/" class="md-nav__link">
+      <a href="../../crap/" class="md-nav__link">
         
   
   
@@ -585,7 +596,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/enterprise-mirrors/" class="md-nav__link">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
         
   
   
@@ -613,7 +624,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/publishing/" class="md-nav__link">
+      <a href="../../publishing/" class="md-nav__link">
         
   
   
@@ -645,8 +656,10 @@
       
   
   
+    
   
   
+  
     
     
       
@@ -673,11 +686,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
         
           
           <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
@@ -698,7 +711,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4">
             <span class="md-nav__icon md-icon"></span>
             
@@ -716,7 +729,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/architecture/" class="md-nav__link">
+      <a href="../../architecture/" class="md-nav__link">
         
   
   
@@ -744,7 +757,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/serving/" class="md-nav__link">
+      <a href="../../serving/" class="md-nav__link">
         
   
   
@@ -772,7 +785,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/implementation-plan/" class="md-nav__link">
+      <a href="../../implementation-plan/" class="md-nav__link">
         
   
   
@@ -800,7 +813,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/implementation-plan-bigquery/" class="md-nav__link">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
         
   
   
@@ -828,7 +841,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/implementation-plan-identity-and-services/" class="md-nav__link">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
         
   
   
@@ -853,8 +866,10 @@
                 
   
   
+    
   
   
+  
     
     
       
@@ -898,11 +913,11 @@
       
     
     
-    <li class="md-nav__item md-nav__item--nested">
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
       
         
         
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" >
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_6" checked>
         
           
           <label class="md-nav__link" for="__nav_4_6" id="__nav_4_6_label" tabindex="0">
@@ -923,7 +938,7 @@
             <span class="md-nav__icon md-icon"></span>
           </label>
         
-        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="false">
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_6_label" aria-expanded="true">
           <label class="md-nav__title" for="__nav_4_6">
             <span class="md-nav__icon md-icon"></span>
             
@@ -941,7 +956,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0001-first-party-semantic-models/" class="md-nav__link">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
         
   
   
@@ -969,7 +984,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
         
   
   
@@ -997,7 +1012,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
         
   
   
@@ -1025,7 +1040,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
         
   
   
@@ -1053,7 +1068,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
         
   
   
@@ -1081,7 +1096,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
         
   
   
@@ -1109,7 +1124,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
         
   
   
@@ -1137,7 +1152,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
         
   
   
@@ -1165,7 +1180,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
         
   
   
@@ -1193,7 +1208,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0010-transport-security-for-a-source/" class="md-nav__link">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
         
   
   
@@ -1221,7 +1236,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0011-pluggable-by-declaration/" class="md-nav__link">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
         
   
   
@@ -1249,7 +1264,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
         
   
   
@@ -1277,7 +1292,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
         
   
   
@@ -1305,7 +1320,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
         
   
   
@@ -1333,7 +1348,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
         
   
   
@@ -1361,7 +1376,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/adr/0016-what-datahub-can-carry/" class="md-nav__link">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
         
   
   
@@ -1386,10 +1401,37 @@
                 
   
   
+    
   
   
-    <li class="md-nav__item">
-      <a href="/sutura/main/adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
         
   
   
@@ -1405,6 +1447,142 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-three-options-priced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three options, priced
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The three options, priced">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#an-emulator-that-speaks-the-api-refused-and-not-on-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        An emulator that speaks the API - REFUSED, and not on cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-real-project-in-ci-with-a-service-account-secret-refused-for-this-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A real project in CI, with a service-account secret - REFUSED for this step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-storage-read-api-against-a-fixture-table-refused-wrong-instrument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Storage Read API against a fixture table - REFUSED, wrong instrument
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-corpus-therefore-claims-exactly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the corpus therefore claims, exactly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-gap-the-measurement-exposed-which-is-the-part-worth-carrying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gap the measurement exposed, which is the part worth carrying
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-second-thing-measurement-found-and-it-is-a-wrong-number-rather-than-a-rejection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second thing measurement found, and it is a wrong number rather than a rejection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-acceptance-leg-when-somebody-runs-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The acceptance leg, when somebody runs it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
     </li>
   
 
@@ -1471,7 +1649,7 @@
         
           
           <div class="md-nav__link md-nav__container">
-            <a href="/sutura/main/api/" class="md-nav__link ">
+            <a href="../../api/" class="md-nav__link ">
               
   
   
@@ -1515,7 +1693,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-domain/" class="md-nav__link">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
         
   
   
@@ -1543,7 +1721,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-catalog-local/" class="md-nav__link">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
         
   
   
@@ -1571,7 +1749,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-semantic/" class="md-nav__link">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
         
   
   
@@ -1599,7 +1777,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-sql/" class="md-nav__link">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
         
   
   
@@ -1627,7 +1805,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-datafusion/" class="md-nav__link">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
         
   
   
@@ -1655,7 +1833,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-duckdb/" class="md-nav__link">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
         
   
   
@@ -1683,7 +1861,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-exec-bigquery/" class="md-nav__link">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
         
   
   
@@ -1711,7 +1889,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-app/" class="md-nav__link">
+      <a href="../../api/sutura-app/" class="md-nav__link">
         
   
   
@@ -1739,7 +1917,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-config/" class="md-nav__link">
+      <a href="../../api/sutura-config/" class="md-nav__link">
         
   
   
@@ -1767,7 +1945,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-runtime/" class="md-nav__link">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
         
   
   
@@ -1795,7 +1973,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-http/" class="md-nav__link">
+      <a href="../../api/sutura-http/" class="md-nav__link">
         
   
   
@@ -1823,7 +2001,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-mcp/" class="md-nav__link">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
         
   
   
@@ -1851,7 +2029,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/api/sutura-dev/" class="md-nav__link">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
         
   
   
@@ -1894,7 +2072,7 @@
   
   
     <li class="md-nav__item">
-      <a href="/sutura/main/changelog/" class="md-nav__link">
+      <a href="../../changelog/" class="md-nav__link">
         
   
   
@@ -1931,6 +2109,132 @@
   
   
   
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#the-three-options-priced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The three options, priced
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The three options, priced">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#an-emulator-that-speaks-the-api-refused-and-not-on-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        An emulator that speaks the API - REFUSED, and not on cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#a-real-project-in-ci-with-a-service-account-secret-refused-for-this-step" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A real project in CI, with a service-account secret - REFUSED for this step
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-storage-read-api-against-a-fixture-table-refused-wrong-instrument" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The Storage Read API against a fixture table - REFUSED, wrong instrument
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-the-corpus-therefore-claims-exactly" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What the corpus therefore claims, exactly
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-gap-the-measurement-exposed-which-is-the-part-worth-carrying" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The gap the measurement exposed, which is the part worth carrying
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-second-thing-measurement-found-and-it-is-a-wrong-number-rather-than-a-rejection" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The second thing measurement found, and it is a wrong number rather than a rejection
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-acceptance-leg-when-somebody-runs-it" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The acceptance leg, when somebody runs it
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
   
 </nav>
                   </div>
@@ -1943,8 +2247,168 @@
               
               <article class="md-content__inner md-typeset">
                 
-  <h1>404 - Not found</h1>
+                  
 
+
+  
+  
+
+
+<h1 id="what-a-bigquery-test-runs-against">What a BigQuery test runs against<a class="headerlink" href="#what-a-bigquery-test-runs-against" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted.</strong> The rendering half is built and green; the acceptance leg is opt-in and is not
+in CI, because there is nothing in CI for it to run against.</p>
+<p><code>docs/implementation-plan-bigquery.md</code> gates its first BigQuery step on one decision, to be made
+before the adapter is written: <strong>what does a test run against?</strong> There is no BigQuery in a container.
+The choice decides whether the step can claim <em>acceptance</em> at all or only <em>rendering</em>, and
+<a href="../0007-federating-across-different-data-systems/">0007</a> already says plainly that <code>parse-checked</code> is
+narrower than accepted.</p>
+<p>This record makes the decision and records what it costs, so it is not implied by whatever the first
+test happened to do.</p>
+<h2 id="the-three-options-priced">The three options, priced<a class="headerlink" href="#the-three-options-priced" title="Permanent link">&para;</a></h2>
+<h3 id="an-emulator-that-speaks-the-api-refused-and-not-on-cost">An emulator that speaks the API - REFUSED, and not on cost<a class="headerlink" href="#an-emulator-that-speaks-the-api-refused-and-not-on-cost" title="Permanent link">&para;</a></h3>
+<p>Something that answers the job API without being GoogleSQL would give a green corpus over statements
+the real service may reject, which is <strong>the exact failure <code>differential.rs</code> exists to prevent</strong>: that
+test runs one plan through the engine and through a real DuckDB and compares rows, because agreement
+between two things that are both wrong is not evidence.</p>
+<p>This is the option to refuse first and hardest, because it is the one that produces the most
+confident-looking green. It is refused on principle rather than on effort: an acceptance test whose
+subject is not the system whose acceptance is in question is not an acceptance test.</p>
+<h3 id="a-real-project-in-ci-with-a-service-account-secret-refused-for-this-step">A real project in CI, with a service-account secret - REFUSED for this step<a class="headerlink" href="#a-real-project-in-ci-with-a-service-account-secret-refused-for-this-step" title="Permanent link">&para;</a></h3>
+<p>It would genuinely vouch for acceptance. What it costs:</p>
+<ul>
+<li><strong>This repository is public.</strong> A workflow secret is not available to a pull request from a fork, so
+  the check would be absent on exactly the contributions least likely to have been run locally - the
+  shape of gate that is worse than none, because its green means "nobody could run it".</li>
+<li><strong>Every CI run acquires a dependency on a cloud project</strong>, its billing, its IAM and its
+  availability. A gate that fails for a reason outside the diff gets disabled, and this file's own
+  guidance says so.</li>
+<li><strong>It needs a project.</strong> Which project, and who pays, is a decision with an owner outside this
+  repository.</li>
+</ul>
+<p>Not rejected forever: if an organisation-level credential and an owner appear, this becomes the best
+option and the acceptance leg below is the thing that gets pointed at it. What is rejected is
+<em>blocking this step</em> on that.</p>
+<h3 id="the-storage-read-api-against-a-fixture-table-refused-wrong-instrument">The Storage Read API against a fixture table - REFUSED, wrong instrument<a class="headerlink" href="#the-storage-read-api-against-a-fixture-table-refused-wrong-instrument" title="Permanent link">&para;</a></h3>
+<p>It reads a table without running our SQL. The thing in doubt is whether <strong>the statement we generate
+is accepted and means what we think</strong>, and a path that never submits the statement cannot answer it.
+It would test the transport and call it acceptance.</p>
+<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
+<p><strong>A real project, reachable from a developer's own machine, with the acceptance leg marked
+not-in-CI.</strong></p>
+<p>What makes it reachable today is that <code>just gcloud-login</code> already lands: it performs both logins that
+matter, writes nothing into this repository, and its own documentation states that it serves
+<code>SharedServiceUser</code> and cannot become impersonation. That is exactly the posture the adapter step
+declares, so the step can be built and demonstrated with nothing more.</p>
+<p><strong>Which project, dataset and location a developer works against is not written down here and will not
+be.</strong> A developer names it in their own environment, for the reason the plan page gives: this
+repository is public, so the value belongs on the machine and only the hook belongs here.</p>
+<p>And the <em>fields</em> for two of those are not in this repository for the same reason the value is not:
+<code>SourcePlacement::BigQuery</code> declares a billing project and a dataset and nothing else. A dataset's own
+project is unrepresentable - an omitted <code>defaultDataset.projectId</code> resolves in the request's (billing)
+project, so a dataset owned by a different project than the payer cannot be declared - and neither is
+<code>location</code>, which the result-paging call needs for a dataset outside the two multi-regions. Stated
+rather than added because no transport consumes them; the change that adds the wire is the one that
+decides the fields.</p>
+<h2 id="what-the-corpus-therefore-claims-exactly">What the corpus therefore claims, exactly<a class="headerlink" href="#what-the-corpus-therefore-claims-exactly" title="Permanent link">&para;</a></h2>
+<p><strong>Rendering and parse-checking. Not acceptance.</strong> In CI, for this dialect:</p>
+<ul>
+<li>the 21 questions render, and their statements and parameters are pinned as goldens reviewed as a
+  diff;</li>
+<li>every statement is parsed with the BigQuery target;</li>
+<li>no value from a question reaches a statement as text, and every identifier is quoted - both
+  asserted with the dialect's own quote character, which is a backtick;</li>
+<li><code>LIMIT 10001</code> is present, which is the row cap's SQL leg.</li>
+</ul>
+<p><strong>DuckDB remains the only data system that vouches for acceptance in CI</strong>, through the anchors and
+through <code>differential.rs</code>. Postgres, ClickHouse and now BigQuery are rendered and parse-checked and
+nothing more. The <em>Invariants</em> row in AGENTS.md says this, and now says how much narrower.</p>
+<h2 id="the-gap-the-measurement-exposed-which-is-the-part-worth-carrying">The gap the measurement exposed, which is the part worth carrying<a class="headerlink" href="#the-gap-the-measurement-exposed-which-is-the-part-worth-carrying" title="Permanent link">&para;</a></h2>
+<p>Writing this dialect turned "parse-checked is narrower than accepted" from a hedge into a measured
+number, and the finding is sharper than expected: <strong>within one target, the parse check cannot see a
+function's argument order.</strong></p>
+<p>BigQuery spells the time bucket <code>DATE_TRUNC(&lt;date&gt;, MONTH)</code> - the date first, the granularity a bare
+keyword - where the other three take <code>DATE_TRUNC('month', &lt;date&gt;)</code>. Both shapes, rendered for
+BigQuery, <strong>parse cleanly as BigQuery.</strong> So a generator arm that got this wrong would render, parse,
+snapshot green, and fail at the service on the first real question.</p>
+<p>Three consequences:</p>
+<ol>
+<li><code>sutura_sql::dialect::DateTruncShape</code> is an exhaustive <strong>declaration</strong> rather than a check, so a
+   fifth dialect cannot be added without stating its spelling.</li>
+<li><code>the_parse_check_cannot_tell_the_two_bucket_shapes_apart</code> keeps the measurement as a test, so the
+   claim cannot quietly stop being true - and if the parser ever grows a signature check, that test
+   fails and the right response is to re-scope the claim rather than weaken the assertion.</li>
+<li>The severity is worth stating precisely, because the two failure modes here are not equal.
+   Getting the bucket wrong is a <strong>rejection</strong> at the service: the first argument is the value to
+   truncate, a string coerces there only if it is a canonical date, and <code>'month'</code> is not one. Getting
+   the <strong>quote character</strong> wrong is the wrong-number risk, because a double quote opens a string in
+   GoogleSQL - <code>SELECT "amount"</code> selects the text <code>amount</code>. That one happens to be caught in CI, on a
+   qualified column, and it is caught by luck about the shape we generate rather than by a guarantee.</li>
+</ol>
+<h2 id="the-second-thing-measurement-found-and-it-is-a-wrong-number-rather-than-a-rejection">The second thing measurement found, and it is a wrong number rather than a rejection<a class="headerlink" href="#the-second-thing-measurement-found-and-it-is-a-wrong-number-rather-than-a-rejection" title="Permanent link">&para;</a></h2>
+<p>The bucket's <em>shape</em> is above. Its <em>semantics</em> hid a second defect, on a grain <strong>no golden covers</strong>,
+and it is worth its own section because the corpus could not have found it.</p>
+<p><code>BigQuery</code>'s <code>WEEK</code> <strong>begins on Sunday</strong> - its own reference says <code>WEEK</code> is equivalent to
+<code>WEEK(SUNDAY)</code>. A real DuckDB 1.5.5, asked directly, answers
+<code>DATE_TRUNC('week', DATE '2026-08-30')</code> - a Sunday - with <strong>2026-08-24, a Monday</strong>, putting that
+Sunday in the previous week. So the obvious keyword mapping, <code>Week =&gt; "WEEK"</code>, would bucket a
+Sunday's rows under a different period on BigQuery than on the data system that vouches for
+acceptance. <strong>No error anywhere; a different number under a certified name.</strong></p>
+<p><code>BigQuery</code>'s Monday-based part is <code>ISOWEEK</code>, and that is what the generator asks for. The other four
+grains need no such care: <code>DAY</code>, <code>MONTH</code>, <code>QUARTER</code> and <code>YEAR</code> mean the same thing in every dialect
+this repository renders for.</p>
+<p><strong>Why the corpus could not catch it, and what holds it instead.</strong> The example questions ask only <code>day</code>
+and <code>month</code>, so no snapshot renders a week bucket at all - which is precisely the kind of gap a golden
+suite cannot report, because a missing case looks exactly like a passing one. What holds it is a test
+pinning the keyword by value, plus the reasoning written at the match arm.</p>
+<p><strong>The limit, because this claim is narrower than it sounds:</strong> what was compared is BigQuery's
+documented behaviour against a <em>measured</em> DuckDB. Whether <code>ClickHouse</code>'s week agrees with DuckDB's is a
+<strong>pre-existing</strong> question that this arm does not touch and that no test in this repository answers.
+Flagging it rather than fixing it, because the three-dialect renderings are unchanged here and a
+silent change to one of them belongs in its own diff.</p>
+<h2 id="the-acceptance-leg-when-somebody-runs-it">The acceptance leg, when somebody runs it<a class="headerlink" href="#the-acceptance-leg-when-somebody-runs-it" title="Permanent link">&para;</a></h2>
+<p>It is <strong>not built in this change</strong>, and the reason is the same decision applied to itself: the adapter
+in this repository has no transport that speaks to the endpoint, because nothing here can verify one.
+<code>sutura_exec_bigquery::transport::JobTransport</code> is the seam it arrives at, and the change that
+implements it is the change that can first run it against a project - which is where the dependency
+decision (an HTTP stack and a credential library, in a workspace that cross-builds to musl and holds
+an exact licence allowlist) belongs.</p>
+<p>When it lands, what it has to assert is what would actually be new information:</p>
+<ul>
+<li>the corpus's statements are <strong>accepted</strong> and return rows, which is the claim CI cannot make;</li>
+<li>the rows agree with the engine's for the same plan, which is <code>differential.rs</code>'s shape pointed at a
+  second data source;</li>
+<li>the bucket is right, which is the one thing above that no local check reaches;</li>
+<li>the result is the endpoint's <strong>complete</strong> answer and not the first page - a job <code>jobComplete</code> with
+  <code>totalRows</code> equalling the delivered count, which is what the seam's <code>JobRows::of</code> now forces a
+  transport to vouch for rather than leaving completeness to the shape of a page.</li>
+</ul>
+<p>And it stays out of <code>just validate</code>, because a gate that needs a cloud project is a gate that fails
+for an environment reason on somebody else's machine.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> gains <strong>no</strong> BigQuery entry.
+  That registry's own rule is that an entry is something somebody could deploy, and a cell that cannot
+  execute reads as coverage. The <strong>dialect</strong> axis gains one, unconditionally.</li>
+<li>A developer who wants to try it against their own project needs the transport, which does not exist
+  yet. Until then the honest summary of BigQuery support in this repository is: <em>the statement is
+  right as far as four mechanisms can tell, and nobody has run one.</em></li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
               </article>
             </div>
           
@@ -2003,10 +2467,10 @@
     
       
       
-      <script id="__config" type="application/json">{"annotate": null, "base": "/sutura/main", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "/sutura/main/assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
     
     
-      <script src="/sutura/main/assets/javascripts/bundle.d7400e89.min.js"></script>
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
       
     
   </body>

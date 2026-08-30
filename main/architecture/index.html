@@ -1127,6 +1127,8 @@
       
         
       
+        
+      
     
     
     
@@ -1617,6 +1619,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1636,6 +1666,8 @@
       
         
           
+        
+      
         
       
         
@@ -1868,6 +1900,34 @@
     
   
     sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
   
 
     
@@ -2487,10 +2547,17 @@ every run of the test suite - it is what proves the SQL we render actually runs 
 differential test runs one plan both ways and compares the rows - but the binary does not link it and
 an operator needs no <code>libduckdb</code> to run <code>sutura query</code>. That is also what keeps the musl artifacts
 building: nixpkgs has no musl <code>libduckdb</code>, and the binary never asks for one.</p>
-<p><em>Three dialects are three rendering targets, not three data systems.</em> <code>sutura compile</code> will render a
-statement for <code>DuckDB</code>, Postgres or <code>ClickHouse</code>, and the goldens parse-check each one. Rendering
-<code>ClickHouse</code> SQL is not a claim that a <code>ClickHouse</code> exists anywhere, and there is no <code>ClickHouse</code>
-adapter: the port takes a plan, and rendering is one adapter's private business.</p>
+<p><em>Four dialects are four rendering targets, not four data systems.</em> <code>sutura compile</code> will render a
+statement for <code>DuckDB</code>, Postgres, <code>ClickHouse</code> or <code>BigQuery</code>, and the goldens parse-check each one.
+Rendering <code>ClickHouse</code> SQL is not a claim that a <code>ClickHouse</code> exists anywhere, and there is no
+<code>ClickHouse</code> adapter: the port takes a plan, and rendering is one adapter's private business.</p>
+<p><strong><code>BigQuery</code> is the one where that distinction has a nearer edge, so it is worth stating.</strong> A
+<code>BigQuery</code> adapter <em>does</em> exist - <code>sutura-exec-bigquery</code> - and it is still not a data system this
+build can reach: it has no transport that speaks to the endpoint, no composition root links it, and
+<code>sutura-serve</code> refuses <code>kind: bigquery</code> by name.
+<a href="../adr/0017-what-a-bigquery-test-runs-against/"><code>adr/0017</code></a> is why, and it also records how much
+narrower parse-checking is than acceptance - measured, not assumed: within one target the parse check
+cannot see a function's argument order.</p>
 <p>The engine refuses a catalogue that declares any data system other than the one it is: naming the
 engine after whatever the catalogue said was a real bug, because it satisfied the composition root's
 own <code>plan.source() != warehouse.source()</code> guard by construction, and a catalogue naming a production

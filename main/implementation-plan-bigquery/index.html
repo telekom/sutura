@@ -1000,6 +1000,8 @@
       
         
       
+        
+      
     
     
     
@@ -1490,6 +1492,34 @@
 
               
             
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
           </ul>
         </nav>
       
@@ -1509,6 +1539,8 @@
       
         
           
+        
+      
         
       
         
@@ -1741,6 +1773,34 @@
     
   
     sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
   
 
     
@@ -2153,26 +2213,52 @@ generator arm and a full dialect of goldens rather than a registration. <code>po
 <code>dialect-bigquery</code> feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
 nothing has to be written from scratch, and the cost is the corpus:</p>
 <ul>
-<li><strong>63 snapshots become 84</strong>, being 21 questions times four dialects. Verified by counting: 63 files
-  under <code>crates/sutura-app/tests/snapshots/</code> contain <code>10001</code> today.</li>
+<li><strong>63 snapshots become 84</strong>, being 21 questions times four dialects. <strong>Landed, and the prediction
+  held exactly:</strong> 84 files under <code>crates/sutura-app/tests/snapshots/</code> now contain <code>LIMIT 10001</code>, and
+  52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
+  which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
+  what makes the fourth dialect additive.</li>
 <li><strong><code>cargo xtask check-guidance</code> fails until AGENTS.md says 84.</strong> Not incidentally - the check reads
   the number written before the marker <code>SQL goldens read</code> and compares it to what it counts, which is
   the mechanism that caught <code>39</code> after the corpus had grown. So the invariant row is part of the
   change, and the gate puts it in the diff rather than trusting anyone to remember.</li>
-<li><strong>The placeholder style is a third variant or it is a bug.</strong> <code>PlaceholderStyle</code> is <code>Question</code> and
+<li>
+<p><strong>The placeholder style is a third variant or it is a bug.</strong> <code>PlaceholderStyle</code> is <code>Question</code> and
   <code>Numbered</code>, and BigQuery's job API takes either positional parameters or <code>@name</code> named ones. Decide
   it against the client's actual request shape, not against the dialect layer's rendering, because the
-  two are separately capable of being right.</li>
+  two are separately capable of being right.</p>
+<p><strong>Decided: <code>Question</code>, and no third variant.</strong> Verified against the REST reference rather than
+inferred - the request body carries <code>parameterMode</code>, positional parameters are written <code>?</code> and
+supplied as an ORDERED array whose entries omit <code>name</code>, and a query may use one form or the other
+and not both. A <code>GeneratedQuery</code> already carries an ordered list of values and no names, because a
+parameter's identity in a plan IS its position, so positional matches end to end. Named would need
+a name invented per parameter, a third <code>PlaceholderStyle</code> and a map on <code>GeneratedQuery</code> - three new
+things with nothing in the domain to fill them. <code>transport::JobRequest::PARAMETER_MODE</code> is where
+the adapter states it.</p>
+</li>
+<li>
+<p><strong>The generated statement needs no dataset qualifying, and that was the other thing to check.</strong> The
+  job request carries a <code>defaultDataset</code>, so a bare backticked table name resolves there - confirmed
+  on both <code>jobs.query</code> and <code>JobConfigurationQuery</code>, along with a single backtick-quoted unqualified
+  table name being a documented table path. So the generator emits the same shape it emits for every
+  other dialect, and the dataset is a declared field on the source rather than something rendering has
+  to know about.</p>
+</li>
 </ul>
-<p><strong>Blocked on one decision, to make FIRST: what a test runs against.</strong> There is no BigQuery in a
-container. Three options and they are not equivalent - an emulator that speaks the API but not the
-SQL semantics would give us a green corpus that proves nothing, which is the failure mode
-<code>differential.rs</code> exists to prevent. The honest choices are a real project in CI with a
-service-account secret, a real project reachable only from a developer's machine with the corpus
-marked as not-in-CI, or the Storage Read API against a fixture table. Pick before writing the
-adapter, because the choice decides whether this step can claim acceptance at all or only rendering -
-and <code>parse-checked</code> is already
-<a href="../adr/0007-federating-across-different-data-systems/">explicitly narrower</a> than accepted.</p>
+<p><strong>The blocking decision is MADE, and it is <a href="../adr/0017-what-a-bigquery-test-runs-against/">0017</a>.</strong> A
+real project reachable from a developer's own machine, with the acceptance leg marked not-in-CI. An
+emulator is refused on principle rather than on cost - it is the option that produces the most
+confident-looking green - a secret in CI is refused because this repository is public and a
+fork's pull request cannot see one, and the Storage Read API is the wrong instrument because it never
+submits the statement. <strong>So the corpus for this dialect claims rendering and parse-checking and never
+acceptance</strong>, and DuckDB remains the only data system that vouches for acceptance in CI.</p>
+<p><strong>Writing it turned that hedge into a measured number, and the finding is worth reading before the
+next dialect.</strong> Within one target the parse check cannot see a function's ARGUMENT ORDER: both bucket
+spellings, rendered for BigQuery, parse as BigQuery. <code>sutura_sql::dialect::DateTruncShape</code> is therefore
+an exhaustive declaration rather than a check, and a test keeps the measurement so the claim cannot
+quietly stop being true. 0017 carries the severity split - the bucket getting it wrong is a rejection
+at the service, while the QUOTE CHARACTER is the wrong-number risk, because a double quote opens a
+string in GoogleSQL.</p>
 <p><strong>Touches.</strong> A new adapter crate; <code>crates/sutura-sql</code> for the fourth dialect; <code>Cargo.toml</code> for the
 feature; <code>crates/sutura-config</code> for the source declaration; the <code>tests/adapters</code> registry; AGENTS.md
 for the golden count.</p>
@@ -2186,6 +2272,17 @@ acceptance leg runs in CI is the decision above.</p>
 <p><strong>Done when</strong> the corpus renders and is green, the fourth dialect's 21 statement goldens have been
 reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
 whatever the first test happened to do.</p>
+<p><strong>Where this stands.</strong> All three are done: the corpus is green over four dialects, the goldens were
+regenerated and reviewed as a diff, and the decision is
+<a href="../adr/0017-what-a-bigquery-test-runs-against/">0017</a>. The adapter, the source declaration and the
+registry entry landed with them.</p>
+<p><strong>What did NOT land, deliberately: the wire.</strong> <code>sutura-exec-bigquery</code> implements <code>Warehouse</code> and is
+tested against a fake transport; <code>transport::JobTransport</code> has no implementor that speaks to the
+endpoint, and no composition root links the crate. 0017 decides that the change adding one is the
+change that can first verify it against a real project - which is also where the dependency decision
+belongs, because an outbound HTTP stack and a credential library reach the musl release builds and the
+licence gate. So the honest summary today is: <strong>the statement is right as far as four mechanisms can
+tell, and nobody has run one.</strong> That sentence is what the per-subject step below inherits.</p>
 <h2 id="bigquery-per-subject">BigQuery, per subject<a class="headerlink" href="#bigquery-per-subject" title="Permanent link">&para;</a></h2>
 <p><strong>Goal.</strong> The first real impersonation, and the one that matters most. A query executes as the
 subject who asked it, and two subjects get different rows.</p>
