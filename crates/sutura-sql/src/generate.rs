@@ -241,6 +241,23 @@ fn aggregate(kind: Aggregate, over: Expr) -> Expr {
     }
 }
 
+/// Cast a Postgres `AVG` to `DOUBLE`, where a mean must arrive as a float.
+///
+/// Postgres's `AVG` over an INTEGER column returns `NUMERIC`, where the engine (and `DuckDB`)
+/// produce `DOUBLE` for the same query - and `NUMERIC` with a fraction is the case this repository
+/// keeps exact as text ("so an exact total stays exact"), which would turn a mean into a `Text` leg
+/// that disagrees with the float every other adapter reaches. Casting the Postgres `AVG` to
+/// `DOUBLE` on the WIRE keeps a mean a float there. It is the same `DOUBLE` cast the ratio path
+/// already makes (proven accepted by every target we render for), and it touches only the Postgres
+/// dialect.
+fn avg_for_postgres(over: Expr, kind: Aggregate, dialect: Dialect) -> Expr {
+    if matches!(kind, Aggregate::Avg) && dialect == Dialect::Postgres {
+        over.cast("DOUBLE")
+    } else {
+        over
+    }
+}
+
 /// One term, as one expression.
 ///
 /// A conditional count is `SUM(CASE WHEN col THEN 1 ELSE 0 END)` rather than the dialect layer's own
@@ -248,12 +265,12 @@ fn aggregate(kind: Aggregate, over: Expr) -> Expr {
 /// below, so this is the weaker of the two decisions - but it keeps every term rendered by one
 /// mechanism we can read, and it counts 0 rather than null for a false row, so a period with no
 /// matches answers 0 instead of nothing.
-fn term_expression(term: &PlanTerm) -> Expr {
+fn term_expression(term: &PlanTerm, dialect: Dialect) -> Expr {
     match *term {
         PlanTerm::Aggregate {
             aggregate: kind,
             column: ref col,
-        } => aggregate(kind, column(col)),
+        } => avg_for_postgres(aggregate(kind, column(col)), kind, dialect),
         PlanTerm::CountIf { column: ref col } => builder::sum(
             builder::case()
                 .when(column(col), builder::lit(1))
@@ -285,16 +302,16 @@ fn term_expression(term: &PlanTerm) -> Expr {
 /// The numerator is cast to a floating type first. Integer division truncates in Postgres and in
 /// `DuckDB` - `SUM(cents) / COUNT(*)` would silently return a whole number - which is the wrong answer
 /// for every ratio anybody actually wants.
-fn measure_expression(measure: &PlanMeasure) -> Expr {
+fn measure_expression(measure: &PlanMeasure, dialect: Dialect) -> Expr {
     match *measure {
-        PlanMeasure::Simple { ref term } => term_expression(term),
+        PlanMeasure::Simple { ref term } => term_expression(term, dialect),
         PlanMeasure::Ratio {
             ref numerator,
             ref denominator,
             zero_denominator,
         } => {
-            let top = term_expression(numerator).cast("DOUBLE");
-            let bottom = term_expression(denominator);
+            let top = term_expression(numerator, dialect).cast("DOUBLE");
+            let bottom = term_expression(denominator, dialect);
             let bottom = match zero_denominator {
                 ZeroDenominator::Null => builder::null_if(bottom, builder::lit(0)),
                 ZeroDenominator::Fail => bottom,
@@ -409,7 +426,7 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     }
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
     grouping.push(bucket_expr);
-    projection.push(aliased(measure_expression(plan.measure()), plan.measure_label())?);
+    projection.push(aliased(measure_expression(plan.measure(), dialect), plan.measure_label())?);
     let statement = joined(builder::select(projection).from(plan.table().as_str()), plan.joins());
 
     // Folded in plan order, which is parameter order: the range bounds, then the metric's required
@@ -496,7 +513,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
             // here: the projection is then the key list and the bucket, grouped by itself.
             for term in terms {
-                projection.push(aliased(term_expression(term.term()), term.label())?);
+                projection.push(aliased(term_expression(term.term(), dialect), term.label())?);
             }
             joins
         }

@@ -23,10 +23,17 @@ sutura-catalog-local = { workspace = true }
 # to prove the SQL we render actually runs somewhere, which is the whole job of a data-source
 # adapter today. The binary links the engine and nothing else.
 sutura-exec-duckdb = { workspace = true }
+# A second DATA SOURCE, over the wire, and a development dependency for the same reason: it proves
+# the Postgres statement we render is accepted by a real Postgres. Its corpus cells run against this
+# worktree's provisioned tier and skip where none is up.
+sutura-exec-postgres = { workspace = true }
 # THE engine, and what the golden suite executes with. Also the far side of the differential test:
 # one plan computed locally here and pushed down as SQL to the data source above, rows compared. A
 # statement that is valid SQL with different semantics is the bug class that catches.
 sutura-exec-datafusion = { workspace = true }
+# How a network adapter's tests reach the docker tier: the discovery file a harness reads, and the
+# skip-or-fail decision that keeps the corpus green in CI where there is no socket.
+sutura-dev = { workspace = true }
 insta = { workspace = true }
 # Rendering, and a DEV dependency here rather than a shipped one, which is the whole point of the
 # split. This crate compiles a question into a plan and hands the plan to a port; the SQL goldens

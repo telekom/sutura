@@ -43,7 +43,7 @@ internal that a stable surface can grow behind.
 | 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
 | 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017` | **MOSTLY DONE** - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. **The WIRE is not built**: no `JobTransport` reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
-| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
+| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | **static-credential half built (18 remains)** |
 | 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
 | 19 | `feat/source-mtls` | 8 - **done**, 17 | after 17 |
 | 20 | `feat/raw-sql-tool` | 3, 8 - **done**, 12 | after 12 |
