@@ -34,9 +34,9 @@
 //! frontmatter describe different definitions is a certified metric nobody can check, and the fix is
 //! in the document rather than here.
 //!
-//! The three catalogs that exist to provoke ONE refusal each - a question spanning a second data
-//! system, and the same-name-tables collision on each of the two plan shapes - live in `refusals`
-//! beside this file. They are built in code rather than as catalog directories, because a corpus
+//! The three catalogs that exist to provoke ONE plan decision each - a question spanning a second
+//! data system, and the same-name-tables collision on each of the two plan shapes - live in
+//! `refusals` beside this file. They are built in code rather than as catalog directories, because a corpus
 //! spanning two data systems would make every other test in the suite span two, and qualifying the
 //! shipped corpus would move every existing golden to demonstrate a refusal. Their own module says
 //! the rest.
@@ -46,8 +46,9 @@
 // `cargo xtask max-lines` fails at a thousand of them.
 mod knowledge;
 
-// The three fakes that provoke one refusal each. Their own file for this one's reason: a
-// hand-written catalog is a list of literals and `cargo xtask max-lines` fails at a thousand of them.
+// The three fakes that provoke one plan decision each - two refusals and, since the splitter landed,
+// one split. Their own file for this one's reason: a hand-written catalog is a list of literals and
+// `cargo xtask max-lines` fails at a thousand of them.
 mod refusals;
 
 use std::collections::{BTreeMap, BTreeSet};

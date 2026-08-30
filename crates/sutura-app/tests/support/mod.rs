@@ -18,7 +18,8 @@
 //!   HTTP: the port is a Rust trait, so the honest stand-in is a type that implements it, and a test
 //!   asserting on the text of an HTTP request would prove something about the test. They are what lets
 //!   every refusal be checked with no database at all.
-//! - [`TwoSourceCatalog`] provokes one refusal. It is built in code rather than as a catalog
+//! - [`TwoSourceCatalog`] provokes one plan shape - a SPLIT, since `docs/adr/0007`'s splitter
+//!   serves two sources, and a refusal before that. It is built in code rather than as a catalog
 //!   directory, because a corpus spanning two data systems would make every other test in the
 //!   suite span two.
 //! - [`same_name_tables_catalog`]'s fake provokes one refusal too, and is built in code for the same

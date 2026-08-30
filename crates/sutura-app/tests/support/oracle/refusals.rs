@@ -1,4 +1,4 @@
-//! The three catalogs that exist to provoke ONE refusal each, built in code.
+//! The catalogs that exist to provoke ONE decision each, built in code rather than as documents.
 //!
 //! **A sibling of the oracle rather than part of it, and `cargo xtask max-lines` is why:** a
 //! hand-written catalog is a list of literals, the parent file grows with every model the corpus
@@ -7,11 +7,16 @@
 //!
 //! **What these three share is what makes them a file rather than three unrelated fakes.** None of
 //! them is compared against a document, none of them ever executes, and each carries the shape one
-//! refusal needs and nothing else - so a reduction that would be dishonest in the oracle (two models
-//! instead of eleven metrics, no prose, no anchor) is the correct shape here. Each type's own doc
-//! comment says which refusal it is for.
+//! decision needs and nothing else - so a reduction that would be dishonest in the oracle (two
+//! models instead of eleven metrics, no prose, no anchor) is the correct shape here. Each type's own
+//! doc comment says which decision it is for.
 //!
-//! They are a child module of `oracle`, so the helpers up there - `column`, `dimension`, `june`,
+//! **"Refusal" is the wrong word for one of the three now, and the module is named for the group
+//! rather than renamed for the change.** [`TwoSourceCatalog`] was written when a question reaching a
+//! second data system was refused; the splitter serves that case, so what it provokes is a SPLIT.
+//! Its own doc comment says so where it used to claim a refusal.
+//!
+//! They are a child module of `oracle`, so the literal helpers up there - `column`, `dimension`,
 //! `source`, `version` - are in scope without being made public to the suite.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -30,8 +35,12 @@ use super::{column, dimension, source, version};
 
 /// The snapshot and its customers, with `customers` moved to a second data system.
 ///
-/// It exists to provoke one refusal: a plan whose join would reach a second data system is refused
-/// before anything runs, because a second data system is a second identity to satisfy.
+/// **It exists to provoke one plan SHAPE, and it used to be a refusal.** A question whose join
+/// reaches a second data system was declined before anything ran, because a second data system is a
+/// second identity to satisfy; `docs/adr/0007`'s splitter serves exactly two by splitting the
+/// question into a fact leg and a lookup leg, so what this fake now provokes is
+/// `sutura_semantic::Compiled::Federated`. The refusal it was built for is
+/// `PlanSpansTooManySources`, which needs a THIRD source and no fake here has one.
 ///
 /// **Two models and one metric rather than the whole catalog, and the reduction is deliberate.**
 /// Nothing here ever executes and nothing compares it against a document, so carrying eleven

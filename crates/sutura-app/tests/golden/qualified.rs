@@ -531,4 +531,3 @@ fn a_cross_project_join_is_one_statement_and_one_source() {
         assert!(sql.contains(part), "{part} is not in the statement:\n{sql}");
     }
 }
-
