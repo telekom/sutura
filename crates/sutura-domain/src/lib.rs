@@ -60,6 +60,7 @@
 
 pub mod audit;
 pub mod calendar;
+pub mod capabilities;
 pub mod catalog;
 pub mod definitions;
 pub mod expression;

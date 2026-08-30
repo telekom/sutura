@@ -23,6 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_app::surface::{Surface, SurfaceFailure};
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
@@ -111,6 +112,19 @@ pub(crate) struct Unreachable;
 
 impl SemanticCatalog for FixedCatalog {
     type Error = Unreachable;
+
+    /// Everything, and the reason is the one `sutura-catalog-local` gives for its own `all()`: the
+    /// bundle one function above is Rust literals in this repository, so there is no kind this
+    /// adapter could not express.
+    ///
+    /// **Nothing checks it, and that decides which way to be wrong.** A fake is not registered in the
+    /// conformance matrix, so no test compares this against what `bundle` actually carries - and of
+    /// the two ways to be inaccurate, over-declaring is the safe one: a declared absence that is not
+    /// one misleads whoever reads the declaration to decide what to trust, while a declared capability
+    /// that this fixture happens not to exercise misleads nobody.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::everything()
+    }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         Ok(bundle())

@@ -4,6 +4,8 @@
 //! assertions are written once and monomorphised per registration. Generics rather than `dyn`,
 //! which is the workspace rule and is also forced: the port carries an associated error type.
 
+use sutura_domain::capabilities::{DeclarableKind, DefinitionKind, MetadataCapabilities, UnfaithfulDeclaration};
+use sutura_domain::pinned::SemanticCatalog;
 use sutura_semantic::{Compiled, PredicateOrigin, compile};
 
 use crate::adapters::{CatalogUnderTest, load, questions, read_question, stem};
@@ -71,6 +73,35 @@ where
         stated_knowledge::<C>(),
         oracle_knowledge(),
         "the {} catalog and the hand-written statement of the same notes disagree",
+        C::NAME
+    );
+}
+
+/// Declaration fidelity: what an adapter says it supplies is exactly what it supplied.
+///
+/// **This is a SECOND contract and not a weaker version of [`agrees_with_the_oracle`].** That one
+/// compares a bundle against the hand-written statement of the same corpus and is the golden
+/// adapters' own contract - a version of it that tolerated a missing measure would pass a golden
+/// adapter that had silently stopped reading measures, which is the one thing it is for. This one
+/// compares an adapter's *declaration* against the bundle it produced, in both directions, and it is
+/// the assertion a **declaring** adapter gets in place of the oracle: 0016 decided that a source
+/// supplying part of a model is measured against what it said rather than against the reference
+/// bundle.
+///
+/// A registered catalog is expanded over this too, and for the reference adapter it is not a
+/// formality: `sutura-catalog-local` declares every kind there is, so passing this asserts the
+/// example corpus really carries all thirteen of them. A corpus trimmed to twelve would take a
+/// declared capability with it and nothing else in this suite would notice.
+fn provides_exactly_what_it_declares<C>()
+where
+    C: CatalogUnderTest,
+{
+    let pinned = load::<C>();
+    let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+    assert_eq!(
+        C::capabilities().checked_against(&produced),
+        Ok(()),
+        "the {} catalog's declaration and its bundle disagree",
         C::NAME
     );
 }
@@ -203,6 +234,11 @@ macro_rules! cell {
             }
 
             #[test]
+            fn it_provides_exactly_what_it_declares() {
+                super::provides_exactly_what_it_declares::<$adapter>();
+            }
+
+            #[test]
             fn reformatting_a_document_does_not_move_the_digest() {
                 super::reads_the_same_content_to_the_same_digest::<$adapter>();
             }
@@ -234,8 +270,6 @@ fn dropping_prose_moves_the_digest() {
     // the same definitions with no descriptions, so if prose were outside what is certified the two
     // digests would be equal. Without this, a digest that stopped covering prose would look right
     // in every per-catalog snapshot.
-    use sutura_domain::pinned::SemanticCatalog as _;
-
     let from_markdown = crate::adapters::load::<crate::adapters::ReferenceCatalog>();
     let without_prose = crate::support::HandWrittenCatalog
         .load()
@@ -245,4 +279,95 @@ fn dropping_prose_moves_the_digest() {
         without_prose.digest(),
         "prose is part of what is certified, so dropping it must move the digest"
     );
+}
+
+// ----------------------------------------------------------- declaration fidelity, off the axis ---
+//
+// A **declaring** adapter - one that supplies part of the model this port defines - is measured
+// against its own declaration rather than against the reference bundle. There is no such adapter in
+// the registry, and there deliberately is not one: `tests/adapters/mod.rs` registers only what
+// somebody could deploy, and inventing a narrow fake to register would put a cell in the matrix that
+// cannot execute the corpus - which that module already argues at length.
+//
+// So the declaring case is exercised where the narrow catalogs already live. Both fakes below were
+// narrow before this branch, for reasons written in their own doc comments: `HandWrittenCatalog`
+// leaves prose out because prose lives in the markdown and nowhere else, and `TwoSourceCatalog`
+// carries two models and one metric because that is the whole shape its refusal needs. Each now says
+// so in a declaration, and these tests are what hold the declaration to the bundle.
+
+/// **Everything it declared, it produced - and nothing of an undeclared kind appears.**
+///
+/// One assertion covering both directions, because `checked_against` is one function: the variant it
+/// returns names which direction failed, so a reader is never left to infer it from a diff.
+#[test]
+fn a_declaring_adapter_provides_exactly_what_it_declares() {
+    let hand_written = crate::support::HandWrittenCatalog
+        .load()
+        .expect("the hand-written catalog cannot fail");
+    let two_source = crate::support::two_source_catalog()
+        .load()
+        .expect("the two-source catalog cannot fail");
+    for (name, declared, pinned) in [
+        (
+            "the hand-written oracle",
+            <crate::support::HandWrittenCatalog as SemanticCatalog>::capabilities(),
+            &hand_written,
+        ),
+        (
+            "the two-source catalog",
+            <crate::support::TwoSourceCatalog as SemanticCatalog>::capabilities(),
+            &two_source,
+        ),
+    ] {
+        let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+        assert_eq!(
+            declared.checked_against(&produced),
+            Ok(()),
+            "{name}'s declaration and its bundle disagree"
+        );
+    }
+}
+
+/// A declared absence is VISIBLY absent, which is the half nothing covered for definitions.
+///
+/// `Knowledge::assemble`'s `UndeclaredContent` guard already refuses content for an undeclared
+/// knowledge capability at load. Nothing refuses the definition half, so what makes an absence
+/// visible there is this comparison - and this asserts it bites: widen the oracle's declaration by
+/// the one kind it deliberately does not supply, and the mismatch names that kind.
+#[test]
+fn a_declaration_wider_than_the_bundle_names_the_kind_it_over_claimed() {
+    let pinned = crate::support::HandWrittenCatalog
+        .load()
+        .expect("the hand-written catalog cannot fail");
+    let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+    assert_eq!(
+        MetadataCapabilities::everything().checked_against(&produced),
+        Err(UnfaithfulDeclaration::Unprovided {
+            kind: DeclarableKind::Definition(DefinitionKind::Descriptions),
+        }),
+        "the oracle carries no prose, so a declaration of every kind has to be reported as \
+         over-claiming exactly that one"
+    );
+}
+
+/// The two states an empty collection cannot tell apart, over a real bundle.
+///
+/// The oracle carries no descriptions. Declaring them is an over-claim and is reported; not declaring
+/// them is faithful. **Same bundle, same emptiness, two different verdicts** - which is the whole
+/// reason the declaration is a value rather than an inference from what a source happened to hold.
+#[test]
+fn a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind() {
+    let pinned = crate::support::HandWrittenCatalog
+        .load()
+        .expect("the hand-written catalog cannot fail");
+    let produced = MetadataCapabilities::produced(pinned.definitions(), pinned.knowledge());
+    assert!(
+        !produced.definitions().declares(DefinitionKind::Descriptions),
+        "this test is about a kind the bundle does not carry"
+    );
+    assert_eq!(
+        <crate::support::HandWrittenCatalog as SemanticCatalog>::capabilities().checked_against(&produced),
+        Ok(())
+    );
+    assert!(MetadataCapabilities::everything().checked_against(&produced).is_err());
 }

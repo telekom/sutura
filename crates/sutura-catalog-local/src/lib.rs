@@ -26,6 +26,7 @@ pub mod frontmatter;
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
+use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{
     Definitions, Description, InconsistentDefinitions, InvalidDescription, Metric, Model, Relationship,
 };
@@ -481,6 +482,27 @@ impl Collected {
 
 impl SemanticCatalog for LocalCatalog {
     type Error = LocalCatalogError;
+
+    /// **Everything, and that is a statement about the ADAPTER rather than about the directory it
+    /// read.** The markdown format is defined in this repository and grows with the domain, so this
+    /// adapter supplies whatever kinds exist - a tenth definition kind or a fifth knowledge
+    /// capability gets a document shape and needs no edit on this line. That is what makes this the
+    /// reference adapter, and it is the same argument [`KnowledgeCapabilities::all`] carries in
+    /// [`Self::read_all`]'s doc comment, generalised to the other half of the bundle by
+    /// `docs/adr/0016-what-datahub-can-carry.md`.
+    ///
+    /// An adapter mapping a fixed external schema gets the opposite treatment -
+    /// `MetadataCapabilities::of` with two explicit lists, so a new kind leaves its declaration
+    /// alone rather than silently widening it.
+    ///
+    /// **The limit, next to the claim.** Declaring every kind says nothing about the directory: a
+    /// tree with no relationships in it produces a bundle with none, and this declaration is what
+    /// tells a reader that the emptiness is the corpus's rather than the format's.
+    /// `sutura-app`'s golden suite checks the pair over the example catalog, which does carry every
+    /// kind - so a claim wider than what this adapter can actually read fails there.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::everything()
+    }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         let (definitions, knowledge) = self.read_all()?;

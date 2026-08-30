@@ -46,6 +46,7 @@ mod knowledge;
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
@@ -555,6 +556,37 @@ fn the_ratios() -> Vec<Metric> {
 impl SemanticCatalog for HandWrittenCatalog {
     type Error = Never;
 
+    /// **Everything except prose, and that makes this suite's oracle its own worked declaring
+    /// adapter.** Descriptions are deliberately left empty here - they live in the markdown and
+    /// nowhere else, which is the whole reason `without_descriptions` exists - so an adapter that
+    /// declared them would be claiming something it does not supply. Written as
+    /// [`DefinitionCapabilities::of`] over the other eight rather than as `all()` minus one, because
+    /// `of` is what an adapter mapping a schema it does not own writes, and a tenth kind must not
+    /// widen this line by accident.
+    ///
+    /// **This is not a claim checked against itself.** The declaration says what this fake is FOR,
+    /// which is stated in its own doc comment and was stated there before this line existed;
+    /// `a_declaring_adapter_provides_exactly_what_it_declares` in `tests/golden/catalogs.rs` is what
+    /// compares it against the bundle. Declare `Descriptions` here and that test goes red naming the
+    /// kind.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Relationships,
+                DefinitionKind::Cardinality,
+                DefinitionKind::Metrics,
+                DefinitionKind::RequiredFilters,
+                DefinitionKind::Grains,
+                DefinitionKind::AllowedValues,
+                DefinitionKind::Anchors,
+            ]),
+            // All four, and this half is not narrowed: the notes are written out in Rust in
+            // `oracle/knowledge.rs` with bodies, so every knowledge kind is really carried.
+            sutura_domain::knowledge::KnowledgeCapabilities::all(),
+        )
+    }
+
     #[expect(
         clippy::unwrap_in_result,
         reason = "every value here is a literal in this file, so a parse failure is a broken test \n                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \n                  not this one, which fires on position rather than on being test code"
@@ -688,6 +720,24 @@ pub(crate) struct TwoSourceCatalog;
 
 impl SemanticCatalog for TwoSourceCatalog {
     type Error = Never;
+
+    /// **Five declared absences, which is what makes this the narrow end of the fidelity test.** Two
+    /// models on two data systems, one metric, one join that licenses one dimension - and no prose,
+    /// no definitional filter, no value allowlist and no anchor, because the refusal this fake exists
+    /// to provoke happens before any of those would matter. Its own doc comment says so; this line is
+    /// the same reduction stated where a caller could read it.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Relationships,
+                DefinitionKind::Cardinality,
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+            ]),
+            sutura_domain::knowledge::KnowledgeCapabilities::none(),
+        )
+    }
 
     #[expect(
         clippy::unwrap_in_result,

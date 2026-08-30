@@ -464,6 +464,339 @@ Why a range was rejected.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+## Module `capabilities`
+
+What a metadata provider declares it can supply, and what it declares it cannot.
+
+**The absence is the point.** A `SemanticCatalog` adapter over a directory of markdown documents
+written here can carry every field `crate::catalog::Definitions` has, because the format is this
+repository's own and grows with the domain. An adapter over a fixed external schema cannot: a
+metadata service that holds a measure as a raw expression string in a dialect nothing here renders
+supplies structure, prose and join columns, and supplies no measure this repository will execute.
+Those two must not look alike, and an empty collection cannot tell them apart - so the adapter
+says, here, and the content is then just content.
+
+This is `crate::knowledge::KnowledgeCapabilities`'s argument applied to the other half of a
+bundle, and the two halves are declared together in `MetadataCapabilities` because an adapter is
+one thing. `docs/adr/0011-pluggable-by-declaration.md` decided the shape and
+`docs/adr/0016-what-datahub-can-carry.md` is the measurement that scheduled it: the first source
+measured against this port provides part of a model rather than all of one.
+
+# What this module does NOT do
+
+It does not refuse a load. `crate::knowledge::Knowledge::assemble` refuses content for an
+undeclared knowledge capability, and nothing here refuses anything: a declaration is a property of
+the **code** rather than of the bundle, so it is not under the definition digest and no
+composition root reads it yet. What holds it honest is `MetadataCapabilities::checked_against`,
+which a conformance suite runs over a real adapter's real bundle. **That is a test rather than an
+invariant, and it is written down that way deliberately** - the mechanism that cannot be omitted
+is the declaration itself, which the port requires with no default.
+
+### `enum DefinitionKind`
+
+```rust
+pub enum DefinitionKind
+```
+
+One kind of thing a catalog's *definitions* can carry.
+
+A closed set, for the reason `crate::knowledge::Capability` is one: the alternative is a string,
+and a provider that declared `"metrics "` would silently declare nothing at all.
+
+**Nine kinds, and the test for whether one belongs here is whether a real source can be missing it
+on its own:** a metadata service can have tables and no metrics, metrics and no definitional
+filters, joins whose cardinality it does not vouch for, and dimensions with no reviewed value list.
+
+**`Grains` is the exception and it is stated rather than smoothed over.**
+`Definitions::assemble` refuses a metric declaring no grain as `NoGrains`, so a bundle cannot
+hold a metric without one - which means the definition side never *observes* `Grains` absent while
+`Metrics` is present, and the fidelity check below therefore cannot catch a wrong claim about
+grains independently of the claim about metrics. It is still worth declaring: a source with no
+grain vocabulary cannot produce a metric at all, and the declaration is what says *why* the
+metrics are missing rather than leaving a reader to guess. What it is not is an independently
+checkable claim, and describing it as one would be the overstatement this file's own rules name as
+a defect.
+
+**The variants are named after what a caller loses**, not after a struct field. `Cardinality` is
+the clearest case: every `crate::catalog::Relationship` holds a `crate::model::JoinType`
+because the type has no other shape, so what a source can fail to supply is not the field but the
+*warrant* - and what a caller sees when the warrant is missing is that no dimension is reachable
+through a relationship. `MetadataCapabilities::produced` observes exactly that.
+
+#### Variants
+
+- `Structure` - Physical models: a table, and the column set it exposes.
+- `Descriptions` - Prose about a model, a metric or a dimension.
+- `Relationships` - Declared joins between models: the two endpoints and their columns.
+- `Cardinality` - A join's cardinality, vouched for well enough to license a dimension reached through it.
+- `Metrics` - Metrics, each with a measure from the closed vocabulary.
+- `RequiredFilters` - Predicates that are part of what a metric MEANS.
+- `Grains` - The time resolutions a metric may be asked at. Declarable, and not independently observable - see this enum's own doc comment for why, and do not read a green fidelity test as covering it.
+- `AllowedValues` - The reviewed set of values a dimension may be filtered on.
+- `Anchors` - The number a metric produced when it was certified.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+The word this kind answers to, in a message and in a declaration.
+
+```rust
+pub fn every() -> impl Iterator<Item>
+```
+
+Every kind there is, in declaration order.
+
+Derived from `Self::next` rather than listed, and seeded by the one variant the assertion
+above this `impl` block pins to discriminant zero.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
+### `struct DefinitionCapabilities`
+
+```rust
+pub struct DefinitionCapabilities
+```
+
+Which definition kinds one provider declares.
+
+A `BTreeSet` rather than nine booleans, for the reason
+`crate::knowledge::KnowledgeCapabilities` is one: the order is deterministic, and adding a kind
+does not add a field to every construction site.
+
+The constructor is infallible. Any set of kinds is a legitimate declaration - a source that
+carries nothing but tables is a real source, and 0016 checked that a bundle of models with no
+metrics assembles, pins and validates. What is not legitimate is a bundle that disagrees with the
+declaration, and that is `MetadataCapabilities::checked_against`'s to report.
+
+#### Methods
+
+```rust
+pub fn all() -> Self
+```
+
+Every kind there is.
+
+**What a REFERENCE adapter declares, and it means more than "all nine today".** A provider
+calling this says it supplies whatever kinds exist, including ones added later - which is true
+of a catalog format defined in this repository and is not true of anything mapping a schema
+somebody else owns.
+
+```rust
+pub const fn declared(&self) -> &BTreeSet<DefinitionKind>
+```
+
+Everything declared, in a deterministic order.
+
+```rust
+pub fn declares(&self, kind: DefinitionKind) -> bool
+```
+
+Does this provider supply that kind at all?
+
+```rust
+pub fn is_empty(&self) -> bool
+```
+
+Is nothing at all declared?
+
+```rust
+pub const fn none() -> Self
+```
+
+A provider with none of them.
+
+```rust
+pub fn of(kinds: impl IntoIterator<Item>) -> Self
+```
+
+The kinds a provider says it supplies.
+
+**What an adapter over a fixed external schema writes**, so that a tenth kind added here
+leaves its declaration alone rather than silently widening it.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
+### `enum DeclarableKind`
+
+```rust
+pub enum DeclarableKind
+```
+
+One kind of content, either half of a bundle.
+
+Exists so `MetadataCapabilities::checked_against` is one function with one failure type rather
+than two that a caller has to remember to run both of.
+
+#### Variants
+
+- `Definition` - Something the definitions carry.
+- `Knowledge` - Something the knowledge carries.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+### `enum UnfaithfulDeclaration`
+
+```rust
+pub enum UnfaithfulDeclaration
+```
+
+Why a bundle does not match what the adapter that produced it declared.
+
+**Two variants because they are two different defects with two different readers.** A bundle
+carrying something undeclared means a caller was told an absence that is not one, and whoever
+reads the declaration to decide what to trust was misled. A declaration claiming something the
+bundle does not carry means the declaration is aspirational, and the next person to widen it will
+not know which half of it was ever true.
+
+#### Variants
+
+- `Undeclared` - The bundle carries content of a kind the adapter did not declare.
+- `Unprovided` - The adapter declared a kind and the bundle carries nothing of it.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct MetadataCapabilities`
+
+```rust
+pub struct MetadataCapabilities
+```
+
+What one `SemanticCatalog` adapter declares it can supply.
+
+Both halves of a bundle in one value, because an adapter is one thing and a caller deciding what
+to trust reads one declaration. The knowledge half is
+`crate::knowledge::KnowledgeCapabilities` verbatim rather than a second vocabulary over the same
+four kinds: there is already a closed set for those, it is already rendered into the agent-facing
+prompt, and a copy of it would be a second thing to keep in step.
+
+**This value duplicates nothing and derives nothing.** The knowledge capabilities a *bundle*
+carries (`crate::knowledge::Knowledge::declares`) are under the definition digest and travel
+with the answer; the declaration here is a property of the linked code. That the two agree is
+exactly what `Self::checked_against` checks, and it is a check rather than a derivation because
+a derivation could not fail.
+
+#### Methods
+
+```rust
+pub fn checked_against(&self, produced: &Self) -> Result<(), UnfaithfulDeclaration>
+```
+
+Declaration fidelity: is this declaration exactly what `produced` was produced?
+
+The assertion a **declaring** adapter gets in place of the golden adapters' oracle, and it is
+two claims rather than one: everything declared was produced, so a declaration is not
+aspirational; and nothing of an undeclared kind appears, so a declared absence is visibly
+absent rather than silently missing.
+
+**The undeclared direction is checked first, and the order is not cosmetic.** That one is the
+safety failure - a caller was told an absence that is not one - and reporting it first means a
+suite that stops at the first error stops on the worse of the two. Named in the error either
+way, so a reader is never left to infer which happened.
+
+One kind per call, deliberately. A `Vec` of every discrepancy would be a presentation of an
+error rather than an error, and the workspace's rule is that the variant is the contract.
+
+# Errors
+
+`UnfaithfulDeclaration`, naming the first kind the two disagree about.
+
+```rust
+pub fn declares(&self, kind: DeclarableKind) -> bool
+```
+
+Does this declaration cover that kind?
+
+```rust
+pub const fn definitions(&self) -> &DefinitionCapabilities
+```
+
+The definition half.
+
+```rust
+pub fn every_kind() -> impl Iterator<Item>
+```
+
+Every kind either half could declare, in a deterministic order.
+
+Derived from the two vocabularies' own walks rather than listed, so a kind added to either one
+arrives here without an edit. Definitions first, then knowledge, and only because a reader has
+to be told some order - nothing depends on which.
+
+```rust
+pub fn everything() -> Self
+```
+
+Everything there is, in both halves.
+
+**What a REFERENCE adapter declares.** `sutura-catalog-local` already argued this for its
+knowledge half and the argument generalises unchanged: a catalog format defined in this
+repository supplies whatever kinds the domain grows, so a tenth definition kind or a fifth
+knowledge capability needs no edit at that adapter. Anything mapping a schema somebody else
+owns writes `Self::of` with two explicit lists instead.
+
+```rust
+pub const fn knowledge(&self) -> &KnowledgeCapabilities
+```
+
+The knowledge half.
+
+```rust
+pub const fn nothing() -> Self
+```
+
+A provider that declares nothing.
+
+Legitimate, and not a synonym for a broken adapter: a source that supplies nothing this port
+models is one whose bundle is empty, and the pair still has to agree. What it is NOT is a
+default - `crate::pinned::SemanticCatalog::capabilities` has none, so nothing reaches this
+by omission.
+
+```rust
+pub const fn of(definitions: DefinitionCapabilities, knowledge: KnowledgeCapabilities) -> Self
+```
+
+The declaration one adapter makes.
+
+```rust
+pub fn produced(definitions: &Definitions, knowledge: &Knowledge) -> Self
+```
+
+What a bundle actually carries, read off the content.
+
+**Not what the bundle says it carries.** The knowledge half here is observed from the four
+collections and never from `crate::knowledge::Knowledge::declares`, which is what lets
+`Self::checked_against` catch a bundle whose own declaration and content disagree rather
+than comparing one claim against a copy of itself.
+
+Two of the nine definition kinds are read through their consequence rather than their field,
+and both are worth stating because a reader will otherwise look for the field:
+
+- **`Cardinality`** is observed as *some dimension is reached through a relationship*. Every
+  `crate::catalog::Relationship` holds a `crate::model::JoinType` because the type has no
+  other shape, so the presence of the field says nothing; what a source failing to vouch for
+  cardinality costs a caller is that no relationship licenses a join, and
+  `Definitions::assemble` is what turns an unvouched-for declaration into that.
+- **`Descriptions`** is observed as *some description is non-empty*, over models, metrics and
+  dimensions alike. A bundle of empty descriptions is a bundle with no prose in it, whatever
+  the fields are.
+
+The other seven are the presence of the thing itself.
+
+#### Implements
+
+`Clone`, `Debug`, `Deserialize<'de>`, `Eq`, `PartialEq`, `Serialize`
+
 ## Module `catalog`
 
 What a catalog says: models, the relationships between them, and the metrics defined over them.
@@ -3385,6 +3718,77 @@ HTTP are two adapters behind it, and swapping one for the other does not touch t
 **`load` takes no request context, and that is the whole design of this port.** A catalog that
 could see the caller could return a different definition per caller, and then the digest that
 travels with an answer would describe something other than what produced it.
+
+# The declaration, and why an adapter cannot be silent
+
+`Self::capabilities` says which kinds of thing this adapter can supply at all - and, by
+omission from its own lists, which it cannot. **An absence has to be declared rather than
+inferred from silence**, because a bundle with no metrics in it is two entirely different facts: a
+reviewed catalog that has not certified one yet, and a source that holds a measure this
+repository will not execute. An empty collection cannot tell those apart, and a caller deciding
+what to trust needs to know which it is looking at.
+
+`crate::warehouse::Warehouse::IMPERSONATION` is the shape this copies and its argument carries
+over word for word: a defaulted capability would mean an adapter that said nothing got the benefit
+of the doubt in whichever direction the default pointed, and both directions are wrong. Defaulted
+to *supplies*, a narrow source would silently claim measures it does not have. Defaulted to *does
+not*, a complete adapter that forgot the line would be reported as narrow and somebody would fix
+that by deleting the check.
+
+The rule that decides required from defaulted is that trait's, demonstrated there twice:
+**required with no default where the absence changes what a caller may believe, defaulted with a
+stated reason where it is a missed optimisation.** This one is the first case - `dry_run` next
+door is the second, and says so in its own words.
+
+**An adapter that declares no capabilities does not compile:**
+
+```compile_fail
+use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+
+struct Undeclared;
+
+// No `fn capabilities`, so this impl is incomplete: the trait declares it with no default.
+impl SemanticCatalog for Undeclared {
+    type Error = core::fmt::Error;
+
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        Err(core::fmt::Error)
+    }
+}
+```
+
+The compiling twin, so the block above cannot be passing on a typo - the only difference between
+the two is the declaration:
+
+```
+use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
+use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
+use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+
+struct Declared;
+
+impl SemanticCatalog for Declared {
+    type Error = core::fmt::Error;
+
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([DefinitionKind::Structure, DefinitionKind::Descriptions]),
+            KnowledgeCapabilities::of([Capability::Glossary]),
+        )
+    }
+
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        Err(core::fmt::Error)
+    }
+}
+
+assert!(
+    !<Declared as SemanticCatalog>::capabilities()
+        .definitions()
+        .declares(DefinitionKind::Metrics),
+    "this adapter declares no metrics, and the declaration is what says so"
+);
+```
 
 ## Module `plan`
 
