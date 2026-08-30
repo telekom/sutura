@@ -1,0 +1,8 @@
+---
+source: crates/sutura-cli/tests/example.rs
+expression: stable(rows)
+---
+- - 2026-06-01
+  - "5.304448275862e1"
+- - 2026-06-08
+  - "5.532051724138e1"

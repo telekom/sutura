@@ -181,6 +181,7 @@ metrics:
     time_column: usage_date
     grains:
       - day
+      - week
       - month
     dimensions: {}
     anchor: ~

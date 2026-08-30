@@ -201,7 +201,7 @@ which phrase you resolved and what you resolved it to, so the person can correct
 ## The metrics this deployment defines
 
 - Definitions version: `example-single-player`
-- Definitions digest: `1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50`
+- Definitions digest: `2383faeaab05d6a4abd62d8701c5c6de970ec7f61e85043444e500e6908c73fc`
 
 11 metrics, and they are the whole of what may be asked about.
 
@@ -232,7 +232,7 @@ not infer a meaning from the name alone and present it as the definition.
 
 ### data_per_subscription
 
-- Grains: month, day
+- Grains: month, week, day
 - Dimensions: none. This metric is reported as one number per period and cannot be broken down.
 
 **Caveat `usage_reaches_no_snapshot`** - about this metric as a whole.

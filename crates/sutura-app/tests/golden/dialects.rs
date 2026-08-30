@@ -6,6 +6,7 @@
 use std::collections::BTreeSet;
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
+use sutura_domain::model::Grain;
 use sutura_semantic::{Compiled, compile};
 use sutura_sql::{Dialect, dialect};
 
@@ -306,5 +307,44 @@ fn every_dialect_the_renderer_supports_is_registered() {
         registered, all,
         "`sutura-sql` renders for a dialect the golden suite does not cover; add a line to \
          `adapters::registered` and re-run with INSTA_UPDATE=always"
+    );
+}
+
+/// The corpus asks for a question at every grain a metric declares - the latch the coverage here
+/// would otherwise not have.
+///
+/// The `week` grain this change proves permanently rides on the presence of one YAML file
+/// (`examples/single-player/questions/data-per-subscription-by-week.yaml`). Nothing else holds it:
+/// deleting it leaves every gate green, because `INSTA_UPDATE=no` fails a MISSING snapshot and
+/// nothing rejects an UNREFERENCED one - the orphaned goldens keep `check-guidance`'s row-cap count
+/// agreeing with `AGENTS.md`. This is the demanding form of the suite's existing proof-that-a-file-
+/// alone-would-carry idiom: some question must ask for every grain the bundle's metrics declare, so
+/// a metric widened to a grain no question exercises fails, and the `week` this PR adds to
+/// `data_per_subscription` is only the grain that would trip it today.
+#[test]
+fn some_question_asks_for_every_grain_a_metric_declares() {
+    let pinned = load::<ReferenceCatalog>();
+    let declared: BTreeSet<Grain> = pinned
+        .definitions()
+        .metrics()
+        .values()
+        .flat_map(|metric| metric.grains().iter().copied())
+        .collect();
+
+    let mut asked = BTreeSet::<Grain>::new();
+    for path in questions() {
+        let asked_question = read_question(&path);
+        let compiled = compile(&asked_question, &pinned).expect("the corpus compiles");
+        let Compiled::Planned { ref plan } = compiled else {
+            continue;
+        };
+        asked.insert(plan.bucket().grain());
+    }
+
+    let uncovered: Vec<Grain> = declared.difference(&asked).copied().collect();
+    assert!(
+        uncovered.is_empty(),
+        "a metric declares a grain no question in the corpus asks for: {uncovered:?} - add a \
+         question exercising it so the golden latches the grain"
     );
 }

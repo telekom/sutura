@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(DATE_TRUNC('week', "fct_usage_daily"."usage_date") AS DATE) AS "period", CAST(SUM("fct_usage_daily"."data_gb") AS DOUBLE PRECISION) / NULLIF(COUNT(DISTINCT "fct_usage_daily"."subscription_key"), 0) AS "data_per_subscription" FROM "fct_usage_daily" WHERE "fct_usage_daily"."usage_date" >= $1 AND "fct_usage_daily"."usage_date" < $2 GROUP BY CAST(DATE_TRUNC('week', "fct_usage_daily"."usage_date") AS DATE) ORDER BY CAST(DATE_TRUNC('week', "fct_usage_daily"."usage_date") AS DATE) LIMIT 10001

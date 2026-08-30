@@ -110,8 +110,11 @@ nothing has to be written from scratch, and the cost is the corpus:
   held exactly:** 84 files under `crates/sutura-app/tests/snapshots/` now contain `LIMIT 10001`, and
   52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
   which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
-  what makes the fourth dialect additive.
-- **`cargo xtask check-guidance` fails until AGENTS.md says 84.** Not incidentally - the check reads
+  what makes the fourth dialect additive. **The count later moved to 88:** the `week`-grain question
+  below adds a twenty-second question, and its BigQuery statement carries the row cap too, so `88
+  files ... contain LIMIT 10001` is what `AGENTS.md` reads today - the same `check-guidance` gate holds
+  that number.
+- **`cargo xtask check-guidance` fails until AGENTS.md says the right number.** Not incidentally - the check reads
   the number written before the marker `SQL goldens read` and compares it to what it counts, which is
   the mechanism that caught `39` after the corpus had grown. So the invariant row is part of the
   change, and the gate puts it in the diff rather than trusting anyone to remember.
@@ -151,6 +154,14 @@ an exhaustive declaration rather than a check, and a test keeps the measurement 
 quietly stop being true. 0017 carries the severity split - the bucket getting it wrong is a rejection
 at the service, while the QUOTE CHARACTER is the wrong-number risk, because a double quote opens a
 string in GoogleSQL.
+
+**The grain is the other place the fourth dialect silently disagrees, and it is pinned rather than
+left to drift.** BigQuery's `DATE_TRUNC(x, WEEK)` begins on **Sunday** - its own reference says `WEEK`
+is `WEEK(SUNDAY)` - while every other dialect's week is Monday-based. So the keyword arm maps `Week`
+to `ISOWEEK` (the Monday part), and 'a week bucket renders Monday' now has a question in the corpus, a
+BigQuery statement that is rendered and parse-checked, and `sutura_sql::grain_keyword` documenting the
+wrong number a naive `WEEK` would certify. The measured reason the shared lowercase string form stays
+correct is recorded on `sutura_sql::unit`.
 
 **Touches.** A new adapter crate; `crates/sutura-sql` for the fourth dialect; `Cargo.toml` for the
 feature; `crates/sutura-config` for the source declaration; the `tests/adapters` registry; AGENTS.md

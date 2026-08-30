@@ -482,7 +482,7 @@ fn the_ratios() -> Vec<Metric> {
         },
         Vec::new(),
         column("usage_date"),
-        BTreeSet::from([Grain::Day, Grain::Month]),
+        BTreeSet::from([Grain::Day, Grain::Week, Grain::Month]),
         BTreeMap::new(),
         None,
         Description::default(),

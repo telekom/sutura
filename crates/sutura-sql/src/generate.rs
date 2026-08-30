@@ -156,6 +156,24 @@ fn aliased(inner: Expr, label: &str) -> Result<Expr, GenerateError> {
 ///
 /// Lowercase, which is what the three string-literal targets have always been sent and what their
 /// goldens carry. The keyword target uppercases it - see [`grain_keyword`].
+///
+/// `week` means a **Monday**-based week on every dialect this renders for, and that is measured
+/// rather than assumed for the one that looked doubtful. `ClickHouse` `26.7.5.10` answers
+/// `dateTrunc('week', DATE '2026-08-30')` - a Sunday - with **2026-08-24, a Monday**, matching
+/// `DuckDB` 1.5.5 and `Postgres` 17.11 (and `BigQuery`'s Monday-based `ISOWEEK`); measured on
+/// 2026-08-30. The reason is in the source rather than the spelling: `ClickHouse` routes
+/// `date_trunc('week')` through `toStartOfInterval`, whose weeks start on Monday, while only the
+/// bare `toStartOfWeek` defaults to Sunday. So one lowercase mapping stays shared, and should a
+/// dialect ever disagree it stops being shared and becomes the per-dialect shape `grain_keyword`'s
+/// `ISOWEEK` arm already is.
+///
+/// **The limit, because this sentence should not be trusted further than the tree checks it.**
+/// What the suite executes and pins for `week` is the `DuckDB` and engine legs and their agreement
+/// (`differential`); the `Postgres` and `ClickHouse` legs are rendered and parse-checked only, the
+/// weight `docs/adr/0003` gives the goldens, so the Monday claim for those two rests on this
+/// measurement and not on a gate. The other four grains are asserted, not measured: `day`, `month`,
+/// `quarter` and `year` mean the same thing in every dialect this crate renders for, and no question
+/// in the corpus asks for `quarter` or `year`, so no golden renders either.
 const fn unit(grain: Grain) -> &'static str {
     match grain {
         Grain::Day => "day",
