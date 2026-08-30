@@ -19,7 +19,7 @@
 # belongs to whatever else is on the host.
 #
 # Named volumes are declared at the bottom and are prefixed with the project name by compose, so a
-# Postgres data directory belongs to one worktree. A shared one is the fixture nobody can debug: a
+# service's data directory belongs to one worktree. A shared one is the fixture nobody can debug: a
 # migration from another branch, with no symptom pointing at where it came from.
 #
 # Every service declares a HEALTHCHECK, because provisioning gates on health rather than sleeping.
@@ -55,7 +55,7 @@
 # ## Tags
 #
 # Pinned to a minor series, checked against the registries on 2026-08-29 rather than assumed:
-# Postgres 18 (`18-alpine`), ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. A tag is mutable, so
+# ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. A tag is mutable, so
 # this is a development fixture and not a supply-chain position. Nothing here ships.
 
 # ONE definition of the fixture credential, aliased everywhere it is needed. Two definitions is how
@@ -156,7 +156,7 @@ services:
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
-# Postgres, Datahub and OpenMetadata. Postgres is above; the other three are DEFERRED, each for a
+# Datahub and OpenMetadata. All three are DEFERRED, each for a
 # reason that is about this tier's job rather than about effort. That job is to stand up the source an
 # adapter is tested against - so a service with no adapter to test is cost with no coverage.
 #
