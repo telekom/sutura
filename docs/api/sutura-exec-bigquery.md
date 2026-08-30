@@ -39,11 +39,13 @@ it costs; the two reasons it was absent are answered rather than repealed:
    `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
    feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
    decision a composition root makes in a manifest line.
-2. **Nothing in this repository can verify it, and that is still true.** There is no `BigQuery` in
-   a container, `docs/adr/0017` refuses an emulator on principle, and the acceptance leg -
-   `tests/acceptance.rs` - is `#[ignore]`d, needs a project a developer names in their own
-   environment, and **has not been run.** So what `wire` claims is that it builds the request it
-   says it builds and reads the answer it says it reads; acceptance is not claimed anywhere.
+2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
+   `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
+   service-account key - the first statement this repository generated to be accepted by
+   `BigQuery`. **What that is, exactly:** one hand-built `SUM` over a two-column fixture, so it
+   says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
+   the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
+   about. The corpus-wide leg that record specifies is not built.
 
 So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
 as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
@@ -150,9 +152,10 @@ adapter, and it buys two things that matter more than the indirection costs:
 - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
   credential source is a real addition to a workspace that cross-compiles to musl and gates
   licences exactly, and it arrives in exactly one place: `crate::wire`, behind the crate's
-  default-off `wire` feature. `docs/adr/0018` prices it. What is still true is the sentence that
-  kept the seam empty for a release: **nothing in this repository can verify a network client**,
-  so the acceptance leg is opt-in, needs a developer's own project, and is unexecuted.
+  default-off `wire` feature. `docs/adr/0018` prices it. The sentence that kept this seam empty for
+  a release - *nothing in this repository can verify a network client* - is now half spent: nothing
+  in CI can, and a developer's own project has. Three tests passed against a real dataset on
+  2026-08-30, over one hand-built `SUM` rather than the corpus.
 
 **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
@@ -488,37 +491,73 @@ in the workspace root and is not repeated here.
 
 # What this module claims, and what it does not
 
-**It has never been run against a real project by anybody in this repository, and nothing here
-pretends otherwise.** There is no `BigQuery` in a container - `docs/adr/0017` refuses an emulator
-on principle rather than on cost, because it is the option that produces the most
-confident-looking green - so what the suite beside this module proves is that *this code builds
-the request it says it builds and reads the answer it says it reads*, over documents that are not
-the service's. That is a real property and it is smaller than acceptance. The acceptance leg is
-`crates/sutura-exec-bigquery/tests/acceptance.rs`, it is `#[ignore]`d, it needs a project a
-developer names in their own environment, and **it is unexecuted.**
+**This HAS now been run against a real project, and that is new.** On 2026-08-30 the three tests
+in `crates/sutura-exec-bigquery/tests/acceptance.rs` passed against a real dataset from a
+developer's machine, under a service-account key: the endpoint accepted a statement this repository
+generated, answered it as one complete page, and the numbers were the fixture's. **It is the first
+time anything here has had a statement accepted by `BigQuery`.**
 
-So: still *Built And Not Wired* in AGENTS.md, one line further along. What moved is that a
-developer with a project can now try it; what did not move is that `sutura-serve` links no
+**What that does NOT establish, stated first because a green run invites the larger reading.** It
+is ONE hand-built `SUM` over a two-column fixture - no join, no `COUNT(DISTINCT`, no `CASE WHEN`,
+no `NULLIF` ratio, no `CAST(... AS FLOAT64)`, no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s
+argument order are precisely the two things `docs/adr/0017` MEASURED the parse check to be blind
+about. The leg that record specifies is the corpus compared against the engine, and it is not
+built. So: *one statement accepted*, not *the corpus accepted*.
+
+What the suite beside this module proves is separate and unchanged: that *this code builds the
+request it says it builds and reads the answer it says it reads*, over documents that are not the
+service's.
+
+So: still *Built And Not Wired* in AGENTS.md, two lines further along. `sutura-serve` links no
 `BigQuery` adapter and refuses `kind: bigquery` by name, and the `data_systems:` axis of the
-golden matrix still gains no entry - a cell that has never executed reads as coverage.
+golden matrix still gains no entry - one live statement is not a registered data system.
 
-# The four things this module decides
+# What this module decides, and every one of them is pinned by a TYPE or by a test
 
+- **A job is bounded in TIME and in MONEY, and neither bound is a constant here.** `JobBounds`
+  carries both, `WireAgent` carries the `JobBounds`, and `BigQueryWire` can only be built from
+  a `WireAgent` - so there is no way to submit a job this deployment did not bound. `jobTimeoutMs`
+  is what cancels a job at the service (`timeoutMs` alone does NOT: it bounds how long the client
+  waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
+  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
+  scanned.
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
   `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
   delivered count short of the reported total is refused here - see `WireError::MoreThanOnePage`
   and `WireError::NotComplete` - because to `answer()` a first page would read as *under the
-  cap, not truncated*, which is the exact row the row-cap invariant exists to hold.
+  cap, not truncated*, which is the exact row the row-cap invariant exists to hold. **The cost, and
+  it is a real one:** a wide result reaches a caller as `BigQueryError::Endpoint`, which the
+  transports answer as a `503` - a status that invites a retry that will produce the same page.
+  `ResultTooLarge` is what it means, and the port cannot say it: `Warehouse::working_set_exhausted`
+  is a predicate returning a ceiling in bytes precisely so an adapter cannot mint an arbitrary
+  `RefusalReason`. Widening that port is an architecture decision, so this is flagged rather than
+  taken, and AGENTS.md's row says so out loud.
 - **The service's own result cache is turned OFF.** Not for cost: an anchor that reproduces from a
   cache has reproduced the cache, which is `differential.rs`'s own argument. And a cached answer
   under a *shared* identity is shared across every asker, so leaving it on would put the
   cross-user leak this crate refuses one layer below the code the per-subject step has to change.
-- **The bearer never travels to a second host.** `max_redirects` is `0`, so there is no redirect
-  for a credential to follow. That is stronger than the client's own default, which is to strip
-  the header on redirect: here there is nothing to strip.
+- **The bearer's DESTINATION is a compile-time constant; its ROUTE is not, and the difference is
+  worth stating precisely** because an earlier version of this header overstated it.
+  `HOST` cannot be configured, `https_only` is on and `max_redirects` is `0`, so nothing a
+  deployment writes can change *which service* receives the credential. What a deployment CAN
+  change is the path: `ureq`'s default config is `Proxy::try_from_env()`, so `HTTPS_PROXY` routes
+  these requests through an egress proxy. That is left ON deliberately - an egress proxy is a real
+  deployment shape here, `docs/enterprise-mirrors.md` is the generic form of it - and it is safe
+  because the tunnel is still TLS to `HOST` verified against a compiled-in root set, so a proxy
+  sees a hostname and no bytes. It is written out in `WireAgent::pinned` rather than inherited,
+  so it is a
+  decision a reviewer can disagree with.
+- **Failure is derived from the RESULT SHAPE and never from `errors` being non-empty.** The
+  endpoint documents that array as *"the first errors or warnings encountered"* and says entries
+  *"do not necessarily mean that the job has completed or was unsuccessful"* - so refusing on it
+  would decline successful queries that merely warned. What refuses is `jobComplete`, a
+  `pageToken`, an absent `totalRows`, and a delivered count that is not the reported total; the
+  reported `reason` is folded into whichever of those fires, because it is the best diagnostic
+  available at that point. See `complete`, and the limit stated there.
 - **Every foreign string that reaches an error is bounded and filtered.** The endpoint's
   `reason` is kept and its free-text `message` is not, because a reason is a fixed vocabulary an
   operator can act on and a message is unbounded text from another service heading for a log.
+  `credential::bounded` is the one function that does it, shared with the credential module.
 
 # What is deliberately absent
 
@@ -531,6 +570,198 @@ golden matrix still gains no entry - a cell that has never executed reads as cov
 - **Retries.** A refused job comes back as `WireError` and reaches a caller as
   `BigQueryError::Endpoint`, whose transport-facing status is a `503`. Retrying inside an adapter
   would spend a caller's request timeout on a decision the caller cannot see.
+- **Surfacing a warning on a result that IS complete.** There is nowhere to put it: `RowSet` has
+  no field for it and this crate has no logging dependency, so adding one for a line nobody has
+  ever seen is a dependency decision this change does not take. Stated because a dropped warning
+  is exactly the kind of absence that reads as "there were none".
+
+### `struct QueryDeadline`
+
+```rust
+pub struct QueryDeadline
+```
+
+How long a job may run, and how long the client waits for its answer.
+
+**A newtype rather than a constant, because the value belongs to the deployment.** The number that
+makes sense here is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a
+second copy of it that drifts the day somebody changes the first. A composition root fills this
+from that setting; until one links this crate, the acceptance leg is the only caller and it says
+where its number comes from.
+
+#### Methods
+
+```rust
+pub const fn milliseconds(self) -> u64
+```
+
+The deadline in milliseconds, which is the unit both request fields take.
+
+`saturating_mul` rather than `*`, and it cannot saturate: `Self::MAX_SECONDS` times a
+thousand is far inside `u64`. Written that way because a bound that could wrap is a bound that
+could become zero, and zero is the one value `Self::parse` refuses.
+
+```rust
+pub const fn parse(seconds: u64) -> Result<Self, UnusableBound>
+```
+
+Parses a deadline in whole seconds.
+
+```rust
+pub const fn socket(self) -> Duration
+```
+
+How long the socket may stay open: the job's deadline plus connection setup.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct BytesBilledCeiling`
+
+```rust
+pub struct BytesBilledCeiling
+```
+
+The most a single job may be billed for scanning.
+
+**Sent as `maximumBytesBilled`, which is enforced at the service and is what makes it worth
+more than a client-side check.** A job that would exceed it FAILS and is not charged. Nothing else
+in this repository bounds bytes scanned: `LIMIT 10001` bounds rows RETURNED, the one-page refusal
+bounds a page, and `MAX_ANSWER_BYTES` bounds what is read into memory - a question can satisfy
+all three and still scan a partitioned table end to end.
+
+#### Methods
+
+```rust
+pub fn as_text(self) -> String
+```
+
+The ceiling, as the request body writes it.
+
+**Text, because the endpoint writes and reads 64-bit integers as JSON strings.** A number here
+would be silently truncated to a double by a strict reader at the far end.
+
+```rust
+pub const fn parse(bytes: u64) -> Result<Self, UnusableBound>
+```
+
+Parses a ceiling in bytes.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum UnusableBound`
+
+```rust
+pub enum UnusableBound
+```
+
+Why a bound this adapter was handed is not usable.
+
+#### Variants
+
+- `Zero` - Zero, which would refuse every question rather than bounding one.
+- `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct JobBounds`
+
+```rust
+pub struct JobBounds
+```
+
+What every job this adapter submits is bounded by.
+
+Two bounds in one value, because they are one decision: *how much of a deployment's time and money
+may one question spend*. A struct rather than two arguments so a call site cannot supply one and
+forget the other, and so `WireAgent` can carry them both.
+
+#### Methods
+
+```rust
+pub const fn deadline(self) -> QueryDeadline
+```
+
+How long a job may run.
+
+```rust
+pub const fn max_bytes_billed(self) -> BytesBilledCeiling
+```
+
+The most one job may be billed for scanning.
+
+```rust
+pub const fn of(deadline: QueryDeadline, max_bytes_billed: BytesBilledCeiling) -> Self
+```
+
+Names both bounds. Neither has a default, for the reason `BigQueryWarehouse::new` gives about
+its own arguments: a defaulted deadline is a promise nobody made, and a defaulted ceiling is
+money somebody else pays.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct WireAgent`
+
+```rust
+pub struct WireAgent
+```
+
+The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.
+
+**This newtype is the whole mechanism, and it exists because the previous shape was a convention.**
+The settings below used to live in a free function returning a bare `ureq::Agent`, and both
+`BigQueryWire::new` and `credential::ApplicationDefault::read` accepted any agent - so a
+composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what *a newtype parses rather than validates* asks for: if an
+instance of this exists, the pins hold.
+
+It also carries the `JobBounds`, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are **the same value**. Two arguments could have disagreed.
+
+#### Methods
+
+```rust
+pub const fn bounds(&self) -> JobBounds
+```
+
+What every job through this client is bounded by.
+
+```rust
+pub fn pinned(bounds: JobBounds) -> Self
+```
+
+The one constructor, and every non-default setting below is a decision:
+
+- `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
+  discards the body - and the body is where the endpoint says *which* refusal this is. Status is
+  read explicitly instead, in `refusal`.
+- `https_only(true)`, so a bearer token cannot leave over plaintext even if a URL somewhere
+  loses its scheme. `HOST` is already `https`; this is the second lock.
+- `max_redirects(0)`, so the credential has no second host to reach. `ureq-proto` also strips
+  `authorization` on a redirect, which was verified rather than assumed - so this is belt and
+  braces, and the belt is ours.
+- `timeout_global`, at the job's deadline plus `CONNECT_MARGIN`, so the socket cannot outlive
+  the job it is waiting for by more than connection setup.
+- `max_response_header_size`, because headers are read before the body's own limit applies.
+- `proxy(Proxy::try_from_env())`, which is the client's own default WRITTEN OUT rather than
+  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
+  `HOST` against a compiled-in root set, so what the environment chooses is the route and not
+  the destination. The module header states that distinction, because a previous version of it
+  claimed the stronger thing.
+
+#### Implements
+
+`Clone`, `Debug`
 
 ### `enum WireError`
 
@@ -560,7 +791,6 @@ every other variant and `clippy::result_large_err` is on.
 - `Unreadable` - The endpoint answered and the answer could not be read.
 - `Refused` - The endpoint refused.
 - `NotADocument` - The answer was not the document a query response is.
-- `Failed` - The endpoint accepted the job and reported errors against it.
 - `NotComplete` - The job had not finished when the endpoint answered.
 - `MoreThanOnePage` - The answer is one page of more than one.
 - `NoTotal` - A complete job that stated no total.
@@ -584,56 +814,34 @@ Generic in its credential source rather than holding a boxed one, for the reason
 `crate::BigQueryWarehouse` is generic in its transport: there is one per process, it is chosen
 at composition, and a generic keeps the source's own error type visible in `WireError`.
 
+It holds a `WireAgent` and not a `ureq::Agent`, which is what makes the module header's claims
+properties of this type rather than of whichever function a composition root happened to call.
+
 #### Methods
 
 ```rust
-pub const fn new(agent: ureq::Agent, credentials: C) -> Self
+pub const fn new(agent: WireAgent, credentials: C) -> Self
 ```
 
 Opens a transport.
 
-The `agent` is a parameter rather than something built here so it can be the same one the
-credential source refreshes through. `agent` is the only function that builds one.
+The `WireAgent` is a parameter rather than something built here so it can be the same one
+the credential source refreshes through - one connection pool, one set of pins, and one
+`JobBounds` shared by the socket timeout and the request body.
 
 #### Implements
 
 `Debug`, `JobTransport`
-
-### `fn agent`
-
-```rust
-pub fn agent() -> ureq::Agent
-```
-
-The client every request in this crate goes through.
-
-**Public, and handed to both the transport and the credential source**, so the two share one
-connection pool and one set of the decisions below - which is what makes *the redirect policy is
-set once* true rather than true twice.
-
-Every non-default setting is a decision:
-
-Plain backticks below rather than intra-doc links, because this function is public and the two
-items it names are private - `api-docs` reports that pairing as a warning, and the safe form for
-it is the same one `AGENTS.md` prescribes for a cross-crate reference.
-
-- `http_status_as_error(false)`, because the client's default turns a `4xx` into an error and
-  discards the body - and the body is where the endpoint says *which* refusal this is. Status is
-  read explicitly instead, in `refusal`.
-- `https_only(true)`, so a bearer token cannot leave over plaintext even if a URL somewhere loses
-  its scheme. `HOST` is already `https`; this is the second lock.
-- `max_redirects(0)`, so the credential has no second host to reach. See the module header.
-- `timeout_global`, so a job cannot hold a pool thread open indefinitely.
-- `max_response_header_size`, because headers are read before the body's own limit applies.
 
 ### Module `credential`
 
 Where the bearer token a job is submitted with comes from.
 
 **A second narrow port, for the reason [`JobTransport`](crate::transport::JobTransport) is one.**
-The wire needs one thing from a credential - a token that is usable right now, and the instant it
-stops being usable - and everything else about how a deployment authenticates is somebody else's
-decision. So `AccessTokens` is that one thing, and the transport is generic in it.
+The wire needs two things from a credential - a token that is usable right now, and whether a
+request carrying it has to name a quota project - and everything else about how a deployment
+authenticates is somebody else's decision. So `AccessTokens` is those two things, and the
+transport is generic in it.
 
 **This is also the seam per-subject execution arrives at**, which is why it is a port on the first
 day rather than a `String` field. `docs/implementation-plan-bigquery.md`'s second `BigQuery` step
@@ -641,49 +849,76 @@ mints a token *per leg, for the subject who asked*; under a `String` that step w
 the transport, and under a port it adds an implementor. Nothing here anticipates it further than
 that: `Bearer` carries the deadline because a minted token has one, and
 `crate::BigQueryWarehouse`'s `IMPERSONATION` still says `NoPlaceForASubject` because nothing
-mints one. (Plain backticks on the constant, because it is a `Warehouse` trait item rather than an
-inherent one and an intra-doc link to it does not resolve - `api-docs` reported that as a broken
-link, which is the one class of rustdoc warning `AGENTS.md` says can reach `mkdocs --strict`.)
+mints one.
 
-# What ships, and what does not
+# Two credential kinds, as one closed shape
 
-`ApplicationDefault` reads the file `gcloud auth application-default login` writes and exchanges
-its refresh token for an access token. That is exactly the fixture
-[`docs/adr/0017`](https://github.com/telekom/sutura/blob/main/docs/adr/0017-what-a-bigquery-test-runs-against.md)
-decided - a real project reached from a developer's own machine, under the `SharedServiceUser`
-posture - and `just gcloud-login` is what produces it.
+`Credential` reads either of the two files a deployment can actually have, and **which one it is
+is a closed two-variant shape rather than a struct of `Option`s.** That matters for a reason
+stronger than tidiness: a document carrying *both* a refresh token and a private key is
+unrepresentable here, so there is no state in which it is ambiguous which flow will run or which
+credential material was used.
 
-**Three other credential shapes exist and none of them is built**, each refused by name rather
-than mishandled:
+| Kind | Who holds it | The exchange |
+| --- | --- | --- |
+| `authorized_user` | a developer, from `just gcloud-login` | trade a refresh token |
+| `service_account` | CI, and a deployment | sign an assertion and trade that |
 
-- a **service-account key**, which needs an `RS256` assertion signed with a private key. The
-  signing is the dependency decision, not the flow: `jsonwebtoken` is already in this workspace
-  but with `use_pem` off, so a key in PEM form has nothing to parse it. `docs/adr/0018` prices it.
+**Both are `SharedServiceUser` and neither is a step towards per-subject execution.** One identity
+reaches the dataset for everybody who asks; on a laptop that identity is the developer and in CI it
+is a service account. `docs/adr/0017`'s amendment is where the decision to run the acceptance leg
+in CI on the second kind lives.
+
+**The signing costs no new dependency, which was verified rather than assumed.** `ring` is already
+in the graph - it is `ureq`'s and `tokio-rustls`'s crypto provider - and it carries
+`RsaKeyPair::from_pkcs8` plus `RSA_PKCS1_SHA256`, which is exactly the primitive and exactly the
+key encoding a service-account key uses. `base64` is already resolved too. So `docs/adr/0018`'s
+446-to-446 measurement survives this, and the alternative that would have cost a package -
+`jsonwebtoken`'s `use_pem`, which pulls `simple_asn1` because its DER path wants `PKCS#1` while a
+service-account key is `PKCS#8` - was priced and refused.
+
+**What IS first-party here is the JWT's text, and that boundary is deliberate.** `ring` computes the
+signature; this module base64url-encodes two JSON documents and joins them with dots.
+`docs/adr/0014` draws exactly that line when it argues for hand-writing a metrics exposition format
+and against hand-writing signature verification in the same breath: one is a text format, the other
+is cryptography. And this side SIGNS rather than verifies, which is where algorithm confusion does
+not live - the algorithm is a constant, not a field read off somebody else's document.
+
+# Two credential shapes exist and neither is built
+
 - the **metadata server**, which is how a deployment on the provider's own compute gets a token
-  with no key at all. It is a plain unauthenticated `GET` and would cost nothing in dependencies;
-  what it costs is that **nothing in this repository can verify it**, because it exists only
-  inside that provider's network.
-- **workload or workforce identity federation**, which is the per-subject step and an
-  architecture decision with an owner outside this repository.
+  with no key at all. It is a plain unauthenticated `GET` and would cost nothing in dependencies -
+  the cheapest option available. It is out because **nothing in this repository can verify it**: it
+  exists only inside that provider's network, so building it would add an unexercised code path to
+  a module whose whole point is that it does not claim more than it has.
+- **workload or workforce identity federation**, which is the per-subject step and an architecture
+  decision with an owner outside this repository.
 
-# Nothing is cached, and that is a decision
+# Nothing is cached, and both the decision and its REASON were wrong once
 
-A token is minted for every job. The obvious alternative - hold the last one until it expires -
-is refused for three reasons, in ascending order of how much they matter:
+A token is minted for every call into the endpoint. **The decision stands; the paragraph that
+justified it did not, in two ways a review caught, and both are corrected here because the
+per-subject step will read this as the argument it inherits.**
 
-1. `clippy.toml` disallows `std::sync::Mutex` in this workspace, so the cache would arrive with a
-   new dependency for the primitive to hold it.
-2. *"A credential is not reused past its expiry"* is one of the assertions the per-subject step
-   owes, and the shape that cannot get it wrong is the one with nothing to reuse.
-3. **It is the credential-shaped version of the cache this crate already refuses.** `lib.rs` says
-   a query-keyed result cache is a cross-user leak under row-level security; a *token* cache keyed
-   by nothing is the same defect one layer down, and it would be sitting in the code the
-   per-subject step has to change. A cache that is correct for one identity and wrong for many is
-   worse than no cache, because it works until the day it matters.
+**The cost, counted properly.** `sutura_app::answer` calls `Warehouse::dry_run` and then
+`Warehouse::execute`; each goes through the wire's `submit`, and each calls
+`AccessTokens::bearer`. So one question is **two** token exchanges before its two job round
+trips, and **every anchor verified at boot is one more**. The earlier wording - *"one extra round
+trip per job"* - was half the real number and counted the wrong unit.
 
-**The cost, stated rather than waved at:** one extra `HTTPS` round trip per job, against a query
-that costs seconds and money. When that is measured to matter, what arrives is a cache keyed by
-whose credential it is - which is a thing only the per-subject step can key.
+**The reason, corrected.** The earlier version said a token cache keyed by nothing is the
+credential-shaped version of the result cache this crate refuses. That is true of a cache shared
+across SUBJECTS and false here: a `Credential` **is** one identity, so a token held until its
+`not_after` is keyed by exactly the thing that matters and leaks to nobody. The
+`std::sync::Mutex` ban in `clippy.toml` is not an argument either - `sutura-http`'s own key-set
+cache holds a lock.
+
+**So the honest reason is the small one: it is not needed until it is measured.** Minting is one
+`HTTPS` round trip against a query that costs seconds and money, and the shape with nothing to
+reuse is the shape that cannot get *a credential is not reused past its expiry* wrong - which is one
+of the assertions the per-subject step owes. **What that step must NOT inherit is a prohibition**,
+because caching per subject, keyed by subject, is a different question this paragraph does not
+answer.
 
 #### `struct Bearer`
 
@@ -722,6 +957,26 @@ that call is greppable.
 
 `Clone`, `Debug`
 
+#### `enum QuotaProject`
+
+```rust
+pub enum QuotaProject
+```
+
+Whether a request has to name the project whose quota and billing it is attributed to.
+
+Two variants and no `Option`, because "the credential already says" is a real answer rather than a
+missing one - which is the same argument `Expiry` makes for having no `Option`.
+
+##### Variants
+
+- `Required` - State it on the request. An application-default credential is an END-USER credential, and the endpoint's own direct-REST guidance requires a quota project for one - without it a perfectly valid token is refused, with a message about user credentials not being supported that reads as an authentication fault and is not one.
+- `FromTheCredential` - The credential carries its own project, so stating one would add a permission requirement - `serviceusage.services.use` on that project - that a service account holding only dataset grants does not have. **So the header that MAKES the first kind work BREAKS the second**, which is why this is a two-variant answer and not a constant on the request.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 #### `trait AccessTokens`
 
 ```rust
@@ -730,10 +985,10 @@ pub trait AccessTokens
 
 Where the token a job is submitted with comes from.
 
-One method, and it takes the clock as an argument. **The clock is a parameter for the reason
-`Expiry::passed_by` takes one:** an implementor that reads the wall clock itself cannot be tested
-against a deadline, and the expiry logic is the half of a credential source most likely to be
-wrong in the direction nobody notices. Who reads the real clock is the transport, once.
+The clock is a parameter for the reason `Expiry::passed_by` takes one: an implementor that reads
+the wall clock itself cannot be tested against a deadline, and the expiry logic is the half of a
+credential source most likely to be wrong in the direction nobody notices. Who reads the real clock
+is the transport, once.
 
 #### `struct CredentialFile`
 
@@ -741,7 +996,7 @@ wrong in the direction nobody notices. Who reads the real clock is the transport
 pub struct CredentialFile
 ```
 
-The file an application-default credential lives in.
+The file a credential lives in.
 
 A newtype rather than a `PathBuf` argument, because `Self::well_known` and `Self::at` are two
 different claims - *wherever this machine keeps it* and *this exact file* - and a function taking a
@@ -799,31 +1054,32 @@ pub enum UnusableCredential
 
 Why the file could not become a credential.
 
-**Every variant names what is wrong and none of them quotes the file's contents.** A path is
-carried where the fix is *which file*, and a field NAME is carried where the fix is *what is
-missing*; the value never is, because in this file every value is either a secret or a project
-identifier.
+**Every variant names what is wrong and none of them quotes a value from the file.** A path is
+carried where the fix is *which file*, a field NAME where the fix is *what is missing*, and the
+credential's own `type` only after `crate::wire::bounded` has cut it to a fixed character set -
+because a 16 KiB file can put 16 KiB of newlines there and this string reaches a log.
 
 ##### Variants
 
 - `Unreadable` - The file could not be opened or read.
 - `TooLarge` - The file is larger than any credential document is.
 - `NotADocument` - The file is not the JSON document this expects.
-- `NotAUserCredential` - The file is a credential shape this build does not implement.
-- `Incomplete` - An `authorized_user` document missing one of the three fields a refresh needs.
+- `UnknownKind` - The file names a credential shape this build does not implement.
+- `Incomplete` - A document missing one of the fields its own kind needs.
 - `AnotherUniverse` - The credential was minted against a different service universe than the one this build talks to.
+- `UnreadableKey` - The private key is not a `PKCS#8` PEM block this build can read.
 
 ##### Implements
 
 `Debug`, `Display`, `Error`
 
-#### `enum RefreshFailed`
+#### `enum TokenUnavailable`
 
 ```rust
-pub enum RefreshFailed
+pub enum TokenUnavailable
 ```
 
-Why a refresh did not produce a token.
+Why no token came back.
 
 ##### Variants
 
@@ -833,33 +1089,80 @@ Why a refresh did not produce a token.
 - `NotADocument` - The answer was not the JSON document a token response is.
 - `NoToken` - The answer carried no token.
 - `AlreadyExpired` - The answer's own deadline had already passed when it arrived.
+- `Unsigned` - The assertion could not be signed.
+- `NotSigned` - The signature itself failed.
 
 ##### Implements
 
 `Debug`, `Display`, `Error`
 
-#### `struct ApplicationDefault`
+#### `struct Credential`
 
 ```rust
-pub struct ApplicationDefault
+pub struct Credential
 ```
 
-An access-token source built from the file `gcloud auth application-default login` writes.
+A credential this build can present, read from a file.
 
-**One identity for everybody who asks**, which is `SharedServiceUser` and is the posture
-`crate::BigQueryWarehouse` declares. On a developer's machine that identity is the developer.
+**One type for both kinds, so a caller does not have to know which file it has.** CI points
+`GOOGLE_APPLICATION_CREDENTIALS` at a service-account key and a laptop has an
+application-default login; both reach the endpoint through this.
 
 ##### Methods
 
 ```rust
-pub fn read(file: &CredentialFile, agent: ureq::Agent) -> Result<Self, UnusableCredential>
+pub const fn kind(&self) -> &'static str
 ```
 
-Reads a credential file.
+Which kind this is, for a banner or a test. A fixed word, never the file's own text.
 
-The `agent` is handed in rather than built here, so the refresh and the job share one
-connection pool and one `crate::wire::agent` configuration - which is what makes "the
-redirect policy is set once" true rather than true twice.
+```rust
+pub const fn project(&self) -> Option<&String>
+```
+
+Which project this credential names, where it names one.
+
+`Some` for a service-account key and `None` for an application-default login, which is the
+difference the two files actually have. **This is why CI configures no project variable:** the
+key carries it, so a second declaration would be a second answer to *who pays* that can
+disagree with the first.
+
+```rust
+pub fn read(file: &CredentialFile, agent: WireAgent) -> Result<Self, UnusableCredential>
+```
+
+Reads a credential file, whichever of the two kinds it holds.
+
+**The agent is a `WireAgent` and not a `ureq::Agent`, which is the point of that newtype:**
+the exchange and the job then share one connection pool and one set of pins by construction,
+rather than because two call sites happened to call the same builder. A previous version took
+any agent, so a composition root could have exchanged a credential over a client with redirects
+on and no timeout.
+
+**The two doctests below are the mechanism, not decoration.** The first is the mistake the
+newtype exists to make impossible; the second is its compiling twin, so the failure is the
+missing pin rather than a typo in the example.
+
+```compile_fail
+use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+
+// A client with redirects on, plaintext allowed and no timeout. There is no way to hand it in.
+let _ = Credential::read(&CredentialFile::at("/nonexistent"), ureq::Agent::new_with_defaults());
+```
+
+```
+use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
+
+let bounds = JobBounds::of(
+    QueryDeadline::parse(30).expect("a deadline"),
+    BytesBilledCeiling::parse(1024 * 1024).expect("a ceiling"),
+);
+// Compiles, and refuses at run time because the path is not there - which is the point: what
+// the first example cannot get past is the TYPE, before any file is read.
+let refused = Credential::read(&CredentialFile::at("/nonexistent"), WireAgent::pinned(bounds));
+assert!(refused.is_err());
+```
 
 ##### Implements
 

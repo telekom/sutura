@@ -26,7 +26,7 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # `[graph] all-features = true`. So the wire is compiled, linted, tested and audited on every run;
 # what the default buys is that a future composition root has to ASK for the outbound stack, in a
 # manifest line a reviewer can see, rather than inheriting it by depending on this crate.
-wire = ["dep:ureq", "dep:serde", "dep:serde_json"]
+wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64"]
 
 # The acceptance leg needs the wire, so it is declared with `required-features` rather than gated by a
 # `#![cfg(feature = "wire")]` inside the file: cargo skips the target entirely instead of compiling an
@@ -69,6 +69,12 @@ ureq = { workspace = true, optional = true }
 # adapter refuses - and `serde` derives the fixed shapes around it.
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
+# The signature on a service-account assertion, and the base64url around it. Both are already resolved
+# in `Cargo.lock` - `ring` as the TLS provider, `base64` at the same version it was a dev-dependency at
+# - so neither adds a package. The root manifest carries the argument, including the alternative that
+# would have cost one.
+ring = { workspace = true, optional = true }
+base64 = { workspace = true, optional = true }
 
 [lints]
 workspace = true

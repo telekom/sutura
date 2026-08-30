@@ -5,9 +5,11 @@ description: The dependency decision the BigQuery transport was gated on - four 
 
 # What the BigQuery wire is built from
 
-Status: **accepted.** The transport is built, feature-gated, linted, tested and audited. **Nothing in
-this repository has sent a statement to a real `BigQuery` project**, and the section *What is still
-not claimed* says so at the end rather than leaving it to be inferred.
+Status: **accepted.** The transport is built, feature-gated, linted, tested and audited - and since
+2026-08-30 it has been **run against a real project**, which is the first time anything in this
+repository has had a statement accepted by `BigQuery`. *What is claimed, and what is not* is the
+section at the end, and it is the one to read before taking a green run for more than it is:
+**one hand-built `SUM` was accepted, not the corpus.**
 
 [0017](0017-what-a-bigquery-test-runs-against.md) decided what a `BigQuery` test runs against and
 left one seam deliberately empty: `sutura_exec_bigquery::transport::JobTransport`, with the sentence
@@ -186,17 +188,72 @@ Everything below the socket, and one thing at it.
 - **`wire::BigQueryWire`**, the one `JobTransport` implementor. `submit` builds the request, presents
   the bearer, reads the status and parses the answer; `validate` and `run` are the two callers with
   the two different conclusions.
+- **`wire::WireAgent`**, which is what makes every claim on this page a property of a TYPE rather than
+  of a call site. The client's settings used to live in a free function returning a bare
+  `ureq::Agent`, and both the transport and the credential source accepted any agent - so a
+  composition root writing `ureq::Agent::new_with_defaults()` got redirects on, plaintext allowed and
+  no timeout, while every test passed because the tests all called the right builder. Private field,
+  one constructor, a `compile_fail` doctest with a compiling twin. *A newtype parses rather than
+  validates* is the rule; this was the gap.
+- **`wire::JobBounds`**, and it is not a tidy-up. A job is bounded in **time** by `jobTimeoutMs` and in
+  **money** by `maximumBytesBilled`, both required, both carried by the `WireAgent` so the socket
+  timeout and the request body read the same value. Two corrections are folded in here, and each was a
+  real defect:
+    - **`timeoutMs` bounds nothing at the service.** The endpoint documents it as how long the CLIENT
+      waits; when it expires the answer carries `jobComplete: false` with a `jobReference` and **the
+      job keeps running and keeps billing.** The first version of this wire sent `timeoutMs: 55000`,
+      returned `NotComplete`, discarded the reference and walked away from a live billable job.
+      `jobTimeoutMs` is the field that is actually a deadline, and the two are now the same number so
+      the client stops waiting at the instant the service cancels.
+    - **Nothing in this repository bounded bytes SCANNED.** `LIMIT 10001` bounds rows returned, the
+      one-page refusal bounds a page, and the 32 MiB response cap bounds what is read into memory - a
+      question can satisfy all three and scan a partitioned table end to end. `maximumBytesBilled` is
+      enforced at the service, which is why it beats comparing a dry run's estimate: a job that would
+      exceed it fails **and is not charged.**
+    - And the numbers reconcile now. `server.request_timeout_seconds` ships as **30**; the first
+      version asked the endpoint to hold a job for 55 s behind a 70 s socket, so a blocking-pool
+      thread could be held for up to **40 s after the request it served had gone.** The deadline is a
+      parameter a composition root fills from that same setting, and the socket is the deadline plus
+      five seconds of connection setup.
+- **The quota project on every request.** `x-goog-user-project`, carrying the source's declared billing
+  project. An application-default credential is an END-USER credential, and the endpoint's own
+  direct-REST guidance requires a quota project for one - without it a valid token comes back refused
+  with a message about user credentials not being supported, which reads as an authentication fault
+  and is not one. The credential file's own `quota_project_id` is deliberately not read: two answers
+  to *who pays* that can disagree silently is worse than one a reviewer can see in a settings file.
 - **`wire::credential::ApplicationDefault`**, one `AccessTokens` implementor: it reads the file
   `gcloud auth application-default login` writes and exchanges its refresh token. That is exactly the
   fixture `0017` decided, and `just gcloud-login` is what produces it.
-- **Four decisions the module header states and the suite pins.** One page or a refusal - a
+- **The decisions the module header states and the suite pins.** One page or a refusal - a
   `pageToken`, an incomplete job or a total the delivered count does not equal is refused, because to
   `answer()` a first page would read as *under the cap, not truncated*. The service's own result
   cache **off** - an anchor that reproduces from a cache has reproduced the cache, and a cached
   answer under a shared identity is shared across every asker. `max_redirects(0)`, so the bearer has
   no second host to follow a redirect to. And every foreign string that reaches an error is bounded
-  and character-filtered - the endpoint's `reason` is kept and its free-text `message` is not a field
-  on the error type at all, because what is not read cannot be logged by accident.
+  and character-filtered through **one** shared function - the endpoint's `reason` and the credential
+  file's `type` are kept, the free-text `message` is not a field on the error type at all, and there
+  used to be two copies of the bounding that had drifted by one character in their allowed set.
+- **Failure is derived from the RESULT SHAPE, never from `errors` being non-empty**, and the first
+  version got this wrong in the direction that matters. The endpoint documents that array as *"the
+  first errors or warnings encountered"* and says entries *"do not necessarily mean that the job has
+  completed or was unsuccessful"* - so refusing on it **declined successful queries that merely
+  warned**, and answered a caller a `503` for a result the service had produced. What refuses is
+  `jobComplete`, a `pageToken`, an absent `totalRows` and a delivered count that is not the reported
+  total; the reported reason is folded into whichever of those fires, which is also where a genuinely
+  failed job lands, because the endpoint reports one as complete with no total.
+- **The bearer's DESTINATION is a constant; its ROUTE is not.** `HOST` cannot be configured,
+  `https_only` is on, `max_redirects` is `0` - so nothing a deployment writes changes which service
+  receives the credential. What a deployment *can* change is the path: `ureq`'s default config is
+  `Proxy::try_from_env()`, so `HTTPS_PROXY` routes these requests. That is left on deliberately, an
+  egress proxy being a real deployment shape here, and it is safe because the tunnel is still TLS to
+  the pinned host against a compiled-in root set - a proxy sees a hostname and no bytes. It is written
+  out rather than inherited so it is a decision a reviewer can disagree with. **An earlier version of
+  this record and of the module header claimed the stronger thing**, and *no deployment can choose
+  where this goes* is true of the destination only.
+- **The bearer does not reach a log through the client**, which was checked rather than assumed:
+  `ureq 3.4.0` redacts every header outside its own `NON_SENSITIVE_HEADERS` allowlist, and
+  `ureq-proto` strips `authorization` on a redirect. Recorded because `tracing-log` bridges `log`
+  here, so the client's diagnostics land in the same stream as everything else.
 
 ### What is deliberately not built, each refused by name rather than mishandled
 
@@ -217,28 +274,118 @@ Everything below the socket, and one thing at it.
   is that a result larger than one page is refused rather than assembled.
 - **Retries.** A refused job arrives as `BigQueryError::Endpoint`, which is a `503` on the transport.
   Retrying inside an adapter spends a caller's request timeout on a decision the caller cannot see.
-- **A token cache.** `clippy.toml` disallows `std::sync::Mutex` here, so the cache would arrive with
-  a dependency for the primitive to hold it - but that is the smallest of three reasons. *A credential
-  is not reused past its expiry* is one of the assertions the per-subject step owes, and the shape
-  that cannot get it wrong is the one with nothing to reuse. And it is **the credential-shaped version
-  of the cache this crate already refuses**: a query-keyed result cache is a cross-user leak under
-  row-level security, and a token cache keyed by nothing is the same defect one layer down, sitting in
-  the code the per-subject step has to change. The cost is one extra round trip per job, against a
-  query that costs seconds and money.
+- **A token cache** - and both the cost of not having one and the reason for not having one were
+  written wrongly here first, so both are corrected rather than quietly fixed.
+    - **The cost is two exchanges per question, plus one per anchor.** `sutura_app::answer` calls
+      `dry_run` and then `execute`; each goes through `submit` and each mints a token. The earlier
+      wording, *"one extra round trip per job"*, was half the number and counted the wrong unit.
+    - **The reason was wrong, and wrong in a way row 16 would have inherited.** This page said a token
+      cache keyed by nothing is the credential-shaped version of the result cache this crate refuses.
+      That is true of a cache shared across SUBJECTS and false for this implementor:
+      `ApplicationDefault` **is** one identity, so a token held until its `not_after` is keyed by
+      exactly the thing that matters and leaks to nobody. The `std::sync::Mutex` ban is not an
+      argument either - `sutura-http`'s own key-set cache holds a lock.
+    - **The honest reason is the small one: it is not needed until it is measured.** Nothing here has
+      run against a real endpoint, minting is one round trip against a query that costs seconds and
+      money, and the shape with nothing to reuse cannot get *a credential is not reused past its
+      expiry* wrong - which is an assertion the per-subject step owes. **What that step must not
+      inherit is a prohibition**, because caching per subject, keyed by subject, is a different
+      question this decision does not answer.
 
-## What is still not claimed
+## What is claimed, and what is not
 
-**Acceptance.** Nobody has run this against a real project.
+**A statement this repository generated was accepted by `BigQuery` on 2026-08-30**, answered as one
+complete page, and the numbers it returned were the fixture's - two bucketed sums, 42 and 99, over four
+rows chosen so a wrong plan could not also produce them. Three tests green: a dry run accepted, a real
+run whose values match, and a negative control (a table the dataset does not hold, refused rather than
+panicking). Run from a developer's machine under a service-account key; `docs/adr/0017`'s amendment is
+where the CI job that repeats it is decided.
 
-The machine this was written on has no `gcloud`, no application-default credential and no project
-named anywhere, so `0017`'s *"the change that implements it is the change that can first run it"* did
-not come true - and pretending otherwise is the failure that record spends three sections refusing.
-What exists instead is the fixture it asked for, written and unexecuted:
+**Two things that run did not establish, and the first is the one a badge would overstate.**
+
+**It is ONE statement, not the corpus.** No join, no `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF`
+ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s argument order
+are precisely the two constructs `0017` MEASURED a parse check to be blind about, which makes them what
+a live run is worth most for. The corpus-wide leg `0017` specifies - load the fixtures, run the 21
+questions, compare rows with the engine - is #78's importer shape and is not built. Every sentence in
+this repository that promised the corpus has been narrowed to what the leg does.
+
+**It says nothing about identity.** A service-account key is `SharedServiceUser`: one identity for
+everybody who asks. So what is established is *accepted, and correct for that identity*.
+`BigQueryWarehouse::IMPERSONATION` still reads `NoPlaceForASubject`, and nothing here is a step towards
+per-subject execution.
+
+### The service-account flow, and what it cost
+
+`0017`'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
+module reads **both** kinds, as a closed two-variant shape rather than a struct of `Option`s: a document
+carrying both a refresh token and a private key is unrepresentable, so which flow runs is never
+ambiguous. The service-account flow signs an assertion (`RS256`) and trades it under
+`grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer`.
+
+**It cost zero new packages, and that was verified rather than assumed.** `ring` is already in the
+graph as `ureq`'s and `tokio-rustls`'s crypto provider, and it carries `RsaKeyPair::from_pkcs8` plus
+`RSA_PKCS1_SHA256` - exactly the primitive and exactly the key encoding a service-account key uses, so
+no `ASN.1` conversion is needed anywhere. `base64` was already resolved as a dev-dependency at the same
+version and is now a real one. `Cargo.lock` is still **446 packages**.
+
+**The alternative was priced and refused**, which is why this paragraph exists rather than a
+`cargo add`: `jsonwebtoken` is already here for the inbound side and could sign, but only with its
+`use_pem` feature - its DER path wants `PKCS#1` while a service-account key is `PKCS#8`. That was
+measured at **one** new package (`simple_asn1` 0.6.4, ISC, already allowed) and would also have switched
+the feature on for `sutura-http`, undoing half of a decision the workspace manifest states. So the
+licence allowlist still needs no entry and `check-arrow` still reports the same two majors.
+
+**What is first-party is the JWT's text and not the cryptography**, which is the line `docs/adr/0014`
+draws when it argues for hand-writing a metrics exposition format and against hand-writing signature
+verification in the same breath. `ring` computes the signature; this module base64url-encodes two JSON
+documents and joins them with dots. And this side SIGNS rather than verifies, so the algorithm is a
+constant rather than a field read off somebody else's document.
+
+### One finding the live run produced that no local check could have
+
+The first submission came back `400 invalidQuery`: *"Cannot access field day on a value with type
+INT64"*. The fault was in the FIXTURE - the plan's metric label was the same word as the table name, and
+`GoogleSQL` resolved the qualifier to the select-list alias instead of the table. Two consequences:
+
+1. **`Definitions::assemble` refuses a dimension named after its metric; nothing refuses a metric label
+   equal to the TABLE name**, and on this dialect that produces a statement the service rejects.
+   Flagged rather than fixed, because it is a domain change.
+2. **The endpoint's `message` is now carried on the refusal, bounded to 400 printable-ASCII
+   characters.** It had been dropped on the argument that what is not read cannot be logged by accident,
+   and a status plus a reason code that together say *your SQL is wrong* turned out to be
+   undiagnosable. A bound answers the original concern; dropping the field answered it by removing the
+   diagnostic too.
+
+### What is still not claimed, and by what mechanism
+The leg is a **smoke leg**, and it is:
 `crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests, reached by
 `just bigquery-acceptance`, needing three variables a developer names in their own environment.
 
-**And an unconfigured run of it FAILS rather than skipping, which is a reversal worth recording
-because the first version got it wrong.** That version printed `SKIPPED - ... is not set` and
+**And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
+promises the corpus over a test submitting one statement is the overstated-claim defect this
+repository treats as a defect.** Those records ask for *the corpus's statements accepted and returning
+rows* and *the rows agreeing with the engine's for the same plan*. This leg submits one hand-built
+`SUM` over a two-column table a developer supplies. It therefore exercises no join, no
+`COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and
+`ISOWEEK` and `DATE_TRUNC`'s argument order are precisely the two things 0017 MEASURED the parse check
+to be blind about, which makes them what a live run is worth most for.
+
+What it does prove on the day it runs: the endpoint accepts a statement this repository generated,
+answers it as one complete page, the answer maps into domain values, and the composition fits
+together - which no local test can show. **The leg the records ask for is #78's importer shape pointed
+at a dataset** - load the example fixtures, run the 21 questions, compare rows with the engine - and it
+is not built. Every sentence in this repository that promised the corpus has been narrowed to that:
+0017's amendment, `AGENTS.md`, `docs/architecture.md`, both plan pages, the justfile recipe and the
+leg's own header.
+
+**Its own range was also wrong, and the fix is worth a line because of what it says about the claim.**
+The first version asked for a hundred-year span, which this surface refuses as `TimeRangeTooLong`
+before an adapter ever sees it - so it was asking a real endpoint a question no caller could ask.
+
+**An unconfigured run of it FAILS rather than skipping, which is a reversal worth recording because
+the first version got it wrong - and which earned its keep on its first real use, reporting
+`0 passed, 3 failed` against a key the wire could not then read rather than three green ticks.** That version printed `SKIPPED - ... is not set` and
 returned, and all three tests then reported PASS with no project anywhere - a green nobody asked for,
 over exactly the claim the file exists to make. The compose tier does skip, correctly, because its
 cells run inside `just test` and failing would break the suite on every machine with no docker; these
@@ -247,8 +394,10 @@ general rule and not a special case: skip where the runner had no choice, fail w
 the command.**
 
 So the honest summary of `BigQuery` support in this repository is `0017`'s sentence with one word
-changed: **the statement is right as far as five mechanisms can tell, and nobody has run one.** The
-fifth mechanism is the wire's own suite, and it is worth being exact about what it proves:
+changed once and then twice: **the statement is right as far as five mechanisms can tell, and one of
+them is now a real endpoint.** The fifth mechanism is the wire's own suite, and it is worth being exact
+about what it proves - because it is the part that still holds for the twenty statements nobody has
+submitted:
 
 - the request this adapter builds is the document it says it builds - asserted on the **serialized**
   body, so it is bytes and not a struct;
@@ -279,7 +428,14 @@ remove the property the test would be checking around.
   network, this repository is public so a workflow secret is unavailable to a fork's pull request,
   and a gate that fails for an environment reason gets disabled. The acceptance evidence for this
   dialect lives in a developer's terminal and nowhere else.
-- A future `just update` that moves `ureq` to a version whose feature set no longer matches what
-  `libduckdb-sys` resolves would turn the +0 into a real number. Nothing gates that, and it is the
-  kind of thing worth a line in a `xtask` check the day it bites - the same shape `check-arrow`
-  already has.
+- **A future `just update` that moves `ureq` past what `libduckdb-sys` resolves would turn the +0 into
+  a real number, and that is now a gate rather than this sentence.** `cargo xtask
+  check-shared-client` reads `Cargo.lock` and fails on two things: more than one `ureq` version, and
+  `libduckdb-sys` no longer depending on `ureq` - the second being the PREMISE of the measurement,
+  which can stop holding without anything else breaking. It runs in `just hygiene`, it has its own
+  unit tests, and both rules were proved red by breaking the lock deliberately before they were
+  proved green. **What it deliberately does not check is the feature sets:** 0018's stronger claim -
+  *same version, same features* - needs `cargo metadata`'s resolve graph rather than the lock, which
+  is a process invocation and a JSON parser in a crate with one dependency. That absence is written
+  in the gate's own header, because a gate that reads as if it covered something it does not is the
+  failure this repository names as its canonical example.

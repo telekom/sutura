@@ -24,6 +24,7 @@ mod line_endings;
 mod max_lines;
 mod pins;
 mod repo;
+mod shared_client;
 mod skills;
 mod tasks;
 mod text;
@@ -129,6 +130,17 @@ const TASKS: &[Task] = &[
         description: "one Arrow major in Cargo.lock, or an explained exception",
         kind: Kind::Hygiene,
         run: arrow_major::run,
+    },
+    Task {
+        // Beside `check-arrow` because it is the same shape of gate for the same reason: a MEASUREMENT
+        // written into a record, checked against the lock it was taken from. `docs/adr/0018` says the
+        // BigQuery wire costs zero new packages because `libduckdb-sys` already resolves the same
+        // `ureq`; that record's own last consequence noted nothing gated it, which AGENTS.md calls a
+        // wish rather than a rule.
+        name: "check-shared-client",
+        description: "one `ureq` in the lock, still shared with `libduckdb-sys` (docs/adr/0018)",
+        kind: Kind::Hygiene,
+        run: shared_client::run,
     },
     Task {
         name: "line-endings",

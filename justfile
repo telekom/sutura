@@ -434,8 +434,12 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
-# The acceptance leg for BigQuery, and it is NOT a gate - `just validate` does not run it and
-# neither does CI. `docs/adr/0017` decided that: this repository is public, so a workflow secret is
+# The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
+#
+# **Smoke rather than acceptance, and the file says so in its first line.** It submits ONE hand-built
+# `SUM` over a two-column table a developer supplies, so it exercises none of the constructs the parse
+# check was measured to be blind about. `docs/adr/0017` specifies a wider leg - the corpus, compared
+# against the engine - and that is #78's importer shape and is not built. `docs/adr/0017` decided that: this repository is public, so a workflow secret is
 # unavailable to a fork's pull request, and the nix check sandbox has no network at all. So the only
 # place acceptance evidence for this dialect exists is a developer's own terminal.
 #
@@ -450,7 +454,7 @@ gcloud-login:
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
 # sources a file outside this repository for.
 
-# Ask a real BigQuery project one question. Opt-in, not a gate; see the module header.
+# Ask a real BigQuery project ONE question. Opt-in smoke leg, not a gate; see the module header.
 bigquery-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -458,6 +462,7 @@ bigquery-acceptance:
     source nix/stable-env.sh
     echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
     echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
     cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only
 
 # ------------------------------------------------------------------ dev flow ---

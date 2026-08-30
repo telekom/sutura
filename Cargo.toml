@@ -302,12 +302,15 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["loggin
 # built on OpenSSL, or unmaintained outright.
 jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 
-# base64url, and TEST-ONLY: `sutura-http`'s leg 1 tests write a JWK, whose `x` and `y` are base64url
-# of a public point. Nothing in a shipped path encodes or decodes base64 first-party - `jsonwebtoken`
-# does its own inside the token - so this is a dev-dependency and adds nothing to the lock, where
-# 0.23 is already resolved under the engine. Written rather than hand-rolled for the reason `sha2`
-# and `subtle` are: ten lines of local bit-twiddling under an `indexing_slicing` ban, to reimplement
-# something audited, in a fixture whose correctness the test cannot observe.
+# base64, and it is no longer test-only. `sutura-http`'s leg 1 tests write a JWK, whose `x` and `y` are
+# base64url of a public point; `sutura-exec-bigquery`'s wire encodes a JWT's two segments and its
+# signature, and decodes a `PKCS#8` PEM body. **The sentence that used to be here - nothing in a
+# shipped path encodes base64 first-party - stopped being true when that wire learned to sign an
+# assertion**, and it is corrected rather than deleted, because it was the reason this entry was a
+# dev-dependency. 0.23 is already resolved, so promoting it adds no package.
+#
+# Written rather than hand-rolled for the reason `sha2` and `subtle` are: ten lines of local
+# bit-twiddling under an `indexing_slicing` ban, to reimplement something audited.
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 
 # The OUTBOUND HTTP client, for `sutura-exec-bigquery`'s wire, behind that crate's default-off
@@ -347,6 +350,25 @@ base64 = { version = "0.23", default-features = false, features = ["std"] }
 #   * NO `gzip`, `brotli`, `charset`, `cookies` or `socks-proxy`. A cookie jar on a client that
 #     presents a bearer token is a second credential store nobody asked for.
 ureq = { version = "3", default-features = false, features = ["rustls", "rustls-webpki-roots"] }
+
+# The RSA signing a service-account assertion needs, and **zero new packages**: `ring` 0.17.14 is
+# already resolved as `ureq`'s and `tokio-rustls`'s crypto provider, and it carries
+# `RsaKeyPair::from_pkcs8` plus `RSA_PKCS1_SHA256` - exactly the primitive and exactly the key encoding
+# a service-account key uses, so no ASN.1 conversion is needed anywhere.
+#
+# **The alternative was priced and refused.** `jsonwebtoken` is already here for the INBOUND side and
+# could sign too, but only with its `use_pem` feature: its DER path wants `PKCS#1` while a
+# service-account key is `PKCS#8`, and converting between them IS ASN.1. Turning `use_pem` on was
+# measured at **one** new package - `simple_asn1` 0.6.4, ISC, already allowed - and it would also have
+# switched the feature on for `sutura-http`, undoing half of a decision the `jsonwebtoken` entry below
+# states. `ring` costs neither, so `docs/adr/0018`'s 446-to-446 measurement survives.
+#
+# `default-features = false` drops `dev_urandom_fallback`, which is a fallback for a platform with no
+# `getrandom`; every target this ships to has one, and a silent fallback in a signing path is the shape
+# worth not having. `std` is back on, and it is not decoration: `ring::error::KeyRejected` implements
+# `std::error::Error` only under it, and without that the refusal could not carry its cause on a
+# `#[source]` - which is the one thing this workspace's error rule will not give up.
+ring = { version = "0.17", default-features = false, features = ["std"] }
 
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the

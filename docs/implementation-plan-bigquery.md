@@ -204,13 +204,24 @@ either.
 
 **And 0017's prediction about itself did not come true, which is the part to read before believing
 any of this.** The change that wrote the wire could NOT run it: the machine had no `gcloud`, no
-application-default credential and no project. So the acceptance leg exists as
+application-default credential and no project. So a leg exists at
 `crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests behind
-`just bigquery-acceptance`, and **it is unexecuted**; no composition root links the crate,
+`just bigquery-acceptance`, and **it is unexecuted**. **It is also narrower than what 0017 specifies**
+- one hand-built `SUM` over a two-column table, exercising none of the constructs the parse check was
+measured to be blind about, so a green run of it would close a smaller gap than the records first
+claimed; the wider leg is #78's importer shape pointed at a dataset. No composition root links the
+crate,
 `sutura-serve` still refuses `kind: bigquery` by name, and the `data_systems:` axis still gains no
 entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
-five mechanisms can tell, and nobody has run one.** That sentence is what the per-subject step below
-inherits, and the first thing that step owes is a green acceptance run rather than more code.
+five mechanisms can tell, and ONE has now been run.** On 2026-08-30 the leg passed against a real
+dataset under a service-account key - a statement generated here accepted by `BigQuery`, answered as one
+complete page, with the fixture's own numbers - and `docs/adr/0017`'s amendment puts the repeat of it in
+CI, in its own job, against a GitHub environment whose secrets a fork's pull request cannot see.
+
+**What the per-subject step below inherits is therefore narrower and more useful than before.** The
+credential path works and reads both kinds; what is still absent is the corpus-wide comparison against
+the engine (#78's importer shape), and per-subject identity is untouched - a service-account key is
+`SharedServiceUser`, one identity for everybody who asks.
 
 ## BigQuery, per subject
 

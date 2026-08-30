@@ -30,11 +30,13 @@
 //!    `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
 //!    feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
 //!    decision a composition root makes in a manifest line.
-//! 2. **Nothing in this repository can verify it, and that is still true.** There is no `BigQuery` in
-//!    a container, `docs/adr/0017` refuses an emulator on principle, and the acceptance leg -
-//!    `tests/acceptance.rs` - is `#[ignore]`d, needs a project a developer names in their own
-//!    environment, and **has not been run.** So what [`wire`] claims is that it builds the request it
-//!    says it builds and reads the answer it says it reads; acceptance is not claimed anywhere.
+//! 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
+//!    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
+//!    service-account key - the first statement this repository generated to be accepted by
+//!    `BigQuery`. **What that is, exactly:** one hand-built `SUM` over a two-column fixture, so it
+//!    says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
+//!    the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
+//!    about. The corpus-wide leg that record specifies is not built.
 //!
 //! So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
 //! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,

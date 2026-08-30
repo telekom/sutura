@@ -198,12 +198,18 @@ edge moved once, without the distinction moving with it.** A `BigQuery` adapter 
 also has a transport that speaks to the endpoint: `jobs.query` over a blocking HTTP client, behind a
 default-off `wire` feature, with a second narrow port for the credential.
 
-**It is still not a data system this build can reach**, and that is three separate facts rather than
-one. No composition root links the crate. `sutura-serve` refuses `kind: bigquery` by name, correctly,
-because it links no `BigQuery` adapter. And **nothing has ever sent a statement to a real dataset**:
-[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md) predicted that the change writing the wire
-would be the change that could first verify it, and it was not - so the acceptance leg is `#[ignore]`d
-and unexecuted, and the `data_systems:` axis of the golden matrix still gains no entry.
+**A statement generated here has now been accepted by a real dataset**, on 2026-08-30, under a
+service-account key -
+[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md)'s amendment records it and puts the repeat
+in CI. **It is still not a data system this build can REACH**, and that is now two facts rather than
+three: no composition root links the crate, and `sutura-serve` refuses `kind: bigquery` by name,
+correctly, because it links no `BigQuery` adapter. The `data_systems:` axis of the golden matrix still
+gains no entry - one live statement is not a registered data system.
+
+**And that leg is a SMOKE test rather than the acceptance leg 0017 specifies**, which is worth knowing
+before reading its green as closing the gap: one hand-built `SUM` over a two-column table, exercising
+none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
+shape pointed at a dataset, and it is not built.
 
 0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.

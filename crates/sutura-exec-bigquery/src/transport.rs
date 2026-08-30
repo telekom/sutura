@@ -10,9 +10,10 @@
 //! - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
 //!   credential source is a real addition to a workspace that cross-compiles to musl and gates
 //!   licences exactly, and it arrives in exactly one place: [`crate::wire`], behind the crate's
-//!   default-off `wire` feature. `docs/adr/0018` prices it. What is still true is the sentence that
-//!   kept the seam empty for a release: **nothing in this repository can verify a network client**,
-//!   so the acceptance leg is opt-in, needs a developer's own project, and is unexecuted.
+//!   default-off `wire` feature. `docs/adr/0018` prices it. The sentence that kept this seam empty for
+//!   a release - *nothing in this repository can verify a network client* - is now half spent: nothing
+//!   in CI can, and a developer's own project has. Three tests passed against a real dataset on
+//!   2026-08-30, over one hand-built `SUM` rather than the corpus.
 //!
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.

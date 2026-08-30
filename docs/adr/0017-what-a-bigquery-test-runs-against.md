@@ -171,7 +171,93 @@ for an environment reason on somebody else's machine.
   execute reads as coverage. The **dialect** axis gains one, unconditionally.
 - A developer who wants to try it against their own project needs the transport, which does not exist
   yet. Until then the honest summary of BigQuery support in this repository is: *the statement is
-  right as far as four mechanisms can tell, and nobody has run one.*
+  right as far as four mechanisms can tell, and nobody has run one.* **That sentence is
+  superseded - see the amendment above: somebody has now run one.**
+
+## Amendment, 2026-08-30: acceptance IS in CI now, and the reason this record gave is what changed
+
+**Status of the amendment: accepted.** The decision above stands as reasoning and its *conclusion* is
+superseded in one specific way. This section says which, because a merged record that quietly stops
+being true is worse than one that was wrong from the start.
+
+### What this record refused, and on what grounds
+
+*A real project in CI, with a service-account secret* was refused, and the FIRST of its three stated
+costs was the deciding one:
+
+> **This repository is public.** A workflow secret is not available to a pull request from a fork, so
+> the check would be absent on exactly the contributions least likely to have been run locally - the
+> shape of gate that is worse than none, because its green means "nobody could run it".
+
+**That cost is answered by a mechanism this record did not consider: a GitHub *environment*.** An
+environment's secrets are not exposed to a `pull_request` run from a fork at all - the job cannot
+start with them - so the failure mode is not "a fork sees the secret" but "a fork's run skips". Which
+is the honest outcome for a runner that had no choice, and is this repository's own rule about skipping
+versus failing.
+
+The record's own words left this open: *"Not rejected forever: if an organisation-level credential and
+an owner appear, this becomes the best option."* A credential and an owner appeared.
+
+### What is now in CI
+
+`.github/workflows/ci.yml`'s `bigquery-acceptance` job. Its own job, so a failure is attributable and
+the rest of CI does not wait on a cloud call. It names environment `bq-test`, writes the key from that
+environment's secret to a path under `$RUNNER_TEMP` - **outside the checkout** - points
+`GOOGLE_APPLICATION_CREDENTIALS` at it, runs `nix run .#bigquery-acceptance`, and removes it in an
+`if: always()` step.
+
+**Three things about the credential's path, because two of them cost real failures:**
+
+- It is never echoed, never interpolated into a command line, and never passed as an argument.
+  `printenv` writes it and `umask 077` precedes the write. A multi-line JSON key is exactly the shape
+  that defeats naive log masking, so nothing relies on masking.
+- **Outside the checkout is not tidiness.** The secret sweep scans the WORKING TREE and does not honour
+  `.gitignore`, so a key inside the repository fails `just secrets` - measured, three leaks - and that
+  blocks the push stage for everybody, not only the person who put it there.
+- The billing project is read from the key's own `project_id`, so no project variable is configured.
+  The dataset and table come from environment `vars`; all three fail loudly when unset rather than
+  skipping.
+
+**It is an app and not a `checks.*` output, and that is forced rather than chosen:** nix checks run in
+a sandbox with no network, so acceptance could not be a check even with a credential. `just validate`
+therefore still does not cover this, and the *Consequences* below still hold on that point.
+
+### What the leg now claims, exactly - and the word that still does not belong
+
+**A statement this repository generated was accepted by `BigQuery` on 2026-08-30, answered as one
+complete page, and its numbers were the fixture's.** That is the first time anything here has had a
+statement accepted by that service, and it happened from a developer's machine before the CI job
+existed. The three tests are: a dry run accepted, a real run whose two bucketed sums are 42 and 99
+against a four-row fixture that discriminates, and a negative control - a table the dataset does not
+hold, refused rather than panicking.
+
+**The word "corpus" still does not belong near it.** This is ONE hand-built `SUM` over a two-column
+table: no join, no `COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and
+no `ISOWEEK` - and `ISOWEEK` plus `DATE_TRUNC`'s argument order are precisely the two things the
+*measurement* sections below identified as invisible to a parse check. So the four acceptance bullets
+this record wrote are answered as: the statement is accepted (for one statement), the answer is proved
+complete, and **the rows are NOT compared against the engine's** and the bucket is checked only for
+`MONTH`. The corpus-wide leg is #78's importer shape pointed at a dataset, and it is not built.
+
+**And identity is untouched.** A service-account key is `SharedServiceUser` - one identity for
+everybody who asks - so this establishes *accepted, and correct for that identity*, and says nothing
+whatever about per-subject execution. `BigQueryWarehouse::IMPERSONATION` still reads
+`NoPlaceForASubject`.
+
+### One finding the live run produced that no local check could have
+
+The first submission came back `400 invalidQuery`: *"Cannot access field day on a value with type
+INT64"*. The cause was in the FIXTURE rather than the generator - the plan's metric label was the same
+word as the table name, and `GoogleSQL` resolved the qualifier to the select-list alias instead of the
+table. Worth recording twice over:
+
+1. **`Definitions::assemble` refuses a dimension named after its metric, and nothing refuses a metric
+   label equal to the TABLE name.** On this dialect that produces a statement the service rejects.
+   Flagged rather than fixed here, because it is a domain change and this record is not the place.
+2. **It is why the endpoint's `message` is now carried on the refusal, bounded.** It had been dropped
+   deliberately - *what is not read cannot be logged by accident* - and a status plus a reason code
+   that together say *your SQL is wrong* turned out to be undiagnosable. The bound answers the original
+   concern; dropping the field answered it by removing the diagnostic too.
 
 ## What has happened since, and the one sentence above that stopped being true
 
@@ -183,6 +269,18 @@ acceptance leg written as `crates/sutura-exec-bigquery/tests/acceptance.rs` and 
 
 So the last bullet above is corrected rather than left standing: a developer who wants to try it now
 has the transport and needs only `just gcloud-login` and three values in their own environment.
+
+**But what they would be running is NOT the acceptance leg this page specifies, and that is worth
+being blunt about.** The four bullets under *The acceptance leg, when somebody runs it* ask for the
+corpus's statements accepted, the rows agreeing with the engine's, the bucket checked, and the answer
+proved complete. `tests/acceptance.rs` delivers the fourth and a single instance of the first: one
+hand-built `SUM` over a two-column table a developer supplies. It contains no join, no
+`COUNT(DISTINCT`, no `CASE WHEN`, no `NULLIF` ratio, no `CAST(... AS FLOAT64)` and no `ISOWEEK` - and
+`ISOWEEK` and `DATE_TRUNC`'s argument order are exactly the two things this page MEASURED the parse
+check to be blind about, so they are what a live run is worth most for. **The leg this page specifies
+is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
+with the engine - and it is not built.** `docs/adr/0018` records that gap, and the smoke leg's own
+header opens with it.
 
 **Everything else on this page still holds, including the part that matters most.** This record said
 the change adding the wire would be the change that could first run it against a project. **It was
