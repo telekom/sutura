@@ -37,6 +37,19 @@
 //!   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
 //!   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
 //!   scanned.
+//! - **The time bound is ONE ABSOLUTE DEADLINE PER CALL, not a timeout per HTTP operation, and this
+//!   bullet exists because the earlier shape was the second thing while claiming the first.** A single
+//!   call does a token exchange and then a job; `timeout_global` on the agent gave each of them a full
+//!   budget of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and
+//!   two jobs - at four independent budgets against a transport whose own request timeout is thirty
+//!   seconds. [`CallDeadline`] is opened once in `submit` and every operation below it gets only what
+//!   is LEFT: the exchange's socket, the job's socket, and the `timeoutMs`/`jobTimeoutMs` the request
+//!   carries. A budget spent before the job is [`WireError::DeadlineSpent`] rather than a send.
+//!   **The limit, because it is the half a type here cannot reach:** neither `Warehouse` nor
+//!   [`JobTransport`] takes a deadline, so the two calls one answer makes cannot share one - an
+//!   answer's worst case is [`QueryDeadline::CALLS_PER_ANSWER`] budgets. That arithmetic is done once,
+//!   in [`QueryDeadline::within_request_timeout`], so a composition root gets a deadline that already
+//!   fits inside the request timeout instead of a number it has to divide correctly.
 //! - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
 //!   `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
 //!   delivered count short of the reported total is refused here - see [`WireError::MoreThanOnePage`]
@@ -111,14 +124,22 @@ use crate::wire::document::{QueryAnswer, body, complete, refusal, url};
 /// the route - see the module header on the proxy.
 const HOST: &str = "https://bigquery.googleapis.com";
 
-/// How much longer than the job's own deadline the socket may wait.
+/// How much longer than what is left of a call's budget the socket may wait.
 ///
-/// **The number that stops a pool thread outliving the caller it was answering.** A job is cancelled
-/// at the service after [`JobBounds::deadline`], and the client stops waiting for the response at the
-/// same instant, so this covers only connection setup and the last bytes of the answer. It used to be
-/// the other way round - a 70-second socket over a 55-second job wait against a transport whose own
-/// default timeout is 30 seconds - which held a blocking-pool thread for up to 40 seconds after the
-/// request it served had gone.
+/// **The number that stops a pool thread outliving the caller it was answering, and it is charged per
+/// OPERATION.** A job is cancelled at the service when the call's remaining budget runs out and the
+/// client stops waiting at the same instant, so this covers only connection setup and the last bytes of
+/// the answer. Two corrections are recorded here rather than in a commit message, because each was a
+/// claim this file made and did not hold:
+///
+/// - it used to be the other way round - a 70-second socket over a 55-second job wait against a
+///   transport whose own default timeout is 30 seconds - which held a blocking-pool thread for up to
+///   40 seconds after the request it served had gone;
+/// - and then it was charged once per HTTP OPERATION against a whole-budget timeout on the agent, so
+///   an answer's four operations could each spend it. [`CallDeadline`] and
+///   [`QueryDeadline::within_request_timeout`] are what make the arithmetic add up: a call is
+///   `budget + CONNECT_MARGIN`, an answer is [`QueryDeadline::CALLS_PER_ANSWER`] of those, and the
+///   deadline a composition root is handed already divides the transport's own timeout by both.
 const CONNECT_MARGIN: Duration = Duration::from_secs(5);
 
 /// A cap on the answer this module will read into memory.
@@ -148,12 +169,17 @@ const QUOTA_PROJECT_HEADER: &str = "x-goog-user-project";
 
 /// How long a job may run, and how long the client waits for its answer.
 ///
-/// **A newtype rather than a constant, because the value belongs to the deployment.** The number that
-/// makes sense here is the one the transport in front of this service already uses -
-/// `server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a
-/// second copy of it that drifts the day somebody changes the first. A composition root fills this
-/// from that setting; until one links this crate, the acceptance leg is the only caller and it says
-/// where its number comes from.
+/// **A newtype rather than a constant, because the value belongs to the deployment.** The setting that
+/// decides it is the one the transport in front of this service already uses -
+/// `server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
+/// copy of it that drifts the day somebody changes the first.
+///
+/// **It is a SHARE of that setting rather than the setting itself**, which review had to point out:
+/// one answer makes [`Self::CALLS_PER_ANSWER`] calls and each pays [`CONNECT_MARGIN`] on top of its
+/// own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+/// running. [`Self::within_request_timeout`] is the constructor that does the division, and it is the
+/// one a composition root should reach for; [`Self::parse`] stays for a deployment stating a budget
+/// outright.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct QueryDeadline {
     seconds: u64,
@@ -180,6 +206,82 @@ pub enum UnusableBound {
     /// Above what the endpoint accepts, or above what a bound is for.
     #[error("a {what} of {given} is above the {cap} this adapter will send")]
     TooLarge { what: &'static str, given: u64, cap: u64 },
+    /// A transport's request timeout too short to leave a job any budget at all.
+    ///
+    /// See [`QueryDeadline::within_request_timeout`]: one answer spends the budget
+    /// [`QueryDeadline::CALLS_PER_ANSWER`] times and each spend costs connection setup on top, so a
+    /// request timeout below that leaves nothing to bound.
+    #[error("a request timeout of {given} seconds leaves no budget for the {calls} calls one answer makes")]
+    NoBudget { given: u64, calls: u64 },
+}
+
+/// The instant one call into this transport has to be finished by.
+///
+/// **One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+/// that distinction is the correction this type exists to carry.** The previous shape put
+/// `timeout_global` on the agent, so EVERY request through it got the full budget independently: a
+/// single [`JobTransport::run`] does a token exchange and then a job, and both were allowed
+/// `deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
+/// four HTTP operations, each with its own budget, against a transport whose own request timeout is
+/// thirty seconds - and the five-second overrun this module claimed was false.
+///
+/// So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+/// exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
+/// which is what keeps the service cancelling at the instant the client stops waiting even when the
+/// exchange spent half the budget first. When nothing is left, the refusal comes before the send.
+///
+/// **A monotonic [`std::time::Instant`] and not a wall clock**, because a wall clock can step and a
+/// stepped deadline is either a job abandoned early or one that outlives its caller.
+///
+/// **The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
+/// `Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor [`JobTransport`]
+/// takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+/// `CALLS_PER_ANSWER` budgets rather than one, which is exactly why
+/// [`QueryDeadline::within_request_timeout`] exists: it does that arithmetic once so a composition root
+/// cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+/// signature tweak.
+#[derive(Debug, Clone, Copy)]
+pub struct CallDeadline {
+    started: std::time::Instant,
+    budget: Duration,
+}
+
+impl CallDeadline {
+    /// Opens a budget now.
+    #[must_use]
+    pub fn opened(deadline: QueryDeadline) -> Self {
+        Self::opened_at(std::time::Instant::now(), deadline)
+    }
+
+    /// Opens a budget that started at a named instant.
+    ///
+    /// **The canonical constructor, with [`Self::opened`] delegating to it**, and it is public for one
+    /// reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
+    /// the end of one could not be reached from a test without sleeping through a real one.
+    #[must_use]
+    pub const fn opened_at(started: std::time::Instant, deadline: QueryDeadline) -> Self {
+        Self {
+            started,
+            budget: Duration::from_secs(deadline.seconds),
+        }
+    }
+
+    /// What is left of the budget, or `None` when it is spent.
+    ///
+    /// `None` rather than a zero duration, because zero means *no timeout* to the client underneath -
+    /// so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
+    /// this type is for.
+    #[must_use]
+    pub fn remaining(self) -> Option<Duration> {
+        self.budget.checked_sub(self.started.elapsed()).filter(|left| !left.is_zero())
+    }
+
+    /// How long a socket may stay open for an operation with `left` of the budget remaining: that,
+    /// plus connection setup.
+    #[must_use]
+    pub const fn socket(left: Duration) -> Duration {
+        left.saturating_add(CONNECT_MARGIN)
+    }
 }
 
 impl QueryDeadline {
@@ -188,6 +290,50 @@ impl QueryDeadline {
     /// Six hours is the endpoint's own ceiling for a query job. A deployment that wants longer wants
     /// a batch job, which is a different API and a different decision.
     const MAX_SECONDS: u64 = 6 * 60 * 60;
+
+    /// How many times one ANSWER spends this budget: `Warehouse::dry_run`, then `Warehouse::execute`.
+    ///
+    /// **A constant in this crate that describes `sutura_app::answer`'s call pattern, and nothing
+    /// mechanical keeps the two equal** - which is stated here rather than left for somebody to
+    /// discover, because it is the one number in [`Self::within_request_timeout`]'s arithmetic that a
+    /// change somewhere else could falsify. The alternative - a deadline carried across the
+    /// `Warehouse` port - is an architecture decision, and until it is taken this is the honest shape:
+    /// a number with its assumption written next to it.
+    pub const CALLS_PER_ANSWER: u64 = 2;
+
+    /// The largest deadline that keeps one ANSWER inside a transport's own request timeout.
+    ///
+    /// **The arithmetic a composition root would otherwise have to remember, and get wrong.** The
+    /// number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
+    /// caller wants is not that number but the share of it one call may spend, because an answer makes
+    /// [`Self::CALLS_PER_ANSWER`] calls and each pays [`CONNECT_MARGIN`] on top of its own budget. So
+    /// `within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
+    /// caller was promised.
+    ///
+    /// A request timeout too short to leave anything is [`UnusableBound::NoBudget`] rather than a
+    /// silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
+    /// so at startup.
+    pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound> {
+        /// The refusal, written once because both arms below reach it.
+        const fn no_budget(given: u64) -> UnusableBound {
+            UnusableBound::NoBudget {
+                given,
+                calls: QueryDeadline::CALLS_PER_ANSWER,
+            }
+        }
+
+        // `checked_div` rather than `/`, because `clippy::integer_division` and
+        // `integer_division_remainder_used` are both denied in this workspace - and the named call is
+        // the better shape anyway: it makes the truncation deliberate, so a request timeout of 31
+        // seconds buys the same budget as 30 and a fraction of a second is never a budget.
+        match request_timeout_seconds.checked_div(Self::CALLS_PER_ANSWER) {
+            None => Err(no_budget(request_timeout_seconds)),
+            Some(share) => match share.checked_sub(CONNECT_MARGIN.as_secs()) {
+                None | Some(0) => Err(no_budget(request_timeout_seconds)),
+                Some(seconds) => Self::parse(seconds),
+            },
+        }
+    }
 
     /// Parses a deadline in whole seconds.
     pub const fn parse(seconds: u64) -> Result<Self, UnusableBound> {
@@ -215,10 +361,23 @@ impl QueryDeadline {
         self.seconds.saturating_mul(1_000)
     }
 
-    /// How long the socket may stay open: the job's deadline plus connection setup.
+    /// The whole budget, as a duration.
+    #[inline]
+    #[must_use]
+    pub const fn budget(self) -> Duration {
+        Duration::from_secs(self.seconds)
+    }
+
+    /// How long a socket may stay open for a call that has spent none of its budget yet.
+    ///
+    /// **The backstop on the agent rather than the bound that holds.** What a single operation is
+    /// really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's budget - see
+    /// [`CallDeadline`], and see the module header for why a per-operation timeout was not enough. This
+    /// value is what the agent is configured with, so an operation that somehow reached the client
+    /// without an override is still bounded.
     #[must_use]
     pub const fn socket(self) -> Duration {
-        Duration::from_secs(self.seconds.saturating_add(CONNECT_MARGIN.as_secs()))
+        CallDeadline::socket(self.budget())
     }
 }
 
@@ -438,6 +597,15 @@ where
         #[source]
         cause: std::time::SystemTimeError,
     },
+    /// This call's budget was gone before the job could be submitted.
+    ///
+    /// **Refused rather than sent with whatever budget was left, because there was none.** One call
+    /// does a token exchange and then a job against one absolute deadline - see [`CallDeadline`] - so an
+    /// exchange slow enough to spend the whole of it leaves nothing to bound the job with. Submitting
+    /// anyway would either mean an unbounded wait or a job the service keeps running after the client
+    /// has stopped waiting, which is the pair of failures this whole shape exists to rule out.
+    #[error("this call's {budget_seconds}-second budget was spent before the job could be submitted")]
+    DeadlineSpent { budget_seconds: u64 },
     /// The request could not be serialized.
     ///
     /// **A defect-only path, and it is named rather than unwrapped.** Everything in the body is a
@@ -585,17 +753,27 @@ where
     /// and would fail them - see [`Self::validate_job`] and [`Self::run_job`], which are the two
     /// callers and hold the two different conclusions.
     fn submit(&self, request: &JobRequest<'_>, dry_run: DryRun) -> Wired<QueryAnswer, C::Error> {
+        // **One absolute deadline for everything below, opened before the first operation.** The token
+        // exchange and the job share it, so a slow exchange shortens the job rather than being followed
+        // by one with a full budget of its own - see `CallDeadline` for the measurement that forced
+        // this shape.
+        let call = CallDeadline::opened(self.agent.bounds().deadline());
         let now = Self::now()?;
         let bearer = self
             .credentials
-            .bearer(now)
+            .bearer(now, call)
             .map_err(|cause| WireError::Credential { cause })?;
         // Checked BEFORE anything is built or sent, which is why an expired credential costs no round
         // trip - and why it is the one guard in this function a test can reach with no socket.
         if let Some(at) = bearer.not_after().passed_by(now) {
             return Err(WireError::Expired { at, now });
         }
-        let document = serde_json::to_vec(&body(request, dry_run, self.agent.bounds()))
+        // What the exchange left. Every number below reads THIS rather than the whole budget: the two
+        // timeout fields in the request body and the socket the answer is waited for on.
+        let left = call.remaining().ok_or(WireError::DeadlineSpent {
+            budget_seconds: self.agent.bounds().deadline().seconds,
+        })?;
+        let document = serde_json::to_vec(&body(request, dry_run, self.agent.bounds(), left))
             .map_err(|cause| WireError::RequestNotSerializable { cause })?;
         // `Secret::expose_secret` is the one greppable call that lets the token out, and it lets it out into
         // a header value the client parses rather than into a string it concatenates - so a token
@@ -606,6 +784,12 @@ where
             .agent
             .agent()
             .post(url(request))
+            // **The agent's own `timeout_global` is a backstop and this is the bound that holds.** It
+            // is what is LEFT of the call's budget plus connection setup, so the socket cannot outlive
+            // the job the service was asked to cancel at the same instant.
+            .config()
+            .timeout_global(Some(CallDeadline::socket(left)))
+            .build()
             .header("authorization", format!("Bearer {}", bearer.token().expose_secret()))
             .header("content-type", "application/json");
         // **The quota project, and whether to send it AT ALL is the credential's answer rather than

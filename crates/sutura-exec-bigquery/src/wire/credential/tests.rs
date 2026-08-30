@@ -11,11 +11,11 @@
 //! the explicit one is exact.
 
 use super::{
-    AccessTokens as _, Credential, CredentialFile, Document, PEM_BEGIN_MARK, PEM_END_MARK, QuotaProject, UnusableCredential,
-    deadline, unwrap_pem,
+    AccessTokens as _, Credential, CredentialFile, Document, KeyUnusable, Kind, PEM_BEGIN_MARK, PEM_END_MARK, QuotaProject,
+    UnusableCredential, deadline, readable_key, unwrap_pem,
 };
 use crate::wire::{BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
-use sutura_domain::identity::Expiry;
+use sutura_domain::identity::{Expiry, Secret};
 
 /// The pinned client, which is the only kind this module accepts.
 fn pinned() -> WireAgent {
@@ -74,12 +74,14 @@ fn wrapped(label: &str, body: &str) -> String {
     format!("{PEM_BEGIN_MARK}{label}-----\n{body}\n{PEM_END_MARK}{label}-----\n")
 }
 
-/// A complete `service_account`, with a PEM block that is well-formed TEXT and not a key.
+/// A complete `service_account` DOCUMENT, whose PEM block is well-formed text and not a key.
 ///
-/// **The distinction matters for what these tests can claim:** the reader unwraps the PEM at
-/// construction and `ring` parses the DER only when an assertion is signed, so a document with a
-/// syntactically valid but meaningless body READS successfully here. Signing it would fail, and no
-/// test here signs - that is what the acceptance leg does, with a real key.
+/// **Reading this now FAILS, and that is the point of it.** Since review, `read_document` decodes the
+/// base64 and hands the DER to `ring`, so a syntactically valid but meaningless body is refused at read
+/// - which is the whole finding.
+///
+/// This fixture is therefore the negative one: it is what the key tests below feed in, and what
+/// [`robot`] exists to work around.
 fn service_account() -> Document {
     Document {
         client_email: Some(String::from("a-robot@example.invalid")),
@@ -87,6 +89,32 @@ fn service_account() -> Document {
         private_key: Some(wrapped("PRIVATE KEY", FAKE_BODY)),
         project_id: Some(String::from("a-payer")),
         ..document("service_account")
+    }
+}
+
+/// A service-account credential assembled directly, bypassing the key parse.
+///
+/// **Why this exists, stated because a test-only constructor is a thing to be suspicious of.** Reading
+/// a service-account document now parses the `PKCS#8` key, and a valid 2048-bit RSA key is the one
+/// fixture this file cannot have: `ring` deliberately cannot generate one, the workspace's other crypto
+/// backend needs `cmake` and is not linked, and a real key committed to a public repository is key
+/// material in a public repository whatever it authenticates - the same reason the PEM DELIMITERS above
+/// are assembled from constants.
+///
+/// So the split is: the KEY's own stages are pinned by the refusals below, the positive path over a
+/// real key belongs to `tests/acceptance.rs`, which signs with one, and this fixture carries everything
+/// ABOVE the key - which kind a document becomes, which project it names, what it asks of a request,
+/// and that nothing prints it. It reaches into private fields rather than adding a constructor, so the
+/// shipped crate still has exactly one way in.
+fn robot() -> Credential {
+    Credential {
+        agent: pinned(),
+        kind: Kind::ServiceAccount {
+            client_email: String::from("a-robot@example.invalid"),
+            private_key_id: String::from("0123456789abcdef"),
+            private_key: Secret::new(FAKE_BODY),
+            project_id: String::from("a-payer"),
+        },
     }
 }
 
@@ -99,7 +127,7 @@ fn each_of_the_two_kinds_this_build_reads_becomes_its_own_shape() {
     assert_eq!(user.kind(), "authorized_user");
     assert_eq!(user.project(), None, "an application-default login names no project");
 
-    let robot = Credential::read_document(service_account(), &at(), pinned()).expect("a complete service account reads");
+    let robot = robot();
     assert_eq!(robot.kind(), "service_account");
     assert_eq!(
         robot.project().map(String::as_str),
@@ -117,8 +145,7 @@ fn the_quota_project_header_is_required_for_one_kind_and_would_break_the_other()
     let user = Credential::read_document(authorized_user(), &at(), pinned()).expect("a user credential reads");
     assert_eq!(user.quota_project(), QuotaProject::Required);
 
-    let robot = Credential::read_document(service_account(), &at(), pinned()).expect("a service account reads");
-    assert_eq!(robot.quota_project(), QuotaProject::FromTheCredential);
+    assert_eq!(robot().quota_project(), QuotaProject::FromTheCredential);
 }
 
 #[test]
@@ -236,31 +263,66 @@ fn every_field_a_kind_needs_is_refused_by_name_when_it_is_absent_or_blank() {
 }
 
 #[test]
-fn a_private_key_that_is_not_a_pkcs8_pem_block_is_refused_and_quotes_nothing() {
-    // **The whole value is key material**, so there is no half of it a message may carry - which is why
-    // this refusal names only the path. `PKCS#8` specifically: that is what the endpoint issues and
-    // what `ring` reads directly, which is the reason no ASN.1 conversion exists anywhere here.
-    for hostile in [
-        String::from("not a pem block at all"),
+fn a_private_key_is_refused_at_every_stage_a_signature_needs_and_quotes_nothing() {
+    // **This test was `..._not_a_pkcs8_pem_block_...` and it proved less than its name.** The reader
+    // stripped the delimiters and checked the body was not empty, which is a TEXT check: a block whose
+    // body was `!!!` was accepted at boot and `ring` first saw it on the first question, so a
+    // deployment with a corrupt key started, looked healthy, and failed the first thing anybody asked
+    // it. Review caught that the comment beside it claimed the startup refusal it did not deliver.
+    //
+    // So the three stages are pinned by NAME, because the fix for each is a different thing: a missing
+    // delimiter is a truncated file, a non-base64 body is a corrupted one, and a body that decodes and
+    // is not a key is a key of the wrong kind.
+    let cases: [(String, KeyUnusable); 7] = [
+        (String::from("not a pem block at all"), KeyUnusable::NotAPemBlock),
         // A `PKCS#1` block, which is a different encoding and is refused rather than mis-parsed.
-        wrapped("RSA PRIVATE KEY", FAKE_BODY),
+        (wrapped("RSA PRIVATE KEY", FAKE_BODY), KeyUnusable::NotAPemBlock),
         // Delimiters with nothing between them.
-        wrapped("PRIVATE KEY", ""),
+        (wrapped("PRIVATE KEY", ""), KeyUnusable::NotAPemBlock),
         // An opening delimiter and no closing one.
-        format!("{PEM_BEGIN_MARK}PRIVATE KEY-----\n{FAKE_BODY}"),
-    ] {
+        (
+            format!("{PEM_BEGIN_MARK}PRIVATE KEY-----\n{FAKE_BODY}"),
+            KeyUnusable::NotAPemBlock,
+        ),
+        // **The case the previous version accepted.** Well-formed delimiters, a non-empty body, and
+        // not base64.
+        (wrapped("PRIVATE KEY", "!!!"), KeyUnusable::NotBase64),
+        // Base64 that decodes to three bytes, which is not a `PKCS#8` document.
+        (wrapped("PRIVATE KEY", FAKE_BODY), KeyUnusable::NotAKey),
+        // Base64 that decodes to a plausible length and is still not a key - so the refusal is `ring`'s
+        // structural check rather than a length heuristic of ours.
+        (wrapped("PRIVATE KEY", &"QUJDRA".repeat(64)), KeyUnusable::NotAKey),
+    ];
+    for (hostile, expected) in cases {
         let doc = Document {
             private_key: Some(hostile.clone()),
             ..service_account()
         };
         let refused = Credential::read_document(doc, &at(), pinned()).expect_err("it refused");
-        assert!(
-            matches!(refused, UnusableCredential::UnreadableKey { .. }),
-            "{hostile:?} was accepted: {refused:?}"
-        );
+        match refused {
+            UnusableCredential::UnreadableKey { because, .. } => {
+                assert_eq!(because, expected, "{hostile:?} was refused at the wrong stage");
+            }
+            ref other => panic!("{hostile:?} was mapped to {other:?}"),
+        }
+        // **The whole value is key material**, so there is no half of it a message may carry - which is
+        // why the refusal names the path and a stage, and never the value.
         let shown = refused.to_string();
         assert!(!shown.contains(FAKE_BODY), "the refusal quoted key material: {shown}");
+        assert!(!shown.contains("!!!"), "the refusal quoted key material: {shown}");
     }
+
+    // And the stages are reachable directly, so the ordering is pinned rather than inferred from which
+    // refusal a document happened to produce.
+    assert_eq!(readable_key("nothing").expect_err("no delimiters"), KeyUnusable::NotAPemBlock);
+    assert_eq!(
+        readable_key(&wrapped("PRIVATE KEY", "!!!")).expect_err("not base64"),
+        KeyUnusable::NotBase64
+    );
+    assert_eq!(
+        readable_key(&wrapped("PRIVATE KEY", FAKE_BODY)).expect_err("not a key"),
+        KeyUnusable::NotAKey
+    );
 }
 
 #[test]
@@ -268,7 +330,7 @@ fn a_key_never_shows_itself_through_a_derived_debug() {
     // `Secret` is the mechanism and this is the assertion that it survives being wrapped twice - the
     // key sits inside a private enum inside a public struct, and a derived `Debug` on either would
     // print it.
-    let robot = Credential::read_document(service_account(), &at(), pinned()).expect("a service account reads");
+    let robot = robot();
     let shown = format!("{robot:?}");
     assert!(!shown.contains(FAKE_BODY), "a derived Debug printed the key: {shown}");
     assert!(shown.contains("REDACTED"), "the key was not redacted at all: {shown}");

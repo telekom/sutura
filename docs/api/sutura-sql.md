@@ -205,6 +205,45 @@ See `DateTruncShape` for why this is a declaration rather than something the par
 would have caught.
 
 ```rust
+pub const fn identifier_case(self) -> IdentifierCase
+```
+
+Whether this data system tells two identifiers in one statement apart by case.
+
+A declaration, exhaustively matched, so a fifth dialect cannot compile without answering - the
+`DateTruncShape` and `Self::qualification` precedent. The vocabulary is
+`IdentifierCase`, and what reads it is the test
+`every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes` below:
+`sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables` both
+compare under `IdentifierCase::COARSEST`, because a bundle is dialect-agnostic and nothing at
+load knows which target will serve it.
+
+**So this declaration is a self-check on that assumption rather than a barrier**, and it is
+worth saying which: a value declared `Sensitive` here cannot make a bundle unsafe, because
+those checks fold regardless. What it buys is that a target whose folding is *coarser* than
+ASCII case - a Unicode-folding variant added to `IdentifierCase` - fails a test instead of
+quietly invalidating both comparisons.
+
+**`BigQuery` is `InsensitiveAscii`, and it is the reason the type exists.** `GoogleSQL`'s lexical
+reference lists *aliases within a query*, *column names* and *field names* as NOT
+case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by default, which is
+the asymmetry that makes the collision reachable: a table `Orders` is a distinct table, and the
+qualifier `Orders` still resolves to a select-list alias spelled `orders`.
+
+**`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
+`DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
+keeps two projected aliases differing only in case as two distinct output columns. Declaring
+the coarser of the two behaviours covers both.
+
+**`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
+here** - neither has a server in this repository to ask, which is why the paragraph above about
+the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
+compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
+case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
+every `ClickHouse` golden.
+
+```rust
 pub const fn identifier_quote(self) -> IdentifierQuote
 ```
 

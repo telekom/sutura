@@ -15,7 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use super::{
     AnchorPlan, NotAnAnchorsPlan, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
-    PredicateOrigin, QueryPlan,
+    PredicateOrigin, QueryPlan, StatementTables,
 };
 use crate::calendar::{Date, TimeRange};
 use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
@@ -93,8 +93,7 @@ fn anchors_plan(range: TimeRange, grain: Grain, keys: Vec<PlanKey>, filters: Vec
     QueryPlan::new(
         SourceName::parse("local").expect("a test source is a source"),
         metric(),
-        table(),
-        Vec::new(),
+        StatementTables::only(table()),
         PlanBucket::new(String::from("period"), grain, column("month")),
         keys,
         PlanMeasure::Simple {
@@ -250,8 +249,7 @@ fn a_metric_the_bundle_does_not_anchor_has_no_anchors_plan() {
     let for_absent = QueryPlan::new(
         SourceName::parse("local").expect("a test source is a source"),
         absent.clone(),
-        table(),
-        Vec::new(),
+        StatementTables::only(table()),
         PlanBucket::new(String::from("period"), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {

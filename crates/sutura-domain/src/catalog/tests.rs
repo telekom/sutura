@@ -422,6 +422,119 @@ fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
 }
 
 #[test]
+fn a_label_and_a_table_that_differ_only_in_case_still_collide() {
+    // **The hole a review reproduced, and it was an equality check.** GoogleSQL's lexical reference
+    // lists *aliases within a query* and *column names* as NOT case-sensitive (checked 2026-08-30),
+    // while its table names ARE case-sensitive by default - so a table `Orders` is a distinct table
+    // and the qualifier `Orders` still resolves to a select-list alias spelled `orders`. An equality
+    // check let every such pair through, and then the statement collided exactly as the same-case one
+    // did.
+    //
+    // Compared under `IdentifierCase::COARSEST` for that reason, which is dialect-agnostic on purpose:
+    // a bundle is loaded without knowing which target will serve it, and refusing a pair Postgres
+    // would have told apart costs an author a rename while accepting one BigQuery folds is a wrong
+    // number under a certified name. `sutura_sql::Dialect::identifier_case` is where each target
+    // declares its own, and a test there holds this assumption to being the coarsest.
+    //
+    // Three cases, because there are three sources of a projected label: the metric, the time bucket
+    // and a dimension.
+    let orders_named_revenue = vec![model_over(
+        "orders",
+        "local",
+        "revenue",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(orders_named_revenue, vec![], vec![metric("Revenue", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("Revenue"),
+            label: String::from("Revenue"),
+            table: TableName::parse("revenue").expect("a test table is a table"),
+        },
+        "a metric label folds against the table name"
+    );
+
+    let orders_named_period = vec![model_over(
+        "orders",
+        "local",
+        "Period",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(orders_named_period, vec![], vec![metric("revenue", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from(TIME_BUCKET_LABEL),
+            table: TableName::parse("Period").expect("a test table is a table"),
+        },
+        "the time bucket's label folds too, and it is projected for every question"
+    );
+
+    let orders_named_region = vec![model_over(
+        "orders",
+        "local",
+        "region",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(
+            orders_named_region,
+            vec![],
+            vec![metric("revenue", vec![dimension("Region", "region", None, None)])]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from("Region"),
+            table: TableName::parse("region").expect("a test table is a table"),
+        },
+        "a dimension label folds as well"
+    );
+
+    // The positive half, and it is what stops the three above passing on a check that refuses
+    // everything: two names that fold to different things still assemble.
+    drop(
+        Definitions::assemble(
+            vec![model_over(
+                "orders",
+                "local",
+                "region_totals",
+                &["amount_cents", "order_date", "region"],
+            )],
+            vec![],
+            vec![metric("revenue", vec![dimension("Region", "region", None, None)])],
+        )
+        .expect("region_totals and Region are two identifiers under any rule"),
+    );
+}
+
+#[test]
+fn two_projected_labels_that_differ_only_in_case_are_one_result_column() {
+    // The other half of *two result columns cannot share a label*, and it was case-sensitive for the
+    // same reason: GoogleSQL documents a result column's NAME as not case-sensitive, so `Period`
+    // beside `period` is one column there. Both existing refusals now fold, and neither needed a new
+    // variant - what changed is the comparison.
+    let one_model = || vec![model("orders", "local", &["amount_cents", "order_date", "region_code"])];
+    let bucket = metric("revenue", vec![dimension("Period", "region_code", None, None)]);
+    assert_eq!(
+        Definitions::assemble(one_model(), vec![], vec![bucket]).unwrap_err(),
+        InconsistentDefinitions::DimensionShadowsTimeBucket {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("Period"),
+        }
+    );
+
+    let measure = metric("revenue", vec![dimension("Revenue", "region_code", None, None)]);
+    assert_eq!(
+        Definitions::assemble(one_model(), vec![], vec![measure]).unwrap_err(),
+        InconsistentDefinitions::DimensionShadowsMeasure {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("Revenue"),
+        }
+    );
+}
+
+#[test]
 fn a_model_may_name_a_table_in_another_dataset_and_the_label_check_reads_the_last_part() {
     // A qualified model loads, and the two readings of "the table" are both available: the path a
     // `FROM` names, and the bare name a column is qualified by. The label check reads the BARE name

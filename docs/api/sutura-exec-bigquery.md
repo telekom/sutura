@@ -521,6 +521,19 @@ golden matrix still gains no entry - one live statement is not a registered data
   waits, and an expired one leaves the job running and billing), and `maximumBytesBilled` is what
   stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
   scanned.
+- **The time bound is ONE ABSOLUTE DEADLINE PER CALL, not a timeout per HTTP operation, and this
+  bullet exists because the earlier shape was the second thing while claiming the first.** A single
+  call does a token exchange and then a job; `timeout_global` on the agent gave each of them a full
+  budget of its own, so a review measured one ANSWER - `dry_run` then `execute`, two exchanges and
+  two jobs - at four independent budgets against a transport whose own request timeout is thirty
+  seconds. `CallDeadline` is opened once in `submit` and every operation below it gets only what
+  is LEFT: the exchange's socket, the job's socket, and the `timeoutMs`/`jobTimeoutMs` the request
+  carries. A budget spent before the job is `WireError::DeadlineSpent` rather than a send.
+  **The limit, because it is the half a type here cannot reach:** neither `Warehouse` nor
+  `JobTransport` takes a deadline, so the two calls one answer makes cannot share one - an
+  answer's worst case is `QueryDeadline::CALLS_PER_ANSWER` budgets. That arithmetic is done once,
+  in `QueryDeadline::within_request_timeout`, so a composition root gets a deadline that already
+  fits inside the request timeout instead of a number it has to divide correctly.
 - **One page or a refusal.** `jobs.query` answers one page, and completeness is stated as
   `totalRows` beside the rows rather than by the rows alone. A `pageToken`, an incomplete job or a
   delivered count short of the reported total is refused here - see `WireError::MoreThanOnePage`
@@ -583,14 +596,25 @@ pub struct QueryDeadline
 
 How long a job may run, and how long the client waits for its answer.
 
-**A newtype rather than a constant, because the value belongs to the deployment.** The number that
-makes sense here is the one the transport in front of this service already uses -
-`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a
-second copy of it that drifts the day somebody changes the first. A composition root fills this
-from that setting; until one links this crate, the acceptance leg is the only caller and it says
-where its number comes from.
+**A newtype rather than a constant, because the value belongs to the deployment.** The setting that
+decides it is the one the transport in front of this service already uses -
+`server.request_timeout_seconds`, which ships as 30 - and a constant in this file would be a second
+copy of it that drifts the day somebody changes the first.
+
+**It is a SHARE of that setting rather than the setting itself**, which review had to point out:
+one answer makes `Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its
+own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+running. `Self::within_request_timeout` is the constructor that does the division, and it is the
+one a composition root should reach for; `Self::parse` stays for a deployment stating a budget
+outright.
 
 #### Methods
+
+```rust
+pub const fn budget(self) -> Duration
+```
+
+The whole budget, as a duration.
 
 ```rust
 pub const fn milliseconds(self) -> u64
@@ -612,7 +636,30 @@ Parses a deadline in whole seconds.
 pub const fn socket(self) -> Duration
 ```
 
-How long the socket may stay open: the job's deadline plus connection setup.
+How long a socket may stay open for a call that has spent none of its budget yet.
+
+**The backstop on the agent rather than the bound that holds.** What a single operation is
+really allowed is `CallDeadline::socket(left)` over what is LEFT of the call's budget - see
+`CallDeadline`, and see the module header for why a per-operation timeout was not enough. This
+value is what the agent is configured with, so an operation that somehow reached the client
+without an override is still bounded.
+
+```rust
+pub const fn within_request_timeout(request_timeout_seconds: u64) -> Result<Self, UnusableBound>
+```
+
+The largest deadline that keeps one ANSWER inside a transport's own request timeout.
+
+**The arithmetic a composition root would otherwise have to remember, and get wrong.** The
+number to fill this from is `server.request_timeout_seconds`, which ships as thirty; what a
+caller wants is not that number but the share of it one call may spend, because an answer makes
+`Self::CALLS_PER_ANSWER` calls and each pays `CONNECT_MARGIN` on top of its own budget. So
+`within_request_timeout(30)` is ten seconds, and two calls of ten plus five is the thirty a
+caller was promised.
+
+A request timeout too short to leave anything is `UnusableBound::NoBudget` rather than a
+silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
+so at startup.
 
 #### Implements
 
@@ -665,10 +712,82 @@ Why a bound this adapter was handed is not usable.
 
 - `Zero` - Zero, which would refuse every question rather than bounding one.
 - `TooLarge` - Above what the endpoint accepts, or above what a bound is for.
+- `NoBudget` - A transport's request timeout too short to leave a job any budget at all.
 
 #### Implements
 
 `Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `struct CallDeadline`
+
+```rust
+pub struct CallDeadline
+```
+
+The instant one call into this transport has to be finished by.
+
+**One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+that distinction is the correction this type exists to carry.** The previous shape put
+`timeout_global` on the agent, so EVERY request through it got the full budget independently: a
+single `JobTransport::run` does a token exchange and then a job, and both were allowed
+`deadline + CONNECT_MARGIN` of their own. A review measured the consequence at the answer level -
+four HTTP operations, each with its own budget, against a transport whose own request timeout is
+thirty seconds - and the five-second overrun this module claimed was false.
+
+So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+exchange, the socket the job waits on, and the `timeoutMs` and `jobTimeoutMs` the request carries -
+which is what keeps the service cancelling at the instant the client stops waiting even when the
+exchange spent half the budget first. When nothing is left, the refusal comes before the send.
+
+**A monotonic `std::time::Instant` and not a wall clock**, because a wall clock can step and a
+stepped deadline is either a job abandoned early or one that outlives its caller.
+
+**The limit, and it is the half this type cannot reach:** one ANSWER calls the port twice -
+`Warehouse::dry_run` and then `Warehouse::execute` - and neither `Warehouse` nor `JobTransport`
+takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+`CALLS_PER_ANSWER` budgets rather than one, which is exactly why
+`QueryDeadline::within_request_timeout` exists: it does that arithmetic once so a composition root
+cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+signature tweak.
+
+#### Methods
+
+```rust
+pub fn opened(deadline: QueryDeadline) -> Self
+```
+
+Opens a budget now.
+
+```rust
+pub const fn opened_at(started: std::time::Instant, deadline: QueryDeadline) -> Self
+```
+
+Opens a budget that started at a named instant.
+
+**The canonical constructor, with `Self::opened` delegating to it**, and it is public for one
+reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
+the end of one could not be reached from a test without sleeping through a real one.
+
+```rust
+pub fn remaining(self) -> Option<Duration>
+```
+
+What is left of the budget, or `None` when it is spent.
+
+`None` rather than a zero duration, because zero means *no timeout* to the client underneath -
+so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
+this type is for.
+
+```rust
+pub const fn socket(left: Duration) -> Duration
+```
+
+How long a socket may stay open for an operation with `left` of the budget remaining: that,
+plus connection setup.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`
 
 ### `struct JobBounds`
 
@@ -786,6 +905,7 @@ every other variant and `clippy::result_large_err` is on.
 - `Credential` - No token could be produced, so nothing was sent.
 - `Expired` - A token was produced and its deadline had already passed.
 - `NoClock` - This process could not read a wall clock.
+- `DeadlineSpent` - This call's budget was gone before the job could be submitted.
 - `RequestNotSerializable` - The request could not be serialized.
 - `Unreachable` - The endpoint was not reached.
 - `Unreadable` - The endpoint answered and the answer could not be read.
@@ -843,13 +963,20 @@ request carrying it has to name a quota project - and everything else about how 
 authenticates is somebody else's decision. So `AccessTokens` is those two things, and the
 transport is generic in it.
 
-**This is also the seam per-subject execution arrives at**, which is why it is a port on the first
-day rather than a `String` field. `docs/implementation-plan-bigquery.md`'s second `BigQuery` step
-mints a token *per leg, for the subject who asked*; under a `String` that step would have to change
-the transport, and under a port it adds an implementor. Nothing here anticipates it further than
-that: `Bearer` carries the deadline because a minted token has one, and
-`crate::BigQueryWarehouse`'s `IMPERSONATION` still says `NoPlaceForASubject` because nothing
-mints one.
+It is a port on the first day rather than a `String` field, so *which* credential shape a
+deployment holds is a choice of implementor. `Bearer` carries the deadline because a minted token
+has one, and `crate::BigQueryWarehouse`'s `IMPERSONATION` still says `NoPlaceForASubject` because
+nothing mints one.
+
+**What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
+seam at which per-subject execution arrives as *merely another implementor*. Three signatures say
+so - `Warehouse::execute` takes a `&Presented` and `BigQueryWarehouse` reads it only to call
+`deliverable`; `JobTransport::run` takes a `JobRequest` and nothing else; and `AccessTokens::bearer`
+takes a clock and a budget. So an implementation behind this port **cannot select a credential for
+the presented subject and cannot tell two concurrent subjects apart.** The step that builds
+per-subject execution has to carry the leg's subject or its credential context through one of those
+three interfaces, and which one is part of that change rather than something anticipated here.
+`docs/adr/0018` records it in the same words.
 
 # Two credential kinds, as one closed shape
 
@@ -1067,11 +1194,34 @@ because a 16 KiB file can put 16 KiB of newlines there and this string reaches a
 - `UnknownKind` - The file names a credential shape this build does not implement.
 - `Incomplete` - A document missing one of the fields its own kind needs.
 - `AnotherUniverse` - The credential was minted against a different service universe than the one this build talks to.
-- `UnreadableKey` - The private key is not a `PKCS#8` PEM block this build can read.
+- `UnreadableKey` - The private key is not a `PKCS#8` PEM block holding a key this build can sign with.
 
 ##### Implements
 
 `Debug`, `Display`, `Error`
+
+#### `enum KeyUnusable`
+
+```rust
+pub enum KeyUnusable
+```
+
+How far a private key got before it was refused.
+
+**Three stages rather than one boolean, because the fix for each is a different thing.** A missing
+delimiter is a truncated or wrongly-encoded file; a body that is not base64 is a corrupted one; a
+body that decodes and is not a key is a key of the wrong kind - a `PKCS#1` block whose delimiters
+somebody rewrote, an EC key, or a truncated DER. None of the three quotes anything.
+
+##### Variants
+
+- `NotAPemBlock` - The `PKCS#8` delimiters are absent, or there is nothing between them.
+- `NotBase64` - The body between the delimiters is not base64.
+- `NotAKey` - The body decodes and is not a `PKCS#8` RSA key this build can sign with.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 #### `enum TokenUnavailable`
 
@@ -1089,6 +1239,7 @@ Why no token came back.
 - `NotADocument` - The answer was not the JSON document a token response is.
 - `NoToken` - The answer carried no token.
 - `AlreadyExpired` - The answer's own deadline had already passed when it arrived.
+- `DeadlineSpent` - The call's budget was gone before the exchange could be attempted.
 - `Unsigned` - The assertion could not be signed.
 - `NotSigned` - The signature itself failed.
 

@@ -240,8 +240,18 @@ where
 /// **A free function rather than a method, and that is what makes the request assertable.** Nothing
 /// here needs a transport, a credential or a socket, so what this adapter puts on the wire is exactly
 /// what a test can read - which is the whole of what the suite beside this module can prove.
-pub(super) fn body<'job>(request: &'job JobRequest<'job>, dry_run: super::DryRun, bounds: JobBounds) -> QueryBody<'job> {
-    let deadline = bounds.deadline().milliseconds();
+pub(super) fn body<'job>(
+    request: &'job JobRequest<'job>,
+    dry_run: super::DryRun,
+    bounds: JobBounds,
+    left: core::time::Duration,
+) -> QueryBody<'job> {
+    // **What is LEFT of this call's budget, not the whole of it**, which is the correction
+    // `super::CallDeadline` carries: the token exchange happens first and spends part of it, and a job
+    // asked to run for the full budget after that would outlive the caller by whatever the exchange
+    // cost. Saturating into `u64` because `Duration::as_millis` is a `u128`; the value is bounded by
+    // `QueryDeadline::MAX_SECONDS` long before it could get near either limit.
+    let deadline = u64::try_from(left.as_millis()).unwrap_or(u64::MAX);
     QueryBody {
         query: request.statement(),
         use_legacy_sql: JobRequest::USE_LEGACY_SQL,
