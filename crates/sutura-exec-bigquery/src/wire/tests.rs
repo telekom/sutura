@@ -31,10 +31,15 @@ use sutura_domain::calendar::Date;
 use sutura_domain::identity::{Expiry, Secret};
 use sutura_domain::warehouse::ParamValue;
 
+use core::time::Duration;
+
 use crate::transport::{Cell, DatasetId, FieldType, JobRequest, JobTransport as _, ProjectId};
 use crate::wire::credential::{AccessTokens, Bearer, QuotaProject};
 use crate::wire::document::{body, cells, columns, complete, refusal, reported, url};
-use crate::wire::{BigQueryWire, BytesBilledCeiling, DryRun, HOST, JobBounds, QueryDeadline, WireAgent, WireError, bounded};
+use crate::wire::{
+    BigQueryWire, BytesBilledCeiling, CallDeadline, DryRun, HOST, JobBounds, QueryDeadline, UnusableBound, WireAgent, WireError,
+    bounded,
+};
 
 // ------------------------------------------------------------------- the fixtures ----
 
@@ -43,8 +48,24 @@ use crate::wire::{BigQueryWire, BytesBilledCeiling, DryRun, HOST, JobBounds, Que
 #[error("this credential source cannot fail")]
 struct CannotFail;
 
-/// A source that hands back whatever a test gave it.
-struct Fixed(Bearer);
+/// A source that hands back whatever a test gave it, and records the budget it was handed.
+struct Fixed {
+    bearer: Bearer,
+    /// What `remaining()` said when this source was asked. `None` before it is asked at all.
+    ///
+    /// A `Cell` rather than a plain field because the port takes `&self` - which is the property that
+    /// makes an adapter shareable across tasks and is not something a fake may relax.
+    handed: core::cell::Cell<Option<Duration>>,
+}
+
+impl Fixed {
+    fn holding(bearer: Bearer) -> Self {
+        Self {
+            bearer,
+            handed: core::cell::Cell::new(None),
+        }
+    }
+}
 
 impl AccessTokens for Fixed {
     type Error = CannotFail;
@@ -53,7 +74,29 @@ impl AccessTokens for Fixed {
         QuotaProject::Required
     }
 
-    fn bearer(&self, _now_unix_seconds: u64) -> Result<Bearer, Self::Error> {
+    fn bearer(&self, _now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error> {
+        self.handed.set(within.remaining());
+        Ok(self.bearer.clone())
+    }
+}
+
+/// A source that spends the whole call before it answers.
+///
+/// **The only way to reach the spent-budget refusal without sleeping through a real deadline** on the
+/// path a caller takes, because the budget is opened INSIDE `submit` and nothing outside can inject
+/// one. It sleeps rather than lying about the clock, which is what makes it a test of the wiring rather
+/// than of the arithmetic - `CallDeadline`'s own test covers that separately.
+struct Slow(Bearer);
+
+impl AccessTokens for Slow {
+    type Error = CannotFail;
+
+    fn quota_project(&self) -> QuotaProject {
+        QuotaProject::Required
+    }
+
+    fn bearer(&self, _now_unix_seconds: u64, _within: CallDeadline) -> Result<Bearer, Self::Error> {
+        std::thread::sleep(Duration::from_millis(1_200));
         Ok(self.0.clone())
     }
 }
@@ -72,7 +115,7 @@ impl AccessTokens for Missing {
         QuotaProject::Required
     }
 
-    fn bearer(&self, _now_unix_seconds: u64) -> Result<Bearer, Self::Error> {
+    fn bearer(&self, _now_unix_seconds: u64, _within: CallDeadline) -> Result<Bearer, Self::Error> {
         Err(NoCredential)
     }
 }
@@ -91,6 +134,16 @@ fn bounds() -> JobBounds {
 
 fn pinned() -> WireAgent {
     WireAgent::pinned(bounds())
+}
+
+/// The whole budget, for a request built with none of it spent yet.
+///
+/// **A fixture rather than a real remaining time**, because `body` now takes what is LEFT of the call's
+/// budget and a real one would make the two timeout fields a different number on every run. What this
+/// suite asserts is the document a given window produces; that the window IS the remaining budget is
+/// `submit`'s job and has tests of its own.
+fn window() -> Duration {
+    bounds().deadline().budget()
 }
 
 fn project() -> ProjectId {
@@ -119,7 +172,7 @@ fn the_request_carries_the_statement_and_its_values_in_separate_fields() {
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT `x` FROM `t` WHERE `s` = ? AND `d` <= ?", &params, &project, &dataset);
-    let sent = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["query"], "SELECT `x` FROM `t` WHERE `s` = ? AND `d` <= ?");
     assert_eq!(sent["parameterMode"], "POSITIONAL");
@@ -141,7 +194,7 @@ fn a_positional_parameter_carries_no_name_at_all() {
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &params, &project, &dataset);
-    let sent = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     let entry = sent["queryParameters"][0].as_object().expect("a parameter is an object");
     assert!(!entry.contains_key("name"), "a positional parameter carried a name: {sent}");
@@ -157,14 +210,14 @@ fn a_date_parameter_is_declared_as_a_date_and_travels_as_its_iso_text() {
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t` WHERE `d` = ?", &params, &project, &dataset);
-    let sent = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["queryParameters"][0]["parameterType"]["type"], "DATE");
     assert_eq!(sent["queryParameters"][0]["parameterValue"]["value"], "2026-08-30");
 
     let text = [ParamValue::Text(String::from("500"))];
     let other = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &text, &project, &dataset);
-    let sent = serde_json::to_value(body(&other, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&other, DryRun::No, bounds(), window())).expect("the body serializes");
     assert_eq!(sent["queryParameters"][0]["parameterType"]["type"], "STRING");
 }
 
@@ -177,7 +230,7 @@ fn the_request_writes_the_two_flags_whose_endpoint_defaults_are_the_wrong_ones()
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
-    let sent = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["useLegacySql"], false);
     assert_eq!(sent["useQueryCache"], false);
@@ -193,8 +246,8 @@ fn a_dry_run_and_a_real_run_differ_by_that_one_field() {
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t` WHERE `s` = ?", &params, &project, &dataset);
 
-    let mut validated = serde_json::to_value(body(&request, DryRun::Yes, bounds())).expect("the body serializes");
-    let executed = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let mut validated = serde_json::to_value(body(&request, DryRun::Yes, bounds(), window())).expect("the body serializes");
+    let executed = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(validated["dryRun"], true);
     assert_eq!(executed["dryRun"], false);
@@ -242,7 +295,10 @@ fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
     // - and a retry returns the same page.
     // Any wire will do: this predicate reads the error and nothing else, which is what makes it
     // answerable with no socket in reach.
-    let wire = BigQueryWire::new(pinned(), Fixed(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 })));
+    let wire = BigQueryWire::new(
+        pinned(),
+        Fixed::holding(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 })),
+    );
     assert!(
         wire.result_did_not_fit(&WireError::<CannotFail>::MoreThanOnePage),
         "a page of a larger result is a size bound"
@@ -481,7 +537,10 @@ fn an_expired_credential_is_refused_before_anything_is_sent() {
     // The one guard in `submit` a test can reach with no socket, because it runs BEFORE the request is
     // built. A source handing back an expired token has a clock problem, and presenting it anyway
     // would turn that into a 401 an operator reads as a permissions fault.
-    let wire = BigQueryWire::new(pinned(), Fixed(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 })));
+    let wire = BigQueryWire::new(
+        pinned(),
+        Fixed::holding(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 })),
+    );
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
@@ -525,7 +584,7 @@ fn a_job_carries_both_bounds_and_the_two_timeout_fields_agree() {
     let project = project();
     let dataset = dataset();
     let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
-    let sent = serde_json::to_value(body(&request, DryRun::No, bounds())).expect("the body serializes");
+    let sent = serde_json::to_value(body(&request, DryRun::No, bounds(), window())).expect("the body serializes");
 
     assert_eq!(sent["jobTimeoutMs"], 30_000);
     assert_eq!(sent["timeoutMs"], 30_000);
@@ -584,6 +643,140 @@ fn a_bearer_never_shows_its_token() {
     let bearer = Bearer::of(Secret::new("ya29-do-not-log-me"), Expiry::NothingExpires);
     assert!(!format!("{bearer:?}").contains("ya29"), "{bearer:?}");
     assert_eq!(bearer.token().expose_secret(), "ya29-do-not-log-me");
+}
+
+// -------------------------------------------------------------- one deadline per call ----
+
+#[test]
+fn one_call_has_one_deadline_and_the_credential_exchange_spends_part_of_it() {
+    // **The shape review measured as wrong.** `timeout_global` used to live on the agent alone, so
+    // every request through it got the whole budget INDEPENDENTLY: an exchange and then a job, each
+    // allowed `deadline + CONNECT_MARGIN` of its own, twice per answer because `answer` calls
+    // `dry_run` and then `execute`. The claim in this module's header - a five-second overrun - was
+    // false against a thirty-second request timeout.
+    //
+    // What is asserted here is that the credential port is HANDED the call's budget, which is the
+    // wiring the fix needed: the fake records what `remaining()` said when it was asked.
+    let source = Fixed::holding(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 }));
+    let wire = BigQueryWire::new(pinned(), source);
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
+
+    // It refuses on the expired token, which is fine: what matters is that the exchange was asked
+    // first, and with a budget.
+    wire.run(&request)
+        .expect_err("the fixture's token is expired, so the call refuses after the exchange");
+    let handed = wire.credentials.handed.get().expect("the exchange was handed a budget");
+    assert!(
+        handed <= bounds().deadline().budget(),
+        "the exchange was handed more than the call's whole budget: {handed:?}"
+    );
+    assert!(!handed.is_zero(), "the exchange was handed nothing to work with");
+}
+
+#[test]
+fn a_call_whose_budget_the_exchange_spent_refuses_rather_than_submitting_a_job() {
+    // The consequence of one budget rather than two: a slow exchange does not get to be followed by a
+    // job with a full budget of its own. Submitting anyway would mean either an unbounded wait or a
+    // job the service keeps running after the client has stopped waiting - the pair this shape rules
+    // out. Reached with a real sleep against a one-second budget, because the budget is opened inside
+    // `submit` and nothing outside can inject a spent one.
+    let bounds = JobBounds::of(
+        QueryDeadline::parse(1).expect("one second is a deadline"),
+        BytesBilledCeiling::parse(1024).expect("a kibibyte is a ceiling"),
+    );
+    let wire = BigQueryWire::new(
+        WireAgent::pinned(bounds),
+        Slow(Bearer::of(Secret::new("t"), Expiry::NothingExpires)),
+    );
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
+
+    // No socket is opened, which is the point: `HOST` is unreachable from a test, so any other error
+    // here would mean the request had been sent.
+    match wire.run(&request) {
+        Err(WireError::DeadlineSpent { budget_seconds }) => assert_eq!(budget_seconds, 1),
+        other => panic!("a spent budget was mapped to {other:?}"),
+    }
+}
+
+#[test]
+fn what_is_left_of_the_budget_is_what_the_request_asks_the_service_to_hold_the_job_for() {
+    // The other half of one-budget-per-call: the two timeout fields read the REMAINING window rather
+    // than the whole deadline, so the service cancels at the instant the client stops waiting even
+    // when the exchange spent part of it first. Asserted at two windows, because a single one cannot
+    // tell "it reads the window" from "it reads the constant".
+    let project = project();
+    let dataset = dataset();
+    let request = JobRequest::new("SELECT 1 FROM `t`", &[], &project, &dataset);
+
+    let whole = serde_json::to_value(body(&request, DryRun::No, bounds(), Duration::from_secs(30))).expect("the body serializes");
+    assert_eq!(whole["timeoutMs"], 30_000);
+    assert_eq!(whole["jobTimeoutMs"], 30_000);
+
+    let shortened =
+        serde_json::to_value(body(&request, DryRun::No, bounds(), Duration::from_millis(21_500))).expect("the body serializes");
+    assert_eq!(shortened["timeoutMs"], 21_500);
+    assert_eq!(
+        shortened["timeoutMs"], shortened["jobTimeoutMs"],
+        "the client would stop waiting at a different instant than the service cancels: {shortened}"
+    );
+    // The money bound is NOT a function of the window, which is the pair of decisions `JobBounds`
+    // carries: time is what is left, money is the whole ceiling for this job.
+    assert_eq!(shortened["maximumBytesBilled"], whole["maximumBytesBilled"]);
+}
+
+#[test]
+fn a_budget_is_spent_by_elapsed_time_and_a_spent_one_is_no_timeout_rather_than_zero() {
+    // The arithmetic, pinned purely - which is why `opened_at` is public. Zero would mean *no timeout*
+    // to the client underneath, so a spent budget has to be an absence rather than a duration.
+    let deadline = QueryDeadline::parse(30).expect("30 seconds is a deadline");
+    let now = std::time::Instant::now();
+
+    let fresh = CallDeadline::opened_at(now, deadline);
+    let left = fresh.remaining().expect("a budget opened now has time left");
+    assert!(left <= Duration::from_secs(30) && left > Duration::from_secs(29), "{left:?}");
+
+    let spent = CallDeadline::opened_at(
+        now.checked_sub(Duration::from_secs(60)).expect("an instant a minute ago"),
+        deadline,
+    );
+    assert_eq!(spent.remaining(), None, "a budget opened a minute ago is not still running");
+
+    // And the socket gets connection setup on top of whatever is left, never on top of the whole
+    // deadline - which is what stops a pool thread outliving the caller it was answering.
+    assert_eq!(CallDeadline::socket(Duration::from_secs(10)), Duration::from_secs(15));
+}
+
+#[test]
+fn the_deadline_a_composition_root_gets_already_accounts_for_the_calls_one_answer_makes() {
+    // **The arithmetic that was left to whoever wired this, and would have been got wrong.** One
+    // answer calls the port `CALLS_PER_ANSWER` times and each call pays `CONNECT_MARGIN` on top of its
+    // own budget, so the number a root wants is not `server.request_timeout_seconds` - it is that
+    // number's share. Thirty seconds shipped, two calls, five seconds of setup each: ten.
+    let from_the_shipped_default = QueryDeadline::within_request_timeout(30).expect("30 seconds leaves a budget");
+    assert_eq!(
+        from_the_shipped_default,
+        QueryDeadline::parse(10).expect("ten seconds is a deadline")
+    );
+    // Which is the arithmetic holding: two calls of ten plus five is the thirty a caller was promised.
+    assert_eq!(
+        from_the_shipped_default.socket().as_secs() * QueryDeadline::CALLS_PER_ANSWER,
+        30
+    );
+
+    // A request timeout too short to leave anything is named rather than clamped, because a deployment
+    // whose timeout cannot fit a query wants to hear so at startup.
+    assert_eq!(
+        QueryDeadline::within_request_timeout(10),
+        Err(UnusableBound::NoBudget { given: 10, calls: 2 })
+    );
+    assert!(matches!(
+        QueryDeadline::within_request_timeout(0),
+        Err(UnusableBound::NoBudget { .. })
+    ));
 }
 
 #[test]

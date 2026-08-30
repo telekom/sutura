@@ -107,6 +107,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "plan_spans_two_sources",
             format!("this question would read from {sources} data systems, and one answer reads from one"),
         ),
+        // Written for an agent, so it says which of the two moves is available rather than only that
+        // this one failed: unlike the two-source refusal there usually is another question, because a
+        // dimension that needs no join is still answered.
+        RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
+            "plan_tables_share_an_identifier",
+            format!(
+                "answering this would read two different tables both called `{table}`, and one \
+                 statement cannot tell them apart. Try a dimension that needs no join; if every \
+                 useful one does, say so to the person you are acting for."
+            ),
+        ),
         RefusalReason::SourceUnavailable { ref source } => (
             "source_unavailable",
             format!("the data system `{source}` is not one this process opened"),
@@ -138,7 +149,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
@@ -182,6 +193,9 @@ mod tests {
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
             RefusalReason::PlanSpansTwoSources { sources: 2 },
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: TableName::parse("orders").expect("a test table is a table"),
+            },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
             },

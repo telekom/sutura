@@ -22,8 +22,8 @@ use std::collections::BTreeSet;
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PredicateOrigin, QueryPlan, plan_measure,
-    plan_required_filter,
+    PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PredicateOrigin, QueryPlan, StatementTables,
+    plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -32,8 +32,10 @@ use crate::resolve::{Resolution, ResolvedDimension};
 
 /// Turns a resolution into a plan, or refuses it.
 ///
-/// The only refusal this stage can produce is the one about data systems: everything a caller could
-/// have got wrong was already checked when their names were looked up.
+/// **Two refusals are produced here and nowhere else, and both are about the SHAPE of the statement
+/// rather than about anything a caller wrote:** a plan that would read from two data systems, and a
+/// plan whose tables could not be told apart inside one statement. Everything a caller could have got
+/// wrong was already checked when their names were looked up.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
@@ -107,11 +109,22 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
     // refuses a dimension for - so resolving them needs no lookup.
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
 
+    // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
+    // paths end in the same name render under one implicit alias, so a column qualified by it names
+    // neither and the `ON` clause compares one table with itself - reproduced, and
+    // `sutura_domain::plan::tables` holds the measurement and the argument for refusing rather than
+    // aliasing. The refusal is here rather than at load because a physical table name is not
+    // something a catalog author can rename, so the metric stays authorable and only the question
+    // that actually puts both in one statement is declined.
+    let tables =
+        StatementTables::parse(own_path.clone(), joins).map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
+            table: ambiguous.alias().clone(),
+        })?;
+
     Ok(QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
-        own_path.clone(),
-        joins,
+        tables,
         PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
         keys,
         measure,

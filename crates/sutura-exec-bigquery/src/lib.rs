@@ -304,8 +304,12 @@ where
         let column = || String::from(field.name());
         let text = match value {
             // A null is a null whatever the column is declared as, so it is answered before the type
-            // is read - which also means an unmapped type holding only nulls is still an error, since
-            // the schema is what this adapter cannot honour.
+            // is read. **A comment here used to conclude from that "an unmapped type holding only
+            // nulls is still an error", and the code did the opposite** - which is why the schema is
+            // now checked by [`Self::mappable`] before any row is read. This arm is the belt: it
+            // cannot fire for a result that came through `rows`, and it stays because `cell` is
+            // reachable from a test on its own and because a null-answered type would be a wrong
+            // number rather than a refusal.
             Cell::Null => return Ok(Value::Null),
             Cell::Text(text) => text,
         };
@@ -350,11 +354,37 @@ where
         }
     }
 
+    /// Every column the endpoint declared is one this adapter maps, or the first one that is not.
+    ///
+    /// **A schema-wide pass, and it runs BEFORE any row is read - which is the whole point.** The
+    /// per-cell check in [`Self::cell`] can only see a column that HOLDS something: a null is answered
+    /// before the type is read, so a result with no rows never reached the check at all and a result
+    /// whose unmapped column happened to be entirely null passed it. A `TIMESTAMP` or a `BYTES` column
+    /// therefore came back as a successful `RowSet`, and whether this adapter mapped a type depended on
+    /// what the data happened to be. Review found it; a test pins both shapes.
+    ///
+    /// It reads the SCHEMA and nothing else, so the answer does not vary with the page.
+    fn mappable(answered: &JobRows) -> Mapped<(), T::Error> {
+        for field in answered.fields() {
+            if let FieldType::Unmapped(ref named) = *field.kind() {
+                return Err(BigQueryError::UnmappedType {
+                    column: String::from(field.name()),
+                    named: named.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// A job's result, as a domain result set.
     fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
-        // The first check, because it is the cheapest and the one that refuses a wrong number before
-        // any cell work. A page whose delivered count is not what the endpoint reported is refused
-        // here rather than read as *under the cap, not truncated* - see `BigQueryError::Incomplete`.
+        // The schema first, because it is the one check whose answer does not depend on the rows -
+        // see `Self::mappable`. A page this adapter could not read whatever it contained is refused
+        // before its count is compared against anything.
+        Self::mappable(answered)?;
+        // Then the count, which refuses a wrong number before any cell work. A page whose delivered
+        // count is not what the endpoint reported is refused here rather than read as *under the cap,
+        // not truncated* - see `BigQueryError::Incomplete`.
         if answered.rows().len() != answered.total_rows() {
             return Err(BigQueryError::Incomplete {
                 delivered: answered.rows().len(),

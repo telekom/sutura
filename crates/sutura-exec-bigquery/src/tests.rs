@@ -19,6 +19,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, PreFlight, Value, Warehouse};
@@ -187,8 +188,7 @@ fn plan() -> QueryPlan {
     QueryPlan::new(
         source(),
         MetricName::parse("mrr").expect("a test metric is a metric"),
-        table.clone(),
-        Vec::new(),
+        StatementTables::only(table.clone()),
         PlanBucket::new(String::from("period"), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {
@@ -593,6 +593,50 @@ fn a_page_shorter_than_the_reported_total_is_a_size_bound_and_a_longer_one_is_no
     assert!(
         !warehouse.result_did_not_fit(&BigQueryError::Incomplete { delivered: 3, total: 2 }),
         "an endpoint contradicting itself is not a result too large"
+    );
+}
+
+#[test]
+fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
+    // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a
+    // null BEFORE it reads the column's type, which is right for a null and wrong for the schema: a
+    // result with NO rows never reaches `cell` at all, and a result whose unmapped column happens to
+    // be entirely null reaches it and is answered. So a `TIMESTAMP` column came back as a successful
+    // empty `RowSet`, and whether this adapter maps a type depended on what the data happened to be.
+    //
+    // Both shapes, because they were reachable for two different reasons.
+    let empty = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("TIMESTAMP")))],
+        Vec::new(),
+        0,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&empty).expect_err("a zero-row unmapped schema is refused") {
+        BigQueryError::UnmappedType { ref column, ref named } => {
+            assert_eq!(column, "at");
+            assert_eq!(named, "TIMESTAMP");
+        }
+        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
+    }
+
+    let all_null = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("BYTES")))],
+        vec![vec![Cell::Null], vec![Cell::Null]],
+        2,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&all_null).expect_err("an all-null unmapped column is refused") {
+        BigQueryError::UnmappedType { ref named, .. } => assert_eq!(named, "BYTES"),
+        other => panic!("an all-null unmapped column was mapped to {other:?}"),
+    }
+
+    // A malformed type name is the same case rather than a third one: an empty `type` decodes to
+    // `Unmapped("")`, so it is named as what it is rather than read as a column that answers.
+    let malformed = JobRows::of(vec![Field::of(String::from("at"), FieldType::parse(""))], Vec::new(), 0);
+    assert!(
+        matches!(
+            BigQueryWarehouse::<Recording>::rows(&malformed),
+            Err(BigQueryError::UnmappedType { .. })
+        ),
+        "an empty type name was accepted"
     );
 }
 

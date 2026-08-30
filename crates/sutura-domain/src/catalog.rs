@@ -27,7 +27,8 @@ pub use authored::{
 use crate::calendar::TimeRange;
 use crate::measure::{Measure, RequiredFilter};
 use crate::model::{
-    ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName, TableName,
+    ColumnName, DimensionName, Grain, IdentifierCase, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName,
+    SourceName, TableName,
 };
 
 /// The label a generated projection gives the truncated time column.
@@ -576,6 +577,16 @@ pub enum InconsistentDefinitions {
     /// should be maintaining per target - and the alternative outcomes across four dialects are a
     /// wrong number, a rejected statement and silence.
     ///
+    /// **The comparison folds case, and it did not until a review reproduced the hole.** `GoogleSQL`'s
+    /// lexical reference lists *aliases within a query* and *column names* as NOT case-sensitive
+    /// (checked 2026-08-30), so a table named `Orders` beside a projected label `orders` passed an
+    /// equality check here and then collided in the generated statement exactly like the live
+    /// same-case failure above. [`IdentifierCase`] is the vocabulary,
+    /// `sutura_sql::Dialect::identifier_case` is the per-target declaration, and
+    /// [`IdentifierCase::COARSEST`] is what this check compares under - see that type for why a
+    /// dialect-agnostic bundle has to be held to the coarsest rule rather than to the serving
+    /// target's.
+    ///
     /// `label` is a `String` and not one of the three name types, because the three labels a
     /// statement projects are a metric name, a dimension name and
     /// [`TIME_BUCKET_LABEL`] - which is a `&str` constant. The variant says which text collided; the
@@ -726,13 +737,19 @@ impl Definitions {
         // Two columns with one label is not a modelling opinion, it is a result set a caller cannot
         // read by name. Caught here, once, at load, rather than as a query-time refusal for
         // something the caller did not choose.
-        if dimension.name.as_str() == TIME_BUCKET_LABEL {
+        //
+        // **Compared under `IdentifierCase::COARSEST` and not by equality**, because `GoogleSQL`
+        // documents a result column's name as case-insensitive, so `Period` beside `period` is one
+        // column there and two here. That type's own note is where the argument for using the
+        // coarsest rule at load time lives, and `sutura_sql::Dialect::identifier_case` is where each
+        // target declares its own.
+        if IdentifierCase::COARSEST.names_one_thing(dimension.name.as_str(), TIME_BUCKET_LABEL) {
             return Err(InconsistentDefinitions::DimensionShadowsTimeBucket {
                 metric: metric.name.clone(),
                 dimension: dimension.name.clone(),
             });
         }
-        if dimension.name.as_str() == metric.name.as_str() {
+        if IdentifierCase::COARSEST.names_one_thing(dimension.name.as_str(), metric.name.as_str()) {
             return Err(InconsistentDefinitions::DimensionShadowsMeasure {
                 metric: metric.name.clone(),
                 dimension: dimension.name.clone(),
@@ -825,12 +842,15 @@ impl Definitions {
     ///
     /// [`TIME_BUCKET_LABEL`] is in the list because it is projected for every question, so a table
     /// literally named `period` collides with every one of them.
+    ///
+    /// Compared under [`IdentifierCase::COARSEST`] rather than by equality: a table named `Period`
+    /// collides too. The variant's own note carries the report and the doc reference.
     fn check_labels_against_table(metric: &Metric, table: &TableName) -> Result<(), InconsistentDefinitions> {
         let projected = [metric.name.as_str(), TIME_BUCKET_LABEL]
             .into_iter()
             .chain(metric.dimensions.values().map(|dimension| dimension.name.as_str()));
         for label in projected {
-            if label == table.as_str() {
+            if IdentifierCase::COARSEST.names_one_thing(label, table.as_str()) {
                 return Err(InconsistentDefinitions::LabelShadowsTable {
                     metric: metric.name.clone(),
                     label: String::from(label),

@@ -61,6 +61,12 @@ use super::RefusalBody;
 /// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
 /// rather than in three matches that could drift apart. A refusal variant added to the domain fails
 /// to compile here until it is given a status, a code and a sentence.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive match over every refusal, deciding status, code and detail together - so \
+              it grows by one arm per domain variant and splitting it would need a wildcard arm, which \
+              is exactly the gap the exhaustiveness exists to close"
+)]
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     let (status, code, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
@@ -203,6 +209,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             "plan_spans_two_sources",
             format!("answering this would read from {sources} data systems, and a plan runs against one"),
         ),
+        // 409, and the same reasoning `PlanSpansTwoSources` above carries: the question is well formed,
+        // the metric permits it, and this deployment cannot express it as one statement. That is a
+        // conflict between what was asked and how the tables it reads are named, which is what 409 says
+        // and what no status about the request's own content would.
+        //
+        // The sentence names the identifier and neither of the two paths. The identifier is the thing a
+        // person can act on; a path carries the project and dataset a deployment reads, which is not
+        // the asker's business. It says what else to try, because unlike the two-source refusal there
+        // usually IS another question: a dimension that needs no join is still answered.
+        RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
+            StatusCode::CONFLICT,
+            "plan_tables_share_an_identifier",
+            format!(
+                "answering this would read two different tables that are both called `{table}`, and one \
+                 statement cannot tell them apart; ask for a dimension that does not need that join, or \
+                 report it to a person"
+            ),
+        ),
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
         // the plan's data system against the adapter this process opened - so today's cause is a
@@ -281,7 +305,7 @@ fn too_much_data(bound: ResultBound) -> String {
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use sutura_domain::model::{DimensionName, Grain, MetricName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
@@ -377,6 +401,13 @@ mod tests {
                 RefusalReason::PlanSpansTwoSources { sources: 2 },
                 StatusCode::CONFLICT,
                 "plan_spans_two_sources",
+            ),
+            (
+                RefusalReason::PlanTablesShareAnIdentifier {
+                    table: TableName::parse("orders").expect("a test table is a table"),
+                },
+                StatusCode::CONFLICT,
+                "plan_tables_share_an_identifier",
             ),
             (
                 RefusalReason::SourceUnavailable {

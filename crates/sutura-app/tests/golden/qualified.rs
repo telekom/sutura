@@ -42,7 +42,8 @@ use sutura_domain::model::{
     RelationshipName, SourceName, TableName, TableQualifier,
 };
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    AmbiguousTables, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanMeasure, PlanPredicate, PlanTerm,
+    PredicateOrigin, QueryPlan, StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::generate::GenerateError;
@@ -152,8 +153,9 @@ fn plan_over(path: QualifiedTable, joined: Option<QualifiedTable>) -> QueryPlan 
     QueryPlan::new(
         source(),
         MetricName::parse("revenue").expect("a fixture metric is a metric"),
-        path,
-        joins,
+        // Every fixture here ends its paths in two DIFFERENT names, so the set parses. The pair that
+        // does not is a test of its own, one function below.
+        StatementTables::parse(path, joins).expect("the fixtures name two distinguishable tables"),
         PlanBucket::new(String::from(TIME_BUCKET_LABEL), Grain::Month, column(FACT, "order_date")),
         keys,
         PlanMeasure::Simple {
@@ -409,6 +411,79 @@ fn the_plans_serialize_with_their_paths_as_text() {
             insta::assert_yaml_snapshot!(format!("qualified_plan_{name}"), plan);
         }
     });
+}
+
+/// Two qualified tables whose paths end in the same name cannot both be in one statement.
+///
+/// **The reviewer's own reproduction, kept as the test.** Changing only the dimension table's name
+/// from `customers` to `orders` in the cross-project fixture above used to render an `ON` clause
+/// reading `orders.customer_id = orders.id` - one table compared with itself - beneath a `FROM` naming
+/// `analytics-prod.sales.orders` and a `LEFT JOIN` naming `reference-data.crm.orders`, with every
+/// projected column qualified by an identifier that named two tables. That is a plausible number under
+/// a certified metric on any target that binds it to one side; a real `DuckDB` 1.5.5 answers it with
+/// `Binder Error: Ambiguous reference to table "orders"`.
+///
+/// It is asserted at plan CONSTRUCTION and not on a rendered string, because that is where the fix
+/// is: `StatementTables::parse` is the only way to a `QueryPlan`, so there is no ambiguous plan for
+/// any dialect to render. `sutura_domain::plan::tables` carries why a refusal rather than distinct
+/// explicit aliases - the builder this workspace renders through cannot alias a joined table - and
+/// `golden/service.rs` is where the same collision is provoked through a catalog and a question,
+/// which is what makes the refusal a caller can see.
+#[test]
+fn two_paths_ending_in_one_name_are_refused_rather_than_rendered_under_one_alias() {
+    let fact = QualifiedTable::new(
+        Some(TableQualifier::in_project(project("analytics-prod"), dataset("sales"))),
+        table(FACT),
+    );
+    // The same table NAME in another project, which is exactly the estate shape qualified paths exist
+    // for and exactly the pair one statement cannot tell apart.
+    let collides = QualifiedTable::new(
+        Some(TableQualifier::in_project(project("reference-data"), dataset("crm"))),
+        table(FACT),
+    );
+    let join = PlanJoin::new(
+        RelationshipName::parse("orders_customer").expect("a fixture relationship is one"),
+        collides.clone(),
+        JoinType::ManyToOne,
+        column(FACT, "customer_id"),
+        column(FACT, "id"),
+    );
+
+    let refused = StatementTables::parse(fact.clone(), vec![join]).expect_err("one identifier, two tables");
+    assert_eq!(
+        refused,
+        AmbiguousTables::OneIdentifierTwoTables {
+            alias: table(FACT),
+            first: fact.to_string(),
+            second: collides.to_string(),
+        }
+    );
+    // Named apart from the whole value so the accessor the plan stage reads is covered too: it is what
+    // becomes the identifier in the caller-facing refusal.
+    assert_eq!(refused.alias(), &table(FACT));
+}
+
+/// The same shape spelled to look like two names, which is the case an equality check let through.
+///
+/// `GoogleSQL` resolves an alias case-insensitively and a real `DuckDB` binds a quoted `orders`
+/// qualifier against a table declared `Orders`, so `Orders` beside `orders` is one identifier on two
+/// of the four targets. `StatementTables::parse` compares under `IdentifierCase::COARSEST` for that
+/// reason, and `sutura_sql::Dialect::identifier_case` is where each target declares its own.
+#[test]
+fn two_paths_differing_only_in_the_case_of_their_last_part_are_refused_too() {
+    let fact = QualifiedTable::new(Some(TableQualifier::in_dataset(dataset("sales"))), table("Orders"));
+    let collides = QualifiedTable::new(Some(TableQualifier::in_dataset(dataset("crm"))), table("orders"));
+    let join = PlanJoin::new(
+        RelationshipName::parse("orders_customer").expect("a fixture relationship is one"),
+        collides,
+        JoinType::ManyToOne,
+        column("Orders", "customer_id"),
+        column("orders", "id"),
+    );
+    assert!(
+        StatementTables::parse(fact, vec![join]).is_err(),
+        "Orders and orders are one identifier on GoogleSQL and on DuckDB"
+    );
 }
 
 /// A cross-project join is one statement, one source, and one thing to push down.

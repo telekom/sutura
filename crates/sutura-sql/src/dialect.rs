@@ -35,7 +35,7 @@
 //! it is not delegated is that the layer will happily RENDER `a.b.c` for a target with no third
 //! position to put `a` in. See that accessor.
 
-use sutura_domain::model::Qualification;
+use sutura_domain::model::{IdentifierCase, Qualification};
 
 /// The data systems a statement can be rendered for.
 ///
@@ -267,6 +267,49 @@ impl Dialect {
             Self::BigQuery => Qualification::ProjectAndDataset,
         }
     }
+
+    /// Whether this data system tells two identifiers in one statement apart by case.
+    ///
+    /// A declaration, exhaustively matched, so a fifth dialect cannot compile without answering - the
+    /// [`DateTruncShape`] and [`Self::qualification`] precedent. The vocabulary is
+    /// [`IdentifierCase`], and what reads it is the test
+    /// `every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes` below:
+    /// `sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables` both
+    /// compare under [`IdentifierCase::COARSEST`], because a bundle is dialect-agnostic and nothing at
+    /// load knows which target will serve it.
+    ///
+    /// **So this declaration is a self-check on that assumption rather than a barrier**, and it is
+    /// worth saying which: a value declared `Sensitive` here cannot make a bundle unsafe, because
+    /// those checks fold regardless. What it buys is that a target whose folding is *coarser* than
+    /// ASCII case - a Unicode-folding variant added to [`IdentifierCase`] - fails a test instead of
+    /// quietly invalidating both comparisons.
+    ///
+    /// **`BigQuery` is `InsensitiveAscii`, and it is the reason the type exists.** `GoogleSQL`'s lexical
+    /// reference lists *aliases within a query*, *column names* and *field names* as NOT
+    /// case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by default, which is
+    /// the asymmetry that makes the collision reachable: a table `Orders` is a distinct table, and the
+    /// qualifier `Orders` still resolves to a select-list alias spelled `orders`.
+    ///
+    /// **`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
+    /// `DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+    /// returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
+    /// keeps two projected aliases differing only in case as two distinct output columns. Declaring
+    /// the coarser of the two behaviours covers both.
+    ///
+    /// **`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
+    /// here** - neither has a server in this repository to ask, which is why the paragraph above about
+    /// the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
+    /// compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
+    /// case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
+    /// every `ClickHouse` golden.
+    #[inline]
+    #[must_use]
+    pub const fn identifier_case(self) -> IdentifierCase {
+        match self {
+            Self::Postgres | Self::ClickHouse => IdentifierCase::Sensitive,
+            Self::DuckDb | Self::BigQuery => IdentifierCase::InsensitiveAscii,
+        }
+    }
 }
 
 impl core::fmt::Display for Dialect {
@@ -277,9 +320,43 @@ impl core::fmt::Display for Dialect {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::Qualification;
+    use sutura_domain::model::{IdentifierCase, Qualification};
 
     use super::{ALL, DateTruncShape, Dialect, IdentifierQuote, PlaceholderStyle};
+
+    /// The assumption the catalog and the plan both make, checked against every target's own
+    /// declaration.
+    ///
+    /// `sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables`
+    /// compare identifiers under `IdentifierCase::COARSEST`, because a bundle is dialect-agnostic and
+    /// nothing at load knows which target will serve it. That is only sound while no target folds MORE
+    /// than `COARSEST` does - so this is where that stops being a sentence in a doc comment.
+    ///
+    /// It is trivially true for the two variants that exist, and it is not decoration: the case it
+    /// exists for is a third variant coarser than ASCII case, which would make both of those
+    /// comparisons too fine and is exactly the change a reviewer would otherwise wave through.
+    #[test]
+    fn every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes() {
+        for dialect in ALL {
+            assert!(
+                dialect.identifier_case() <= IdentifierCase::COARSEST,
+                "{dialect} folds identifiers more than the catalog's own comparison does: {} against {}",
+                dialect.identifier_case(),
+                IdentifierCase::COARSEST
+            );
+        }
+    }
+
+    /// The declaration order the comparison above rests on.
+    ///
+    /// The derived `Ord` on an enum is declaration order, so reordering `IdentifierCase`'s variants
+    /// would silently invert every `<=` against `COARSEST` - the same trap `Qualification` documents
+    /// and asserts, for the same reason.
+    #[test]
+    fn folding_more_is_greater_because_the_comparison_is_what_decides_the_check() {
+        assert!(IdentifierCase::Sensitive < IdentifierCase::InsensitiveAscii);
+        assert_eq!(IdentifierCase::COARSEST, IdentifierCase::InsensitiveAscii);
+    }
 
     #[test]
     fn every_dialect_is_in_all() {

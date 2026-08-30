@@ -28,11 +28,13 @@ use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
 pub mod leg;
+pub mod tables;
 
 #[cfg(test)]
 mod anchor_tests;
 
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
+pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// The most rows any plan may return.
 ///
@@ -363,6 +365,13 @@ pub struct QueryPlan {
 }
 
 impl QueryPlan {
+    /// One statement's worth of decisions.
+    ///
+    /// **The tables arrive as a [`StatementTables`] and not as a table plus a vector of joins**, and
+    /// that argument is the whole of what keeps this constructor infallible: the check that two of
+    /// them do not answer to one identifier happens where that set is parsed, so a plan holding the
+    /// ambiguous pair does not exist to be rendered. [`crate::plan::tables`] is where the defect, the
+    /// measurement and the choice of a refusal over an alias are argued.
     #[expect(
         clippy::too_many_arguments,
         reason = "a plan is what the compiler decided, and every field is decided in one place; a \
@@ -371,8 +380,7 @@ impl QueryPlan {
     pub fn new(
         source: SourceName,
         metric: MetricName,
-        table: impl Into<QualifiedTable>,
-        joins: Vec<PlanJoin>,
+        tables: StatementTables,
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
         measure: PlanMeasure,
@@ -381,10 +389,14 @@ impl QueryPlan {
         params: Vec<ParamValue>,
         range: TimeRange,
     ) -> Self {
+        // Taken apart rather than stored whole, so the serialized form a golden pins is unchanged by
+        // the guard existing. What the argument buys is that there is no way in here for a set of
+        // tables one statement could not tell apart - `plan::tables` is where that is argued.
+        let (table, joins) = tables.into_parts();
         Self {
             source,
             metric,
-            table: table.into(),
+            table,
             joins,
             bucket,
             keys,

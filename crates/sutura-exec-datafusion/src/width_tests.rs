@@ -26,6 +26,7 @@ use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    StatementTables,
 };
 use sutura_domain::warehouse::{ParamValue, Warehouse as _};
 
@@ -84,8 +85,7 @@ fn question() -> QueryPlan {
     QueryPlan::new(
         source(),
         MetricName::parse("revenue").expect("a test metric is a metric"),
-        orders(),
-        Vec::new(),
+        StatementTables::only(orders()),
         PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
         vec![PlanKey::new(String::from("region"), on("region"))],
         PlanMeasure::Simple {

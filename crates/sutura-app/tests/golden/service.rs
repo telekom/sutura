@@ -40,6 +40,62 @@ fn a_plan_that_would_reach_a_second_data_system_is_refused() {
 }
 
 #[test]
+fn a_question_whose_join_would_read_two_tables_of_one_name_is_refused() {
+    // **A reproduced wrong-answer report reaching a caller as a refusal.** A fact table at
+    // `analytics_prod.sales.orders` joined to a dimension table at `reference_data.crm.orders` used to
+    // render a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with
+    // `orders.customer_id` - one table with itself - because a column is qualified by the LAST part of
+    // a path. A real DuckDB refuses that statement as `Ambiguous reference to table "orders"`; a target
+    // that binds it to one side answers with a number under a certified metric name.
+    //
+    // Built in code rather than as a directory of documents, for `TwoSourceCatalog`'s reason: the
+    // shipped corpus is deliberately unqualified, so qualifying it would move every existing golden.
+    use sutura_domain::pinned::SemanticCatalog as _;
+
+    let collides = crate::support::same_name_tables_catalog()
+        .load()
+        .expect("a catalog whose two tables share a name still LOADS - the question is what is refused");
+
+    // The dimension that needs the colliding join.
+    let through_the_join = Query::new(
+        sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+        sutura_domain::model::Grain::Month,
+        crate::support::june_range(),
+        vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
+        Vec::new(),
+    );
+    let compiled = compile(&through_the_join, &collides).expect("this is a refusal, not an error");
+    let expected = RefusalReason::PlanTablesShareAnIdentifier {
+        table: sutura_domain::model::TableName::parse("orders").expect("a name"),
+    };
+    assert_eq!(
+        compiled.refusal(),
+        Some(&expected),
+        "expected an ambiguous-alias refusal, got {:?}",
+        compiled.refusal()
+    );
+
+    // **And the half that makes the refusal narrow rather than a ban on the metric:** a dimension on
+    // the fact table's own model needs no join, so the same metric over the same catalog still plans.
+    // Without this the assertion above would pass on a check that refused the metric outright, which
+    // is the load-time refusal this deliberately is not.
+    let no_join = Query::new(
+        sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+        sutura_domain::model::Grain::Month,
+        crate::support::june_range(),
+        vec![sutura_domain::model::DimensionName::parse("customer").expect("a name")],
+        Vec::new(),
+    );
+    let planned = compile(&no_join, &collides).expect("a question that needs no join is not a refusal");
+    assert_eq!(
+        planned.refusal(),
+        None,
+        "a question that puts one table in the statement is still answered, got {:?}",
+        planned.refusal()
+    );
+}
+
+#[test]
 fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
     // The service checks the plan's source against the adapter it is about to call. Without it, a
     // question would be answered against whatever happened to be connected, under provenance that

@@ -342,6 +342,9 @@ fn every_refusal() -> Vec<RefusalReason> {
             ceiling_bytes: 1024 * 1024 * 1024,
         },
         RefusalReason::PlanSpansTwoSources { sources: 2 },
+        RefusalReason::PlanTablesShareAnIdentifier {
+            table: TableName::parse("orders").expect("a test table is a table"),
+        },
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),
         },
