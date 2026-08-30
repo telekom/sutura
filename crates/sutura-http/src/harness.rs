@@ -304,25 +304,19 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 }
 
 #[tokio::test]
-async fn a_question_that_spans_two_data_systems_is_not_a_conflict_anymore() {
-    // Issue #72 overturns the old refusal: a two-source question compiles into a fact leg and a
-    // lookup leg, so it is no longer the 409 `plan_spans_two_sources`. With only ONE adapter in the
-    // registry (this fake), the second leg's source is not configured, and the honest new outcome is
-    // `source_unavailable` - the deployment cannot reach it as the calling subject. The assertion is
-    // exactly the refused half: the two-source conflict is gone.
+async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
+    // Issue #72's splitter and combiner exist and are tested, but neither shipped adapter can execute
+    // a leg yet - both answer `Executable::Leg` with a typed refusal. Until one does, `answer` keeps
+    // refusing a two-source question here rather than surfacing the adapter's refusal as a 503, the
+    // status reserved for a retryable outage. This pins the restored 409.
     let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,
         r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
     .await;
-    assert_ne!(
-        (status, code.as_str()),
-        (StatusCode::CONFLICT, "plan_spans_two_sources"),
-        "two sources are served, and are no longer refused as a conflict"
-    );
-    assert_eq!(code, "source_unavailable", "{detail}");
-    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{detail}");
+    assert_eq!(status, StatusCode::CONFLICT, "{detail}");
+    assert_eq!(code, "plan_spans_two_sources", "{detail}");
 }
 
 #[tokio::test]

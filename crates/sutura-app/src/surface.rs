@@ -323,11 +323,6 @@ where
                 // one thing - this deployment is wrong about its own identity wiring, and a caller can
                 // do nothing about either. The typed cause is what tells them apart in the log.
                 ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                // Both are this deployment's wiring being wrong about its own federation - a record
-                // that named the same source twice, or two legs that would not combine - so both are
-                // the one "miswired" shape a transport can act on.
-                ServiceError::Provenance { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                ServiceError::Federated { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line

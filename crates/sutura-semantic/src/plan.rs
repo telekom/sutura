@@ -50,9 +50,11 @@ pub(crate) enum Plan {
 
 /// Turns a resolution into a plan, or refuses it.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
-    // Every source besides the metric's own that a join reaches.
+    // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
+    // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
+    // drop a source here.
     let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
-        .map(|dim| dim.join.as_ref().expect("a remote dimension has a join").model.source())
+        .filter_map(|dim| dim.join.as_ref().map(|join| join.model.source()))
         .collect();
 
     match remote.len() {
@@ -152,16 +154,23 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
     }
 
     // One remote data system (more are refused upstream); its dimensions must all join through one
-    // relationship, because the combiner links the legs on a single column.
-    let first_remote = every_remote_dimension(resolution)
-        .next()
-        .expect("federated_plan is only called with one remote source");
-    let first_join = first_remote.join.as_ref().expect("a remote dimension has a join");
+    // relationship, because the combiner links the legs on a single column. The two guards below are
+    // unreachable - `plan` calls this only for exactly one remote source, and a remote dimension has
+    // a join by construction - but a panic here would be reachable from a catalog plus a question, so
+    // they refuse instead.
+    let Some(first_remote) = every_remote_dimension(resolution).next() else {
+        return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
+    };
+    let Some(first_join) = first_remote.join.as_ref() else {
+        return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
+    };
     let relationship = first_join.relationship;
     let remote_table = first_join.model.table();
     let remote_source = first_join.model.source();
     for dim in every_remote_dimension(resolution) {
-        let join = dim.join.as_ref().expect("a remote dimension has a join");
+        let Some(join) = dim.join.as_ref() else {
+            continue;
+        };
         if join.relationship.name() != relationship.name() {
             return Err(RefusalReason::PlanSpansTwoSources { sources: 2 });
         }

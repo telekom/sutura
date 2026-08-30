@@ -29,7 +29,7 @@
 
 use std::collections::BTreeMap;
 
-use crate::federation::{Above, Carried, Federation};
+use crate::federation::{Above, Federation};
 use crate::measure::ZeroDenominator;
 use crate::model::{Aggregate, MetricName};
 use crate::plan::PlanBucket;
@@ -41,21 +41,25 @@ use crate::warehouse::{Real, RowSet, Value};
 /// The splitter and the combiner both call this, so the column the combiner reads a leaf from and
 /// the label the splitter projected it under cannot disagree - there is no second copy of the rule.
 ///
-/// **A single leaf is the answer's own name; a decomposition disambiguates by aggregate.** A plain
-/// sum travels as the metric's own label, and the two halves of a decomposed average travel as
-/// `__sum` and `__count` beside it. Whatever makes the labels unique within one plan is enough - the
-/// final measure comes back under the metric's own name regardless - and this rule is that minimum.
+/// **A single leaf is the answer's own name; several leaves disambiguate by position.** A plain sum
+/// travels as the metric's own label, and the halves of a decomposition travel as `metric__{n}`,
+/// where `n` is the leaf's position in carried order. Position cannot collide: a ratio of two sums -
+/// `sum(a) / sum(b)` - is one aggregating function twice, so naming by aggregate would give both
+/// leaves the same label and a combine that divides a column by itself. Whatever makes the labels
+/// unique within one plan is enough - the final measure comes back under the metric's own name - and
+/// this rule is that minimum.
 pub fn labels(federation: &Federation, metric: &MetricName) -> Vec<String> {
     let leaves = federation.carried();
     let single = leaves.len() == 1;
     leaves
         .iter()
-        .map(|carried| match carried {
-            Carried::Aggregated { pushed, column: _ } if single => String::from(metric.as_str()),
-            Carried::Aggregated { pushed, column: _ } => format!("{}__{}", metric.as_str(), pushed.push().as_str()),
-            Carried::CountIf { column: _ } if single => String::from(metric.as_str()),
-            Carried::CountIf { column: _ } => format!("{}__countif", metric.as_str()),
-            Carried::Keys { pulled: _, column: _ } => format!("{}__keys", metric.as_str()),
+        .enumerate()
+        .map(|(index, _)| {
+            if single {
+                String::from(metric.as_str())
+            } else {
+                format!("{}__{index}", metric.as_str())
+            }
         })
         .collect()
 }
@@ -145,7 +149,7 @@ impl FederatedPlan {
 /// [`labels`] named, or a count of legs that is not two. The [`NonFinite`](FederatedFailure::NonFinite)
 /// variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
 /// value for.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[derive(Debug, Clone, PartialEq, thiserror::Error)]
 pub enum FederatedFailure {
     /// The two legs this plan claims do not both render one rowset each.
     #[error("a federated question needs one result per leg, and {legs} were combined")]
@@ -162,6 +166,32 @@ pub enum FederatedFailure {
     /// so the guard landing here is an error naming the metric it could not certify.
     #[error("a non-finite value reached the answer for `{metric}`")]
     NonFinite { metric: MetricName },
+    /// A leg result had two columns under one label, so the combiner could not tell which of them
+    /// a leaf or key names.
+    #[error("the {side} result labels two columns `{label}`")]
+    DuplicateLabels { side: &'static str, label: String },
+    /// A link cell carried a floating-point key, which the ADR's float-key rule forbids.
+    #[error("a link column carried a floating-point key ({value})")]
+    FloatLinkKey { value: f64 },
+    /// A link value had more than one lookup row, which would double every measure.
+    #[error("the link value `{key}` maps to more than one lookup row")]
+    AmbiguousLink { key: String },
+    /// A leaf cell that was not a number reached a re-aggregating aggregate.
+    ///
+    /// The DuckDB adapter deliberately returns `DECIMAL` and wide integer columns as
+    /// [`Value::Text`] to keep them exact; a sum reaching such a cell cannot certify a number, so
+    /// it is refused rather than counted as zero.
+    #[error("a `{aggregate:?}` re-aggregation met a non-numeric leaf cell (`{value:?}`)")]
+    NonNumericLeaf { aggregate: Aggregate, value: Value },
+    /// A leaf total overflowed a 64-bit integer.
+    #[error("a `{aggregate:?}` re-aggregation overflowed a 64-bit integer")]
+    Overflow { aggregate: Aggregate },
+    /// An aggregate the combiner does not know how to re-aggregate with.
+    ///
+    /// The splitter refuses such a measure, so this is a wiring defect rather than a choice - a
+    /// caller must receive a failure, not silent data.
+    #[error("the combiner does not re-aggregate with `{aggregate:?}`")]
+    UnsupportedAggregate { aggregate: Aggregate },
 }
 
 #[expect(
@@ -182,6 +212,9 @@ impl FederatedPlan {
             .get(1)
             .ok_or(FederatedFailure::LegCount { legs: leg_results.len() })?;
 
+        distinct_columns(fact, "fact")?;
+        distinct_columns(lookup, "lookup")?;
+
         let fact_join_index = column_index(fact, &self.fact_join, "fact")?;
         let lookup_join_index = column_index(lookup, &self.lookup_join, "lookup")?;
         let fact_key_indexes = self.indexes(fact, &self.fact_keys, "fact")?;
@@ -191,23 +224,37 @@ impl FederatedPlan {
 
         // The fact leg already grouped by its keys, so one fact row per (local keys, link, bucket);
         // several rows can share a link value (one per local-key group), so each link maps to a list.
+        // A null link never joins, and a real link is refused by the float-key rule.
         let mut fact_by_link: BTreeMap<String, Vec<usize>> = BTreeMap::new();
         for (row_index, row) in fact.rows().iter().enumerate() {
-            if let Some(link) = row.get(fact_join_index) {
-                fact_by_link.entry(link.render()).or_default().push(row_index);
-            }
+            let Some(link) = row.get(fact_join_index) else {
+                continue;
+            };
+            let Some(key) = link_key(link)? else {
+                continue;
+            };
+            fact_by_link.entry(key).or_default().push(row_index);
         }
 
-        // The lookup result maps a link value to the remote keys that share it.
+        // The lookup result maps a link value to the remote keys that share it. More than one lookup
+        // row for one link would double every measure, so it is refused rather than certified.
         let mut lookup_by_link: RemoteByLink = BTreeMap::new();
         for row in lookup.rows() {
             let Some(link) = row.get(lookup_join_index) else {
                 continue;
             };
+            let Some(key) = link_key(link)? else {
+                continue;
+            };
             let remote: Option<Vec<Value>> = lookup_key_indexes.iter().map(|index| row.get(*index).cloned()).collect();
-            if let Some(remote) = remote {
-                lookup_by_link.entry(link.render()).or_default().push(remote);
+            let Some(remote) = remote else {
+                continue;
+            };
+            let entry = lookup_by_link.entry(key.clone()).or_default();
+            if !entry.is_empty() {
+                return Err(FederatedFailure::AmbiguousLink { key });
             }
+            entry.push(remote);
         }
 
         // A final answer's group is identified by its key cells in answer order (plan keys, then the
@@ -254,7 +301,7 @@ impl FederatedPlan {
         // Re-aggregate each leaf across its group, then walk the divide tree.
         let mut rows: Vec<Vec<Value>> = Vec::new();
         for group in groups.into_values() {
-            let aggregated = leaf_values(&self.federation, &group.leaves);
+            let aggregated = leaf_values(&self.federation, &group.leaves, &self.metric)?;
             let measure = apply_above(self.federation.above(), &aggregated, &mut 0, &self.metric)?;
             let mut row = group.cells;
             row.push(measure);
@@ -291,6 +338,38 @@ fn column_index(rows: &RowSet, label: &str, side: &'static str) -> Result<usize,
     })
 }
 
+/// Refuse a leg result whose columns are not all distinctly labelled.
+///
+/// A duplicate label is the one shape the combiner cannot disambiguate - two leaf columns under one
+/// name, or a key colliding with a leaf - so it is caught at the boundary rather than allowed to
+/// answer a wrong number.
+fn distinct_columns(rows: &RowSet, side: &'static str) -> Result<(), FederatedFailure> {
+    let mut seen: std::collections::BTreeSet<&str> = std::collections::BTreeSet::new();
+    for name in rows.columns() {
+        if !seen.insert(name.as_str()) {
+            return Err(FederatedFailure::DuplicateLabels {
+                side,
+                label: name.clone(),
+            });
+        }
+    }
+    Ok(())
+}
+
+/// The key a link cell joins on, or `None` for a null link.
+///
+/// A `Null` link never joins (`NULL = NULL` is not true in SQL), and a real link is refused - the
+/// ADR's float-key rule, because formatting a float into equality lets distinct values collide.
+/// Text and integer links are keyed by their typed text, so `Integer(1001)` and `Text("1001")` do
+/// not false-match across two sources.
+fn link_key(value: &Value) -> Result<Option<String>, FederatedFailure> {
+    match value {
+        Value::Null => Ok(None),
+        Value::Real(v) => Err(FederatedFailure::FloatLinkKey { value: v.get() }),
+        Value::Integer(_) | Value::Text(_) => Ok(Some(key_cell_str(value))),
+    }
+}
+
 /// One link value's remote-key rows.
 type RemoteByLink = BTreeMap<String, Vec<Vec<Value>>>;
 
@@ -315,31 +394,30 @@ fn key_cell_str(value: &Value) -> String {
 }
 
 /// Re-aggregates every leaf in carried order, one value per leaf.
-fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>]) -> Vec<Value> {
+fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &MetricName) -> Result<Vec<Value>, FederatedFailure> {
     federation
         .carried()
         .iter()
         .enumerate()
-        .map(|(column, leaf)| aggregate(leaf.combine(), leaf_rows.iter().filter_map(|row| row.get(column))))
+        .map(|(column, leaf)| aggregate(leaf.combine(), leaf_rows.iter().filter_map(|row| row.get(column)), metric))
         .collect()
 }
 
 /// Re-aggregates one leaf's already-aggregated values across a group.
 ///
-/// **The only aggregates that arrive here are the ones a decomposable measure re-aggregates with.**
-/// The splitter refuses a measure whose leaf is a [`Carried::Keys`] - a distinct count is not
-/// re-aggregable, which is the whole reason it is delegated rather than pushed - so `combine` is the
-/// total, minimum or maximum over a list of numbers, and a `Count` never reaches here (a count leaf
-/// re-aggregates with a sum, and is itself an integer). A group with no non-null value contributes
-/// null.
+/// **The only aggregates that arrive here are the ones a decomposable measure re-aggregates with.** A
+/// `Count` leaf re-aggregates with a sum and is itself an integer; the splitter refuses a `Carried::Keys`
+/// leaf entirely, so `combine` is a total, minimum or maximum over a list of numbers. A group with no
+/// non-null value contributes null; a cell that is not a number, an overflow, or a non-finite total is
+/// a refusal, never a silent zero or null.
 #[expect(
     clippy::float_arithmetic,
     reason = "the re-aggregation of a leg column sums real numbers by design"
 )]
-fn aggregate<'a>(aggregate: Aggregate, values: impl Iterator<Item = &'a Value>) -> Value {
+fn aggregate<'a>(aggregate: Aggregate, values: impl Iterator<Item = &'a Value>, metric: &MetricName) -> Result<Value, FederatedFailure> {
     let numeric: Vec<&Value> = values.filter(|v| !matches!(*v, Value::Null)).collect();
     if numeric.is_empty() {
-        return Value::Null;
+        return Ok(Value::Null);
     }
     match aggregate {
         Aggregate::Sum => {
@@ -348,48 +426,61 @@ fn aggregate<'a>(aggregate: Aggregate, values: impl Iterator<Item = &'a Value>) 
             let mut has_real = false;
             for value in numeric {
                 match value {
-                    Value::Integer(v) => sum_i = sum_i.checked_add(*v).unwrap_or(i64::MAX),
+                    Value::Integer(v) => {
+                        sum_i = sum_i.checked_add(*v).ok_or(FederatedFailure::Overflow { aggregate: Aggregate::Sum })?
+                    }
                     Value::Real(v) => {
                         has_real = true;
                         sum_r += v.get();
                     }
-                    _ => {}
+                    other => return Err(FederatedFailure::NonNumericLeaf { aggregate: Aggregate::Sum, value: other.clone() }),
                 }
             }
             if has_real {
-                return Real::parse(sum_r).map_or(Value::Null, Value::Real);
+                return Real::parse(sum_r).map_or_else(
+                    |_| Err(FederatedFailure::NonFinite { metric: metric.clone() }),
+                    |real| Ok(Value::Real(real)),
+                );
             }
-            Value::Integer(sum_i)
+            Ok(Value::Integer(sum_i))
         }
         Aggregate::Min => minmax(numeric, false),
         Aggregate::Max => minmax(numeric, true),
-        _ => Value::Null,
+        other => Err(FederatedFailure::UnsupportedAggregate { aggregate: other }),
     }
 }
 
 /// The minimum or maximum of a non-empty numeric list, preserving the winning cell's own type.
-fn minmax(values: Vec<&Value>, max: bool) -> Value {
+fn minmax(values: Vec<&Value>, max: bool) -> Result<Value, FederatedFailure> {
     let mut best: Option<Value> = None;
     for value in values {
         let candidate = (*value).clone();
         best = Some(match best {
             None => candidate,
             Some(current) => {
-                let candidate_is_better = match (to_f64(&current), to_f64(&candidate)) {
-                    (Some(a), Some(b)) => {
-                        if max {
-                            b > a
-                        } else {
-                            b < a
+                let candidate_is_better = match value {
+                    Value::Integer(_) | Value::Real(_) => match (to_f64(&current), to_f64(&candidate)) {
+                        (Some(a), Some(b)) => {
+                            if max {
+                                b > a
+                            } else {
+                                b < a
+                            }
                         }
+                        _ => false,
+                    },
+                    other => {
+                        return Err(FederatedFailure::NonNumericLeaf {
+                            aggregate: if max { Aggregate::Max } else { Aggregate::Min },
+                            value: other.clone(),
+                        })
                     }
-                    _ => false,
                 };
                 if candidate_is_better { candidate } else { current }
             }
         });
     }
-    best.unwrap_or(Value::Null)
+    Ok(best.unwrap_or(Value::Null))
 }
 
 /// Applies the divide tree above a group's re-aggregated leaves, returning the measure.
@@ -460,7 +551,7 @@ mod tests {
     use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
     use crate::model::{Aggregate, ColumnName, Grain, MetricName, TableName};
     use crate::plan::{FederatedFailure, FederatedPlan, PlanBucket, PlanColumn};
-    use crate::warehouse::{RowSet, Value};
+    use crate::warehouse::{Real, RowSet, Value};
 
     const FACT: &str = "fct_subscription_monthly";
 
@@ -641,8 +732,8 @@ mod tests {
                 String::from("product_family"),
                 String::from("customer_key"),
                 String::from(TIME_BUCKET_LABEL),
-                String::from("mean_subscription_mrr__sum"),
-                String::from("mean_subscription_mrr__count"),
+                String::from("mean_subscription_mrr__0"),
+                String::from("mean_subscription_mrr__1"),
             ],
             rows,
         )
@@ -724,6 +815,131 @@ mod tests {
         assert!(matches!(
             plan.combine(&[fact, lookup]),
             Err(FederatedFailure::MissingColumn { .. })
+        ));
+    }
+
+    #[test]
+    fn a_non_numeric_leaf_is_refused_not_counted_as_zero() {
+        // The DuckDB adapter returns a DECIMAL money column as Text to keep it exact; a sum that
+        // meets it must refuse rather than certify a zero.
+        let plan = sum_plan(true);
+        let fact = fact(vec![vec![
+            Value::Text("A".into()),
+            Value::Text("c1".into()),
+            Value::Text("2026-06".into()),
+            Value::Text("1234.56".into()),
+        ]]);
+        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
+        assert!(matches!(
+            plan.combine(&[fact, lookup]),
+            Err(FederatedFailure::NonNumericLeaf { aggregate: Aggregate::Sum, .. })
+        ));
+    }
+
+    #[test]
+    fn a_float_link_key_is_refused() {
+        let plan = sum_plan(true);
+        let fact = fact(vec![vec![
+            Value::Text("A".into()),
+            Value::Real(Real::parse(1001.0).expect("a finite real")),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]]);
+        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
+        assert!(matches!(
+            plan.combine(&[fact, lookup]),
+            Err(FederatedFailure::FloatLinkKey { .. })
+        ));
+    }
+
+    #[test]
+    fn an_integer_link_and_a_text_link_do_not_false_match() {
+        // Integer(1001) and Text("1001") are different cells; comparing them as rendered text would
+        // join them, which is the false match the typed link key refuses. Under an inner join the
+        // non-matching fact row is dropped.
+        let plan = sum_plan(false);
+        let fact = fact(vec![vec![
+            Value::Text("A".into()),
+            Value::Integer(1001),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]]);
+        // The lookup holds the same digits as text.
+        let lookup = lookup(vec![vec![Value::Text("1001".into()), Value::Text("north".into())]]);
+        let combined = plan.combine(&[fact, lookup]).expect("combines");
+        assert!(
+            combined.rows().is_empty(),
+            "an integer link must not join to a text link with the same digits"
+        );
+    }
+
+    #[test]
+    fn a_null_link_never_joins() {
+        let plan = sum_plan(false);
+        let fact = fact(vec![vec![
+            Value::Text("A".into()),
+            Value::Null,
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]]);
+        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
+        let combined = plan.combine(&[fact, lookup]).expect("combines");
+        assert!(
+            combined.rows().is_empty(),
+            "a null link value never joins, not even to itself"
+        );
+    }
+
+    #[test]
+    fn a_duplicate_leaf_label_is_refused() {
+        // Two columns under one name would be traced to one of them arbitrarily, so the boundary
+        // refuses the result rather than answer a wrong number.
+        let plan = sum_plan(true);
+        let fact = RowSet::new(
+            vec![
+                String::from("product_family"),
+                String::from("customer_key"),
+                String::from(TIME_BUCKET_LABEL),
+                String::from("revenue"),
+                String::from("revenue"),
+            ],
+            vec![vec![
+                Value::Text("A".into()),
+                Value::Text("c1".into()),
+                Value::Text("2026-06".into()),
+                Value::Integer(100),
+                Value::Integer(200),
+            ]],
+        )
+        .expect("a fact result with a duplicated label");
+        let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
+        assert!(matches!(
+            plan.combine(&[fact, lookup]),
+            Err(FederatedFailure::DuplicateLabels { .. })
+        ));
+    }
+
+    #[test]
+    fn an_ambiguous_lookup_link_is_refused() {
+        let plan = sum_plan(true);
+        let fact = fact(vec![vec![
+            Value::Text("A".into()),
+            Value::Text("c1".into()),
+            Value::Text("2026-06".into()),
+            Value::Integer(100),
+        ]]);
+        // Two lookup rows for one link would double the measure.
+        let lookup = RowSet::new(
+            vec![String::from("customer_key"), String::from("region")],
+            vec![
+                vec![Value::Text("c1".into()), Value::Text("north".into())],
+                vec![Value::Text("c1".into()), Value::Text("south".into())],
+            ],
+        )
+        .expect("a lookup result with two rows for one link");
+        assert!(matches!(
+            plan.combine(&[fact, lookup]),
+            Err(FederatedFailure::AmbiguousLink { .. })
         ));
     }
 }
