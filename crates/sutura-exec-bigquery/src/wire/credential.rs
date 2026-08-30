@@ -321,12 +321,32 @@ pub enum UnusableCredential {
     /// turns out to be.
     #[error("the credential at {at} was minted for another service universe, and this build reaches only the default one")]
     AnotherUniverse { at: PathBuf },
-    /// The private key is not a `PKCS#8` PEM block this build can read.
+    /// The private key is not a `PKCS#8` PEM block holding a key this build can sign with.
     ///
     /// **Nothing from the key reaches the message.** The whole value is key material, so there is no
-    /// half of it that would be safe to quote.
-    #[error("the private key in the credential at {at} is not a readable PKCS#8 PEM block")]
-    UnreadableKey { at: PathBuf },
+    /// half of it that would be safe to quote - which is why the context is a typed [`KeyUnusable`]
+    /// naming the STAGE that refused rather than any part of the value.
+    #[error("the private key in the credential at {at} is not usable: {because}")]
+    UnreadableKey { at: PathBuf, because: KeyUnusable },
+}
+
+/// How far a private key got before it was refused.
+///
+/// **Three stages rather than one boolean, because the fix for each is a different thing.** A missing
+/// delimiter is a truncated or wrongly-encoded file; a body that is not base64 is a corrupted one; a
+/// body that decodes and is not a key is a key of the wrong kind - a `PKCS#1` block whose delimiters
+/// somebody rewrote, an EC key, or a truncated DER. None of the three quotes anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum KeyUnusable {
+    /// The `PKCS#8` delimiters are absent, or there is nothing between them.
+    #[error("it is not a PKCS#8 PEM block")]
+    NotAPemBlock,
+    /// The body between the delimiters is not base64.
+    #[error("the body between its delimiters is not base64")]
+    NotBase64,
+    /// The body decodes and is not a `PKCS#8` RSA key this build can sign with.
+    #[error("it decodes to something that is not a PKCS#8 RSA key")]
+    NotAKey,
 }
 
 /// Why no token came back.
@@ -545,16 +565,32 @@ impl Credential {
                 client_secret: Secret::new(required(document.client_secret, "client_secret")?),
                 refresh_token: Secret::new(required(document.refresh_token, "refresh_token")?),
             },
-            "service_account" => Kind::ServiceAccount {
-                client_email: required(document.client_email, "client_email")?,
-                private_key_id: required(document.private_key_id, "private_key_id")?,
-                // Unwrapped from its PEM HERE rather than at first use, so a malformed key is a
-                // startup refusal instead of a failure on the first question - and so the unwrapping
-                // has a test that needs no network.
-                private_key: unwrap_pem(&required(document.private_key, "private_key")?)
-                    .ok_or_else(|| UnusableCredential::UnreadableKey { at: PathBuf::from(at) })?,
-                project_id: required(document.project_id, "project_id")?,
-            },
+            "service_account" => {
+                // **Every cheap check first and the key LAST, which is the ordering rule rather than a
+                // style choice:** *this field is missing* is a clearer thing to tell whoever wrote the
+                // file than *the key is unusable* when both are true, and the key parse is the only
+                // expensive check here. Written out rather than left to struct-literal evaluation
+                // order, which is a rule about the source and not about the diagnostic.
+                let client_email = required(document.client_email, "client_email")?;
+                let private_key_id = required(document.private_key_id, "private_key_id")?;
+                let pem = required(document.private_key, "private_key")?;
+                let project_id = required(document.project_id, "project_id")?;
+                Kind::ServiceAccount {
+                    client_email,
+                    private_key_id,
+                    // **Unwrapped AND PARSED here rather than at first use, which is a correction:**
+                    // the previous version stripped the delimiters and checked the body was not empty,
+                    // so a body of `!!!` was accepted and `ring` first saw it on the first question.
+                    // The comment beside it claimed a startup refusal it did not deliver.
+                    // `readable_key` runs every stage a signature needs, so a malformed configured
+                    // credential now fails at boot.
+                    private_key: readable_key(&pem).map_err(|because| UnusableCredential::UnreadableKey {
+                        at: PathBuf::from(at),
+                        because,
+                    })?,
+                    project_id,
+                }
+            }
             other => {
                 return Err(UnusableCredential::UnknownKind {
                     at: PathBuf::from(at),
@@ -776,6 +812,32 @@ fn unwrap_pem(pem: &str) -> Option<Secret> {
         return None;
     }
     Some(Secret::new(packed))
+}
+
+/// The `PKCS#8` DER a key's PEM block holds, still base64, once every stage a signature needs has
+/// accepted it.
+///
+/// **This function is the fix for a claim the code did not deliver.** The reader used to call
+/// [`unwrap_pem`] alone, which strips two delimiter lines and refuses an empty body - so a block whose
+/// body was `!!!` was accepted at boot, and the base64 decode and `RsaKeyPair::from_pkcs8` happened on
+/// the first question, inside [`Credential::assertion`]. A deployment with a corrupt key therefore
+/// started, announced itself healthy, and failed the first thing anybody asked it. Review caught it.
+///
+/// Three stages, each with its own [`KeyUnusable`], and the ORDER is the cheapest first: strip the
+/// text, decode the base64, then hand the DER to `ring`. What is returned is still the base64 text,
+/// because that is what [`Kind::ServiceAccount`] holds and what [`Secret`] can carry - so the DER is
+/// parsed twice over a process's life, once at boot to refuse and once per assertion to sign. That
+/// costs a parse beside an HTTPS round trip and buys the boot refusal.
+fn readable_key(pem: &str) -> Result<Secret, KeyUnusable> {
+    let packed = unwrap_pem(pem).ok_or(KeyUnusable::NotAPemBlock)?;
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(packed.expose().as_bytes())
+        .map_err(|_ignored| KeyUnusable::NotBase64)?;
+    // The cause is deliberately dropped: `ring`'s `KeyRejected` says which structural check failed,
+    // and this refusal reaches an operator who can act on *the key is the wrong kind* and cannot act
+    // on which ASN.1 field was short. Nothing from the key itself is in either.
+    ring::signature::RsaKeyPair::from_pkcs8(&der).map_err(|_ignored| KeyUnusable::NotAKey)?;
+    Ok(packed)
 }
 
 /// The deadline a token response states, as the domain names it.
