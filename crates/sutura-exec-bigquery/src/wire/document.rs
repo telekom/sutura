@@ -345,6 +345,29 @@ where
     Ok(JobRows::of(columns, rows, total))
 }
 
+/// That one job which produces no result set finished, or the reason it did not.
+///
+/// **One check, and the two it deliberately omits are the point.** `totalRows` and the schema are
+/// what [`complete`] reads, and a `CREATE OR REPLACE TABLE` job has no result set for either to be
+/// about - requiring them here would refuse a load that worked, on a response shape this repository
+/// has not measured. `pageToken` is omitted for the same reason: there are no rows to page.
+///
+/// What is NOT omitted is `jobComplete`. A statement whose job has not finished has not necessarily
+/// created anything, and answering `Ok` to that is the failure mode this function exists to prevent:
+/// a half-loaded fixture whose corpus run then disagrees with the engine for a reason that looks like
+/// a dialect bug.
+#[cfg(feature = "fixtures")]
+pub(super) fn applied<C>(answer: &QueryAnswer) -> Wired<(), C>
+where
+    C: core::error::Error + 'static,
+{
+    if answer.job_complete {
+        Ok(())
+    } else {
+        Err(WireError::NotComplete { named: reported(answer) })
+    }
+}
+
 /// The schema, as the vocabulary this adapter maps.
 ///
 /// A complete job with rows and no schema is refused: there is nothing to read the cells against. A
