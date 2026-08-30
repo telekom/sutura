@@ -113,13 +113,18 @@ half-claimed.
 - **The single-user path still works with static credentials.** `sutura_config::StaticCredentialBroker`
   is the implementor, mints from the `sources:` tree, and is wired in both roots - so the port arrived
   with a real adapter rather than a fake, exactly as this section required.
-- **A deadline that fires stops an execution: NOT BUILT.** `Expiry` is carried and nothing reads it,
-  because the shipping implementor mints from configuration and a credential an operator wrote in a
-  file does not expire - `Expiry::NothingExpires` is a case a reader names rather than a sentinel. The
-  floor belongs in the broker adapter, the only component with a clock and the configured timeout, and
-  the per-leg check needs a splitter. `a_leg_that_would_start_after_the_deadline_is_not_attempted` and
-  `a_query_over_its_deadline_is_cancelled_in_the_adapter` are therefore **not** written: saying so is
-  cheaper than a test that passes because nothing expires.
+- **A deadline that has already passed stops an execution: BUILT. A deadline that fires mid-answer:
+  NOT BUILT.** This bullet said `Expiry` was carried and read by nothing, and a review reproduced what
+  that costs - a broker returning `Expiry::At { unix_seconds: 0 }` had its credential presented to an
+  adapter and the question was answered. `Expiry::passed_by` is the comparison, `Minted::agreeing_with`
+  makes it against an instant `sutura_app::answer` resolved, and
+  `a_credential_whose_deadline_has_passed_never_reaches_an_adapter` is the test. The domain still reads
+  no clock. What is still absent is the FLOOR - enough life left for what this query may take - which
+  belongs in the broker adapter, the only component with a clock and the configured timeout; the
+  re-check while an answer is in flight, which needs a clock the application can advance in a test
+  rather than a `SystemTime` call; and the per-leg check, which needs a splitter.
+  `a_leg_that_would_start_after_the_deadline_is_not_attempted` and
+  `a_query_over_its_deadline_is_cancelled_in_the_adapter` are therefore still **not** written.
 - **The boot path cannot reach a request credential or the reverse**, by a different mechanism than
   this section describes. `verify_anchor` takes **no** credential rather than a distinct type, so there
   is no parameter one could arrive in, and it returns `AnchorRows` so a boot result cannot be handed

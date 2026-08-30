@@ -1,6 +1,6 @@
 //! The static broker's own suite. No network, no clock, no data system.
 
-use sutura_domain::identity::{Expiry, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject, SubjectId};
+use sutura_domain::identity::{Agreed, Expiry, Minted, Presented, PrincipalChain, RequestContext, SourceSet, Subject, SubjectId};
 use sutura_domain::model::SourceName;
 
 use super::StaticCredentialBroker;
@@ -61,10 +61,11 @@ fn the_static_broker_serves_a_shared_source_under_the_operators_own_acknowledgem
     assert_eq!(broker.count(), 1);
 
     let context = asked_by_a_person();
+    let requested = SourceSet::of(alias("local"));
     let minted = broker
-        .mint(&context, &SourceSet::of(alias("local")))
+        .mint(&context, &requested)
         .expect("a static broker cannot fail to mint what it holds");
-    let Minted::Granted { credentials } = minted else {
+    let Minted::Granted { ref credentials } = minted else {
         panic!("a declared shared source has a credential: {minted:?}");
     };
     // One asker for the whole answer, and it is the subject the transport established rather than
@@ -75,6 +76,15 @@ fn the_static_broker_serves_a_shared_source_under_the_operators_own_acknowledgem
         Expiry::NothingExpires,
         "a credential an operator wrote in a file has no lifetime, and the type says so as a case"
     );
+    // The leg is read through the guard the application runs, because that is the only way to one -
+    // and this broker's answer is expected to pass it: minting for the asker, covering the set it was
+    // asked about, with nothing that expires. `NOON` is any instant; nothing here expires.
+    let Agreed::Granted { credentials } = minted
+        .agreeing_with(context.chain().subject(), &requested, 1_777_000_000)
+        .expect("what this broker minted agrees with the request it was minted for")
+    else {
+        panic!("a granted answer is granted");
+    };
     let leg = credentials.presented_for(&alias("local")).expect("the leg was minted");
     assert!(
         matches!(*leg, Presented::SharedServiceUser { .. }),
@@ -136,6 +146,28 @@ fn one_unmintable_leg_refuses_the_whole_answer() {
             .expect("a static broker cannot fail to mint what it holds"),
         Minted::Granted { .. }
     ));
+
+    // **The refusal is decided before anything is constructed, and the ORDER is what is assertable.**
+    // A review asked for a count of `Presented` values built, as zero. The count is not observable
+    // from outside a broker - the map is a local inside `mint` - and under the single pass this
+    // replaced it would not have been zero either: sources iterate in name order, so `local`'s
+    // credential was built and then dropped when `warehouse` refused. What is checkable is that the
+    // refusal does not depend on where the unmintable source sits in the set, which is exactly what a
+    // "check everything first" pass buys and a "build as you go" one does not.
+    for ordering in [
+        SourceSet::of(alias("warehouse")).and(alias("local")),
+        SourceSet::of(alias("local")).and(alias("warehouse")),
+    ] {
+        assert!(
+            matches!(
+                broker
+                    .mint(&asked_by_a_person(), &ordering)
+                    .expect("a refusal is a result, not an error"),
+                Minted::Refused { ref source } if *source == alias("warehouse")
+            ),
+            "the unmintable leg refuses the answer wherever it sits in the set: {ordering:?}"
+        );
+    }
 }
 
 #[test]

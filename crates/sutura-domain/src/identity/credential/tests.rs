@@ -6,7 +6,8 @@
 use std::collections::BTreeMap;
 
 use super::{
-    CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
+    Agreed, BoundToTheRequest, CredentialsDoNotCoverThePlan, CredentialsDoNotFitTheRequest, Expiry, LegCredentials, Minted,
+    Presented, PresentedDisagreesWithPosture, PrincipalName, SourceSet,
 };
 use crate::identity::{InvalidPrincipalId, Secret, Subject, SubjectId};
 use crate::model::SourceName;
@@ -92,23 +93,44 @@ fn one_asker_holds_for_every_leg_because_there_is_one_field() {
     let credentials =
         LegCredentials::minted(a_person(), Expiry::NothingExpires, &sources, presented).expect("the set covers the plan");
     assert_eq!(credentials.asked_by(), &a_person());
-    assert_eq!(credentials.legs().count(), 2);
+    assert_eq!(credentials.count(), 2);
+    // The legs are reached through the guard and not off the grant, which is the whole of what
+    // `BoundToTheRequest` is for - `LegCredentials` has no accessor that yields a `Presented`.
+    let bound = granted(Minted::Granted { credentials }, &a_person(), &sources);
     assert_eq!(
-        credentials.legs().map(|(name, _)| name.as_str()).collect::<Vec<&str>>(),
+        bound.legs().map(|(name, _)| name.as_str()).collect::<Vec<&str>>(),
         vec!["local", "warehouse"],
         "legs are keyed by source, in source order"
     );
     // And the two legs ran under different postures, which is what makes the one `asked_by` field a
     // claim about who ASKED rather than about what each leg executed as.
     assert_eq!(
-        credentials.presented_for(&source("local")).map(Presented::as_str),
-        Some("the deployment's own identity for this source")
+        bound.presented_for(&source("local")).map(Presented::as_str),
+        Ok("the deployment's own identity for this source")
     );
     assert_eq!(
-        credentials.presented_for(&source("warehouse")).map(Presented::as_str),
-        Some("the asker's own credential")
+        bound.presented_for(&source("warehouse")).map(Presented::as_str),
+        Ok("the asker's own credential")
     );
 }
+
+/// The grant behind a [`Minted`] that agrees with the request, for a test that is about something
+/// else.
+///
+/// A helper because the guard is now the only way to a leg, so every test that wants one runs it -
+/// and a test whose subject is the legs should not be spelling out the check.
+fn granted(minted: Minted, asked_by: &Subject, sources: &SourceSet) -> BoundToTheRequest {
+    let Agreed::Granted { credentials } = minted
+        .agreeing_with(asked_by, sources, NOON)
+        .expect("the fixture grant agrees with the fixture request")
+    else {
+        panic!("a granted answer is granted");
+    };
+    credentials
+}
+
+/// An instant, for the comparisons below. Nothing resolves it from a clock: the domain has none.
+const NOON: u64 = 1_777_000_000;
 
 #[test]
 fn credentials_that_do_not_cover_the_plan_are_refused_at_construction_in_both_directions() {
@@ -141,24 +163,144 @@ fn credentials_that_do_not_cover_the_plan_are_refused_at_construction_in_both_di
 }
 
 #[test]
-fn a_lookup_cannot_be_none_for_a_source_the_set_was_minted_for() {
-    // What the constructor above buys: `presented_for` is an `Option` and its `None` is unreachable
-    // for a source in the set. Asserted so that a future change loosening `minted` shows up here
-    // rather than as an unexplained fallback at a call site.
+fn a_lookup_cannot_fail_for_a_source_the_request_asked_about() {
+    // What the constructor and the guard buy together: `presented_for` is a `Result` and its `Err`
+    // is unreachable for a source in the set the grant was checked against. Asserted so that a
+    // future change loosening either one shows up here rather than as an unexplained fallback at a
+    // call site.
     let mut presented = BTreeMap::new();
     drop(presented.insert(source("local"), shared()));
-    let credentials = LegCredentials::minted(
-        Subject::TheDeploymentItself,
-        Expiry::NothingExpires,
-        &SourceSet::of(source("local")),
-        presented,
-    )
-    .expect("the set covers the plan");
-    assert!(credentials.presented_for(&source("local")).is_some());
-    assert!(
-        credentials.presented_for(&source("nowhere")).is_none(),
-        "a source nobody minted for has nothing here"
+    let sources = SourceSet::of(source("local"));
+    let credentials = LegCredentials::minted(Subject::TheDeploymentItself, Expiry::NothingExpires, &sources, presented)
+        .expect("the set covers the plan");
+    let bound = granted(Minted::Granted { credentials }, &Subject::TheDeploymentItself, &sources);
+    assert_eq!(
+        bound.presented_for(&source("local")).map(Presented::as_str),
+        Ok("the deployment's own identity for this source")
     );
+    assert_eq!(
+        bound.presented_for(&source("nowhere")).map(Presented::as_str),
+        Err(CredentialsDoNotFitTheRequest::Coverage {
+            cause: CredentialsDoNotCoverThePlan::Missing { at: source("nowhere") }
+        }),
+        "a source nobody minted for has nothing here, and it says which"
+    );
+}
+
+#[test]
+fn a_grant_is_checked_against_the_request_in_four_directions_and_one_call() {
+    // **THE GUARD, and the reason it is one call rather than three.** Three findings on this port -
+    // a grant minted for another subject, a deadline nothing read, and a refusal naming a source
+    // nobody asked about - were three shapes of the same defect: a broker's answer acted on without
+    // being compared with the request it was made for. Each direction below is one of them, and the
+    // fourth is the coverage check the constructor already made against a set the broker itself
+    // chose.
+    let sources = SourceSet::of(source("local"));
+    let mint = |asked_by: Subject, not_after: Expiry| {
+        let mut presented = BTreeMap::new();
+        drop(presented.insert(source("local"), shared()));
+        Minted::Granted {
+            credentials: LegCredentials::minted(asked_by, not_after, &sources, presented).expect("the set covers the plan"),
+        }
+    };
+
+    // 1. Another subject. `LegCredentials::minted` is `pub` and takes any `Subject`, so this is a
+    //    value a real broker returns by defect or under compromise - and the audit record would
+    //    have named the asker while the leg carried this.
+    assert_eq!(
+        mint(Subject::TheDeploymentItself, Expiry::NothingExpires)
+            .agreeing_with(&a_person(), &sources, NOON)
+            .unwrap_err(),
+        CredentialsDoNotFitTheRequest::AnotherSubject {
+            asked: a_person(),
+            granted: Subject::TheDeploymentItself,
+        }
+    );
+
+    // 2. A deadline that has passed. The epoch, because it is in the past for every clock - and
+    //    because the defect this closes is a deadline computed correctly and read by nobody.
+    assert_eq!(
+        mint(a_person(), Expiry::At { unix_seconds: 0 })
+            .agreeing_with(&a_person(), &sources, NOON)
+            .unwrap_err(),
+        CredentialsDoNotFitTheRequest::Expired {
+            deadline_unix_seconds: 0,
+            now_unix_seconds: NOON,
+        }
+    );
+    // And the boundary, which is the direction this control rounds: `not_after` is whole seconds, so
+    // at equality there is under a second of life left and the grant is refused rather than used.
+    assert_eq!(
+        mint(a_person(), Expiry::At { unix_seconds: NOON })
+            .agreeing_with(&a_person(), &sources, NOON)
+            .unwrap_err(),
+        CredentialsDoNotFitTheRequest::Expired {
+            deadline_unix_seconds: NOON,
+            now_unix_seconds: NOON,
+        }
+    );
+    // One second later is a grant, so the assertion above is about the boundary and not about every
+    // deadline being refused.
+    assert!(matches!(
+        mint(a_person(), Expiry::At { unix_seconds: NOON + 1 }).agreeing_with(&a_person(), &sources, NOON),
+        Ok(Agreed::Granted { .. })
+    ));
+
+    // 3. The set the REQUEST asked about, which is not the set the broker passed to the constructor.
+    assert_eq!(
+        mint(a_person(), Expiry::NothingExpires)
+            .agreeing_with(&a_person(), &SourceSet::of(source("warehouse")), NOON)
+            .unwrap_err(),
+        CredentialsDoNotFitTheRequest::Coverage {
+            cause: CredentialsDoNotCoverThePlan::Missing { at: source("warehouse") }
+        }
+    );
+
+    // 4. A refusal naming a source nobody asked about. It stays a refusal for a source that WAS
+    //    asked about, which is the half that makes this a check rather than a wall.
+    assert_eq!(
+        Minted::Refused {
+            source: source("elsewhere")
+        }
+        .agreeing_with(&a_person(), &sources, NOON)
+        .unwrap_err(),
+        CredentialsDoNotFitTheRequest::RefusalNamesAnUnaskedSource { at: source("elsewhere") }
+    );
+    assert!(matches!(
+        Minted::Refused { source: source("local") }
+            .agreeing_with(&a_person(), &sources, NOON)
+            .expect("a refusal about a source the request named is an answer"),
+        Agreed::Refused { ref source } if source == &self::source("local")
+    ));
+
+    // And the honest grant passes all four, so none of the above is passing against a guard that
+    // refuses everything.
+    let Agreed::Granted { credentials } = mint(a_person(), Expiry::At { unix_seconds: NOON + 60 })
+        .agreeing_with(&a_person(), &sources, NOON)
+        .expect("a grant for the asker, covering the plan, with life left, is an answer")
+    else {
+        panic!("a granted answer is granted");
+    };
+    assert_eq!(credentials.asked_by(), &a_person());
+    assert_eq!(credentials.not_after(), Expiry::At { unix_seconds: NOON + 60 });
+}
+
+#[test]
+fn what_a_failure_says_names_the_subject_the_way_a_record_does_and_carries_no_material() {
+    // The sentences reach an operator's log and never a caller - a `SurfaceFailure` is logged by the
+    // transport - so what they carry is what makes a bad broker mapping findable: what established
+    // each subject, and the identifier where there is one. `Subject::established` alone cannot tell
+    // two verified people apart, which is why both halves are in the line.
+    let rendered = CredentialsDoNotFitTheRequest::AnotherSubject {
+        asked: a_person(),
+        granted: Subject::TheDeploymentItself,
+    }
+    .to_string();
+    assert!(rendered.contains("a verified subject `someone@example.com`"), "{rendered}");
+    assert!(rendered.contains("a deployment subject"), "{rendered}");
+    // No variant of this enum holds credential material, so there is nothing here to redact - which
+    // is a property of the shape rather than of the sentence.
+    assert!(!rendered.contains("Secret"), "{rendered}");
 }
 
 #[test]

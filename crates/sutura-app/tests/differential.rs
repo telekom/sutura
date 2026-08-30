@@ -158,7 +158,7 @@ mod tests {
             // The two sides now have to fail together, for the same column, which is a comparison
             // rather than an unwrap.
             let (from_engine, from_other) = match (from_engine, from_other) {
-                (Ok(engine_outcome), Ok(other_outcome)) => (engine_outcome, other_outcome),
+                (Ok(engine_outcome), Ok(other_outcome)) => (engine_outcome.into_outcome(), other_outcome.into_outcome()),
                 (Err(ref engine_error), Err(ref other_error)) => {
                     // The measure is projected under the metric's own name, so that is the column both
                     // sides have to name. Compared through the chain because the outermost message is

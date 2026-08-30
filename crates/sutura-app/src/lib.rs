@@ -28,7 +28,10 @@
 //! a framework type, so this crate still holds none.
 
 use sutura_domain::catalog::Anchor;
-use sutura_domain::identity::{CredentialBroker, Minted, RequestContext, SourceSet};
+use sutura_domain::identity::{
+    Agreed, BoundToTheRequest, CredentialBroker, CredentialsDoNotFitTheRequest, Expiry, PresentedDisagreesWithPosture,
+    RequestContext, SourceSet,
+};
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable};
@@ -224,57 +227,139 @@ pub enum ServiceError<E, M> {
         #[source]
         cause: M,
     },
-    /// The broker granted credentials that do not cover the source this plan reads.
+    /// The broker's answer does not agree with the request it was made for.
     ///
-    /// **A wiring defect between the broker and the plan, so an `Err` and not a refusal** - the
-    /// question was fine. `sutura_domain::identity::LegCredentials` refuses a set that does not
-    /// cover the sources it was minted FOR, so this is the case where a broker was asked about one
-    /// set and answered about another: the two disagree about what is being answered, and either
-    /// half may be the wrong one.
+    /// **A wiring defect between the broker and the request, so an `Err` and not a refusal** - the
+    /// question was fine. Four things can be wrong and the domain's own enum names them: the grant
+    /// was minted for a different subject, it covers a different set of sources, its deadline had
+    /// already passed, or the refusal named a source nobody asked about.
+    ///
+    /// **It used to carry one of them**, a bare "nothing was granted for this source", and the other
+    /// three were not checked at all. Widening the cause rather than adding three variants is the
+    /// shape of the fix: they are one question asked once, and a transport that had to tell them
+    /// apart would be a transport making a judgement about our own wiring.
     ///
     /// Executing anyway is the alternative this variant exists to remove, and it is the one that
-    /// would have run the leg as the process.
-    #[error("the credentials that came back do not cover this plan")]
+    /// would have run the leg as somebody other than the asker.
+    /// The leg the broker minted disagrees with the posture the adapter was opened with.
+    ///
+    /// **Its own variant because the two values come from different places, and that is the whole of
+    /// what the comparison is worth.** The broker read the settings tree; the registry holds what the
+    /// composition root opened. A leg that says "the deployment's own identity" against a source
+    /// declared `impersonation-at-source` means one of those two is wrong about this deployment, and
+    /// executing anyway is the case that is silent: provenance is read off the ADAPTER's posture, so
+    /// the answer would have been reported as impersonated while it ran as the process.
+    ///
+    /// Both shipped adapters make this comparison too, and this variant does not replace theirs - an
+    /// adapter is the last thing before a driver and may not assume who called it. What it replaces is
+    /// the assumption that every FUTURE adapter will remember to.
+    #[error("the credential does not agree with the posture the data system was opened with")]
+    Posture {
+        #[source]
+        cause: PresentedDisagreesWithPosture,
+    },
+    #[error("the credentials that came back do not fit this request")]
     Credentials {
         #[source]
-        cause: NoCredentialForThePlan,
+        cause: CredentialsDoNotFitTheRequest,
     },
 }
 
-/// A broker granted credentials that say nothing about a source the plan reads.
+/// Now, in whole seconds since the Unix epoch, for the one comparison this crate makes.
 ///
-/// Its own type rather than a variant carrying a bare name, so the cause survives `#[source]` when
-/// the service's generic parameters are erased at the driving port - the same reason every other
-/// failure that crosses that boundary is a typed error rather than a sentence.
+/// **The clock is read HERE and not in the domain**, which is the split
+/// `sutura_domain::identity::Expiry::passed_by` documents from the other side: the interior owns the
+/// direction of the comparison and reads no clock, and this crate - an application layer over the
+/// ports, not the hexagon's interior - is where the instant comes from. `sutura_http` already reads
+/// the same clock the same way for a proof's `exp`.
 ///
-/// The field is `at` rather than `source`, and that is not a naming preference: `thiserror` reads a
-/// field called `source` as the `Error::source` chain, and a `SourceName` there does not compile.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-#[error(
-    "nothing was granted for source `{at}`, which this plan reads - the broker and the plan disagree about what is being answered"
-)]
-pub struct NoCredentialForThePlan {
-    at: SourceName,
-}
-
-impl NoCredentialForThePlan {
-    /// Which source had no credential.
-    ///
-    /// Named `at` rather than `source` for the reason above: `clippy::same_name_method` is denied, and
-    /// an inherent `source` beside the trait's own is a call site whose meaning depends on which
-    /// traits are in scope.
-    #[inline]
-    #[must_use]
-    pub const fn at(&self) -> &SourceName {
-        &self.at
-    }
+/// **No parameter, deliberately.** An instant a caller passed in is a value a caller can get wrong -
+/// stale, or the credential's own deadline handed back to itself - and the guard it feeds exists
+/// because a value that arrived from elsewhere was trusted. What that costs is that a test cannot
+/// advance it, which is why the two cases the suite pins are the two no clock can change: a deadline
+/// of zero is in the past for every clock there has ever been, and `NothingExpires` is in the past
+/// for none.
+///
+/// **`u64::MAX` on a clock that will not read, and the direction is the point.** `duration_since`
+/// fails only for a clock before 1970; making *now* the largest instant there is makes every deadline
+/// look passed, so an expiring credential is refused rather than presented. A machine whose clock says
+/// 1969 should not be executing anything as somebody else. Nothing that carries `Expiry::NothingExpires`
+/// is affected, which is every credential the shipping broker mints.
+fn now_in_unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(u64::MAX, |since| since.as_secs())
 }
 
 /// What answering produced, or why it could not.
 ///
 /// A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
 /// naming it is the better half of that trade: the generic parameter is a warehouse, not a result.
-pub type Answered<W, B> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+pub type Answering<W, B> = Result<Answered, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+
+/// One call's result: what the caller is told, and what it ran under.
+///
+/// **Two values rather than one, and the second one never reaches the caller.** The outcome is the
+/// answer or the refusal, and it goes back through the transport. The deadline is the `Expiry` the
+/// credentials this call executed with carried, and it goes to the audit sink - `docs/adr/0008` fixes
+/// the record's content as the chain, the outcome, the posture per leg **and the expiry the
+/// credentials carried**, and until this type existed there was no way for the last of those to reach
+/// [`surface::LocalService`], which is what writes the record.
+///
+/// **Why not on the outcome.** `sutura_domain::pinned::Provenance` rides to the caller, so putting a
+/// credential's lifetime there would publish, on both wire surfaces, how long this deployment's
+/// credential for a data system is good for. That is the deployment's business rather than the
+/// asker's, and a widened wire shape is a worse place to learn it.
+///
+/// `None` means nothing was minted for this call: the question was declined by compilation or by the
+/// source lookup, both of which run before the broker is asked - which `answer`'s own suite pins.
+#[derive(Debug)]
+pub struct Answered {
+    outcome: ToolOutcome,
+    executed_until: Option<Expiry>,
+}
+
+impl Answered {
+    /// An outcome decided before any credential was minted.
+    const fn declined_before_minting(outcome: ToolOutcome) -> Self {
+        Self {
+            outcome,
+            executed_until: None,
+        }
+    }
+
+    /// An outcome decided with a checked grant in hand.
+    ///
+    /// Takes the grant rather than the deadline, so a call site cannot pass one credential's outcome
+    /// with another's deadline: the value is read off the thing that was used.
+    const fn under(credentials: &BoundToTheRequest, outcome: ToolOutcome) -> Self {
+        Self {
+            outcome,
+            executed_until: Some(credentials.not_after()),
+        }
+    }
+
+    /// What the caller is told.
+    #[inline]
+    #[must_use]
+    pub const fn outcome(&self) -> &ToolOutcome {
+        &self.outcome
+    }
+
+    /// What the caller is told, owned, for a transport that is about to render it.
+    #[inline]
+    #[must_use]
+    pub fn into_outcome(self) -> ToolOutcome {
+        self.outcome
+    }
+
+    /// How long the credential this call ran under was good for. `None` if none was minted.
+    #[inline]
+    #[must_use]
+    pub const fn executed_until(&self) -> Option<Expiry> {
+        self.executed_until
+    }
+}
 
 /// Answers one question, or says why it will not.
 ///
@@ -300,13 +385,29 @@ pub type Answered<W, B> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Err
 /// The order is deliberate: mint **before** the pre-flight and before execution. A pre-flight asked
 /// as the wrong identity answers a different question, and a subject with no credential at that
 /// source is refused before this deployment has asked the data system anything on their behalf.
+///
+/// # And what comes back is checked against what was asked
+///
+/// A broker is an adapter outside the hexagon, so its answer is input. `Minted::agreeing_with` is the
+/// one guard: the grant's subject must be the subject this request arrived under, it must cover
+/// exactly the sources this plan reads, its deadline must not have passed, and a refusal must name a
+/// source that was actually asked about. Any disagreement is a `ServiceError::Credentials` - our own
+/// wiring, an internal failure on the wire - and never a refusal, because a refusal is a statement
+/// about the caller's access and none of these is one.
+///
+/// **Three separate findings, one guard, and that is a decision rather than a shortcut.** Each of the
+/// three could have been a check of its own next to the value it protects. Three checks are three
+/// places the fourth case gets forgotten, and they were all the same question. What makes the single
+/// guard un-skippable rather than merely conventional is on the domain side:
+/// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
+/// `agreeing_with` is the only thing that builds one.
 pub fn answer<W, B>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,
     context: &RequestContext,
     broker: &B,
     warehouses: &Warehouses<W>,
-) -> Answered<W, B>
+) -> Answering<W, B>
 where
     W: Warehouse,
     B: CredentialBroker,
@@ -317,41 +418,66 @@ where
     // without generating SQL is a first-class implementation of it. A SQL-speaking adapter renders
     // the plan itself, for its own dialect.
     let plan = match compiled {
-        Compiled::Refused { reason } => return Ok(ToolOutcome::Refusal { reason }),
+        Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
         Compiled::Planned { plan } => plan,
     };
     let (Some(warehouse), Some(executed_as)) = (warehouses.get(plan.source()), warehouses.executed_on(plan.source())) else {
-        return Ok(ToolOutcome::Refusal {
+        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
             reason: RefusalReason::SourceUnavailable {
                 source: plan.source().clone(),
             },
-        });
+        }));
     };
+    // The set is a LOCAL, and that is load-bearing rather than tidy: it is what the broker is asked
+    // about AND what its answer is checked against one line later. Written inline in the `mint` call,
+    // as it was, the second use had nothing to compare with and the check below could not exist.
+    let requested = SourceSet::of(plan.source().clone());
     // The credential, minted once for every source this answer reads. A refusal comes back in the
     // `Ok` and leaves as one: "this subject has no credential at that source" is a governance
     // outcome, and a broker that could not be reached is an `Err` - see `ServiceError::Broker`.
-    let credentials = match broker
-        .mint(context, &SourceSet::of(plan.source().clone()))
-        .map_err(|cause| ServiceError::Broker { cause })?
+    let minted = broker
+        .mint(context, &requested)
+        .map_err(|cause| ServiceError::Broker { cause })?;
+    // **THE GUARD, and there is one of it.** A review of this path found three ways a broker's
+    // answer was acted on without being compared with the request it was made for: a grant minted
+    // for another subject, a deadline nothing read, and a refusal naming a source nobody asked
+    // about. `Minted::agreeing_with` asks the one question all three are - does this answer agree
+    // with this request - and its `Ok` is the only value in the workspace that yields a `Presented`
+    // out of a grant, so the comparison cannot be skipped by reading a leg out directly.
+    //
+    // A disagreement is an `Err` and never a refusal, for every arm. A refusal says "you have no
+    // credential there", which a caller may act on; a broker contradicting the request says nothing
+    // about the caller at all - it is this deployment being wrong, and offering it as a refusal would
+    // both mislead the asker and invite a client library to retry a wiring defect forever.
+    let credentials = match minted
+        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?
     {
-        Minted::Refused { source } => {
-            return Ok(ToolOutcome::Refusal {
+        Agreed::Refused { source } => {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
                 reason: RefusalReason::CredentialUnavailable { source },
-            });
+            }));
         }
-        Minted::Granted { credentials } => credentials,
+        Agreed::Granted { credentials } => credentials,
     };
-    // Unreachable for a broker that answered about the set it was asked about - `LegCredentials`
-    // refuses one that does not cover its own source set - so this arm is the broker and the plan
-    // disagreeing about what is being answered. An `Err`, because executing anyway is what would
-    // run the leg as this process.
-    let Some(presented) = credentials.presented_for(plan.source()) else {
-        return Err(ServiceError::Credentials {
-            cause: NoCredentialForThePlan {
-                at: plan.source().clone(),
-            },
-        });
-    };
+    let presented = credentials
+        .presented_for(plan.source())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    // **The leg against the posture the adapter was OPENED with, here rather than in each adapter.**
+    // Both shipped adapters make this comparison themselves, and a review pointed out what that is
+    // worth: `Warehouse` is a trait, so an implementor can simply omit it - and this crate's own fake
+    // did, which meant an `impersonation-at-source` adapter handed the deployment's own identity
+    // executed, and provenance then reported the leg as impersonated because provenance is read off
+    // the adapter's posture. Made here, the rule holds for every adapter this registry can hold,
+    // including the next one; left per-adapter it is a convention a security review has to notice.
+    //
+    // The two values are still independent, which is the whole point of comparing them: the broker
+    // read the settings tree and the registry holds what the composition root opened. The adapters
+    // keep their own copy of the check - it is their last line before a driver, and an adapter may not
+    // assume who called it.
+    presented
+        .agrees_with(warehouse.posture(), plan.source())
+        .map_err(|cause| ServiceError::Posture { cause })?;
     // Prepared before it is run, WHERE THAT IS CHEAPER THAN RUNNING IT. For an adapter across a
     // network it is: a statement that would be rejected is rejected before any data is read, which
     // is the difference between a failed query and a partial one. For the in-process engine it is
@@ -367,6 +493,22 @@ where
     warehouse
         .dry_run(Executable::Query(&plan), presented)
         .map_err(|cause| ServiceError::Warehouse { cause })?;
+    // **The deadline again, and this is the call that can fire in production.** The check above runs
+    // microseconds after the broker minted, so what it catches is a broker minting something already
+    // dead. This one runs after a pre-flight, which against a networked data system is a round trip -
+    // so a credential with seconds left when it was minted may have none by the time the statement
+    // would run. One comparison, two call sites, both at a boundary the credential crosses.
+    //
+    // The clock is read again rather than reused: reusing the first reading would make this arm a
+    // second copy of the first answer, which is a check that cannot fail.
+    //
+    // **The limit, and it is what an adapter would have to close:** this is the last point on this
+    // side. `Warehouse::execute` takes a `&Presented` and no deadline, so an adapter cannot make the
+    // before-leg check `docs/adr/0008` part 4 describes, and a credential that ages out during
+    // execution is refused by the data system rather than here.
+    credentials
+        .still_usable_at(now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
     // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
     // governance outcome - the question is well formed and this deployment will not spend more than
     // a configured number of bytes on it - and it used to leave here as `ServiceError::Warehouse`,
@@ -383,9 +525,12 @@ where
         Ok(rows) => rows,
         Err(cause) => {
             if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
-                return Ok(ToolOutcome::Refusal {
-                    reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
-                });
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                    },
+                ));
             }
             // Anything else is a failure rather than a refusal, and the typed cause travels with it.
             return Err(ServiceError::Warehouse { cause });
@@ -397,18 +542,24 @@ where
     // saying it is partial. Refused, because "this question is too wide to certify" is an answer the
     // caller can act on and a silent partial one is not.
     if exceeds_row_cap(rows.rows().len(), plan.max_rows()) {
-        return Ok(ToolOutcome::Refusal {
-            reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
-        });
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
+            },
+        ));
     }
     // The posture travels with the answer, read off the adapter that just executed rather than off a
     // settings tree - `executed_as` was taken from the registry above, beside the warehouse this
     // question actually ran on. A field derived from configuration would report what was configured
     // rather than what ran, and the two disagreeing is the case the field exists for.
-    Ok(ToolOutcome::Answer {
-        provenance: pinned.provenance(executed_as),
-        rows,
-    })
+    Ok(Answered::under(
+        &credentials,
+        ToolOutcome::Answer {
+            provenance: pinned.provenance(executed_as),
+            rows,
+        },
+    ))
 }
 
 /// Whether a result set came back with more rows than its plan capped it at.

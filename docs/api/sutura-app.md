@@ -57,47 +57,64 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 - `Compile`
 - `Warehouse`
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
-- `Credentials` - The broker granted credentials that do not cover the source this plan reads.
+- `Posture` - The broker's answer does not agree with the request it was made for.
+- `Credentials`
 
 ### Implements
 
 `Debug`, `Display`, `Error`
 
-## `struct NoCredentialForThePlan`
+## `struct Answered`
 
 ```rust
-pub struct NoCredentialForThePlan
+pub struct Answered
 ```
 
-A broker granted credentials that say nothing about a source the plan reads.
+One call's result: what the caller is told, and what it ran under.
 
-Its own type rather than a variant carrying a bare name, so the cause survives `#[source]` when
-the service's generic parameters are erased at the driving port - the same reason every other
-failure that crosses that boundary is a typed error rather than a sentence.
+**Two values rather than one, and the second one never reaches the caller.** The outcome is the
+answer or the refusal, and it goes back through the transport. The deadline is the `Expiry` the
+credentials this call executed with carried, and it goes to the audit sink - `docs/adr/0008` fixes
+the record's content as the chain, the outcome, the posture per leg **and the expiry the
+credentials carried**, and until this type existed there was no way for the last of those to reach
+`surface::LocalService`, which is what writes the record.
 
-The field is `at` rather than `source`, and that is not a naming preference: `thiserror` reads a
-field called `source` as the `Error::source` chain, and a `SourceName` there does not compile.
+**Why not on the outcome.** `sutura_domain::pinned::Provenance` rides to the caller, so putting a
+credential's lifetime there would publish, on both wire surfaces, how long this deployment's
+credential for a data system is good for. That is the deployment's business rather than the
+asker's, and a widened wire shape is a worse place to learn it.
+
+`None` means nothing was minted for this call: the question was declined by compilation or by the
+source lookup, both of which run before the broker is asked - which `answer`'s own suite pins.
 
 ### Methods
 
 ```rust
-pub const fn at(&self) -> &SourceName
+pub const fn executed_until(&self) -> Option<Expiry>
 ```
 
-Which source had no credential.
+How long the credential this call ran under was good for. `None` if none was minted.
 
-Named `at` rather than `source` for the reason above: `clippy::same_name_method` is denied, and
-an inherent `source` beside the trait's own is a call site whose meaning depends on which
-traits are in scope.
+```rust
+pub fn into_outcome(self) -> ToolOutcome
+```
+
+What the caller is told, owned, for a transport that is about to render it.
+
+```rust
+pub const fn outcome(&self) -> &ToolOutcome
+```
+
+What the caller is told.
 
 ### Implements
 
-`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+`Debug`
 
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>) -> Answered<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -124,6 +141,22 @@ argument lives.
 The order is deliberate: mint **before** the pre-flight and before execution. A pre-flight asked
 as the wrong identity answers a different question, and a subject with no credential at that
 source is refused before this deployment has asked the data system anything on their behalf.
+
+# And what comes back is checked against what was asked
+
+A broker is an adapter outside the hexagon, so its answer is input. `Minted::agreeing_with` is the
+one guard: the grant's subject must be the subject this request arrived under, it must cover
+exactly the sources this plan reads, its deadline must not have passed, and a refusal must name a
+source that was actually asked about. Any disagreement is a `ServiceError::Credentials` - our own
+wiring, an internal failure on the wire - and never a refusal, because a refusal is a statement
+about the caller's access and none of these is one.
+
+**Three separate findings, one guard, and that is a decision rather than a shortcut.** Each of the
+three could have been a check of its own next to the value it protects. Three checks are three
+places the fourth case gets forgotten, and they were all the same question. What makes the single
+guard un-skippable rather than merely conventional is on the domain side:
+`sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
+`agreeing_with` is the only thing that builds one.
 
 ## `fn verify_anchors`
 
@@ -188,7 +221,7 @@ same one `verify_anchors` picks a grain by.
 
 ## `use None`
 
-## `type_alias Answered`
+## `type_alias Answering`
 
 What answering produced, or why it could not.
 
@@ -317,7 +350,7 @@ means rather than a field added to one.
 - `Compile`
 - `Warehouse`
 - `Broker` - The credential broker did not answer, so nothing could be executed as the asking subject.
-- `Miswired` - Credentials came back that do not cover the plan: a wiring defect on this side.
+- `Miswired` - Credentials came back that do not fit the request: a wiring defect on this side.
 
 #### Implements
 

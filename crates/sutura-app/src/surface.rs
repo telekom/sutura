@@ -167,12 +167,19 @@ pub enum SurfaceFailure {
         #[source]
         cause: ErasedCause,
     },
-    /// Credentials came back that do not cover the plan: a wiring defect on this side.
+    /// Credentials came back that do not fit the request: a wiring defect on this side.
     ///
     /// Not a refusal - the question was fine - and not [`Self::Broker`] either, because a broker that
     /// answered and a broker that could not be reached are different things to whoever is paged. A
     /// caller can do nothing about it, so what it becomes on the wire is an internal failure.
-    #[error("the credentials that came back do not cover this plan")]
+    ///
+    /// **What it covers grew, and the variant did not**, deliberately: the grant naming another
+    /// subject, covering another source set, carrying a deadline that had passed, or a refusal naming
+    /// a source nobody asked about are one thing to a transport - this deployment is wrong about its
+    /// own identity wiring - and four things to whoever reads the log line, which is where the typed
+    /// cause is. Splitting them here would ask each transport to pick a status code for a distinction
+    /// that changes nothing a caller can do.
+    #[error("the credentials that came back do not fit this request")]
     Miswired {
         #[source]
         cause: ErasedCause,
@@ -300,7 +307,7 @@ where
     }
 
     fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
-        let outcome =
+        let answered =
             crate::answer(&self.definitions, query, context, &self.broker, &self.warehouses).map_err(|error| match error {
                 // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
                 // `#[source]` chain under it.
@@ -311,6 +318,11 @@ where
                 // sources are not retried the same way.
                 ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
                 ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+                // The same arm, and deliberately: to a transport, "the broker's answer does not fit
+                // the request" and "the leg does not fit the posture the adapter was opened with" are
+                // one thing - this deployment is wrong about its own identity wiring, and a caller can
+                // do nothing about either. The typed cause is what tells them apart in the log.
+                ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
             })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line
@@ -318,8 +330,16 @@ where
         //
         // Both outcomes reach it, because the `?` above is the only path that skips it - see the
         // limit stated on `SurfaceFailure` below.
-        self.sink.record(&CallRecord::of(context.chain(), &outcome));
-        Ok(outcome)
+        // The deadline the credentials this call ran under carried travels with the outcome for
+        // exactly this line - `docs/adr/0008` fixes it as part of the record's content, and
+        // `sutura_app::Answered` is what carries it here without putting it on the caller-facing
+        // provenance. `None` is a question declined before the broker was asked.
+        self.sink.record(&CallRecord::of(
+            context.chain(),
+            answered.outcome(),
+            answered.executed_until(),
+        ));
+        Ok(answered.into_outcome())
     }
 }
 

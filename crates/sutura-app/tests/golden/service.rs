@@ -54,7 +54,8 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
         &crate::adapters::shared_credential(),
         &elsewhere,
     )
-    .expect("a refusal is not an error");
+    .expect("a refusal is not an error")
+    .into_outcome();
     assert!(
         matches!(outcome.refusal(), Some(&RefusalReason::SourceUnavailable { .. })),
         "expected a source refusal, got {outcome:?}"
@@ -90,7 +91,8 @@ fn a_refused_question_never_reaches_the_data_system() {
             &crate::adapters::shared_credential(),
             &fake,
         )
-        .expect("a refusal is not an error");
+        .expect("a refusal is not an error")
+        .into_outcome();
         assert!(outcome.is_refusal(), "{fixture} was answered");
     }
     let recorded = fake
@@ -122,7 +124,8 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::shared_credential(),
         &exhausted,
     )
-    .expect("exhaustion is a refusal, not an error");
+    .expect("exhaustion is a refusal, not an error")
+    .into_outcome();
     assert_eq!(
         outcome.refusal(),
         Some(&RefusalReason::ResourcesExhausted {
@@ -174,7 +177,8 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::shared_credential(),
         &too_wide,
     )
-    .expect("a refusal is not an error");
+    .expect("a refusal is not an error")
+    .into_outcome();
     assert_eq!(
         outcome.refusal(),
         Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
@@ -204,7 +208,8 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::shared_credential(),
         &at_the_cap,
     )
-    .expect("a refusal is not an error");
+    .expect("a refusal is not an error")
+    .into_outcome();
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
         panic!("a result of exactly the cap is answerable, not {outcome:?}");
     };

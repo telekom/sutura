@@ -127,11 +127,25 @@ impl CredentialBroker for StaticCredentialBroker {
     type Error = StaticCredentialsUnusable;
 
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        // **Two passes, and the order is the point.** A source with no static credential is a refusal
+        // and not an error, and not a leg that runs as this process either - `docs/adr/0008` part 6:
+        // asking differently does not help, so the caller is told which source rather than told to
+        // retry. What the first pass buys is that the refusal is decided BEFORE anything is
+        // constructed: under one pass a plan reading two sources whose SECOND is unmintable had the
+        // first one's credential built and then dropped on the floor, and "refused before anything
+        // was minted" was true only of what escaped rather than of what happened. A review asked for
+        // that property; this is the shape that has it, because the count of things built is not
+        // observable from outside a broker and the ORDER is.
+        for source in sources.iter() {
+            if !self.shared.contains_key(source) {
+                return Ok(Minted::Refused { source: source.clone() });
+            }
+        }
         let mut presented = BTreeMap::new();
         for source in sources.iter() {
-            // A source with no static credential is a refusal and not an error, and not a leg that
-            // runs as this process either. `docs/adr/0008` part 6: asking differently does not help,
-            // so the caller is told which source rather than told to retry.
+            // Unreachable: the pass above established that every source has an entry. Answered rather
+            // than unwrapped, because `unwrap_used` is denied and a panic here would be process death
+            // under `panic = "abort"` for a case the loop above already decided.
             let Some(declared) = self.shared.get(source) else {
                 return Ok(Minted::Refused { source: source.clone() });
             };

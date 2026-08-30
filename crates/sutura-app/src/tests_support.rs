@@ -9,7 +9,9 @@
 
 use std::collections::BTreeMap;
 
-use sutura_domain::identity::{CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet};
+use sutura_domain::identity::{
+    CredentialBroker, Expiry, LegCredentials, Minted, Presented, RequestContext, Secret, SourceSet, Subject,
+};
 use sutura_domain::model::SourceName;
 use sutura_domain::plan::Executable;
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
@@ -49,6 +51,15 @@ pub(crate) struct FixedWarehouse {
     source: SourceName,
     posture: SourcePosture,
     result: Option<RowSet>,
+    /// How long this fake's pre-flight takes.
+    ///
+    /// **For one test, and it is the only way to reach the second deadline check.** `answer` compares
+    /// the credential's deadline against the clock again between the pre-flight and the execution,
+    /// because a pre-flight against a networked data system is a round trip. A fake that returns
+    /// instantly cannot make that comparison fail, so the one test that provokes it hands a fake that
+    /// takes longer than the credential's remaining life. `Duration::ZERO` for every other fixture,
+    /// which sleeps not at all.
+    pre_flight_takes: std::time::Duration,
 }
 
 impl FixedWarehouse {
@@ -58,6 +69,7 @@ impl FixedWarehouse {
             source,
             posture,
             result: None,
+            pre_flight_takes: std::time::Duration::ZERO,
         }
     }
 
@@ -67,6 +79,22 @@ impl FixedWarehouse {
             source,
             posture,
             result: Some(result),
+            pre_flight_takes: std::time::Duration::ZERO,
+        }
+    }
+
+    /// The same, with a pre-flight that takes `pre_flight_takes` before it answers.
+    pub(crate) const fn answering_after(
+        source: SourceName,
+        posture: SourcePosture,
+        result: RowSet,
+        pre_flight_takes: std::time::Duration,
+    ) -> Self {
+        Self {
+            source,
+            posture,
+            result: Some(result),
+            pre_flight_takes,
         }
     }
 
@@ -99,6 +127,9 @@ impl Warehouse for FixedWarehouse {
 
     fn dry_run(&self, _executable: Executable<'_>, presented: &Presented) -> Result<PreFlight, Self::Error> {
         self.deliverable(presented)?;
+        // Zero for every fixture but one. See the field's own documentation: a pre-flight that takes
+        // no time cannot make the deadline check between it and the execution fail.
+        std::thread::sleep(self.pre_flight_takes);
         match self.result {
             Some(_) => Ok(PreFlight::NotAsked),
             None => Err(AdapterFailure::Statement { cause: DriverFailure }),
@@ -120,11 +151,14 @@ impl Warehouse for FixedWarehouse {
 
 /// The credential brokers this crate's own tests mint with.
 ///
-/// **Four behaviours rather than one fake with flags**, because each is a different thing to
-/// assert and a boolean-configured fake makes the test read as a configuration rather than as a
+/// **One behaviour per variant rather than one fake with flags**, because each is a different thing
+/// to assert and a boolean-configured fake makes the test read as a configuration rather than as a
 /// case. Together they provoke every outcome `answer` can reach through the port: an answer, the
-/// one refusal, the broker's own failure, a broker whose grant does not cover the plan, and a
-/// broker whose grant an adapter cannot use.
+/// one refusal, the broker's own failure, a broker whose grant an adapter cannot use, and each of
+/// the four ways a grant can disagree with the request it came back for.
+///
+/// **The last three are the reproductions a review handed us**, and they are fixtures rather than
+/// hypotheticals for that reason: each one was demonstrated to be answered before the guard existed.
 pub(crate) enum FixedBroker {
     /// Grants the deployment's own identity for whatever it is asked about.
     GrantsShared,
@@ -140,6 +174,26 @@ pub(crate) enum FixedBroker {
     /// refuses a set that does not cover the sources it was minted FOR, and this one covers the
     /// set it invented rather than the one it was handed.
     GrantsTheWrongSource,
+    /// Grants a credential minted for somebody else than the subject that asked.
+    ///
+    /// **The confused deputy.** `LegCredentials::minted` is `pub` and takes any `Subject`, so this
+    /// is a value a real broker can return by defect or under compromise - and before the guard the
+    /// question was answered with it, while the audit record named the asker.
+    GrantsAnotherSubjectsCredential,
+    /// Grants a credential whose deadline is the Unix epoch: already expired, for every clock.
+    GrantsSomethingAlreadyExpired,
+    /// Grants a credential that expires within the second, so a slow pre-flight outlives it.
+    ///
+    /// **The only way to reach the SECOND deadline check**, which is the one that can fire in
+    /// production: the check after minting runs microseconds later, and this one runs after a
+    /// pre-flight. Paired with `FixedWarehouse::answering_after`, whose pre-flight takes longer than
+    /// the second this grant has left.
+    GrantsSomethingExpiringWithinTheSecond,
+    /// Refuses a source that was never in the set it was asked about.
+    ///
+    /// Before the guard this became a caller-facing `CredentialUnavailable` naming a source the
+    /// caller never asked for - a broker defect reported as the caller's own lack of access.
+    RefusesASourceNobodyAsked,
 }
 
 /// The broker's own failure, which is not a refusal and not a data system's.
@@ -158,7 +212,7 @@ impl CredentialBroker for FixedBroker {
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
         let asked_by = context.chain().subject().clone();
         let elsewhere = SourceName::parse("elsewhere").expect("a fixture source is a source");
-        let (minted_for, material): Grant = match *self {
+        let grant = match *self {
             Self::Unreachable => return Err(BrokerUnreachable),
             Self::RefusesEverything => {
                 let Some(first) = sources.iter().next() else {
@@ -166,35 +220,103 @@ impl CredentialBroker for FixedBroker {
                 };
                 return Ok(Minted::Refused { source: first.clone() });
             }
-            Self::GrantsShared => (sources.clone(), shared_leg),
-            Self::GrantsSubjectMaterial => (sources.clone(), subject_leg),
-            Self::GrantsTheWrongSource => (SourceSet::of(elsewhere), shared_leg),
+            // A source that is not in `sources`, which is the whole of the defect: the name reaching
+            // the caller as a refusal was never asked about.
+            Self::RefusesASourceNobodyAsked => return Ok(Minted::Refused { source: elsewhere }),
+            Self::GrantsShared => Grant::of(asked_by, sources.clone(), shared_leg),
+            Self::GrantsSubjectMaterial => Grant::of(asked_by, sources.clone(), subject_leg),
+            Self::GrantsTheWrongSource => Grant::of(asked_by, SourceSet::of(elsewhere), shared_leg),
+            // Somebody else's grant. The deployment itself rather than a second person, because it
+            // is the value a real mapping defect produces - a broker that fell back to its own
+            // identity - and because the suite's context is always a verified person, so the two
+            // subjects differ in the way that matters.
+            Self::GrantsAnotherSubjectsCredential => Grant::of(Subject::TheDeploymentItself, sources.clone(), shared_leg),
+            Self::GrantsSomethingAlreadyExpired => Grant {
+                not_after: Expiry::At { unix_seconds: 0 },
+                ..Grant::of(asked_by, sources.clone(), shared_leg)
+            },
+            // The next whole second. It has not passed when this returns, and it has passed once a
+            // pre-flight longer than a second has run - which is what makes the second check
+            // provokable without a clock a test can advance.
+            Self::GrantsSomethingExpiringWithinTheSecond => Grant {
+                not_after: Expiry::At {
+                    unix_seconds: now_in_unix_seconds().saturating_add(1),
+                },
+                ..Grant::of(asked_by, sources.clone(), shared_leg)
+            },
         };
         let mut presented = BTreeMap::new();
-        for name in minted_for.iter() {
-            drop(presented.insert(name.clone(), material()));
+        for name in grant.minted_for.iter() {
+            drop(presented.insert(name.clone(), (grant.material)()));
         }
         // The `map_err` arm is unreachable: the map is built from `minted_for`, so it covers it.
         // Answered rather than unwrapped, because this is not a test body.
-        let credentials = LegCredentials::minted(asked_by, Expiry::NothingExpires, &minted_for, presented)
+        let credentials = LegCredentials::minted(grant.asked_by, grant.not_after, &grant.minted_for, presented)
             .map_err(|_uncoverable| BrokerUnreachable)?;
         Ok(Minted::Granted { credentials })
     }
 }
 
-/// What one arm of [`FixedBroker::mint`] decided: which sources to mint for, and what to present.
+/// What one arm of [`FixedBroker::mint`] decided.
 ///
-/// Named because the tuple is over this workspace's `type_complexity` threshold, and naming it is the
-/// better half of that trade - the pair IS the decision each arm makes.
-type Grant = (SourceSet, fn() -> Presented);
+/// **A struct rather than the tuple this used to be**, because the arms now differ in the subject and
+/// the deadline as well as in the source set and the material - and a four-tuple is over this
+/// workspace's `type_complexity` threshold as well as unreadable at the call site. [`Grant::of`] is
+/// the ordinary case, and the one arm that differs says which field it is changing.
+struct Grant {
+    asked_by: Subject,
+    not_after: Expiry,
+    minted_for: SourceSet,
+    material: fn() -> Presented,
+}
 
-/// The deployment's own identity for a source, with a reason a fixture wrote.
+impl Grant {
+    /// A grant for the asker, with no deadline: what every arm but one wants.
+    const fn of(asked_by: Subject, minted_for: SourceSet, material: fn() -> Presented) -> Self {
+        Self {
+            asked_by,
+            not_after: Expiry::NothingExpires,
+            minted_for,
+            material,
+        }
+    }
+}
+
+/// The one acknowledgement witness this crate's fixtures use.
+///
+/// **One definition, read by both the posture a fake warehouse is opened with and the leg the fake
+/// broker mints**, because `answer` now compares them: a shared leg carrying a *different* operator
+/// acknowledgement is a wiring defect, and two fixtures writing two sentences would make every test
+/// here provoke it. It is the same reason the golden matrix reads its leg off its posture.
+pub(crate) fn acknowledged() -> SharedIdentityDeclared {
+    SharedIdentityDeclared::of(
+        AcknowledgementReason::parse("a fake over no data system, in this process").expect("a fixture reason is a reason"),
+    )
+}
+
+/// The posture every fake warehouse in this crate's suite is opened with, unless a test is about the
+/// other one.
+pub(crate) fn shared_posture() -> SourcePosture {
+    SourcePosture::SharedServiceUser {
+        declared: acknowledged(),
+    }
+}
+
+/// The deployment's own identity for a source, carrying the witness above.
 fn shared_leg() -> Presented {
     Presented::SharedServiceUser {
-        declared: SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a fake over no data system, in this process").expect("a fixture reason is a reason"),
-        ),
+        declared: acknowledged(),
     }
+}
+
+/// Now, in whole seconds, for the one fixture that mints a credential with a lifetime.
+///
+/// A fixture may read a clock where the domain may not: what it is standing in for is a broker that
+/// exchanged a token, and such a broker holds one.
+fn now_in_unix_seconds() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |since| since.as_secs())
 }
 
 /// The asker's own credential, which no adapter in this workspace can use.

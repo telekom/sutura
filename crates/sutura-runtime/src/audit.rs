@@ -25,7 +25,7 @@
 //! `sutura_http::router` - which is where a status belongs.
 
 use sutura_domain::audit::{AuditSink, CallRecord, RecordedOutcome};
-use sutura_domain::identity::PrincipalChain;
+use sutura_domain::identity::{Expiry, PrincipalChain};
 
 /// Writes each record as one structured event on the process subscriber.
 ///
@@ -114,6 +114,7 @@ impl AuditSink for TracingAuditSink {
                 rows,
                 definition_version = %provenance.version(),
                 executed_as = executed_as(record),
+                credential_until = executed_until(record),
                 "answered"
             ),
             // `Debug` of a refusal reason is safe to log: the domain has a test asserting that a
@@ -141,6 +142,24 @@ impl AuditSink for TracingAuditSink {
 ///
 /// The empty string is unreachable for an answer: `ExecutedAs` has no empty form, and
 /// `CallRecord::executed_as` is `None` only for a refusal, which is the other arm.
+/// How long the credential this call ran under was good for, as one field.
+///
+/// **Three states, spelled rather than left to a `Debug`**, because all three mean something
+/// different to whoever reads the line: `none` is a question declined before the broker was asked,
+/// `never` is a credential an operator wrote in a file, and a number is a deadline. A collector
+/// grouping by this field gets three stable words rather than a Rust type's formatting.
+///
+/// It is a rendering and not a control: `sutura_domain::identity::Minted::agreeing_with` is what stops
+/// a credential whose deadline had already passed from reaching an adapter, and this is what lets an
+/// incident ask afterwards how much life was left.
+fn executed_until(record: &CallRecord<'_>) -> String {
+    match record.executed_until() {
+        None => String::from("none"),
+        Some(Expiry::NothingExpires) => String::from("never"),
+        Some(Expiry::At { unix_seconds }) => unix_seconds.to_string(),
+    }
+}
+
 fn executed_as(record: &CallRecord<'_>) -> String {
     record.executed_as().map_or_else(String::new, |ran| {
         ran.legs()
@@ -153,7 +172,7 @@ fn executed_as(record: &CallRecord<'_>) -> String {
 #[cfg(test)]
 mod tests {
     use sutura_domain::audit::{AuditSink as _, CallRecord};
-    use sutura_domain::identity::{Actor, ActorChain, PrincipalChain, Subject, SubjectId};
+    use sutura_domain::identity::{Actor, ActorChain, Expiry, PrincipalChain, Subject, SubjectId};
     use sutura_domain::model::{DimensionName, MetricName};
     use sutura_domain::query::{RefusalReason, ToolOutcome};
 
@@ -176,7 +195,7 @@ mod tests {
     fn written(chain: &PrincipalChain) -> String {
         let outcome = a_refusal();
         crate::testing::capture(|| {
-            TracingAuditSink::new().record(&CallRecord::of(chain, &outcome));
+            TracingAuditSink::new().record(&CallRecord::of(chain, &outcome, None));
         })
     }
 
@@ -225,7 +244,7 @@ mod tests {
             id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
         });
         let rendered = crate::testing::capture(|| {
-            TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome));
+            TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
         });
         assert!(rendered.contains("answered"), "{rendered}");
         assert!(
@@ -245,15 +264,55 @@ mod tests {
     }
 
     #[test]
+    fn an_answer_records_how_long_the_credential_it_ran_under_was_good_for() {
+        // The other half of `docs/adr/0008`'s record content, and it arrived for the reason the
+        // posture did: a review found `Expiry` computed, carried and read by nobody. Enforced first -
+        // a credential whose deadline has passed never reaches an adapter - and recorded second, so an
+        // incident can ask afterwards how much life was left.
+        //
+        // Three states and all three are words a collector can group by, which is why this is a
+        // rendering rather than a `Debug` of an `Option`.
+        let chain = PrincipalChain::of(Subject::TheDeploymentItself);
+        let outcome = an_answer_on_a_shared_source();
+        let never = crate::testing::capture(|| {
+            TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, Some(Expiry::NothingExpires)));
+        });
+        assert!(
+            never.contains("\"credential_until\":\"never\""),
+            "a credential an operator wrote in a file does not expire, and the line says so: {never}"
+        );
+        let expiring = crate::testing::capture(|| {
+            TracingAuditSink::new().record(&CallRecord::of(
+                &chain,
+                &outcome,
+                Some(Expiry::At {
+                    unix_seconds: 1_777_000_000,
+                }),
+            ));
+        });
+        assert!(
+            expiring.contains("\"credential_until\":\"1777000000\""),
+            "a deadline is the instant, so an incident can compare it: {expiring}"
+        );
+        let none = crate::testing::capture(|| {
+            TracingAuditSink::new().record(&CallRecord::of(&chain, &outcome, None));
+        });
+        assert!(
+            none.contains("\"credential_until\":\"none\""),
+            "nothing minted is its own word, not an empty value a reader has to interpret: {none}"
+        );
+    }
+
+    #[test]
     fn a_refusal_records_no_executing_identity_because_nothing_executed() {
         // The other arm, and it is a case rather than an empty field: a refused question reached no
         // data system, so there is no identity it ran as. Asserted so that the field's absence stays
         // a decision rather than becoming something a reader has to interpret.
         let chain = PrincipalChain::of(Subject::TheDeploymentItself);
         let refusal = a_refusal();
-        assert!(CallRecord::of(&chain, &refusal).executed_as().is_none());
+        assert!(CallRecord::of(&chain, &refusal, None).executed_as().is_none());
         assert!(
-            CallRecord::of(&chain, &an_answer_on_a_shared_source())
+            CallRecord::of(&chain, &an_answer_on_a_shared_source(), Some(Expiry::NothingExpires))
                 .executed_as()
                 .is_some()
         );
