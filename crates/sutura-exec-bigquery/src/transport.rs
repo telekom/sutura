@@ -8,9 +8,11 @@
 //!   the posture agreement, the leg refusal, the rendering and the whole value mapping are exercised
 //!   against a fake that returns rows, which is what *ports get fakes, not mocked HTTP* asks for.
 //! - **The dependency decision is isolated to one implementor.** An outbound HTTP stack plus a
-//!   credential library is a large addition to a workspace that cross-compiles to musl and gates
-//!   licences exactly, and it belongs in the change that can first verify it against a real endpoint.
-//!   Nothing in this repository can do that - see the crate documentation.
+//!   credential source is a real addition to a workspace that cross-compiles to musl and gates
+//!   licences exactly, and it arrives in exactly one place: [`crate::wire`], behind the crate's
+//!   default-off `wire` feature. `docs/adr/0018` prices it. What is still true is the sentence that
+//!   kept the seam empty for a release: **nothing in this repository can verify a network client**,
+//!   so the acceptance leg is opt-in, needs a developer's own project, and is unexecuted.
 //!
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.

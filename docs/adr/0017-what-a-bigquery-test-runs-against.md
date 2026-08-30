@@ -172,3 +172,23 @@ for an environment reason on somebody else's machine.
 - A developer who wants to try it against their own project needs the transport, which does not exist
   yet. Until then the honest summary of BigQuery support in this repository is: *the statement is
   right as far as four mechanisms can tell, and nobody has run one.*
+
+## What has happened since, and the one sentence above that stopped being true
+
+**The transport exists.** [0018](0018-what-the-bigquery-wire-is-built-from.md) is the dependency
+decision this record deferred, and `sutura_exec_bigquery::wire` is what came of it: `jobs.query` over
+a blocking HTTP client already resolved in `Cargo.lock`, behind a default-off feature, with the
+acceptance leg written as `crates/sutura-exec-bigquery/tests/acceptance.rs` and reached by
+`just bigquery-acceptance`.
+
+So the last bullet above is corrected rather than left standing: a developer who wants to try it now
+has the transport and needs only `just gcloud-login` and three values in their own environment.
+
+**Everything else on this page still holds, including the part that matters most.** This record said
+the change adding the wire would be the change that could first run it against a project. **It was
+not.** The machine it was written on has no `gcloud`, no application-default credential and no
+project, so nothing has been executed against a real dataset, the acceptance leg has never run, and
+the `data_systems:` axis still gains no entry. The summary sentence therefore survives with one word
+changed - *five* mechanisms rather than four, the fifth being the wire's own suite over response
+documents that are not the service's - and 0018's *What is still not claimed* section is where that
+is spelled out.

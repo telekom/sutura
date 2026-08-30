@@ -22,18 +22,24 @@
 //! as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
 //! answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
 //!
-//! What it does not contain is the **wire**: [`transport::JobTransport`] is the seam, and no
-//! implementor of it ships. Two reasons, and the second is the one that decides it:
+//! The **wire** - one [`transport::JobTransport`] that speaks to the endpoint - is [`wire`], behind
+//! the default-off `wire` feature. `docs/adr/0018` is the decision that produced it and prices what
+//! it costs; the two reasons it was absent are answered rather than repealed:
 //!
-//! 1. An outbound HTTP stack plus a credential library is a large dependency addition to a workspace
-//!    that cross-compiles to musl and holds an exact licence allowlist.
-//! 2. **Nothing in this repository can verify it.** There is no `BigQuery` in a container, and
-//!    `docs/adr/0017` records that the acceptance leg runs on a developer's own project or nowhere.
-//!    An unverified network client that looks like the feature is worse than a seam that says it is
-//!    one - which is this repository's own rule about an overstated claim, applied to itself.
+//! 1. The dependency addition turned out to be **zero new packages in `Cargo.lock`**, measured:
+//!    `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
+//!    feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
+//!    decision a composition root makes in a manifest line.
+//! 2. **Nothing in this repository can verify it, and that is still true.** There is no `BigQuery` in
+//!    a container, `docs/adr/0017` refuses an emulator on principle, and the acceptance leg -
+//!    `tests/acceptance.rs` - is `#[ignore]`d, needs a project a developer names in their own
+//!    environment, and **has not been run.** So what [`wire`] claims is that it builds the request it
+//!    says it builds and reads the answer it says it reads; acceptance is not claimed anywhere.
 //!
-//! So this crate is in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited as an
-//! invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name.
+//! So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
+//! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
+//! and the `data_systems:` axis of the golden matrix still gains no entry - a cell that has never
+//! executed reads as coverage.
 //!
 //! # Identity
 //!
@@ -66,6 +72,8 @@ use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 pub mod transport;
+#[cfg(feature = "wire")]
+pub mod wire;
 
 use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
 

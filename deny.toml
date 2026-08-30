@@ -53,12 +53,21 @@ version = 2
 # WHERE THE NEW ENTRIES COME FROM, and it is worth reading before adding to this list. Five of them
 # arrive under `libduckdb-sys`, whose build script DOWNLOADS a prebuilt libduckdb when nothing else
 # has supplied one - so it carries `ureq`, and `ureq` carries a whole TLS stack. `ureq` is not
-# optional, so no feature flag removes it from the graph.
+# optional there, so no feature flag removes it from the graph.
 #
 # That downloader never runs here. `build.rs` checks `DUCKDB_LIB_DIR` before it considers
 # downloading, and `nix/duckdb.nix` sets it from the nixpkgs derivation. The check that this stays
 # true is not a promise: the Nix build sandbox has no network, so a build that fell through to the
 # download path fails loudly rather than quietly fetching a binary nobody pinned.
+#
+# **THOSE FIVE NOW HAVE A SECOND OWNER, and naming only the first is how this comment would rot.**
+# `sutura-exec-bigquery`'s default-off `wire` feature declares `ureq` as a real dependency - the same
+# 3.4.0 with the same two features, which is why it adds no package and no licence; `docs/adr/0018`
+# measured that and says so. What it changes is that `ISC`, `BSD-3-Clause` and `CDLA-Permissive-2.0`
+# are justified by FIRST-PARTY code as well as by a downloader that never runs. That closes a latent
+# trap rather than opening one: had DuckDB ever been dropped as a dev-dependency,
+# `unused-allowed-license` below would have failed on five entries at once, and a reader looking for
+# why would have found a comment naming only the owner that had just left.
 allow = [
   "Apache-2.0",
   "MIT",

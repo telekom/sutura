@@ -6,9 +6,11 @@
 //! endpoint would never hand back on demand. `Conventions` asks for fakes and not mocked HTTP; this is
 //! why.
 //!
-//! What no test here can do is prove the WIRE, because there is no implementor of
-//! [`JobTransport`](crate::transport::JobTransport) that speaks to `BigQuery`. The crate
-//! documentation says so, and `docs/adr/0017` records what a test could run against instead.
+//! What no test here can do is prove the WIRE. An implementor that speaks to the endpoint now exists,
+//! [`crate::wire`], behind the default-off `wire` feature, and its own suite proves that it builds the
+//! request it says it builds and reads the answer it says it reads, over documents that are not the
+//! service's. Nothing in this repository has sent a statement to a real project; `docs/adr/0017`
+//! records what a test could run against instead, and `docs/adr/0018` records that it has not been.
 
 use core::cell::RefCell;
 

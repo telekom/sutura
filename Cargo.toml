@@ -310,6 +310,44 @@ jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_r
 # something audited, in a fixture whose correctness the test cannot observe.
 base64 = { version = "0.23", default-features = false, features = ["std"] }
 
+# The OUTBOUND HTTP client, for `sutura-exec-bigquery`'s wire, behind that crate's default-off
+# `wire` feature. `docs/adr/0018` is the decision and prices the alternatives; what follows is the
+# manifest half of it.
+#
+# **Blocking, and that is the port's shape rather than a preference.** `JobTransport::run` is a
+# synchronous method, because `Warehouse` is - the service reaches it through
+# `sutura_runtime::spawn_carrying_span`, on a pool thread. `reqwest::blocking` would satisfy the
+# signature by starting a runtime of its own inside a call that is already on a blocking thread;
+# `ureq` is natively blocking and needs none.
+#
+# **Zero new packages in `Cargo.lock`, and that was measured rather than hoped for.** 3.4.0 with
+# exactly these two features is ALREADY resolved: it arrives as a build-dependency of
+# `libduckdb-sys`, whose `build.rs` downloads a prebuilt library when nothing else supplied one -
+# `deny.toml` says so at length, and says the downloader never runs here. So `ureq`, `ureq-proto`,
+# `rustls`, `ring`, `untrusted`, `rustls-webpki`, `rustls-pki-types`, `webpki-roots` and `subtle`
+# are all in the graph today, and so is every licence they need. **What changes is which side of
+# the build they are on:** today they are compiled for the HOST, as a build-dependency of a
+# dev-dependency; behind the `wire` feature they would be compiled for the TARGET by whichever
+# artifact turns the feature on. No artifact does - see `crates/sutura-exec-bigquery/Cargo.toml`.
+#
+# `default-features = false` and then back only what is used, and the set is chosen to MATCH what
+# `libduckdb-sys` already resolves so nothing is added:
+#
+#   * `rustls` is the TLS stack, and NOT `native-tls`. Same reason `tokio-rustls` is above: two of
+#     the four release triples are musl, nixpkgs has no musl OpenSSL, and rustls needs no system
+#     library. It also selects `ring` as the provider, which is the one `tokio-rustls` picked here.
+#   * `rustls-webpki-roots` is the trust store, and a CLIENT needs one - which is the sentence
+#     `tokio-rustls`'s note above says would change "when a networked adapter lands". A compiled-in
+#     root set is also what makes this work in a `scratch` image with no system certificates.
+#   * NO `platform-verifier`: it would read the host trust store, so the same binary would trust
+#     different roots on different machines, and it pulls a per-platform closure the musl builds do
+#     not have.
+#   * NO `json`: the request and response documents are built and read with `serde_json`, which is
+#     already a dependency, so the feature would add a code path and change nothing else.
+#   * NO `gzip`, `brotli`, `charset`, `cookies` or `socks-proxy`. A cookie jar on a client that
+#     presents a bearer token is a second credential store nobody asked for.
+ureq = { version = "3", default-features = false, features = ["rustls", "rustls-webpki-roots"] }
+
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
 # environment-driven format split. `tracing-bunyan-formatter` is the machine-readable half.

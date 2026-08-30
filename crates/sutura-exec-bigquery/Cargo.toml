@@ -9,6 +9,44 @@ repository.workspace = true
 publish = false
 description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQL and pushes it down."
 
+[features]
+# The WIRE: one `transport::JobTransport` implementor that speaks to the endpoint over HTTP, plus
+# the credential source it needs. `docs/adr/0018` is the decision; this table is the mechanism.
+#
+# **Default-off, and the reason is which side of the build the TLS stack gets compiled on.** With
+# the feature off this crate is what it was: rendering, credential and posture checks, value
+# mapping, and a port with no implementor - three dependencies, no network, no outbound stack. With
+# it on, `ureq` and its rustls closure are compiled for whatever target is building, and two of the
+# four release triples are musl. Nothing turns it on today: no crate in this workspace depends on
+# `sutura-exec-bigquery` at all, so *no shipped artifact links either half of this crate*, and
+# `sutura-serve` still refuses `kind: bigquery` by name.
+#
+# **Off is not hidden, which is the thing a default-off feature usually gets wrong.** Every gate
+# here passes `--all-features`: `just lint`, `just test`, the doctests, and `deny.toml`'s
+# `[graph] all-features = true`. So the wire is compiled, linted, tested and audited on every run;
+# what the default buys is that a future composition root has to ASK for the outbound stack, in a
+# manifest line a reviewer can see, rather than inheriting it by depending on this crate.
+wire = ["dep:ureq", "dep:serde", "dep:serde_json"]
+
+# The acceptance leg needs the wire, so it is declared with `required-features` rather than gated by a
+# `#![cfg(feature = "wire")]` inside the file: cargo skips the target entirely instead of compiling an
+# empty one, and the requirement is visible where a reader looks for it.
+#
+# **An earlier version of this comment also claimed this was what let `cargo xtask test-causality` see
+# the change, and that was wrong** - recorded rather than deleted, because the wrong reason is a trap
+# worth naming. That gate builds its baseline in a worktree at HEAD, so it can see nothing at all in an
+# UNCOMMITTED tree; the green it first reported was the base suite running with none of this present.
+# And once committed it does not matter which way this target is gated, because the gate skips
+# non-Rust files: this manifest stays at HEAD either way, so the feature exists in the baseline and
+# `tests/acceptance.rs` gets compiled and fails on the missing module in both spellings. What the gate
+# genuinely cannot do is judge a new MODULE - reverting `lib.rs` removes `pub mod wire;` and the whole
+# subtree leaves the build - which is why the honest outcome here is INCONCLUSIVE and the evidence
+# belongs in the handoff.
+[[test]]
+name = "acceptance"
+path = "tests/acceptance.rs"
+required-features = ["wire"]
+
 [dependencies]
 sutura-domain = { workspace = true }
 # Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this
@@ -18,11 +56,19 @@ sutura-domain = { workspace = true }
 sutura-sql = { workspace = true }
 thiserror = { workspace = true }
 
-# **No HTTP client and no credential library, deliberately, and this is the manifest line that says
-# so.** What is missing from this crate is the WIRE - see the crate documentation. Adding an outbound
-# HTTP stack here is a dependency decision with a blast radius that reaches the musl release builds and
-# the licence gate, and it belongs in the change that can first VERIFY it against a real endpoint,
-# which no test in this repository can do. `JobTransport` is the seam it arrives at.
+# ---------------------------------------------------------------- the wire, feature-gated ----
+# All three are `optional = true`, so the default build of this crate resolves none of them.
+#
+# The client. The whole argument for it - blocking because the port is, rustls because two release
+# triples are musl, and zero new packages in `Cargo.lock` because `libduckdb-sys` already resolves
+# exactly this version with exactly these two features - is on the workspace entry in the root
+# manifest, next to the pin.
+ureq = { workspace = true, optional = true }
+# The request and response documents. `serde_json` reads a response into `serde_json::Value` for the
+# one place the endpoint's shape is genuinely dynamic - a cell is a string, a null, or something this
+# adapter refuses - and `serde` derives the fixed shapes around it.
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
 
 [lints]
 workspace = true

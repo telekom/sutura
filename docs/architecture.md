@@ -192,13 +192,21 @@ statement for `DuckDB`, Postgres, `ClickHouse` or `BigQuery`, and the goldens pa
 Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere, and there is no
 `ClickHouse` adapter: the port takes a plan, and rendering is one adapter's private business.
 
-**`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating.** A
-`BigQuery` adapter *does* exist - `sutura-exec-bigquery` - and it is still not a data system this
-build can reach: it has no transport that speaks to the endpoint, no composition root links it, and
-`sutura-serve` refuses `kind: bigquery` by name.
-[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md) is why, and it also records how much
-narrower parse-checking is than acceptance - measured, not assumed: within one target the parse check
-cannot see a function's argument order.
+**`BigQuery` is the one where that distinction has a nearer edge, so it is worth stating - and the
+edge moved once, without the distinction moving with it.** A `BigQuery` adapter *does* exist,
+`sutura-exec-bigquery`, and since [`adr/0018`](adr/0018-what-the-bigquery-wire-is-built-from.md) it
+also has a transport that speaks to the endpoint: `jobs.query` over a blocking HTTP client, behind a
+default-off `wire` feature, with a second narrow port for the credential.
+
+**It is still not a data system this build can reach**, and that is three separate facts rather than
+one. No composition root links the crate. `sutura-serve` refuses `kind: bigquery` by name, correctly,
+because it links no `BigQuery` adapter. And **nothing has ever sent a statement to a real dataset**:
+[`adr/0017`](adr/0017-what-a-bigquery-test-runs-against.md) predicted that the change writing the wire
+would be the change that could first verify it, and it was not - so the acceptance leg is `#[ignore]`d
+and unexecuted, and the `data_systems:` axis of the golden matrix still gains no entry.
+
+0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
+one target the parse check cannot see a function's argument order.
 
 The engine refuses a catalogue that declares any data system other than the one it is: naming the
 engine after whatever the catalogue said was a real bug, because it satisfied the composition root's

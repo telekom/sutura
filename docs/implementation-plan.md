@@ -41,7 +41,7 @@ internal that a stable surface can grow behind.
 | 12 | `feat/credential-port` | 2, 5, 8 - all **done** | **yes** |
 | 13 | `feat/plan-spans-two-identities` | 5, 10, 12 - the last assumption to move | after 12 |
 | 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
-| 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017` | **MOSTLY DONE** - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. **The WIRE is not built**: no `JobTransport` reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it |
+| 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017`; the dependency decision is **made**, `adr/0018` | **MOSTLY DONE** - the fourth dialect, its 88 goldens, the adapter, the source declaration, the registry entry, and now the WIRE: `jobs.query` over `ureq` behind a default-off feature, plus a credential port. **What is still missing is an executed run, not code**: 0017 predicted the change writing the wire could first verify it and it could not - no project was reachable - so the acceptance leg is `#[ignore]`d and unexecuted, nothing links the crate, and `sutura-serve` still refuses `kind: bigquery` |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
 | 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
 | 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |

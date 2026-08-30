@@ -3572,9 +3572,12 @@ dependencies = [
 name = "sutura-exec-bigquery"
 version = "0.2.4"
 dependencies = [
+ "serde",
+ "serde_json",
  "sutura-domain",
  "sutura-sql",
  "thiserror 2.0.20",
+ "ureq",
 ]
 
 [[package]]

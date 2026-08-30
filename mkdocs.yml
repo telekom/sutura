@@ -172,6 +172,7 @@ nav:
       - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
       - What DataHub can carry: adr/0016-what-datahub-can-carry.md
       - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
+      - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

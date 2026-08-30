@@ -185,13 +185,32 @@ regenerated and reviewed as a diff, and the decision is
 [0017](adr/0017-what-a-bigquery-test-runs-against.md). The adapter, the source declaration and the
 registry entry landed with them.
 
-**What did NOT land, deliberately: the wire.** `sutura-exec-bigquery` implements `Warehouse` and is
-tested against a fake transport; `transport::JobTransport` has no implementor that speaks to the
-endpoint, and no composition root links the crate. 0017 decides that the change adding one is the
-change that can first verify it against a real project - which is also where the dependency decision
-belongs, because an outbound HTTP stack and a credential library reach the musl release builds and the
-licence gate. So the honest summary today is: **the statement is right as far as four mechanisms can
-tell, and nobody has run one.** That sentence is what the per-subject step below inherits.
+**What did NOT land with the adapter, deliberately: the wire.** `sutura-exec-bigquery` implemented
+`Warehouse` and was tested against a fake transport; `transport::JobTransport` had no implementor that
+spoke to the endpoint. 0017 decided that the change adding one is the change that can first verify it
+against a real project - which is also where the dependency decision belongs, because an outbound HTTP
+stack and a credential source reach the musl release builds and the licence gate.
+
+**The wire landed next, and the dependency decision is
+[0018](adr/0018-what-the-bigquery-wire-is-built-from.md).** `jobs.query` called directly over `ureq`,
+behind a default-off `wire` feature, plus a second narrow port - `wire::credential::AccessTokens` -
+whose one implementor reads the file `just gcloud-login` writes. What decided it was not API surface:
+every wrapper crate, the official preview one included, pulls **`anyhow`** transitively through
+`prost`, which is a claim this workspace makes in writing and enforces with a gate. Two of them pull
+an Arrow major that is not the engine's and one pulls `openssl`. The chosen client costs **zero new
+packages in `Cargo.lock`** - measured, 446 before and 446 after - because `libduckdb-sys` already
+resolves exactly that version and feature set, and it therefore costs the licence allowlist nothing
+either.
+
+**And 0017's prediction about itself did not come true, which is the part to read before believing
+any of this.** The change that wrote the wire could NOT run it: the machine had no `gcloud`, no
+application-default credential and no project. So the acceptance leg exists as
+`crates/sutura-exec-bigquery/tests/acceptance.rs`, three `#[ignore]`d tests behind
+`just bigquery-acceptance`, and **it is unexecuted**; no composition root links the crate,
+`sutura-serve` still refuses `kind: bigquery` by name, and the `data_systems:` axis still gains no
+entry. The honest summary is 0017's sentence with one word moved: **the statement is right as far as
+five mechanisms can tell, and nobody has run one.** That sentence is what the per-subject step below
+inherits, and the first thing that step owes is a green acceptance run rather than more code.
 
 ## BigQuery, per subject
 
