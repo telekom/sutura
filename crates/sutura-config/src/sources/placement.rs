@@ -199,6 +199,20 @@ impl DatasetId {
 /// The module header carries why this is an enum. What is worth repeating at the type is that
 /// [`SourceKind`] is DERIVED from it - see [`Self::kind`] - rather than stored beside it, so the two
 /// cannot disagree about what a source is.
+///
+/// # The limit, because an enum variant's fields are always public
+///
+/// There is no way to make these private, so **a placement is constructible in-process by any crate
+/// that can name the type** - including one carrying a relative `data_dir`, which `parse_data_dir`
+/// refuses when it reads a file. That is a real gap in this type and it is not the one that matters,
+/// for the reason AGENTS.md already states about the other constructors here: what is closed is the
+/// path from a **configuration file**. [`ConfiguredSource`](crate::ConfiguredSource) holds its
+/// placement in a private field and has no public constructor, so a
+/// [`SourceRegistry`](crate::SourceRegistry) can still only come into existence through
+/// `Settings::parse`, and that is the only door a deployment goes through.
+///
+/// Written down rather than left to be re-derived, because "the fields are public" and "the checks can
+/// be skipped" look like the same sentence and are not.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourcePlacement {
     /// A directory of CSV or Parquet files, read by the in-process engine.
