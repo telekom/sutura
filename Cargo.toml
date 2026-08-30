@@ -227,7 +227,7 @@ tower = "0.5"
 # `trace` for the per-request span, `timeout` for the request bound, `limit` for the body bound.
 # CORS is deliberately ABSENT: a browser is not a client of this surface, and an allow-list nobody
 # needs is an allow-list somebody widens.
-tower-http = { version = "0.6", default-features = false, features = ["trace", "timeout", "limit"] }
+tower-http = { version = "0.7", default-features = false, features = ["trace", "timeout", "limit"] }
 # The rate limiter, and its axum adapter.
 #
 # `default-features = false` on `tower_governor` is a supply-chain decision, and it was measured
@@ -277,36 +277,27 @@ tokio-rustls = { version = "0.26", default-features = false, features = ["loggin
 # behind a `Direct` deployment a bug in it is the whole authentication story rather than a second line
 # of defence.
 #
-# **Why 9.3 and not 11.0, which is current.** 11.0 removed `ring` and has no default crypto backend:
-# the two on offer are `aws_lc_rs`, which needs cmake and a bindgen path in the build sandbox and
-# would have to cross-compile for two musl targets, and `rust_crypto`, which pulls the `rsa` crate -
-# carrying RUSTSEC-2023-0071, unpatched, which `cargo deny check advisories` fails on. So the newest
-# version that resolves is the newest usable one, which is what *Dependency Currency* asks for rather
-# than the highest number. RE-CHECK when either of those changes: an `rsa` release past 0.9 that
-# clears the advisory, or an `aws-lc-rs` that needs no cmake, makes 11.x reachable. Measured
-# 2026-08-29.
+# **AWS-LC and not `rust_crypto`.** `rust_crypto` pulls the `rsa` crate carrying
+# RUSTSEC-2023-0071, unpatched, which `cargo deny check advisories` fails on. AWS-LC uses the C
+# cross-toolchain the release derivations already export. Measured 2026-08-30 by building both
+# statically linked musl releases, not inferred from the native build.
 #
-# **What it costs, counted rather than waved at:** ONE package in `Cargo.lock` - itself. `base64`,
-# `serde`, `serde_json` and `ring` are already resolved; `default-features = false` drops `use_pem`,
-# and with it `pem` and `simple_asn1`, because keys arrive here as JWK and never as PEM. What does
-# change is that `ring` moves from an optional edge - it arrives under the `tls` feature and under
-# `libduckdb-sys`'s `ureq` - into the DEFAULT graph of `sutura-http`, so a shipped binary now links
-# it. `deny.toml` already allows its "Apache-2.0 AND ISC" for exactly that stack, which was checked
-# rather than assumed, and `ring` ships its own assembly and cross-compiles with the musl `cc` the
-# Nix build already exports - which is why it was chosen over `aws-lc-rs` for rustls above too.
+# **What it costs, counted rather than waved at:** nine new packages in `Cargo.lock`. `base64`,
+# `serde` and `serde_json` are already resolved; `default-features = false` drops `use_pem`, and
+# with it `pem` and `simple_asn1`, because keys arrive here as JWK and never as PEM.
 #
 # Upstream calls itself passively maintained. That is a real cost and it is the smallest one
 # available: every alternative is either bigger (an HTTP client, an async runtime and an axum layer),
 # built on OpenSSL, or unmaintained outright.
-jsonwebtoken = { version = "9.3", default-features = false }
+jsonwebtoken = { version = "11", default-features = false, features = ["aws_lc_rs"] }
 
 # base64url, and TEST-ONLY: `sutura-http`'s leg 1 tests write a JWK, whose `x` and `y` are base64url
 # of a public point. Nothing in a shipped path encodes or decodes base64 first-party - `jsonwebtoken`
 # does its own inside the token - so this is a dev-dependency and adds nothing to the lock, where
-# 0.22.1 is already resolved under that crate. Written rather than hand-rolled for the reason `sha2`
+# 0.23 is already resolved under the engine. Written rather than hand-rolled for the reason `sha2`
 # and `subtle` are: ten lines of local bit-twiddling under an `indexing_slicing` ban, to reimplement
 # something audited, in a fixture whose correctness the test cannot observe.
-base64 = { version = "0.22", default-features = false, features = ["std"] }
+base64 = { version = "0.23", default-features = false, features = ["std"] }
 
 # Tracing. `registry` is what a layered subscriber is built on, `env-filter` is what reads a
 # `RUST_LOG`-shaped directive, and `fmt`/`ansi` are the human-readable half of the
