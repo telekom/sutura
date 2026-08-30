@@ -141,11 +141,14 @@ pub(crate) fn bound_value(param: &ParamValue) -> String {
 /// `without_string_literals`. Two hand-written copies of this loop would be two things to keep in
 /// step for no gain; one implementation cannot drift from itself.
 ///
-/// A single toggle is enough for either delimiter because an identifier here is `[A-Za-z0-9_]` and
-/// nothing else - `parse_identifier` in `sutura-domain` rejects every other character, which is
-/// what makes that a fact rather than an assumption - so neither a `"` nor a `'` can occur inside
+/// A single toggle is enough for any of the delimiters because an identifier here is `[A-Za-z0-9_]`
+/// and nothing else - `parse_identifier` in `sutura-domain` rejects every other character, which is
+/// what makes that a fact rather than an assumption - so none of `"`, `'` or `` ` `` can occur inside
 /// a name. It also handles SQL's doubled `''` escape with no special case: the pair flips out of
 /// the literal and straight back into it, which drops the same characters either way.
+///
+/// The backtick is in that list because `BigQuery` quotes identifiers with one, and the argument
+/// above is what licenses treating it exactly like the other two rather than needing a fourth pass.
 ///
 /// **That argument is about ESCAPING and licenses nothing about what may be dropped.** It says the
 /// toggle finds the right span boundaries; it does not say the span behind those boundaries is an
@@ -199,8 +202,16 @@ fn without_spans(sql: &str, delimiter: char) -> String {
 /// `without_string_literals` drops them for the one assertion that has to look PAST a literal
 /// rather than at it, layered on top of this rather than folded into it. Two haystacks, because the
 /// two claims want opposite things from the same characters.
-pub(crate) fn without_identifiers(sql: &str) -> String {
-    without_spans(sql, '"')
+/// **The delimiter is read off the DIALECT, and that is a fourth-dialect fix rather than a tidy-up.**
+/// This function hard-coded `"`, which is right for three targets and silently wrong for `BigQuery`:
+/// it quotes with a backtick, so a hard-coded double quote drops NO spans from a `BigQuery`
+/// statement. Every claim layered on this - the value searches, the identifier search, the
+/// placeholder scan - would then run over the raw statement and keep passing, because dropping
+/// nothing is indistinguishable from dropping the right thing when the assertion is an absence.
+/// `Dialect::identifier_quote` is where the character is declared, and `sutura-sql` measures that
+/// declaration against what the layer actually emits.
+pub(crate) fn without_identifiers(sql: &str, dialect: Dialect) -> String {
+    without_spans(sql, dialect.identifier_quote().character())
 }
 
 /// The statement with the quoted identifiers **and** the single-quoted string literals removed.
@@ -238,8 +249,8 @@ pub(crate) fn without_identifiers(sql: &str) -> String {
 /// delimiter can appear inside an identifier (see `without_spans`), so the order does not change
 /// the result today; composing this way makes that independence something a reader can see instead
 /// of something to re-derive.
-pub(crate) fn without_string_literals(sql: &str) -> String {
-    without_spans(&without_identifiers(sql), '\'')
+pub(crate) fn without_string_literals(sql: &str, dialect: Dialect) -> String {
+    without_spans(&without_identifiers(sql, dialect), '\'')
 }
 
 /// Whether `needle` appears in `haystack` as a bare word rather than inside a longer one.
@@ -284,7 +295,7 @@ pub(crate) fn appears_bare(haystack: &str, needle: &str) -> bool {
 /// generator that legitimately reordered a `WHERE` clause, and reordering is not the defect this is
 /// aimed at.
 pub(crate) fn placeholders(sql: &str, dialect: Dialect) -> Vec<usize> {
-    let searchable = without_string_literals(sql);
+    let searchable = without_string_literals(sql, dialect);
     let mut found: Vec<usize> = Vec::new();
     match dialect.placeholder_style() {
         // Anonymous: the position IS the order of appearance, so the ordinal is the position.
@@ -347,13 +358,14 @@ pub(crate) fn placeholders(sql: &str, dialect: Dialect) -> Vec<usize> {
 /// positive assertion, which never reads the value at all.
 pub(crate) fn assert_absent_as_text(fixture: &str, dialect: Dialect, origin: &str, value: &str, sql: &str) {
     assert!(
-        !without_identifiers(sql).contains(value),
+        !without_identifiers(sql, dialect).contains(value),
         "{fixture} for {dialect} carries {origin} {value:?} outside a quoted identifier:\n{sql}"
     );
     assert!(
         !appears_bare(sql, value),
         "{fixture} for {dialect} carries {origin} {value:?} as a bare word, which is what a value \
-         wrapped in double quotes looks like:\n{sql}"
+         wrapped in this dialect's identifier quote ({:?}) looks like:\n{sql}",
+        dialect.identifier_quote().character()
     );
 }
 
@@ -382,7 +394,7 @@ pub(crate) fn assert_one_placeholder_per_parameter(fixture: &str, dialect: Diale
 
 /// The placeholder scan, over statements written by hand rather than generated.
 ///
-/// The corpus exercises the ordinary shape in all three dialects, so what this pins is the three
+/// The corpus exercises the ordinary shape in every dialect, so what this pins is the three
 /// things it cannot reach - and each of them is a claim the doc comments above make in prose:
 ///
 /// - **A repeated `$1`.** A count accepts it and a numbering check must not, because a statement

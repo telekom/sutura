@@ -546,10 +546,13 @@ fn a_fact_leg_with_no_terms_projects_keys_rather_than_a_count() {
             "the distinct-key leg did not group, so its keys are not distinct for {dialect}:\n{}",
             query.sql()
         );
+        // Quoted with the dialect's own character rather than a literal `"` - BigQuery uses a
+        // backtick, and a hard-coded double quote failed here rather than passing vacuously.
+        let quote = dialect.identifier_quote().character();
         for name in ["subscription_key", "customer_key"] {
             assert!(
-                query.sql().contains(&format!("\"{name}\"")),
-                "the distinct-key leg does not project {name:?} for {dialect}:\n{}",
+                query.sql().contains(&format!("{quote}{name}{quote}")),
+                "the distinct-key leg does not project {name:?} quoted with {quote:?} for {dialect}:\n{}",
                 query.sql()
             );
         }

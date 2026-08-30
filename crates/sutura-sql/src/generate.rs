@@ -9,7 +9,7 @@
 //! most of it. A pre-1.0 API change upstream therefore touches two files in this crate, both of them
 //! here rather than anywhere else.
 //!
-//! Five things about how the dialect layer is used, every one of them measured rather than assumed,
+//! Six things about how the dialect layer is used, every one of them measured rather than assumed,
 //! and every one of them looking right until it was rendered:
 //!
 //! **The fluent builder, not the AST structs.** `Expression::Select` has upwards of thirty fields
@@ -26,8 +26,23 @@
 //! which no target accepts.
 //!
 //! **The time bucket is cast to a date.** `DATE_TRUNC` over a date returns a TIMESTAMP in two of the
-//! three targets, so without the cast the type of the `period` column is whatever each dialect chose
+//! four targets, so without the cast the type of the `period` column is whatever each dialect chose
 //! and every adapter would need to know which.
+//!
+//! **The time bucket's SPELLING is per dialect, and it is the one difference here the layer does not
+//! absorb.** Three targets take `DATE_TRUNC('month', <date>)`; `BigQuery` takes
+//! `DATE_TRUNC(<date>, MONTH)` - the arguments the other way round and the grain a bare keyword
+//! rather than a string. [`crate::dialect::DateTruncShape`] holds the declaration and the reason it
+//! has to be one: **within one target, the parse check cannot tell the two apart.** Both shapes
+//! rendered for `BigQuery` parse as `BigQuery`, so the corpus would be green on the wrong one.
+//! `the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is that measurement.
+//!
+//! **The limit on that claim, because the first version of it was too broad and a test caught it:**
+//! the check does catch a statement rendered for the WRONG target, on the quoting rather than on the
+//! bucket - double quotes are string delimiters in `GoogleSQL`, so a DuckDB-rendered statement fails to
+//! parse as `BigQuery` at the first qualified column. `the_parse_check_does_catch_the_wrong_quote_character`
+//! pins that, and the two tests together say precisely which half is covered by a mechanism and which
+//! half rests on a declaration and a reviewed golden.
 //!
 //! **Placeholders are ours.** The dialect layer renders every placeholder as `?` whatever the target,
 //! and carries a per-dialect `parameter_token` it never reads - so Postgres would be sent `?` and
@@ -38,13 +53,13 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder};
+use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType};
 use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 
 use crate::GeneratedQuery;
-use crate::dialect::{Dialect, PlaceholderStyle};
+use crate::dialect::{DateTruncShape, Dialect, PlaceholderStyle};
 
 /// Why a statement could not be rendered.
 ///
@@ -77,14 +92,20 @@ pub enum GenerateError {
 
 /// The dialect layer's name for a data system.
 ///
+/// **The one mapping, and `pub(crate)` so it stays one.** `expression.rs` held a byte-identical copy
+/// until a fourth dialect made the duplication visible the way duplication usually becomes visible:
+/// the compiler demanded the same new arm twice, and two matches over one enum are two places for the
+/// answer to differ. Adding a dialect now touches this match once.
+///
 /// A free function rather than a second inherent `impl Dialect`: the type is declared in
 /// `dialect.rs`, which does not name this crate, and two inherent impls for one type hide half of a
 /// type's methods from whoever opens the other file.
-const fn dialect_type(dialect: Dialect) -> DialectType {
+pub(crate) const fn dialect_type(dialect: Dialect) -> DialectType {
     match dialect {
         Dialect::DuckDb => DialectType::DuckDB,
         Dialect::Postgres => DialectType::PostgreSQL,
         Dialect::ClickHouse => DialectType::ClickHouse,
+        Dialect::BigQuery => DialectType::BigQuery,
     }
 }
 
@@ -132,6 +153,9 @@ fn aliased(inner: Expr, label: &str) -> Result<Expr, GenerateError> {
 }
 
 /// The grain, as the argument `DATE_TRUNC` takes.
+///
+/// Lowercase, which is what the three string-literal targets have always been sent and what their
+/// goldens carry. The keyword target uppercases it - see [`grain_keyword`].
 const fn unit(grain: Grain) -> &'static str {
     match grain {
         Grain::Day => "day",
@@ -139,6 +163,29 @@ const fn unit(grain: Grain) -> &'static str {
         Grain::Month => "month",
         Grain::Quarter => "quarter",
         Grain::Year => "year",
+    }
+}
+
+/// The grain as a BARE KEYWORD, for the target that wants one rather than a string.
+///
+/// **This is the one place text is written into a statement rather than bound, so the reason it is
+/// not an injection is stated here rather than left to be re-derived.** `Raw` inserts its `sql` field
+/// verbatim, with no quoting and no escaping, which is exactly what a keyword argument needs and
+/// exactly what nothing reachable from input may be allowed to reach. What reaches it is the return
+/// of an exhaustive `const` match over [`Grain`] - a closed five-variant enum in the domain - so the
+/// set of strings this function can ever produce is five compile-time literals, none of which
+/// contains a quote, a space or a parenthesis. A caller cannot widen it: [`Grain`] has no variant
+/// carrying text, and a question names a grain by choosing one of the five.
+///
+/// Uppercase because that is how the target's own documentation writes a date part, and because a
+/// bare lowercase `month` beside a column called `month` is needlessly hard to read in a golden.
+const fn grain_keyword(grain: Grain) -> &'static str {
+    match grain {
+        Grain::Day => "DAY",
+        Grain::Week => "WEEK",
+        Grain::Month => "MONTH",
+        Grain::Quarter => "QUARTER",
+        Grain::Year => "YEAR",
     }
 }
 
@@ -186,13 +233,14 @@ fn term_expression(term: &PlanTerm) -> Expr {
 /// some targets: `SAFE_DIVIDE` for one, a `CASE` for another, `COUNTIF` and `countIf` for two more.
 /// But `SafeDivide` has **no Postgres lowering** - the generator falls through to writing the literal
 /// text `SAFE_DIVIDE(x, y)`, which is not a function Postgres has - and Postgres is a target we
-/// render for. Using the node would produce a statement that is valid in two of our three dialects
-/// and a call to a non-existent function in the third.
+/// render for. Using the node would produce a statement that is valid in most of the dialects we
+/// render for and a call to a non-existent function in Postgres.
 ///
-/// `NULLIF` and `/` exist in all three, and a division by null is null in all three, so this form is
-/// identical in behaviour and portable by construction. Revisit it if the node gains that lowering;
+/// `NULLIF` and `/` exist in every dialect we render for, and a division by null is null in each, so
+/// this form is identical in behaviour and portable by construction. Revisit it if the node gains that lowering;
 /// until then the golden that parses every statement in its target dialect is what would catch the
-/// regression.
+/// regression - with the limit `crate::dialect::DateTruncShape` records, which is that such a golden
+/// sees syntax and not a function's argument contract.
 ///
 /// The numerator is cast to a floating type first. Integer division truncates in Postgres and in
 /// `DuckDB` - `SUM(cents) / COUNT(*)` would silently return a whole number - which is the wrong answer
@@ -235,12 +283,25 @@ fn predicate(dialect: Dialect, plan_predicate: &PlanPredicate) -> Expr {
 /// differently in a leg than in a mono-source answer would make the two disagree about which month a
 /// row belongs to - and the differential test compares rows rather than statements, so it would
 /// report the disagreement as a wrong number.
-fn bucket_expression(bucket: &PlanBucket) -> Expr {
-    builder::func(
-        "DATE_TRUNC",
-        vec![builder::lit(unit(bucket.grain())), column(bucket.column())],
-    )
-    .cast("DATE")
+///
+/// **It takes the dialect now, and that is the fourth dialect's real cost.** Three targets spell this
+/// one way and `BigQuery` spells it another, in both the argument order and the grain's form, so the
+/// match below is the only thing between a `BigQuery` deployment and a statement that truncates by
+/// the wrong argument. [`crate::dialect::DateTruncShape`] carries why nothing else can cover it.
+fn bucket_expression(bucket: &PlanBucket, dialect: Dialect) -> Expr {
+    let arguments = match dialect.date_trunc_shape() {
+        DateTruncShape::GrainFirstAsLiteral => {
+            vec![builder::lit(unit(bucket.grain())), column(bucket.column())]
+        }
+        // The grain as a bare keyword. `grain_keyword` carries why a `Raw` node here is not a hole.
+        DateTruncShape::DateFirstAsKeyword => vec![
+            column(bucket.column()),
+            Expr(Expression::Raw(Raw {
+                sql: String::from(grain_keyword(bucket.grain())),
+            })),
+        ],
+    };
+    builder::func("DATE_TRUNC", arguments).cast("DATE")
 }
 
 /// Every join a plan declared, added to the statement.
@@ -295,7 +356,7 @@ fn render(ast: &Expression, dialect: Dialect) -> Result<String, GenerateError> {
 /// Renders a plan as one statement, paired with its parameters.
 pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, GenerateError> {
     let bucket = plan.bucket();
-    let bucket_expr = bucket_expression(bucket);
+    let bucket_expr = bucket_expression(bucket, dialect);
 
     // Dimensions, then the time bucket, then the measure. A stable order, because it is the result
     // schema a caller reads by position and a golden pins by text - and `QueryPlan::result_labels`
@@ -389,7 +450,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             ref joins,
             ..
         } => {
-            let bucket_expr = bucket_expression(bucket);
+            let bucket_expr = bucket_expression(bucket, dialect);
             projection.push(aliased(bucket_expr.clone(), bucket.label())?);
             grouping.push(bucket_expr);
             // Zero to four of them. Empty is the distinct-key leg, and it is not a special case
@@ -422,4 +483,143 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
         render(&ast, dialect)?,
         leg.params().to_vec(),
     ))
+}
+
+/// What this module claims about the dialect layer, measured against the layer itself.
+///
+/// **Every test here exists because a declaration in [`crate::dialect`] would otherwise be a claim
+/// about a rendering nobody checked.** That module deliberately does not name `polyglot-sql`, so the
+/// declarations live there and the measurements live here - and a declaration that stopped matching
+/// the layer fails at this file rather than in a golden diff somebody accepts.
+#[cfg(test)]
+mod tests {
+    use sutura_domain::model::{ColumnName, Grain, TableName};
+    use sutura_domain::plan::{PlanBucket, PlanColumn};
+
+    use polyglot_sql::builder;
+
+    use super::{bucket_expression, render};
+    use crate::dialect::{ALL, Dialect};
+
+    fn bucket(grain: Grain) -> PlanBucket {
+        PlanBucket::new(
+            String::from("period"),
+            grain,
+            PlanColumn::new(
+                TableName::parse("orders").expect("a test table is a table"),
+                ColumnName::parse("order_date").expect("a test column is a column"),
+            ),
+        )
+    }
+
+    /// One bucket, rendered on its own, for each dialect.
+    fn rendered_bucket(dialect: Dialect) -> String {
+        render(&bucket_expression(&bucket(Grain::Month), dialect).into_inner(), dialect)
+            .expect("a bucket renders for every dialect this crate declares")
+    }
+
+    #[test]
+    fn the_layer_quotes_with_the_character_this_crate_declares() {
+        // `Dialect::identifier_quote` is read by the golden suite to find the quoted spans in a
+        // statement, so a wrong answer there does not fail loudly - it makes the *no identifier
+        // reaches the statement unquoted* claim search for a character that is not in the statement,
+        // which passes. Measured against a rendering that definitely contains an identifier.
+        for &dialect in ALL {
+            let sql = rendered_bucket(dialect);
+            let quote = dialect.identifier_quote().character();
+            let quoted = format!("{quote}orders{quote}");
+            assert!(
+                sql.contains(&quoted),
+                "{dialect} declares {quote:?} as its identifier quote and the layer did not use it:\n{sql}"
+            );
+        }
+    }
+
+    #[test]
+    fn bigquery_gets_the_date_first_and_the_grain_as_a_bare_keyword() {
+        // The declaration in `DateTruncShape`, asserted on the rendering rather than on the enum -
+        // the enum is asserted in `dialect.rs`, and this is the half that says the match arm actually
+        // builds what the arm claims.
+        let sql = rendered_bucket(Dialect::BigQuery);
+        assert!(sql.contains("DATE_TRUNC(`orders`.`order_date`, MONTH)"), "{sql}");
+        // And the grain is NOT a string literal, which is the half that would otherwise render as a
+        // statement BigQuery misreads rather than rejects.
+        assert!(!sql.contains("'month'"), "{sql}");
+    }
+
+    #[test]
+    fn the_other_three_keep_the_grain_first_as_a_string_literal() {
+        // The shape 63 existing goldens already carry. Pinned here too, because the fourth dialect's
+        // arm is one edit away from changing all four.
+        for dialect in [Dialect::DuckDb, Dialect::Postgres, Dialect::ClickHouse] {
+            let sql = rendered_bucket(dialect);
+            assert!(sql.contains("'month'"), "{dialect}: {sql}");
+            assert!(!sql.contains("MONTH"), "{dialect}: {sql}");
+        }
+    }
+
+    #[test]
+    fn the_parse_check_cannot_tell_the_two_bucket_shapes_apart() {
+        // **The measurement that makes `DateTruncShape` a declaration rather than a check**, and it
+        // isolates ONE variable on purpose. The golden suite parses every statement in the dialect it
+        // was generated for, which is the closest thing we have to "this is valid there". What that
+        // check cannot see is the ARGUMENT ORDER of a function call.
+        //
+        // So both shapes are rendered for BigQuery - same target, same backtick quoting, differing
+        // only in the bucket - and both parse. A BigQuery statement built with the grain-first arm
+        // would therefore render, parse and snapshot green here, and be REJECTED by BigQuery on the
+        // first real question: `DateTruncShape` carries why it is a rejection rather than a wrong
+        // number, which is the better of the two failures and still not one CI would have found.
+        //
+        // The first version of this test compared the DuckDB-RENDERED string against the BigQuery
+        // parser and failed, which looked like the parse check catching the bug and was a different
+        // finding entirely: double-quoted identifiers are string literals in `GoogleSQL`, so that
+        // string fails on `"orders"."order_date"` before the bucket is reached. Two variables at
+        // once, and the quoting one is covered by the test below.
+        let wrong_shape_for_bigquery = render(
+            &builder::func(
+                "DATE_TRUNC",
+                vec![builder::lit("month"), super::column(bucket(Grain::Month).column())],
+            )
+            .cast("DATE")
+            .into_inner(),
+            Dialect::BigQuery,
+        )
+        .expect("the grain-first shape renders for bigquery too - that is the problem");
+        let right_shape_for_bigquery = rendered_bucket(Dialect::BigQuery);
+
+        assert_ne!(
+            wrong_shape_for_bigquery, right_shape_for_bigquery,
+            "the two shapes have to differ or this test compares a string with itself"
+        );
+        for (label, sql) in [
+            ("the grain-first shape", &wrong_shape_for_bigquery),
+            ("the date-first shape", &right_shape_for_bigquery),
+        ] {
+            let parsed = polyglot_sql::parse(sql, super::dialect_type(Dialect::BigQuery));
+            assert!(
+                parsed.is_ok(),
+                "{label} did not parse as bigquery, which would mean the parse check has grown teeth \
+                 this test says it has not - read that as good news and re-scope the claim in \
+                 AGENTS.md rather than weakening this assertion: {:?}\n{sql}",
+                parsed.err()
+            );
+        }
+    }
+
+    #[test]
+    fn the_parse_check_does_catch_the_wrong_quote_character() {
+        // The other half, and it is the good news the test above must not be read as denying. A
+        // statement rendered with double quotes does NOT parse as BigQuery: in `GoogleSQL` a double
+        // quote opens a string, so `"orders"."order_date"` is a literal followed by a dot and the
+        // parser stops there. So the quoting half of a mis-targeted statement IS caught by the
+        // existing corpus, and only the bucket's shape needs a declaration to stand behind it.
+        let double_quoted = rendered_bucket(Dialect::DuckDb);
+        let parsed = polyglot_sql::parse(&double_quoted, super::dialect_type(Dialect::BigQuery));
+        assert!(
+            parsed.is_err(),
+            "a double-quoted identifier parsed as bigquery, so the corpus is not catching the \
+             quoting half either:\n{double_quoted}"
+        );
+    }
 }

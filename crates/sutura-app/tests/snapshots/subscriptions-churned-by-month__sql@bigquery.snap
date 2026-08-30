@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) AS `period`, sum(CASE WHEN `fct_subscription_monthly`.`churned_in_month` THEN 1 ELSE 0 END) AS `subscriptions_churned` FROM `fct_subscription_monthly` WHERE `fct_subscription_monthly`.`month` >= ? AND `fct_subscription_monthly`.`month` < ? GROUP BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) ORDER BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) LIMIT 10001

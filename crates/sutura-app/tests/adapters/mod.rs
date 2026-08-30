@@ -371,7 +371,7 @@ where
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
-/// The parse target rides along because the dialect layer names the same three targets under its own
+/// The parse target rides along because the dialect layer names the same targets under its own
 /// spelling, and a golden that renders for one and parse-checks against another would pass while
 /// proving nothing. Pairing them here is what keeps that from being two lists.
 ///
@@ -405,6 +405,11 @@ macro_rules! registered {
             clickhouse,
             sutura_sql::Dialect::ClickHouse,
             polyglot_sql::DialectType::ClickHouse
+        );
+        $cell!(
+            bigquery,
+            sutura_sql::Dialect::BigQuery,
+            polyglot_sql::DialectType::BigQuery
         );
     };
 }

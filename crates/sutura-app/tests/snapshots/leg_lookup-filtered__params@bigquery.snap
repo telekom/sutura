@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/legs.rs
+expression: query.params()
+---
+- Text: north

@@ -118,6 +118,7 @@ polyglot-sql = { version = "0.9.2", default-features = false, features = [
   "dialect-duckdb",
   "dialect-postgresql",
   "dialect-clickhouse",
+  "dialect-bigquery",
 ] }
 
 # The local and single-file data system. WITHOUT `bundled`: that feature compiles DuckDB's C++

@@ -181,7 +181,7 @@ fn quotes_every_identifier(dialect: Dialect) {
             continue;
         };
         let query = sql_for(plan, dialect);
-        let stripped = without_string_literals(query.sql());
+        let stripped = without_string_literals(query.sql(), dialect);
 
         for name in &names {
             assert!(
@@ -200,10 +200,15 @@ fn quotes_every_identifier(dialect: Dialect) {
         quoted.push(String::from(plan.bucket().label()));
         quoted.push(String::from(plan.measure_label()));
         quoted.extend(plan.keys().iter().map(|key| String::from(key.label())));
+        // The quote character comes from the dialect, not from a literal `"`. A hard-coded double
+        // quote made this half assert that a BigQuery statement carries `"orders"` - which it never
+        // does, so the whole positive half failed rather than passing vacuously. The good direction
+        // for a fixture to break in, and the reason it is a function of the dialect now.
+        let quote = dialect.identifier_quote().character();
         for name in &quoted {
             assert!(
-                query.sql().contains(&format!("\"{name}\"")),
-                "{} for {dialect} does not carry {name:?} quoted:\n{}",
+                query.sql().contains(&format!("{quote}{name}{quote}")),
+                "{} for {dialect} does not carry {name:?} quoted with {quote:?}:\n{}",
                 stem(&path),
                 query.sql()
             );
