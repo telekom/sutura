@@ -512,6 +512,50 @@ fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs(
     assert!(warehouse.transport.seen.borrow().is_empty());
 }
 
+#[test]
+fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
+    // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a
+    // null BEFORE it reads the column's type, which is right for a null and wrong for the schema: a
+    // result with NO rows never reaches `cell` at all, and a result whose unmapped column happens to
+    // be entirely null reaches it and is answered. So a `TIMESTAMP` column came back as a successful
+    // empty `RowSet`, and whether this adapter maps a type depended on what the data happened to be.
+    //
+    // Both shapes, because they were reachable for two different reasons.
+    let empty = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("TIMESTAMP")))],
+        Vec::new(),
+        0,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&empty).expect_err("a zero-row unmapped schema is refused") {
+        BigQueryError::UnmappedType { ref column, ref named } => {
+            assert_eq!(column, "at");
+            assert_eq!(named, "TIMESTAMP");
+        }
+        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
+    }
+
+    let all_null = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("BYTES")))],
+        vec![vec![Cell::Null], vec![Cell::Null]],
+        2,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&all_null).expect_err("an all-null unmapped column is refused") {
+        BigQueryError::UnmappedType { ref named, .. } => assert_eq!(named, "BYTES"),
+        other => panic!("an all-null unmapped column was mapped to {other:?}"),
+    }
+
+    // A malformed type name is the same case rather than a third one: an empty `type` decodes to
+    // `Unmapped("")`, so it is named as what it is rather than read as a column that answers.
+    let malformed = JobRows::of(vec![Field::of(String::from("at"), FieldType::parse(""))], Vec::new(), 0);
+    assert!(
+        matches!(
+            BigQueryWarehouse::<Recording>::rows(&malformed),
+            Err(BigQueryError::UnmappedType { .. })
+        ),
+        "an empty type name was accepted"
+    );
+}
+
 /// One fact leg, for the arm that refuses one.
 fn a_leg() -> sutura_domain::plan::LegPlan {
     let table = TableName::parse("fct_subscription_monthly").expect("a test table is a table");

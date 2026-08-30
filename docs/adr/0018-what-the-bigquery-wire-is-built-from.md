@@ -119,12 +119,25 @@ Four parts, each with its own reason:
    decision a composition root makes in a manifest line a reviewer can see. It is not hidden from
    any gate: `just lint`, `just test`, the doctests and `deny.toml`'s `[graph] all-features = true`
    all compile it.
-4. **`wire::credential::AccessTokens`, a second port.** The wire needs one thing from a credential -
-   a token usable now, and when it stops being usable - and everything else about how a deployment
-   authenticates is somebody else's decision. **This is the seam per-subject execution arrives at**,
-   which is why it is a port on the first day rather than a `String` field: the second `BigQuery`
-   step mints a token per leg for the subject who asked, and under a port that is an implementor
-   rather than a change to the transport.
+4. **`wire::credential::AccessTokens`, a second port.** The wire needs two things from a credential -
+   a token usable now with the instant it stops being usable, and whether a request carrying it has to
+   name a quota project - and everything else about how a deployment authenticates is somebody else's
+   decision. A port on the first day rather than a `String` field, so that *which* credential shape a
+   deployment holds is a choice of implementor.
+
+   **What this is NOT, corrected by review because the first version of this bullet claimed it:** it
+   is not yet the seam at which per-subject execution arrives as *merely another implementor*. Three
+   signatures say so, and all three are in this repository rather than in a plan:
+   `Warehouse::execute` receives a `&Presented`, and `BigQueryWarehouse` reads it only to call
+   `deliverable` and then drops it; `JobTransport::run` receives a `JobRequest` and nothing else;
+   and `AccessTokens::bearer` receives a clock and a `CallDeadline`. **So an implementation behind
+   this port cannot select a credential for the presented subject, and cannot tell two concurrent
+   subjects apart.** Per-subject identity is correctly out of scope here - `IMPERSONATION` is
+   `NoPlaceForASubject` and the crate says so in four places - and the honest record of it is this
+   paragraph rather than speculative API added now: **the step that builds it has to carry the leg's
+   subject or its credential context through one of those three interfaces, and deciding which is
+   part of that change.** Nothing here is a step towards it, which the *Consequences* section below
+   also states.
 
 ### Which shipped artifact links what, per target
 

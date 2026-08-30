@@ -6,13 +6,20 @@
 //! authenticates is somebody else's decision. So [`AccessTokens`] is those two things, and the
 //! transport is generic in it.
 //!
-//! **This is also the seam per-subject execution arrives at**, which is why it is a port on the first
-//! day rather than a `String` field. `docs/implementation-plan-bigquery.md`'s second `BigQuery` step
-//! mints a token *per leg, for the subject who asked*; under a `String` that step would have to change
-//! the transport, and under a port it adds an implementor. Nothing here anticipates it further than
-//! that: [`Bearer`] carries the deadline because a minted token has one, and
-//! [`crate::BigQueryWarehouse`]'s `IMPERSONATION` still says `NoPlaceForASubject` because nothing
-//! mints one.
+//! It is a port on the first day rather than a `String` field, so *which* credential shape a
+//! deployment holds is a choice of implementor. [`Bearer`] carries the deadline because a minted token
+//! has one, and [`crate::BigQueryWarehouse`]'s `IMPERSONATION` still says `NoPlaceForASubject` because
+//! nothing mints one.
+//!
+//! **What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
+//! seam at which per-subject execution arrives as *merely another implementor*. Three signatures say
+//! so - `Warehouse::execute` takes a `&Presented` and `BigQueryWarehouse` reads it only to call
+//! `deliverable`; `JobTransport::run` takes a `JobRequest` and nothing else; and [`AccessTokens::bearer`]
+//! takes a clock and a budget. So an implementation behind this port **cannot select a credential for
+//! the presented subject and cannot tell two concurrent subjects apart.** The step that builds
+//! per-subject execution has to carry the leg's subject or its credential context through one of those
+//! three interfaces, and which one is part of that change rather than something anticipated here.
+//! `docs/adr/0018` records it in the same words.
 //!
 //! # Two credential kinds, as one closed shape
 //!
@@ -89,7 +96,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use sutura_domain::identity::{Expiry, Secret};
 
-use crate::wire::WireAgent;
+use crate::wire::{CallDeadline, WireAgent};
 
 /// A token usable now, and when it stops being usable.
 ///
@@ -162,8 +169,18 @@ pub trait AccessTokens {
     /// them silently.
     fn quota_project(&self) -> QuotaProject;
 
-    /// A token usable at `now_unix_seconds`.
-    fn bearer(&self, now_unix_seconds: u64) -> Result<Bearer, Self::Error>;
+    /// A token usable at `now_unix_seconds`, produced inside what is left of `within`.
+    ///
+    /// **The budget is an argument because the exchange is not free, and it is the FIRST thing one call
+    /// spends.** A review measured the shape this replaced: the client's timeout lived on the agent, so
+    /// an exchange and the job that followed it each got a full budget of their own and one answer's
+    /// four HTTP operations could outlive the request they were answering several times over. An
+    /// implementor that opens a socket reads [`CallDeadline::remaining`] and gives that, and only that,
+    /// to the client - and refuses rather than sending when it is gone.
+    ///
+    /// An implementor with nothing to fetch may ignore it, which is why it is a value and not a
+    /// `Result`.
+    fn bearer(&self, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error>;
 }
 
 /// The file a credential lives in.
@@ -321,12 +338,32 @@ pub enum UnusableCredential {
     /// turns out to be.
     #[error("the credential at {at} was minted for another service universe, and this build reaches only the default one")]
     AnotherUniverse { at: PathBuf },
-    /// The private key is not a `PKCS#8` PEM block this build can read.
+    /// The private key is not a `PKCS#8` PEM block holding a key this build can sign with.
     ///
     /// **Nothing from the key reaches the message.** The whole value is key material, so there is no
-    /// half of it that would be safe to quote.
-    #[error("the private key in the credential at {at} is not a readable PKCS#8 PEM block")]
-    UnreadableKey { at: PathBuf },
+    /// half of it that would be safe to quote - which is why the context is a typed [`KeyUnusable`]
+    /// naming the STAGE that refused rather than any part of the value.
+    #[error("the private key in the credential at {at} is not usable: {because}")]
+    UnreadableKey { at: PathBuf, because: KeyUnusable },
+}
+
+/// How far a private key got before it was refused.
+///
+/// **Three stages rather than one boolean, because the fix for each is a different thing.** A missing
+/// delimiter is a truncated or wrongly-encoded file; a body that is not base64 is a corrupted one; a
+/// body that decodes and is not a key is a key of the wrong kind - a `PKCS#1` block whose delimiters
+/// somebody rewrote, an EC key, or a truncated DER. None of the three quotes anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum KeyUnusable {
+    /// The `PKCS#8` delimiters are absent, or there is nothing between them.
+    #[error("it is not a PKCS#8 PEM block")]
+    NotAPemBlock,
+    /// The body between the delimiters is not base64.
+    #[error("the body between its delimiters is not base64")]
+    NotBase64,
+    /// The body decodes and is not a `PKCS#8` RSA key this build can sign with.
+    #[error("it decodes to something that is not a PKCS#8 RSA key")]
+    NotAKey,
 }
 
 /// Why no token came back.
@@ -367,6 +404,14 @@ pub enum TokenUnavailable {
     /// anyway would turn one clear failure into a `401` from the data system.
     #[error("the token endpoint returned a token that expired {at} seconds after the epoch, and it is now {now}")]
     AlreadyExpired { at: u64, now: u64 },
+    /// The call's budget was gone before the exchange could be attempted.
+    ///
+    /// **Reachable only where something before the exchange spent the whole call**, which today means a
+    /// clock read and a signature. It is a variant rather than a send with no timeout because a zero
+    /// budget handed to the client underneath means *no timeout at all* - see
+    /// `CallDeadline::remaining`.
+    #[error("this call's budget was spent before a token could be exchanged")]
+    DeadlineSpent,
     /// The assertion could not be signed.
     ///
     /// Only reachable for a `service_account`. The cause is kept: `ring`'s own error says whether the
@@ -545,16 +590,32 @@ impl Credential {
                 client_secret: Secret::new(required(document.client_secret, "client_secret")?),
                 refresh_token: Secret::new(required(document.refresh_token, "refresh_token")?),
             },
-            "service_account" => Kind::ServiceAccount {
-                client_email: required(document.client_email, "client_email")?,
-                private_key_id: required(document.private_key_id, "private_key_id")?,
-                // Unwrapped from its PEM HERE rather than at first use, so a malformed key is a
-                // startup refusal instead of a failure on the first question - and so the unwrapping
-                // has a test that needs no network.
-                private_key: unwrap_pem(&required(document.private_key, "private_key")?)
-                    .ok_or_else(|| UnusableCredential::UnreadableKey { at: PathBuf::from(at) })?,
-                project_id: required(document.project_id, "project_id")?,
-            },
+            "service_account" => {
+                // **Every cheap check first and the key LAST, which is the ordering rule rather than a
+                // style choice:** *this field is missing* is a clearer thing to tell whoever wrote the
+                // file than *the key is unusable* when both are true, and the key parse is the only
+                // expensive check here. Written out rather than left to struct-literal evaluation
+                // order, which is a rule about the source and not about the diagnostic.
+                let client_email = required(document.client_email, "client_email")?;
+                let private_key_id = required(document.private_key_id, "private_key_id")?;
+                let pem = required(document.private_key, "private_key")?;
+                let project_id = required(document.project_id, "project_id")?;
+                Kind::ServiceAccount {
+                    client_email,
+                    private_key_id,
+                    // **Unwrapped AND PARSED here rather than at first use, which is a correction:**
+                    // the previous version stripped the delimiters and checked the body was not empty,
+                    // so a body of `!!!` was accepted and `ring` first saw it on the first question.
+                    // The comment beside it claimed a startup refusal it did not deliver.
+                    // `readable_key` runs every stage a signature needs, so a malformed configured
+                    // credential now fails at boot.
+                    private_key: readable_key(&pem).map_err(|because| UnusableCredential::UnreadableKey {
+                        at: PathBuf::from(at),
+                        because,
+                    })?,
+                    project_id,
+                }
+            }
             other => {
                 return Err(UnusableCredential::UnknownKind {
                     at: PathBuf::from(at),
@@ -647,14 +708,21 @@ impl Credential {
     /// response document, the same refusal shapes - and only the form differs. Two copies would be two
     /// vocabularies for one endpoint's answers, and the second copy is where the expired-on-arrival
     /// check would fail to get added.
-    fn exchange<'form, F>(&self, form: F, now_unix_seconds: u64) -> Result<Bearer, TokenUnavailable>
+    fn exchange<'form, F>(&self, form: F, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, TokenUnavailable>
     where
         F: IntoIterator<Item = (&'form str, &'form str)>,
     {
+        // **The exchange is the first thing a call spends, so it gets what the call has and no more.**
+        // The agent carries a whole-budget timeout as a backstop; this is the override that makes the
+        // budget one number for the exchange AND the job that follows it.
+        let left = within.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
         let mut answer = self
             .agent
             .agent()
             .post(TOKEN_ENDPOINT)
+            .config()
+            .timeout_global(Some(CallDeadline::socket(left)))
+            .build()
             .send_form(form)
             .map_err(|cause| TokenUnavailable::Unreachable { cause: Box::new(cause) })?;
         let status = answer.status();
@@ -705,7 +773,7 @@ impl AccessTokens for Credential {
     ///
     /// Form-encoded, because that is what both grants take; every value travels in the body and never
     /// in the URL, so none of them reaches a proxy log as a query string.
-    fn bearer(&self, now_unix_seconds: u64) -> Result<Bearer, Self::Error> {
+    fn bearer(&self, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error> {
         /// The grant a signed assertion is presented under, spelled as the endpoint documents it.
         const ASSERTION_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
@@ -722,6 +790,7 @@ impl AccessTokens for Credential {
                     ("refresh_token", refresh_token.expose()),
                 ],
                 now_unix_seconds,
+                within,
             ),
             Kind::ServiceAccount {
                 ref client_email,
@@ -733,6 +802,7 @@ impl AccessTokens for Credential {
                 self.exchange(
                     [("grant_type", ASSERTION_GRANT), ("assertion", assertion.as_str())],
                     now_unix_seconds,
+                    within,
                 )
             }
         }
@@ -776,6 +846,32 @@ fn unwrap_pem(pem: &str) -> Option<Secret> {
         return None;
     }
     Some(Secret::new(packed))
+}
+
+/// The `PKCS#8` DER a key's PEM block holds, still base64, once every stage a signature needs has
+/// accepted it.
+///
+/// **This function is the fix for a claim the code did not deliver.** The reader used to call
+/// [`unwrap_pem`] alone, which strips two delimiter lines and refuses an empty body - so a block whose
+/// body was `!!!` was accepted at boot, and the base64 decode and `RsaKeyPair::from_pkcs8` happened on
+/// the first question, inside [`Credential::assertion`]. A deployment with a corrupt key therefore
+/// started, announced itself healthy, and failed the first thing anybody asked it. Review caught it.
+///
+/// Three stages, each with its own [`KeyUnusable`], and the ORDER is the cheapest first: strip the
+/// text, decode the base64, then hand the DER to `ring`. What is returned is still the base64 text,
+/// because that is what [`Kind::ServiceAccount`] holds and what [`Secret`] can carry - so the DER is
+/// parsed twice over a process's life, once at boot to refuse and once per assertion to sign. That
+/// costs a parse beside an HTTPS round trip and buys the boot refusal.
+fn readable_key(pem: &str) -> Result<Secret, KeyUnusable> {
+    let packed = unwrap_pem(pem).ok_or(KeyUnusable::NotAPemBlock)?;
+    let der = base64::engine::general_purpose::STANDARD
+        .decode(packed.expose().as_bytes())
+        .map_err(|_ignored| KeyUnusable::NotBase64)?;
+    // The cause is deliberately dropped: `ring`'s `KeyRejected` says which structural check failed,
+    // and this refusal reaches an operator who can act on *the key is the wrong kind* and cannot act
+    // on which ASN.1 field was short. Nothing from the key itself is in either.
+    ring::signature::RsaKeyPair::from_pkcs8(&der).map_err(|_ignored| KeyUnusable::NotAKey)?;
+    Ok(packed)
 }
 
 /// The deadline a token response states, as the domain names it.
