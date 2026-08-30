@@ -149,6 +149,52 @@ impl Warehouse for FixedWarehouse {
     }
 }
 
+/// A fake that can run one half of a federated answer.
+///
+/// Unlike [`FixedWarehouse`] it declares [`Warehouse::EXECUTES_LEGS`], so the federated path will
+/// not refuse it : that is the whole difference, and it is why the port exposes the capability
+/// rather than letting `answer` assume. Each instance holds one scripted result and answers any
+/// statement with it, which is enough to exercise the orchestrator above real legs - the combiner's
+/// own correctness is proven in the domain suite against the same plan shapes this feeds it.
+pub(crate) struct LegsWarehouse {
+    source: SourceName,
+    posture: SourcePosture,
+    result: RowSet,
+}
+
+impl LegsWarehouse {
+    pub(crate) fn answering(source: SourceName, posture: SourcePosture, result: RowSet) -> Self {
+        Self { source, posture, result }
+    }
+}
+
+impl Warehouse for LegsWarehouse {
+    type Error = AdapterFailure;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+    const EXECUTES_LEGS: bool = true;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Ok(self.result.clone())
+    }
+
+    fn verify_anchor(&self, _plan: sutura_domain::plan::AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+}
+
 /// The credential brokers this crate's own tests mint with.
 ///
 /// **One behaviour per variant rather than one fake with flags**, because each is a different thing

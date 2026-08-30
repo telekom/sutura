@@ -36,7 +36,6 @@ use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure, FederatedPlan, LegPlan};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
-use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
@@ -416,6 +415,10 @@ impl Answered {
 /// guard un-skippable rather than merely conventional is on the domain side:
 /// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 /// `agreeing_with` is the only thing that builds one.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "six inputs is what a certified answer needs; naming each beats a struct nobody else reads"
+)]
 pub fn answer<W, B>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,
@@ -581,6 +584,22 @@ where
     ))
 }
 
+/// The refusal for a source this deployment does not serve, and the one the mono path gives before
+/// a credential is minted.
+fn source_unavailable(source: &SourceName) -> ToolOutcome {
+    ToolOutcome::Refusal {
+        reason: RefusalReason::SourceUnavailable { source: source.clone() },
+    }
+}
+
+/// A non-`Answered` payload carried over `answer`'s error type, so a helper can return a `RowSet`
+/// without repeating the two-generic `ServiceError` inline (which trips `type_complexity`).
+type FederatedLeg<W, B> = Result<RowSet, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "six inputs is what a federated answer needs; naming each beats a struct nobody else reads"
+)]
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
 /// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
@@ -605,29 +624,53 @@ where
     W: Warehouse,
     B: CredentialBroker,
 {
-    // Both data systems, resolved once: they must be open, they must be able to run one half of the
-    // answer, and their execution records must cover both legs for provenance.
-    let mut executed_as: Option<ExecutedAs> = None;
-    for source in plan.sources() {
-        if warehouses.get(source).is_none() {
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::SourceUnavailable { source: source.clone() },
-            }));
-        }
-        let record = warehouses.executed_on(source).expect("the warehouse above is open");
-        if !W::EXECUTES_LEGS {
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::FederationNotExecutable,
-            }));
-        }
-        executed_as = Some(match executed_as {
-            None => record,
-            Some(so_far) => so_far
-                .and(source.clone(), record.posture(source).expect("the record covers its own source").clone())
-                .expect("each leg is a distinct source, and `and` refuses a second leg for one"),
-        });
+    // Both data systems first, so a missing one is the same refusal the mono path gives before any
+    // credential is minted. `FederatedPlan::new` guarantees the two sources are DISTINCT, so the two
+    // registry lookups cannot collide.
+    let Some(fact_warehouse) = warehouses.get(plan.fact().source()) else {
+        return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
+    };
+    let Some(lookup_warehouse) = warehouses.get(plan.lookup().source()) else {
+        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
+    };
+    // Whether this build CAN run a leg, decided here rather than in an adapter: a shipped binary's
+    // adapters declare `false`, so this refuses cleanly before minting or running anything, instead
+    // of surfacing a typed leg refusal as a retryable 503.
+    if !W::EXECUTES_LEGS {
+        return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+            reason: RefusalReason::FederationNotExecutable,
+        }));
     }
-    let executed_as = executed_as.expect("a federated plan reads exactly two sources, never zero");
+    // Execution records for BOTH legs, so provenance names both identities. `FederatedPlan::new`
+    // refuses same-source legs, so the two records belong to distinct sources and `and` cannot
+    // collide; the Err arm of `and` is kept (rather than an expect) because the compile cannot know
+    // that, and nothing can answer for a splitter invariant that changed.
+    let Some(fact_record) = warehouses.executed_on(plan.fact().source()) else {
+        return Ok(Answered::declined_before_minting(source_unavailable(plan.fact().source())));
+    };
+    let Some(lookup_record) = warehouses.executed_on(plan.lookup().source()) else {
+        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
+    };
+    let Some(lookup_posture) = lookup_record.posture(plan.lookup().source()).cloned() else {
+        return Ok(Answered::declined_before_minting(source_unavailable(plan.lookup().source())));
+    };
+    let executed_as = match fact_record.and(plan.lookup().source().clone(), lookup_posture) {
+        Ok(executed_as) => executed_as,
+        Err(_collision) => {
+            // The splitter refuses same-source legs, so a collision is a splitter invariant that
+            // changed and nothing can answer for it.
+            let metric = match plan.fact() {
+                LegPlan::Fact { metric, .. } => metric.as_str(),
+                LegPlan::Lookup { .. } => "revenue",
+            };
+            return Err(ServiceError::Federated {
+                cause: FederatedFailure::DuplicateLabels {
+                    side: "fact",
+                    label: String::from(metric),
+                },
+            });
+        }
+    };
 
     // One mint over the whole set, exactly like the mono path: the broker answers for every source
     // this answer reads, and `agreeing_with` compares that answer against this request.
@@ -647,8 +690,6 @@ where
         Agreed::Granted { credentials } => credentials,
     };
 
-    let fact_warehouse = warehouses.get(plan.fact().source()).expect("checked above");
-    let lookup_warehouse = warehouses.get(plan.lookup().source()).expect("checked above");
     let fact = execute_leg::<_, B>(fact_warehouse, &credentials, plan.fact())?;
     let lookup = execute_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup())?;
 
@@ -671,7 +712,9 @@ where
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
-                reason: RefusalReason::ResultTooLarge { limit: sutura_domain::plan::MAX_ROWS },
+                reason: RefusalReason::ResultTooLarge {
+                    limit: sutura_domain::plan::MAX_ROWS,
+                },
             },
         ));
     }
@@ -690,11 +733,7 @@ where
 /// agrees with the posture the adapter was opened with, the plan is pre-flighted where that is
 /// cheaper than running it, and the credential is still usable this instant. A deadline that ages
 /// out during the OTHER leg's work is caught by this leg's own `still_usable_at`.
-fn execute_leg<W, B>(
-    warehouse: &W,
-    credentials: &BoundToTheRequest,
-    leg: &LegPlan,
-) -> Result<RowSet, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>
+fn execute_leg<W, B>(warehouse: &W, credentials: &BoundToTheRequest, leg: &LegPlan) -> FederatedLeg<W, B>
 where
     W: Warehouse,
     B: CredentialBroker,

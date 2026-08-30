@@ -315,27 +315,33 @@ where
     }
 
     fn answer(&self, context: &RequestContext, query: &Query) -> Result<ToolOutcome, SurfaceFailure> {
-        let answered =
-            crate::answer(&self.definitions, query, context, &self.broker, &self.warehouses, self.working_set_bytes)
-                .map_err(|error| match error {
-                // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
-                // `#[source]` chain under it.
-                ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
-                ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-                // Two brokers' worth of failure, kept apart on the way out for the reason the variants
-                // give: an authorization server that is down and a broker that answered about the wrong
-                // sources are not retried the same way.
-                ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
-                ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                // The same arm, and deliberately: to a transport, "the broker's answer does not fit
-                // the request" and "the leg does not fit the posture the adapter was opened with" are
-                // one thing - this deployment is wrong about its own identity wiring, and a caller can
-                // do nothing about either. The typed cause is what tells them apart in the log.
-                ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
-                // The combiner could not assemble the answer. To a transport this is a data-system
-                // concern - the question and the caller were fine - so it answers like one.
-                ServiceError::Federated { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
-            })?;
+        let answered = crate::answer(
+            &self.definitions,
+            query,
+            context,
+            &self.broker,
+            &self.warehouses,
+            self.working_set_bytes,
+        )
+        .map_err(|error| match error {
+            // The generic parameter is what cannot survive; the VALUE does, boxed, with its own
+            // `#[source]` chain under it.
+            ServiceError::Compile { cause } => SurfaceFailure::Compile { cause: Box::new(cause) },
+            ServiceError::Warehouse { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+            // Two brokers' worth of failure, kept apart on the way out for the reason the variants
+            // give: an authorization server that is down and a broker that answered about the wrong
+            // sources are not retried the same way.
+            ServiceError::Broker { cause } => SurfaceFailure::Broker { cause: Box::new(cause) },
+            ServiceError::Credentials { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            // The same arm, and deliberately: to a transport, "the broker's answer does not fit
+            // the request" and "the leg does not fit the posture the adapter was opened with" are
+            // one thing - this deployment is wrong about its own identity wiring, and a caller can
+            // do nothing about either. The typed cause is what tells them apart in the log.
+            ServiceError::Posture { cause } => SurfaceFailure::Miswired { cause: Box::new(cause) },
+            // The combiner could not assemble the answer. To a transport this is a data-system
+            // concern - the question and the caller were fine - so it answers like one.
+            ServiceError::Federated { cause } => SurfaceFailure::Warehouse { cause: Box::new(cause) },
+        })?;
         // Here, and before the `Ok`. Not in the transport: a record the transport writes is a record
         // that exists only for the transports that remember to write one, and this is the one line
         // in the workspace where "before the outcome returns" is a property somebody can point at.

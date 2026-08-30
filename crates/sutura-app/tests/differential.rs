@@ -163,6 +163,7 @@ mod tests {
     /// pinned as correct: the column LABELS disagreed, because one engine took them from the driver's
     /// result schema and the other built them from the plan; and the two disagreed on row ORDER until
     /// both sorted by the grouped expressions.
+    #[expect(clippy::too_many_lines, reason = "one plan compared row-for-row across every data system")]
     fn agrees_with_the_engine_on_every_question<W>()
     where
         W: DataSystemUnderTest,

@@ -107,8 +107,8 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &elsewhere,
-
-        1 << 30,    )
+        1 << 30,
+    )
     .expect("a refusal is not an error")
     .into_outcome();
     assert!(
@@ -179,8 +179,8 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &exhausted,
-
-        1 << 30,    )
+        1 << 30,
+    )
     .expect("exhaustion is a refusal, not an error")
     .into_outcome();
     assert_eq!(
@@ -234,8 +234,8 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &too_wide,
-
-        1 << 30,    )
+        1 << 30,
+    )
     .expect("a refusal is not an error")
     .into_outcome();
     assert_eq!(
@@ -266,8 +266,8 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &at_the_cap,
-
-        1 << 30,    )
+        1 << 30,
+    )
     .expect("a refusal is not an error")
     .into_outcome();
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
