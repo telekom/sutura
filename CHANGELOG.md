@@ -7,11 +7,58 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **catalog**: A metadata adapter says what it cannot supply (#59)
+- **identity**: A credential per leg, so nothing runs as the process (#58)
+- **dev**: The compose tier gets a reader, and the tier came up (#56)
+- **config**: A source registry, a declared posture, and two boot checks (#48)
+- **surface**: One tool set for two transports, gated by scope (#49)
+- **identity**: Leg 1, so a caller can prove who it is (#45)
+- **domain**: The two leg shapes, rendered and pinned before a combiner (#47)
+- **dev**: One service instance per worktree, on ports docker allocates (#34)
+- **bounds**: The engine gets a memory pool, and exhaustion becomes a refusal (#38)
+- **identity**: The principal chain, while both tail positions are still absent (#37)
+- **mcp**: The agent surface, one tool, schema generated not written (#35)
+- **domain**: A new aggregate cannot compile without saying how it federates (#33)
+- **catalog**: The knowledge layer, and an escape hatch for authored SQL (#23)
+- One catalog, CRAP delta control, and three CI holes (#21)
 - The query path - a catalog compiles to a plan, and the plan executes (#19)
 
 ### Fixes
 
+- **identity**: A broker's answer was trusted, and now it is checked (#62)
+- **tooling**: A rebase could push a tree nothing had compiled (#55)
+- **dev**: Ship-check could not run, because `cargo nextest` has no `-q` (#57)
+- **tooling**: A green `just check` was read as a green tree (#52)
+- Main did not compile after seven parallel merges (#40)
+- **xtask**: A test appended to an existing test module is not a production change (#36)
 - **docs**: Publish a version per release, so the dropdown has versions
+
+### Documentation
+
+- **adr**: DataHub carries part of a model, and declares the rest (#53)
+- **agents**: The dev shell follows cargo into other repos and breaks builds there (#46)
+- **plan**: The table says which steps shipped, because six of them did not (#44)
+- **plan**: BigQuery leads the stack, and cheap-first is a tiebreak (#43)
+- The records catch up with what the merges actually shipped (#41)
+- **adr**: The metrics endpoint, the pool policy, and a finding withdrawn (#29)
+- **adr**: Two false claims and seven stale cross-references from the final review (#27)
+- The architecture of record for federation and impersonation, and the plan (#26)
+
+### Tests
+
+- **golden**: A value in double quotes was stripped before we looked (#51)
+- **startup**: The source refusals both binaries make and neither proved (#31)
+
+### Build
+
+- Refresh dependencies (#65)
+- **tooling**: The Google Cloud CLI, as a container not a package (#54)
+- **xtask**: One Arrow major per lock file, or an explained exception (#30)
+- **nix**: Stax 0.108.0, pinned upstream because nixpkgs has 0.102.2 (#25)
+
+### CI
+
+- **docs**: A text-only citation gate, so a prose-only PR stops paying 15m45s (#32)
 
 ## 0.2.4 - 2026-08-25
 
