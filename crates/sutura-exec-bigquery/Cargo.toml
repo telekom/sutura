@@ -28,6 +28,26 @@ description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQ
 # manifest line a reviewer can see, rather than inheriting it by depending on this crate.
 wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64"]
 
+# The FIXTURE LOADER: `src/importer.rs`, `BigQueryWarehouse::load_fixture`, and the third
+# `transport::JobTransport` method it needs. It is what turns the committed example CSVs into four
+# tables so the CORPUS can be run against a real dataset, which is `docs/adr/0017`'s first acceptance
+# bullet and #78's importer shape pointed at this adapter.
+#
+# **Default-off, and unlike `wire` the reason is not a dependency - it adds none.** It is that this
+# feature is the only thing in the crate that can issue `CREATE OR REPLACE TABLE`, and a method that
+# replaces a table has no business in a build that serves questions. With the feature off,
+# `JobTransport` has the two methods it always had and nothing in the crate can write.
+#
+# **Why a feature and not a `#[cfg(test)]` helper**, which would be the cheaper-looking answer: the
+# acceptance legs are INTEGRATION targets, which cargo compiles as separate crates, so they cannot
+# reach a `#[cfg(test)]` item in this one. The choice is therefore between a feature and a `pub`
+# method on the shipped surface - which is what #78's `PostgresWarehouse::load_csv` is, and this is
+# the stricter of the two.
+#
+# Off is not hidden, for the reason the `wire` entry gives: every gate here passes `--all-features`,
+# so the loader is compiled, linted and unit-tested on every run.
+fixtures = []
+
 # The acceptance leg needs the wire, so it is declared with `required-features` rather than gated by a
 # `#![cfg(feature = "wire")]` inside the file: cargo skips the target entirely instead of compiling an
 # empty one, and the requirement is visible where a reader looks for it.
@@ -46,6 +66,20 @@ wire = ["dep:ureq", "dep:serde", "dep:serde_json", "dep:ring", "dep:base64"]
 name = "acceptance"
 path = "tests/acceptance.rs"
 required-features = ["wire"]
+
+# The CORPUS acceptance leg - `docs/adr/0017`'s two bullets that the smoke leg above does not reach.
+# A second target rather than more of `acceptance.rs`, for two reasons that both matter: that file is
+# already over half the 1000-line ceiling `cargo xtask max-lines` holds, and the two legs prove
+# different things over different fixtures - a reader who runs one should not have to read the other
+# to know which claim they got.
+#
+# `required-features` names both, because it loads tables (`fixtures`) and talks to the endpoint
+# (`wire`). `nix run .#bigquery-acceptance` passes `--all-features`, so it is picked up with no
+# registration; nothing else runs it, because every test in it is `#[ignore]`d.
+[[test]]
+name = "corpus"
+path = "tests/corpus.rs"
+required-features = ["wire", "fixtures"]
 
 [dependencies]
 sutura-domain = { workspace = true }
@@ -75,6 +109,28 @@ serde_json = { workspace = true, optional = true }
 # would have cost one.
 ring = { workspace = true, optional = true }
 base64 = { workspace = true, optional = true }
+
+# Only `tests/corpus.rs` reads these, and only under `required-features`. **Every one of them is
+# already a workspace member and already in `Cargo.lock`, so this section adds no package** - what it
+# adds is link time on one test binary that nothing but the acceptance leg builds.
+#
+# The set is what a differential against the engine needs and no more: the CATALOG that reads the
+# example documents, the SERVICE that compiles a question into a plan, THE ENGINE that is the side
+# `docs/adr/0017`'s second bullet compares against, and the reader for the question files. There is
+# deliberately no `sutura-exec-duckdb` here: the engine is the reference, which is
+# `crates/sutura-app/tests/differential.rs`'s own reasoning.
+[dev-dependencies]
+sutura-app = { workspace = true }
+sutura-catalog-local = { workspace = true }
+# THE engine, and the far side of the comparison. A data source exists to run a subplan of what the
+# engine could otherwise compute itself, so the engine's answer is the one a pushdown has to
+# reproduce.
+sutura-exec-datafusion = { workspace = true }
+# The compiler, so the acceptance half of the leg can ask the endpoint about a plan WITHOUT executing
+# it. A dry run is free at the endpoint, and going through `sutura_app::answer` for that would have
+# executed every question a second time - so this is a cost decision, not a layering one.
+sutura-semantic = { workspace = true }
+serde_norway = { workspace = true }
 
 [lints]
 workspace = true

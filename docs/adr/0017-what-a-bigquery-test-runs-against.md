@@ -312,3 +312,140 @@ the `data_systems:` axis still gains no entry. The summary sentence therefore su
 changed - *five* mechanisms rather than four, the fifth being the wire's own suite over response
 documents that are not the service's - and 0018's *What is still not claimed* section is where that
 is spelled out.
+
+## Second amendment, 2026-08-30: the corpus leg is built, and two of the four bullets are answered
+
+**Status of the amendment: accepted.** The first amendment above ended with a sentence that has stopped
+being true, and it named itself as the thing to watch:
+
+> **The leg this page specifies is #78's importer shape pointed at a dataset - load the fixtures, run
+> the 21 questions, compare rows with the engine - and it is not built.**
+
+It is built. `crates/sutura-exec-bigquery/tests/corpus.rs`, three `#[ignore]`d tests behind the same
+`just bigquery-acceptance` the smoke leg uses.
+
+### Which of the four bullets, exactly
+
+| Bullet | Where it stands |
+| --- | --- |
+| the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison |
+| the rows **agree with the engine's** for the same plan | **Answered**, row for row, with ONE stated exclusion below |
+| the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
+| the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
+
+**And one claim that is not on the list and is the strongest of the four.** The corpus leg also asks
+the endpoint to reproduce every ANCHOR the engine reproduces. An anchor is a number somebody
+*certified*, written in the catalog and compared as rendered text at the metric's coarsest grain, so
+`verify_anchors` reaching the same verdict on both sides is a claim about the definition still meaning
+what its author said - which is a different and larger thing from two adapters agreeing.
+
+### What that reaches that no local check could
+
+The corpus renders, for this dialect: 12 `LEFT JOIN`s, 6 `COUNT(DISTINCT`, 4 `CASE WHEN`, 4 `NULLIF`
+ratios, one `avg`, 90 `CAST`s and **3 `ISOWEEK` buckets**. `ISOWEEK` and `DATE_TRUNC`'s argument order
+are precisely the two constructs the *measurement* sections above identified as invisible to a parse
+check - so this leg is where those two stop resting on a keyword pinned by value plus reasoning at a
+match arm.
+
+**The section above that said the corpus asks only `day` and `month` was true when it was written and
+is not now**: `data-per-subscription-by-week` is in the corpus and renders `ISOWEEK` three times. That
+section stays as the record of why the keyword is pinned by value, and this paragraph is the correction
+to its factual claim.
+
+### The one question excluded from the row comparison, and why it is not a hole
+
+`revenue-per-churned-subscription-january`, excluded from the *comparison* and not from the run: it
+executes, and **both sides are required to fail, each against its own expected reason.** The metric
+declares `zero_denominator: fails`, so the generator emits a bare `/` with no `NULLIF`, and January's
+denominator is zero. `DataFusion` and `DuckDB` return `inf`, which the port refuses as a non-finite
+value; `GoogleSQL` RAISES on a zero divisor and the endpoint answers `400`. AGENTS.md already stated
+that the `zero_denominator: fails` credit belongs to `DuckDB` rather than to this arm - this is where
+that stops being a claim about documentation.
+
+A cell that cannot execute reads as coverage, which is this repository's rule, and the reason this is
+an exclusion with a named literal in the source rather than a `continue` on a condition: `DIVIDES_BY_ZERO`
+is one constant a reviewer can grep, and the test asserts that exactly one question reaches it.
+
+### The importer, and the two decisions in it worth a record
+
+#78's `PostgresWarehouse::load_csv` infers a column type per column from the committed bytes and
+renders `CREATE TABLE` plus `COPY ... FROM STDIN`. The first half transfers; the second does not.
+
+1. **The rows travel inside the statement.** There is no `COPY` here, and handing the endpoint a CSV
+   body beside a statement needs either a load job or `tabledata.insertAll` - each a second wire
+   surface nobody has run, which is this record's own reasoning about verification applied again. So
+   the load is ONE `CREATE OR REPLACE TABLE ... AS SELECT * FROM UNNEST([STRUCT ...])` per table:
+   atomic in the way `CREATE OR REPLACE` is, idempotent against the last run, and with no state where
+   the table exists empty.
+
+2. **Because the rows are in the statement, the loader REFUSES rather than escapes.** A fixture CSV is
+   a document read off disk, which this repository treats as untrusted input. Every cell is
+   re-rendered from a value the importer parsed - an `i64`, a finite `f64`, one of two boolean
+   keywords, a shape-checked ISO date - and the one arm with no parse to hide behind refuses: text
+   outside `[A-Za-z0-9 _.-]` is a typed refusal naming a position, never a quoted literal. So
+   `O'Brien` and `'); DROP TABLE x --` are *unrepresentable* in a rendered statement rather than
+   escaped into one. That is *prefer unrepresentable to checked* at the position where this loader
+   would be the one to break the no-injection property.
+
+**`transport::JobTransport` gains a third method, `apply`, behind the new `fixtures` feature - so the
+shipped port stays at the two questions this record's own reasoning gave it.** It cannot be `run`:
+that method's contract is a COMPLETE result set, and the wire refuses an answer whose `totalRows` does
+not equal the delivered count. A `CREATE OR REPLACE TABLE` job has no result set for that check to be
+about, so routing DDL through `run` would rest on a response shape nobody here has measured - in the
+one place where a wrong guess is a silently half-loaded fixture rather than a visible failure. `apply`
+requires `jobComplete` and requires nothing else.
+
+**`fixtures` is default-off and, unlike `wire`, not for a dependency - it adds none.** It is that this
+feature is the only thing in the crate that can issue `CREATE OR REPLACE TABLE`, and a build that
+serves questions has no business holding one.
+
+### What one run costs
+
+**Under a cent, and the number is set by the count of BILLED JOBS rather than by the size of the
+fixtures.** On-demand billing has a 10 MiB minimum per table referenced per query and the whole
+fixture set is 40 KB, so what a run spends is decided by how many jobs really read data. A full run
+submits 12 loads, 22 dry runs, ~22 executions and 12 anchor re-runs; **the loads and the dry runs cost
+nothing** - a `CREATE TABLE AS SELECT` over a literal array scans nothing, and the endpoint charges
+neither slots nor bytes for a dry run - so ~34 jobs are billed, referencing one to three tables each.
+That is on the order of half a gibibyte of billed bytes, about a third of a cent at the current
+on-demand rate.
+
+**The acceptance half being free is why it is a test of its own** rather than folded into the row
+comparison. The first shape of it went through `sutura_app::answer`, which dry-runs *and* executes, so
+it doubled the bill for a claim a dry run already makes; asking the compiler for the plan and calling
+`dry_run` directly costs nothing and localises the failure - a red there says *not accepted* with no
+row comparison in the way.
+
+Every job is still capped by `maximumBytesBilled` at a gibibyte, which is what protects a developer who
+points this at a dataset already holding something large under one of the four fixture names.
+
+### The grant this needs and the smoke leg does not
+
+**It creates tables, so reading the dataset is no longer enough.** The credential needs
+`bigquery.tables.create`, `bigquery.tables.updateData` and `bigquery.tables.delete` in the target
+dataset - `roles/bigquery.dataEditor` on the dataset is the usual way to say that - on top of the
+`roles/bigquery.jobUser` needed to submit a job at all. [0019](0019-a-table-outside-the-connections-dataset.md)
+records that the acceptance credential's IAM refuses `datasets.create`; creating a TABLE inside a
+dataset it already reads is a different grant. A run whose credential lacks it fails at the first load
+with the endpoint's own `accessDenied` on the chain, which is a diagnosable failure rather than a
+mysterious one - and it is a **configuration** change on the `bq-test` environment's service account
+rather than anything this repository can carry.
+
+### What this leg still does not claim, and one new limit it introduces
+
+- **Identity is untouched.** A service-account key and an application-default login are each one
+  identity for everybody who asks. `BigQueryWarehouse::IMPERSONATION` still reads
+  `NoPlaceForASubject`, so a green here is *accepted, and correct for that identity*.
+- **The `data_systems:` axis of `crates/sutura-app/tests/adapters/mod.rs` still gains no entry**, and
+  the *Consequences* below still hold on that point: a cell in that registry runs inside `just test`,
+  and this cannot, because the nix sandbox has no network. The corpus leg is a second `#[ignore]`d
+  integration target in the adapter's own crate, reached by the same app.
+- **No composition root links the crate**, and `sutura-serve` refuses `kind: bigquery` by name.
+- **NEW: this leg WRITES, and two runs against one dataset will race.** Four tables named after the
+  example models - `dim_customer`, `dim_product`, `fct_subscription_monthly` and `fct_usage_daily` -
+  are replaced on every run. The names are fixed rather than suffixed because the generator renders a
+  model's table unqualified and the job's `defaultDataset` resolves it, so a per-run name would need
+  the catalog to change. The dataset this is pointed at should therefore hold nothing else under those
+  names, and a second concurrent job in the same dataset is a defect nothing here prevents. The names
+  themselves are committed fixtures rather than resources, so unlike the project and the dataset they
+  need no `::add-mask::` in a public log.

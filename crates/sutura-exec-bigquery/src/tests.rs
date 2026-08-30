@@ -99,6 +99,14 @@ impl JobTransport for Recording {
         *self.validated.borrow_mut() += 1;
         Ok(())
     }
+
+    /// Recorded like the other two, which is what lets a test assert what a fixture load PUT ON THE
+    /// WIRE without an endpoint - the statement text, and that it carries no parameters.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        self.record(request);
+        Ok(())
+    }
 }
 
 /// A transport that fails, for the one arm that needs the endpoint to say no.
@@ -117,6 +125,11 @@ impl JobTransport for Broken {
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(EndpointSaidNo)
+    }
+
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(EndpointSaidNo)
     }
 }
