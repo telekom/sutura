@@ -7,8 +7,8 @@ description: The settled design, the mechanisms that hold it, and what is compil
 
 This page is the settled design and the reason the repository is laid out the way it is, not an
 inventory of what compiles. [What exists today](#what-exists-today) is that inventory, and it is
-short. `AGENTS.md` in the repository root holds the crate table and the invariant table; this
-page says why they look the way they do.
+short. `AGENTS.md` in the repository root holds the crate table and the invariant table; this page
+says why they look the way they do.
 
 !!! warning "Read every section here as a design, not as a control"
 
@@ -17,10 +17,9 @@ page says why they look the way they do.
     authenticates the DEPLOYMENT, unless the deployment declares `security.inbound` and verifies a
     caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
     exist now; what does not is an adapter that can carry a per-subject credential, so every question
-    still reads as one identity. No Arrow result envelope. Sections
-    that describe something enforced today say so in the section itself, and
-    [What exists today](#what-exists-today) is the inventory. **Do not deep-link a section of this
-    page as evidence that a control is in place.**
+    still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+    today say so inside the section, and [What exists today](#what-exists-today) is the inventory.
+    **Do not deep-link a section of this page as evidence that a control is in place.**
 
 ## Serving is MCP
 
@@ -61,23 +60,22 @@ not touch the query path.
 `SemanticCatalog::capabilities` is required with no default: an adapter that omitted it would not
 compile. It names which of nine definition kinds - structure, descriptions, relationships, a join's
 cardinality, metrics, definitional filters, grains, value allowlists, anchors - and which of the four
-knowledge kinds this source can carry at all. The reason it exists is that an empty collection is two
-different facts: a reviewed catalogue that has not certified a metric yet, and a source that holds a
-measure this runtime will not execute. `sutura-catalog-local` declares every kind, which is a
-statement about the format rather than about the directory it read; a source that supplies part of the
-model declares the part, and its conformance test is that what it declared is exactly what it
-produced. [What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came
-from.
+knowledge kinds this source can carry at all. An empty collection is two different facts: a reviewed
+catalogue that has not certified a metric yet, and a source that holds a measure this runtime will
+not execute. `sutura-catalog-local` declares every kind, a statement about the format rather than
+about the directory it read; a source that supplies part of the model declares the part, and its
+conformance test is that what it declared is exactly what it produced.
+[What DataHub can carry](adr/0016-what-datahub-can-carry.md) is the measurement this came from.
 
 **This sentence used to say lineage arrives through that port too, and it does not.** There is no
 lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
 reads columns a model declares, and where a column came from upstream changes neither. It is real
-metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md) reads
-three lineage aspects out of one of them - and this port has no shape to put it in.
+metadata that real catalogues carry - [what DataHub can carry](adr/0016-what-datahub-can-carry.md)
+reads three lineage aspects out of one of them - and this port has no shape to put it in.
 
 The catalogue may be outside this repository or in it, and
-[the first-party models decision](adr/0001-first-party-semantic-models.md) is why both are allowed. What the port
-guarantees is the same either way.
+[the first-party models decision](adr/0001-first-party-semantic-models.md) is why both are allowed.
+What the port guarantees is the same either way.
 
 Two properties of that trait carry the weight:
 
@@ -96,9 +94,9 @@ in the same pull request as any other change to behaviour.
 
 Two different things, and conflating them is the mistake this section exists to prevent.
 
-**The engine is one thing: DataFusion, with `polyglot-sql` rendering SQL when a query is pushed down.**
-Not one engine per data system, and not a second engine kept in step with a first. It executes what it
-must locally over Arrow, and it is where a plan becomes rows.
+**The engine is one thing: DataFusion, with `polyglot-sql` rendering SQL when a query is pushed
+down.** Not one engine per data system, and not a second engine kept in step with a first. It
+executes what it must locally over Arrow, and it is where a plan becomes rows.
 
 **A data system is a place data already lives** - DuckDB, Postgres, ClickHouse, BigQuery - that
 somebody wants queried. Those sit behind the `Warehouse` port. What differs per data system is
@@ -114,11 +112,10 @@ is the record.
 
 ### Where the engine sits, and where it is going
 
-Today the engine is *behind* the port, as one adapter among the others, executing local files. That is
-a stepping stone and worth naming as one: an engine belongs **above** the port, deciding which subplan
-each data system runs and executing the remainder itself. That is what federation means here, and it
-is the shape the surveyed projects converge on. Today's arrangement is the engine with zero remote
-sources.
+Today the engine is *behind* the port, as one adapter among the others, executing local files. Call
+that a stepping stone: an engine belongs **above** the port, deciding which subplan each data system
+runs and executing the remainder itself. That is what federation means here, and it is the shape the
+surveyed projects converge on. Today's arrangement is the engine with zero remote sources.
 
 ### Connectors: Arrow Flight, not a driver per data system
 
@@ -234,11 +231,11 @@ in the workspace manifest, one line in the composition root - and, in the test s
 `adapters::registered`. For a catalogue there is one more thing and it is a line rather than a body:
 the capability declaration, which the port requires with no default. No test body changes: the golden
 corpus, the refusal corpus, the anchor check and the engine comparison are all expanded once per
-registration, so a new adapter arrives with all of
-them already pointed at it - and for a catalogue the declaration is what selects between agreeing with
-the hand-written oracle, which is the reference adapters' contract, and being held to its own
-declaration, which is what a source supplying part of the model gets. That is the property the two ports exist for, and it is the one worth
-checking has not quietly stopped being true.
+registration, so a new adapter arrives with all of them already pointed at it - and for a catalogue
+the declaration is what selects between agreeing with the hand-written oracle, which is the reference
+adapters' contract, and being held to its own declaration, which is what a source supplying part of
+the model gets. That is the property the two ports exist for, and it is the one worth checking has not
+quietly stopped being true.
 
 ## Security is the reason for the shape
 
@@ -249,10 +246,10 @@ Of the four properties below, two are enforced today, one is half built and one 
 says which, because a reader who lands on this section from a search result gets no other warning.
 
 **The caller's identity reaches the data system. Half built, and the missing half is the point.** Not
-a service account holding the union of everyone's access. A credential is minted per request, and a request that
-cannot run as the subject is refused rather than downgraded to the service's own identity: that
-downgrade turns "you may not see these rows" into "here are the rows". A row-level security policy
-that holds only for human callers is decorative.
+a service account holding the union of everyone's access. A credential is minted per request, and a
+request that cannot run as the subject is refused rather than downgraded to the service's own
+identity: that downgrade turns "you may not see these rows" into "here are the rows". A row-level
+security policy that holds only for human callers is decorative.
 
 *Built:* the mechanism that removes the downgrade. A request context reaches the query path, a
 credential broker mints once per answer for every source the plan reads, and `Warehouse::execute` has
@@ -378,9 +375,9 @@ The stages above are the same either way. What differs is who wrote the statemen
 
 **A first-party model.** The catalog declares models, relationships and metrics, and the generator
 produces the whole statement from them. This is the path that is built, and
-[The first-party models decision](adr/0001-first-party-semantic-models.md) is the record: it exists because the spliced
-path below has a precondition - something upstream must already have rendered dialect-correct SQL -
-and on a laptop, or over a single file, there is no upstream to have done it.
+[The first-party models decision](adr/0001-first-party-semantic-models.md) is the record: it exists
+because the spliced path below has a precondition - something upstream must already have rendered
+dialect-correct SQL - and on a laptop, or over a single file, there is no upstream to have done it.
 
 Its load-bearing constraint is that **a model may not contain a free-text SQL expression.** A measure
 is one of two closed shapes over a `Term` of two terms - a term is one aggregate over a named column

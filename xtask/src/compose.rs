@@ -34,8 +34,10 @@
 //!
 //! # Not a nix check, deliberately
 //!
-//! The nix sandbox has no network and no docker socket, so this cannot be a `checks.*` derivation.
-//! It is a `just` task and a CI job over nix-built artifacts instead.
+//! The nix sandbox has neither a network nor a docker socket, so a DOCKER-based tier cannot be a
+//! `checks.*` derivation. (A service needing neither, like the sandbox's Unix-socket Postgres, can
+//! be - see `nix/postgres-tier.nix`.) This one is a `just` task and a CI job over nix-built
+//! artifacts instead.
 
 mod docker;
 mod lock;
@@ -524,7 +526,6 @@ mod tests {
         // The reviewer's question turned into a mechanism: `dev-up` with no flag does not start
         // keycloak, so CI does not pay for a service nothing here can use yet.
         let default_set = super::expected_services(&[]);
-        assert!(default_set.contains(&"postgres"));
         assert!(default_set.contains(&"clickhouse"));
         assert!(
             !default_set.contains(&"keycloak"),

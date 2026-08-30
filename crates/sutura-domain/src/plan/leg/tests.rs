@@ -13,7 +13,7 @@ use crate::calendar::{Date, TimeRange};
 use crate::federation::{Above, Carried, Federation};
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin};
+use crate::plan::{PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, StatementTables};
 use crate::warehouse::ParamValue;
 
 fn source() -> SourceName {
@@ -59,8 +59,7 @@ fn fact(terms: Vec<LegTerm>) -> LegPlan {
     LegPlan::Fact {
         source: source(),
         metric: MetricName::parse("recurring_revenue").expect("a test metric is a metric"),
-        table: table("fct_subscription_monthly").into(),
-        joins: Vec::new(),
+        tables: StatementTables::only(table("fct_subscription_monthly")),
         bucket: bucket(),
         keys: vec![key("customer_key", "fct_subscription_monthly", "customer_key")],
         terms,

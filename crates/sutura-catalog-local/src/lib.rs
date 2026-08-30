@@ -35,7 +35,7 @@ use sutura_domain::knowledge::{
     Absence, Caveat, Example, GlossaryEntry, InconsistentKnowledge, InvalidNoteBody, Knowledge, KnowledgeCapabilities,
     KnowledgeInput, NoteBody,
 };
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 
 use crate::document::knowledge::{CaveatDoc, ExampleDoc, GlossaryDoc, NotDefinedDoc};
 use crate::document::{DocumentKind, InvalidMetricDocument, KindProbe, MetricDoc, ModelDoc, RelationshipDoc};
@@ -482,6 +482,10 @@ impl Collected {
 
 impl SemanticCatalog for LocalCatalog {
     type Error = LocalCatalogError;
+
+    /// The reference: this format defines the model, so this adapter is held to producing the whole
+    /// of it - which is what the golden adapters' agreement-with-the-oracle assertion is for.
+    const KIND: CatalogKind = CatalogKind::Golden;
 
     /// **Everything, and that is a statement about the ADAPTER rather than about the directory it
     /// read.** The markdown format is defined in this repository and grows with the domain, so this

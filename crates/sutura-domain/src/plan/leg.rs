@@ -40,7 +40,7 @@
 
 use crate::calendar::TimeRange;
 use crate::model::{MetricName, QualifiedTable, SourceName, TableName};
-use crate::plan::{PlanBucket, PlanFilter, PlanJoin, PlanKey, PlanTerm, QueryPlan};
+use crate::plan::{PlanBucket, PlanFilter, PlanKey, PlanTerm, QueryPlan, StatementTables};
 use crate::warehouse::ParamValue;
 
 /// One number a leg computes, and the label it is projected under.
@@ -176,6 +176,64 @@ impl LegTerm {
 ///     }
 /// }
 /// ```
+///
+/// A fact leg's tables arrive as a checked set, so a producer cannot state a table beside a vector
+/// of joins and skip the ambiguity guard - which is exactly what the first producer of a leg did:
+///
+/// ```compile_fail
+/// use sutura_domain::calendar::TimeRange;
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+///
+/// fn _unchecked(
+///     source: SourceName,
+///     metric: MetricName,
+///     table: QualifiedTable,
+///     joins: Vec<PlanJoin>,
+///     bucket: PlanBucket,
+///     range: TimeRange,
+/// ) -> LegPlan {
+///     LegPlan::Fact {
+///         source,
+///         metric,
+///         table,
+///         joins,
+///         bucket,
+///         keys: Vec::new(),
+///         terms: Vec::new(),
+///         filters: Vec::new(),
+///         params: Vec::new(),
+///         range,
+///     }
+/// }
+/// ```
+///
+/// ```
+/// use sutura_domain::calendar::TimeRange;
+/// use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+/// use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+///
+/// fn _checked(
+///     source: SourceName,
+///     metric: MetricName,
+///     table: QualifiedTable,
+///     joins: Vec<PlanJoin>,
+///     bucket: PlanBucket,
+///     range: TimeRange,
+/// ) -> Result<LegPlan, sutura_domain::plan::AmbiguousTables> {
+///     Ok(LegPlan::Fact {
+///         source,
+///         metric,
+///         tables: StatementTables::parse(table, joins)?,
+///         bucket,
+///         keys: Vec::new(),
+///         terms: Vec::new(),
+///         filters: Vec::new(),
+///         params: Vec::new(),
+///         range,
+///     })
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LegPlan {
@@ -196,13 +254,24 @@ pub enum LegPlan {
     /// exact answer an exact `CountDistinct` needs above. At most four entries, because a measure is
     /// one term or a ratio of two and `Avg` expands one term into two.
     ///
-    /// `joins` holds same-source hops only. A dimension on another data system is a
+    /// **`tables` is a [`StatementTables`] and not a table beside a vector of joins, and that is
+    /// this variant's own guard rather than a tidier signature.** A fact leg keeps every SAME-SOURCE
+    /// hop as a `JOIN` of its own, so two tables whose paths end in one name render under one
+    /// implicit alias inside this leg's statement - `crate::plan::tables` holds the reproduction and
+    /// the argument for refusing rather than aliasing. Taking the checked set as the field is what
+    /// makes the ambiguous leg unrepresentable rather than something a producer has to remember to
+    /// ask about: it did not, and the statement it rendered compared one table with itself. It
+    /// serializes `#[serde(flatten)]`, so the pinned form is `table` beside `joins` exactly as
+    /// before - a leg plan's serialized shape is a function of the split, not of where the guard
+    /// lives.
+    ///
+    /// Same-source hops only. A dimension on another data system is a
     /// [`Lookup`](LegPlan::Lookup) leg, not a join.
     Fact {
         source: SourceName,
         metric: MetricName,
-        table: QualifiedTable,
-        joins: Vec<PlanJoin>,
+        #[serde(flatten)]
+        tables: StatementTables,
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
         terms: Vec<LegTerm>,
@@ -249,7 +318,8 @@ impl LegPlan {
     #[inline]
     pub const fn table(&self) -> &QualifiedTable {
         match *self {
-            Self::Fact { ref table, .. } | Self::Lookup { ref table, .. } => table,
+            Self::Fact { ref tables, .. } => tables.table(),
+            Self::Lookup { ref table, .. } => table,
         }
     }
 

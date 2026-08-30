@@ -253,6 +253,17 @@ dimension model - and that bound is a consequence of checks that already exist r
 budget. **The leg COUNT is the easy bound and it is not the one that matters;** the leg SIZE bound is
 below, with the number it has and the number it does not.
 
+**What the first slice builds is the low end of that bound: exactly two legs.** Every remote dimension
+the splitter reaches must join through **one** relationship to **one** remote model, so the lookup leg
+is one - a fact leg plus a single lookup leg, linked on one column. The bound of two is therefore a
+number somebody chose, and the reason is written where the choice is made: `sutura_semantic::plan`
+refuses two remote dimensions joined through two relationships on one source as
+`FederationLinkAmbiguous`, because the two legs link on a single column. The path from two to five is
+the path that lets the lookup leg carry a second link - one lookup per remote dimension model on its
+own data system - which is the shape the count above describes. Adding that is a change to the
+`FederatedPlan` shape (the combiner's single link column) and to the splitter's relationship check,
+not a change to the leg vocabulary.
+
 ### Three leg shapes, and what each costs
 
 **This is the decision this record was missing, and it is why the plan could not be executed.** Naming

@@ -286,8 +286,8 @@ two audiences" is not a syntax limitation. An ID token's `aud` may be an array a
 audience identifiers. That does not rescue a shared credential - it is still the wrong credential
 *type* for one of the two uses, and sharing a bearer across intended recipients is the exposure
 audience restriction exists to prevent.
- . "
-" . **A third route exists, it is newly the most practical one, and it changes what the blocking
+
+**A third route exists, it is newly the most practical one, and it changes what the blocking
 verification is for.** The two options above are both **workforce** pools. A **workload** identity
 pool is the one that has a configurable `allowedAudiences` list - up to ten values of 256 characters -
 and researching whether a human subject may use one produced a clearer answer than expected:
