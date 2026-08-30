@@ -53,13 +53,13 @@ where
 /// for and because it must NOT change what a shared leg does: a deployment whose sources are all
 /// shared answers a named caller exactly as it answered before, which is the behaviour the
 /// `a_posture_is_recorded_in_provenance_per_leg` test above still asserts.
-fn asked_by_a_person() -> RequestContext {
+pub(crate) fn asked_by_a_person() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
     }))
 }
 
-fn metric() -> MetricName {
+pub(crate) fn metric() -> MetricName {
     MetricName::parse("revenue").expect("a test metric name is a name")
 }
 
@@ -73,13 +73,13 @@ fn source() -> SourceName {
 /// now compared against the posture the adapter was opened with, witness included - so a test that
 /// wrote its own acknowledgement prose would provoke that wiring defect rather than whatever it was
 /// about. `tests_support` owns the one witness both halves read.
-fn shared() -> SourcePosture {
+pub(crate) fn shared() -> SourcePosture {
     super::tests_support::shared_posture()
 }
 
 /// The June range the test bundle's anchor declares, which is also the only range a question
 /// against it can ask for and get one row back.
-fn june() -> TimeRange {
+pub(crate) fn june() -> TimeRange {
     TimeRange::new(
         Date::parse("2026-06-01").expect("a test date is a date"),
         Date::parse("2026-07-01").expect("a test date is a date"),
@@ -94,7 +94,7 @@ fn certified() -> RowSet {
 }
 
 /// A one-metric bundle whose metric declares an anchor, so there is exactly one check to make.
-fn bundle() -> PinnedDefinitions {
+pub(crate) fn bundle() -> PinnedDefinitions {
     let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
@@ -873,238 +873,4 @@ fn a_refused_question_never_reaches_the_broker() {
         .into_outcome();
     assert!(matches!(outcome, ToolOutcome::Answer { .. }), "{outcome:?}");
     assert_eq!(broker.asked(), 1, "one mint per accepted question, and not one per leg");
-}
-
-// ---------------------------------------------------------------------------
-// The federated answer orchestration
-// ---------------------------------------------------------------------------
-
-/// An amount of time only the budget test would cross: every correctness path below hands the
-/// combiner this effectively unbounded ceiling so only the memory-ceiling test reaches the refusal.
-const FEDERATED_BUDGET: u64 = 1 << 30;
-
-/// A fact leg and a lookup leg on two sources, the shape the splitter emits for a two-source
-/// question. The rows the two fake warehouses return are the same fixture the domain's combiner
-/// tests feed it, so this test is about the ORCHESTRATOR (mint once, run both, record both) and
-/// leans on the combiner suite for the arithmetic.
-fn federated_plan() -> sutura_domain::plan::FederatedPlan {
-    use sutura_domain::catalog::TIME_BUCKET_LABEL;
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::Aggregate;
-    use sutura_domain::model::{ColumnName, TableName};
-    use sutura_domain::plan::{AnswerKey, LegPlan, PlanBucket, PlanColumn, PlanKey};
-
-    let fact_source = SourceName::parse("facts").expect("a test source");
-    let lookup_source = SourceName::parse("geo").expect("a test source");
-    let table = TableName::parse("fct_subscription_monthly").expect("a test table");
-    let column = |n: &str| ColumnName::parse(n).expect("a test column");
-    let tablecol = |n: &str| PlanColumn::new(table.clone(), column(n));
-    let key = |n: &str| PlanKey::new(String::from(n), tablecol(n));
-    let bucket = |c: &str| {
-        PlanBucket::new(
-            String::from(TIME_BUCKET_LABEL),
-            Grain::Month,
-            PlanColumn::new(table.clone(), column(c)),
-        )
-    };
-
-    let fact = LegPlan::Fact {
-        source: fact_source,
-        metric: metric(),
-        table: table.clone(),
-        joins: Vec::new(),
-        bucket: bucket("month"),
-        keys: vec![key("product_family"), key("customer_key")],
-        terms: Vec::new(),
-        filters: Vec::new(),
-        params: Vec::new(),
-        range: june(),
-    };
-    let lookup = LegPlan::Lookup {
-        source: lookup_source,
-        table: table.clone(),
-        keys: vec![key("customer_key"), key("region")],
-        filters: Vec::new(),
-        params: Vec::new(),
-    };
-    let sum = Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents"))));
-    sutura_domain::plan::FederatedPlan::new(
-        metric(),
-        String::from("revenue"),
-        bucket("month"),
-        fact,
-        lookup,
-        String::from("customer_key"),
-        String::from("customer_key"),
-        true,
-        sutura_domain::federation::Federation::of(&sum),
-        vec![
-            AnswerKey::fact(String::from("product_family")),
-            AnswerKey::lookup(String::from("region")),
-        ],
-    )
-    .expect("a valid two-leg plan")
-}
-
-fn federated_fact_rows() -> RowSet {
-    RowSet::new(
-        vec![
-            String::from("product_family"),
-            String::from("customer_key"),
-            String::from(sutura_domain::catalog::TIME_BUCKET_LABEL),
-            String::from("revenue"),
-        ],
-        vec![
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(100),
-            ],
-            vec![
-                Value::Text("A".into()),
-                Value::Text("c2".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(200),
-            ],
-            vec![
-                Value::Text("B".into()),
-                Value::Text("c1".into()),
-                Value::Text("2026-06".into()),
-                Value::Integer(50),
-            ],
-        ],
-    )
-    .expect("a well-formed test fact result")
-}
-
-fn federated_lookup_rows() -> RowSet {
-    RowSet::new(
-        vec![String::from("customer_key"), String::from("region")],
-        vec![
-            vec![Value::Text("c1".into()), Value::Text("north".into())],
-            vec![Value::Text("c2".into()), Value::Text("north".into())],
-        ],
-    )
-    .expect("a well-formed test lookup result")
-}
-
-#[test]
-fn a_federated_answer_mints_once_runs_both_legs_and_records_both_identities() {
-    let fact_source = SourceName::parse("facts").expect("a test source");
-    let lookup_source = SourceName::parse("geo").expect("a test source");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        fact_source,
-        shared.clone(),
-        federated_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        lookup_source,
-        shared,
-        federated_lookup_rows(),
-    ))
-    .expect("two sources, one registry");
-
-    let broker = crate::tests_support::CountingBroker::default();
-    let plan = federated_plan();
-    let outcome = super::answer_federated(&bundle(), &plan, &asked_by_a_person(), &broker, &warehouses, FEDERATED_BUDGET)
-        .expect("a federated answer is not an error")
-        .into_outcome();
-
-    let ToolOutcome::Answer { provenance, .. } = outcome else {
-        panic!("a two-source question whose adapters execute legs is answered, not {outcome:?}");
-    };
-    let legs: Vec<&str> = provenance.executed_as().legs().map(|(source, _)| source.as_str()).collect();
-    assert_eq!(
-        legs,
-        vec!["facts", "geo"],
-        "provenance records BOTH identities a federated answer ran as"
-    );
-    assert_eq!(
-        broker.asked(),
-        1,
-        "a federated answer mints once over both sources, not once per leg"
-    );
-}
-
-#[test]
-fn a_federated_answer_that_crosses_the_working_set_is_refused_not_error() {
-    let fact_source = SourceName::parse("facts").expect("facts");
-    let lookup_source = SourceName::parse("geo").expect("geo");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::LegsWarehouse::answering(
-        fact_source,
-        shared.clone(),
-        federated_fact_rows(),
-    ))
-    .and(crate::tests_support::LegsWarehouse::answering(
-        lookup_source,
-        shared,
-        federated_lookup_rows(),
-    ))
-    .expect("two sources");
-
-    let plan = federated_plan();
-    let outcome = super::answer_federated(
-        &bundle(),
-        &plan,
-        &asked_by_a_person(),
-        &FixedBroker::GrantsShared,
-        &warehouses,
-        1,
-    )
-    .expect("a refusal is an Ok")
-    .into_outcome();
-    assert!(
-        matches!(
-            outcome,
-            ToolOutcome::Refusal {
-                reason: RefusalReason::ResourcesExhausted { .. }
-            }
-        ),
-        "a combined answer over the ceiling is a governance refusal, not {outcome:?}"
-    );
-}
-
-#[test]
-fn a_federated_answer_is_refused_when_no_adapter_executes_a_leg() {
-    // The shipped binary's adapters declare `EXECUTES_LEGS = false`, and this is what `answer` does
-    // on that build: it refuses cleanly BEFORE minting or running a leg, rather than surfacing a
-    // typed leg refusal as a retryable 503.
-    let fact_source = SourceName::parse("facts").expect("facts");
-    let lookup_source = SourceName::parse("geo").expect("geo");
-    let shared = shared();
-    let warehouses = Warehouses::of(crate::tests_support::FixedWarehouse::answering(
-        fact_source,
-        shared.clone(),
-        federated_fact_rows(),
-    ))
-    .and(crate::tests_support::FixedWarehouse::answering(
-        lookup_source,
-        shared,
-        federated_lookup_rows(),
-    ))
-    .expect("two sources");
-
-    let plan = federated_plan();
-    let refused = super::answer_federated(
-        &bundle(),
-        &plan,
-        &asked_by_a_person(),
-        &FixedBroker::GrantsShared,
-        &warehouses,
-        FEDERATED_BUDGET,
-    )
-    .expect("a refusal is an Ok")
-    .into_outcome();
-    assert!(
-        matches!(
-            refused,
-            ToolOutcome::Refusal {
-                reason: RefusalReason::FederationNotExecutable
-            }
-        ),
-        "{refused:?}"
-    );
 }
