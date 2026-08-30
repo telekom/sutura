@@ -496,7 +496,15 @@ arrives; what it cannot do on its own is license a join.
 
 **6. `agrees_with_the_oracle` is NOT weakened, and a declaring adapter needs a different assertion.**
 
-Specified here and deliberately not written in this branch. The golden adapters keep the oracle test.
+**Status: implemented.** What this decision specified was the *split in the conformance matrix* - the
+part that "deliberately not written" left open - and the catalog-matrix diff writes it: a required
+`SemanticCatalog::KIND` (`CatalogKind`, golden or declaring) with no default, a `GoldenCatalog` marker
+that routes the golden-only cells, and a registration whose `declaring`/`golden` tag is a compile-time
+assertion against that constant - so a registration that disagrees with its own declaration does not
+build, and `agrees_with_the_oracle` (and the three example-corpus cells) cannot be expanded for a
+declaring adapter at all. The AGENTS.md registration row states the same split. The oracle test itself
+is untouched, held by the golden adapters only, exactly as this decision says it must be. The golden
+adapters keep the oracle test.
 A declaring adapter gets **declaration fidelity**, which is two assertions rather than one:
 
 - *everything it declared, it produced* - for each declared kind, the bundle carries content of that

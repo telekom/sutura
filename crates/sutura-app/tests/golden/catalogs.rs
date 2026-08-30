@@ -221,9 +221,11 @@ where
 /// every other target that includes the registry. It is defined so a golden-only cell can be bound
 /// on it (see the [`golden`] macro below): a cell bound on this marker compiles for an adapter only
 /// if that adapter implements it, which is what makes a golden/oracle cell impossible to register
-/// against a declaring adapter by accident. The canonical declaration of the kind is
-/// [`SemanticCatalog::KIND`] in the domain; this marker is how the same fact routes the cells here,
-/// since `macro_rules!` cannot read an associated constant.
+/// against a declaring adapter by accident. It is the ROUTING copy of [`SemanticCatalog::KIND`] -
+/// `macro_rules!` cannot read an associated constant, so the same fact is stated here in the form a
+/// registration can be bound on and in the domain where nothing else may vary - and [`cell!`]
+/// asserts the two agree, so the marker and the domain constant cannot drift apart. The canonical
+/// declaration of the kind is [`SemanticCatalog::KIND`] in the domain.
 pub(crate) trait GoldenCatalog: CatalogUnderTest {}
 
 impl GoldenCatalog for sutura_catalog_local::LocalCatalog {}
@@ -300,14 +302,33 @@ macro_rules! golden {
 /// `golden` one gets [`golden`], which is every cell. A golden tag on an adapter that does not
 /// implement [`GoldenCatalog`] does not build, and a cell bound on [`GoldenCatalog`] cannot be
 /// expanded for a declaring adapter, so the split holds by the compiler rather than by review.
+///
+/// **The tag is checked against the adapter's own [`SemanticCatalog::KIND`].** The assertion below
+/// is what gives the domain constant a reader: tag an adapter against what its own declaration says
+/// and the registration does not compile. The registry tag and the [`GoldenCatalog`] marker are this
+/// target's routing copies of `KIND`; this arm is where the two are torn unless they agree.
 macro_rules! cell {
     ($name:ident, declaring, $adapter:ty) => {
         mod $name {
+            const _: () = assert!(
+                matches!(
+                    <$adapter as sutura_domain::pinned::SemanticCatalog>::KIND,
+                    sutura_domain::pinned::CatalogKind::Declaring
+                ),
+                "a catalog registered `declaring` must declare a declaring kind"
+            );
             universal!($adapter);
         }
     };
     ($name:ident, golden, $adapter:ty) => {
         mod $name {
+            const _: () = assert!(
+                matches!(
+                    <$adapter as sutura_domain::pinned::SemanticCatalog>::KIND,
+                    sutura_domain::pinned::CatalogKind::Golden
+                ),
+                "a catalog registered `golden` must declare a golden kind"
+            );
             golden!($adapter);
         }
     };
