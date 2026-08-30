@@ -1,0 +1,28 @@
+[package]
+name = "sutura-exec-bigquery"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter over BigQuery: renders the plan into GoogleSQL and pushes it down."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# Rendering, shared with every other SQL adapter, for the reason `sutura-exec-duckdb` states: this
+# adapter speaks SQL, so it asks `sutura-sql` to render the plan for its dialect rather than growing a
+# second set of quoting and placeholder decisions. NOT `sutura-semantic`: the port carries a plan and
+# this adapter compiles nothing.
+sutura-sql = { workspace = true }
+thiserror = { workspace = true }
+
+# **No HTTP client and no credential library, deliberately, and this is the manifest line that says
+# so.** What is missing from this crate is the WIRE - see the crate documentation. Adding an outbound
+# HTTP stack here is a dependency decision with a blast radius that reaches the musl release builds and
+# the licence gate, and it belongs in the change that can first VERIFY it against a real endpoint,
+# which no test in this repository can do. `JobTransport` is the seam it arrives at.
+
+[lints]
+workspace = true

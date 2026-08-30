@@ -24,6 +24,11 @@ members = [
   "crates/sutura-sql",
   "crates/sutura-app",
   "crates/sutura-exec-duckdb",
+  # The first cloud data source: renders through `sutura-sql` in the fourth dialect and pushes down.
+  # NOTHING LINKS IT, and that is recorded rather than incidental - its `JobTransport` port has no
+  # implementor that speaks to the endpoint, because no test in this repository can verify one.
+  # AGENTS.md's *Built And Not Wired* section and `docs/adr/0017` carry the argument.
+  "crates/sutura-exec-bigquery",
   "crates/sutura-exec-datafusion",
   "crates/sutura-cli",
   # The service runtime. Four crates rather than one, and the split is the dependency direction:
@@ -68,6 +73,11 @@ sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
+# `sutura-exec-bigquery` is deliberately ABSENT from this table, and `cargo xtask unused-deps` is what
+# keeps it absent: no member crate inherits it, because nothing links it. Its own line said as much and
+# the gate said it better - "it comes back with the code that needs it", which here is the composition
+# root that gets a transport. The crate is still a workspace MEMBER, so every gate compiles, lints and
+# tests it.
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }

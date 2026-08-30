@@ -788,6 +788,8 @@ fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result
             written,
             kind: &source.kind,
             data_dir: source.data_dir.as_deref(),
+            billing_project: source.billing_project.as_deref(),
+            dataset: source.dataset.as_deref(),
             posture: &source.posture,
             acknowledged_because: source.acknowledged_because.as_deref(),
             verification_identity: source.verification_identity.as_deref(),

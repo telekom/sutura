@@ -466,13 +466,23 @@ fn open_engine(
     for source in declared {
         let configured = configured_source(source, registry)?;
         let engine = build_engine(source, configured, runtime)?;
+        // Matched rather than read off a `data_dir()` every kind had to have. `build_engine` has
+        // already refused every kind this binary cannot open, so the other arm is unreachable here -
+        // written as a branch rather than an `expect` because the workspace denies both, and because a
+        // second openable kind should arrive as a compile error at this line too.
+        let sutura_config::SourcePlacement::Files { ref data_dir } = *configured.placement() else {
+            return Err(format!(
+                "`sources.{source}` reached the attach step with a placement no linked adapter reads, \
+                 which `build_engine` should have refused first"
+            ));
+        };
         for model in pinned
             .definitions()
             .models()
             .values()
             .filter(|model| model.source() == source)
         {
-            attach(&engine, model.table(), configured.data_dir())?;
+            attach(&engine, model.table(), data_dir)?;
             // Collected AFTER the attach, so this set is what the engines hold rather than what was
             // asked for. `attach` fails the startup on a missing file, so the two cannot diverge
             // here - and recording it from the successful call rather than from the model list is
@@ -530,13 +540,24 @@ fn build_engine(
     configured: &sutura_config::ConfiguredSource,
     runtime: sutura_config::RuntimeSettings,
 ) -> Result<DataFusionWarehouse, String> {
-    // **An exhaustive match with no wildcard arm, and it is the mechanism rather than a formality.**
-    // One kind ships, so this reads as a formality today - and a second kind is then a compile error
-    // at this line rather than a source silently opened by whichever adapter happened to be linked.
-    // A refusal arm here would be a variant no test could provoke, which is what this repository's own
-    // rule says an enum refuses to carry.
+    // **An exhaustive match with no wildcard arm, and it is now doing the job it was written for.**
+    // A second kind arrived, the compiler asked about it at this line, and the answer is a refusal -
+    // which is the whole reason the vocabulary of kinds is separate from the set of adapters a given
+    // binary LINKED. `sutura-exec-bigquery` exists in this repository; this binary does not link it,
+    // and only this file can know that.
+    //
+    // The refusal names the kind and says what the deployment can do about it, because the two
+    // available actions are different files: change the `kind:`, or run a build that links the
+    // adapter. A message that only said "cannot open" would send an operator to the wrong one.
     match configured.kind() {
         sutura_config::SourceKind::Files => {}
+        sutura_config::SourceKind::BigQuery => {
+            return Err(format!(
+                "`sources.{source}` declares `kind: bigquery`, and this binary links no BigQuery \
+                 adapter - it composes the in-process engine only. Declare a `files` source, or run a \
+                 build that links one"
+            ));
+        }
     }
     let identity = configured
         .identity()

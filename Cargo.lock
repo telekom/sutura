@@ -3569,6 +3569,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sutura-exec-bigquery"
+version = "0.2.4"
+dependencies = [
+ "sutura-domain",
+ "sutura-sql",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "sutura-exec-datafusion"
 version = "0.2.4"
 dependencies = [
