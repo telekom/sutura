@@ -124,8 +124,9 @@ pub(crate) enum LockError {
     /// Somebody is provisioning this worktree right now. The kernel says so; the PID and the
     /// [`Holder`] only say who.
     Held {
-        /// The process the file names, or 0 if it names none.
-        pid: u32,
+        /// The process the file names, or `None` when it names none - an unreadable or empty lock
+        /// file is an unknown holder, not a fabricated PID 0.
+        pid: Option<u32>,
         /// What that process turns out to be.
         holder: Holder,
         /// The lock file.
@@ -144,7 +145,11 @@ impl std::fmt::Display for LockError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match *self {
             Self::Held { pid, holder, ref path } => {
-                write!(f, "{} is locked by process {pid}: {}", path.display(), holder.advice())
+                let who = pid.map_or_else(
+                    || "a process the lock file does not name".to_owned(),
+                    |pid| format!("process {pid}"),
+                );
+                write!(f, "{} is locked by {who}: {}", path.display(), holder.advice())
             }
             Self::Unusable { ref path, .. } => write!(f, "could not use {}", path.display()),
         }
@@ -225,26 +230,29 @@ fn acquire_under(scope: &Scope, repository: &Path) -> Result<Held, LockError> {
     match file.try_lock() {
         Ok(()) => {}
         Err(std::fs::TryLockError::WouldBlock) => {
-            // Somebody holds it. The PID is only how the refusal names them.
-            let pid = std::fs::read_to_string(&path)
-                .ok()
-                .as_deref()
-                .and_then(recorded_pid)
-                .unwrap_or_default();
-            let who = holder(working_dir(pid).as_deref(), repository);
+            // Somebody holds it. The PID is only how the refusal names them, and a file that cannot
+            // be read or names no PID is `None` rather than a fabricated 0 - an undetermined holder
+            // silently becoming PID 0 is the shape this module stopped shipping, and probing
+            // `working_dir(0)` for a process that does not exist is the same guess written out.
+            let pid = std::fs::read_to_string(&path).ok().as_deref().and_then(recorded_pid);
+            let who = pid.map_or(Holder::Unidentified, |pid| holder(working_dir(pid).as_deref(), repository));
             return Err(LockError::Held { pid, holder: who, path });
         }
         Err(std::fs::TryLockError::Error(cause)) => return Err(unusable(cause)),
     }
 
-    // Ours. Record who, for the next run's refusal message.
+    // Ours. Record who, for the next run's refusal message. Written first and then truncated to the
+    // written length, NOT truncated then written: between the two the file used to be observably
+    // empty, and the refusal path reads it - so a concurrent acquirer landing in that window read
+    // no holder and reported PID 0. The kernel lock was already taken here, so the reordering buys
+    // the diagnostic without touching the exclusion.
     let note = format!("pid={}\nroot={}\n", std::process::id(), scope.root().display());
-    file.set_len(0).map_err(unusable)?;
     {
         use std::io::Write as _;
         let mut writer = &file;
         writer.write_all(note.as_bytes()).map_err(unusable)?;
     }
+    file.set_len(note.len() as u64).map_err(unusable)?;
     Ok(Held { _file: file, path })
 }
 
@@ -301,7 +309,7 @@ mod tests {
         assert!(held.path().is_file());
         match acquire(&scope) {
             Err(LockError::Held { pid, .. }) => {
-                assert_eq!(pid, std::process::id(), "the refusal names the holder");
+                assert_eq!(pid, Some(std::process::id()), "the refusal names the holder");
             }
             other => panic!("a second acquisition must be refused, got {other:?}"),
         }
@@ -310,6 +318,35 @@ mod tests {
         drop(held);
         assert!(path.is_file(), "the file persists - unlinking it is how exclusion gets lost");
         drop(acquire(&scope).expect("dropping the lock releases it"));
+        std::fs::remove_dir_all(&dir).expect("cleanup");
+    }
+
+    #[test]
+    fn a_lock_file_that_names_no_holder_is_not_read_as_pid_zero() {
+        // The empty read the old truncate-first write opened, made deterministic: here the empty
+        // file is written by hand while the kernel lock is held, and the refusal must report an
+        // unidentifiable holder rather than a fabricated PID 0 - an undetermined value silently
+        // becoming a definite one is the defect, and this pins its absence.
+        let dir = temp_worktree("nameless");
+        let scope = Scope::from_root(&dir).expect("the directory exists");
+        std::fs::create_dir_all(scope.state_dir()).expect("state dir");
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(scope.state_dir().join("compose.lock"))
+            .expect("open the lock file");
+        held.try_lock().expect("this test holds the kernel lock");
+
+        match acquire(&scope) {
+            Err(LockError::Held { pid, holder, .. }) => {
+                assert_eq!(pid, None, "an unreadable holder is not fabricated as a pid");
+                assert_eq!(holder, Holder::Unidentified, "an unreadable holder is not claimed");
+            }
+            other => panic!("a lock held by this process must be refused, got {other:?}"),
+        }
+        drop(held);
         std::fs::remove_dir_all(&dir).expect("cleanup");
     }
 
