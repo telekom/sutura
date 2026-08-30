@@ -2084,7 +2084,7 @@ it in the code that is here now.</p>
 <tr>
 <td>A refusal is an answer</td>
 <td>Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works</td>
-<td><strong>Enforced today.</strong> <code>ToolOutcome::Refusal</code> is the public surface and the golden suite provokes every reachable variant. Recording a refusal against the principal chain is a <em>design target</em>: there is no audit sink</td>
+<td><strong>Enforced today.</strong> <code>ToolOutcome::Refusal</code> is the public surface and the golden suite provokes every reachable variant. Recording it against the principal chain is enforced too - every outcome goes through an <code>AuditSink</code> before it is returned - with two limits: sutura retains nothing, and behind the shared bearer token alone the subject recorded is the deployment</td>
 </tr>
 <tr>
 <td>You cannot ask it to run SQL</td>
@@ -2130,12 +2130,16 @@ source, and the shipped binary links neither it nor any driver. Which adapter is
 decision in the binary; there is no configuration that selects one.
 <a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
 is the table, and it is the section to read before assuming otherwise.</p>
-<p>What is not built is the part that makes the first sentence of this page true of a warehouse. There
-is no request context type, so no caller identity reaches the query path at all, and no credential
-broker, so "as the person or agent asking" holds here only because a file has nobody else to be.
-There is no audit sink either, so a refusal is a value the caller receives and is recorded nowhere.
-The MCP surface, Arrow results and federation are also still ahead. <a href="serving/">The HTTP
-surface</a> is not, and its token authenticates the deployment rather than the caller.
+<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it is
+now one specific thing rather than four. There <em>is</em> a request context, a credential broker port with a
+static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
+<code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which operations
+that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere for a
+per-subject credential to arrive, both declare so, and the broker mints what an operator configured.
+So "as the person or agent asking" holds here only because a file has nobody else to be - a deployment
+can know exactly who is asking, record it, refuse a subject it holds no credential for, and still read
+every row as one identity. Arrow results and federation are also still ahead. <a href="serving/">The HTTP
+surface</a> is not, and its bearer token authenticates the deployment rather than the caller.
 <a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>
 <table>

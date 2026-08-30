@@ -1999,13 +1999,22 @@ is worth more as a check than as a sentence in a design document. The allowlist 
 <code>thiserror</code> and their proc-macro support, plus the <code>serde_json</code> and <code>sha2</code> that the definition
 digest needs, and nothing else - which is why there is a hand-written calendar in <code>calendar</code>
 and no SQL parser anywhere in this crate, <code>expression</code> included.</p>
-<p><strong>Three ports live here now, and each arrived with the adapter that implements it.</strong> A port exists
+<p><strong>Four ports live here now, and each arrived with the adapter that implements it.</strong> A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 guess at a signature that only the first real adapter can settle, and in a library crate <code>pub</code>
 hides such a guess from <code>dead_code</code>. <code>pinned::SemanticCatalog</code> arrived with the local catalog
-adapter, <code>warehouse::Warehouse</code> with the <code>DuckDB</code> one, and <code>audit::AuditSink</code> with the
-structured writer in <code>sutura-runtime</code> - the sink a deployment that attaches nothing else gets.
-<code>CredentialBroker</code> is still absent for the same reason it always was: nothing implements it yet.</p>
+adapter, <code>warehouse::Warehouse</code> with the <code>DuckDB</code> one, <code>audit::AuditSink</code> with the structured
+writer in <code>sutura-runtime</code> - the sink a deployment that attaches nothing else gets - and
+<code>identity::CredentialBroker</code> with <code>sutura_config::StaticCredentialBroker</code>, which is in the
+settings crate because the identity provider it reads <em>is</em> the settings tree.</p>
+<p><strong>What the credential port did and did not buy, said here because the count above invites the
+wrong reading.</strong> There is no longer a signature that reaches a data system with a question and no
+credential, and a subject with no credential at a source is refused rather than answered as the
+process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+credential to arrive, so a leg runs under the identity an operator declared for that source and
+<code>pinned::Provenance</code> records which. The one method that still executes with no credential is
+<code>warehouse::Warehouse::verify_anchor</code>, the boot path's; <code>clippy.toml</code> bans it everywhere else and
+<code>plan::AnchorPlan</code> says plainly that it is a self-check on that path rather than a barrier.</p>
 <p>The modules are grouped by concept rather than named after traits, so a port sits next to the
 types it speaks in:</p>
 <ul>
@@ -2037,8 +2046,9 @@ types it speaks in:</p>
   per-leg execution record <code>pinned::Provenance</code> carries, which is read off what the adapter was
   handed rather than off a settings tree.</li>
 <li><code>definitions</code> and <code>identity</code> hold the digest and the credential-shaped newtypes. The
-  principal chain a call is attributed to lives in <code>identity</code> as well, beside the redaction,
-  because both are properties of who is asking rather than of what was asked.</li>
+  principal chain a call is attributed to lives in <code>identity</code> as well, beside the redaction and
+  the credential port, because all three are properties of who is asking rather than of what was
+  asked.</li>
 <li><code>audit</code> is the record one call is written to, and the port it goes through. It is not a
   store: sutura writes a record before the outcome returns and retains nothing, so what the
   sink does with it is the deployment's.</li>
@@ -4400,7 +4410,7 @@ available at that boundary.</p>
 <li><code>NotOneNumber</code> - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.</li>
 <li><code>NoMeasureColumn</code> - The result carries no column named after the metric, so there is nothing to compare.</li>
 <li><code>ResultShapeMismatch</code> - The result set was not the shape it reported.</li>
-<li><code>NotAnAnchor</code> - The plan the boot path compiled is not this anchor's own, so nothing was allowed to execute it with no credential.</li>
+<li><code>NotAnAnchor</code> - The plan the boot path compiled is not this anchor's own, so nothing executed it.</li>
 <li><code>Failed</code> - The data system failed the statement. <code>message</code> is the adapter's own, <code>chain</code> is every cause beneath it - the driver error included, which is the part that names a table, a column or a file and the part a single string used to throw away.</li>
 </ul>
 <h4 id="implements_66">Implements<a class="headerlink" href="#implements_66" title="Permanent link">&para;</a></h4>
@@ -4765,40 +4775,53 @@ a data system for nothing.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-299-1"><a id="__codelineno-299-1" name="__codelineno-299-1" href="#__codelineno-299-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AnchorPlan</span><span class="o">&lt;'</span><span class="na">bundle</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The one thing <a href="crate::warehouse::Warehouse::verify_anchor"><code>Warehouse::verify_anchor</code></a> accepts:
-a declared anchor's own plan.</p>
-<p><strong>This type exists because the sentence "no signature in this workspace can execute a question as
-this process" was false by one method, and a review caught it.</strong>
-<a href="crate::warehouse::Warehouse::execute"><code>Warehouse::execute</code></a> cannot be called without a
-<a href="crate::identity::Presented"><code>Presented</code></a>. <code>verify_anchor</code> deliberately takes no credential -
-there is no caller at boot - and while it took a bare <code>QueryPlan</code> it would execute <em>any</em> plan
-under whatever identity the deployment configured that adapter with, including a plan compiled
-from a caller's question. Placement kept the request path off it; placement is not a mechanism.</p>
-<p>So the boot path gets an input a question's plan cannot be: <code>Self::of</code> refuses a plan that is
-grouped, a plan carrying a predicate the question asked for, a plan for a different metric, and a
-plan whose range is not the anchor's. An anchor is asked with no dimensions and no filters over
-the range its author certified, so those four checks accept exactly what the boot path builds and
-reject every shape a caller can reach.</p>
-<h1 id="the-limit-stated-with-the-claim">The limit, stated with the claim<a class="headerlink" href="#the-limit-stated-with-the-claim" title="Permanent link">&para;</a></h1>
-<p><code>Self::of</code> is <code>pub</code>, because the boot path lives in <code>sutura-app</code> and this type lives here - the
-same reason <a href="crate::identity::LegCredentials::minted"><code>LegCredentials::minted</code></a> is. So this is a
-<strong>narrowing and not a closure</strong>: a caller that already holds the bundle can still ask for a metric
-at its coarsest grain, with no dimensions and no filters, over exactly the range that metric's
-anchor declares, and construct one. What that plan returns is the number the bundle certifies in
-its own catalog document and that provenance already publishes, so nothing reaches a caller
-through this door that the definitions did not already state. What is no longer reachable is a
-<em>question</em> - a grouped plan, a filtered one, a different range, a different metric - which is what
-the claim is about.</p>
-<p>A genuinely closed constructor would need the domain to compile the plan itself, and compilation
-is <code>sutura-semantic</code>'s: the domain may not depend on it. <code>docs/adr/0008</code>'s own correction 2 is the
-precedent for saying this rather than implying more - a <code>pub</code> constructor asserted as unreachable
-is exactly what that correction found wrong with the record's first attempt at this method.</p>
+a plan the pinned bundle itself agrees is one of its anchors' own.</p>
+<h1 id="what-this-type-is-and-what-it-is-not">What this type is, and what it is not<a class="headerlink" href="#what-this-type-is-and-what-it-is-not" title="Permanent link">&para;</a></h1>
+<p><strong>It is a self-check on the boot path, and it is NOT an authority.</strong> That distinction is the whole
+of what a second review corrected, and getting it wrong once put a false sentence in ten places
+across seven files - <code>docs/adr/0008</code>'s second amendment to its correction 2 lists them. <a href="crate::warehouse::Warehouse::execute"><code>Warehouse::execute</code></a> cannot be called without a
+<a href="crate::identity::Presented"><code>Presented</code></a>; <code>verify_anchor</code> deliberately takes no credential,
+because there is no caller at boot, and it therefore runs under whatever identity the deployment
+configured that adapter with. So the question is what bounds its INPUT.</p>
+<p><code>Self::of</code> answers "did the boot path compile the question it meant to" and nothing stronger.
+The plan has to compute a metric <strong>this bundle</strong> defines, that metric has to declare an anchor,
+and the plan has to be that anchor's own question: the metric's coarsest declared grain, exactly
+the range the anchor certifies, no group-by keys, and no predicate a question asked for. Every one
+of those facts is read off the <code>PinnedDefinitions</code> rather than accepted as an argument, which is
+what makes the check worth making - a caller no longer supplies the anchor it will be compared
+against.</p>
+<p><strong>What it cannot do is stop code that wants to.</strong> Every value it reads is publicly constructible -
+<code>QueryPlan::new</code>, <code>PinnedDefinitions::pin</code>, the metric and range types - and Rust has no
+cross-crate friend visibility, so a constructor <code>sutura-app</code> can call is a constructor anything in
+the workspace can call. A reviewer defeated the previous version of this type in one function by
+fabricating the tuple it took, and the fix for that class is not a fifth guard: a shape check over
+caller-constructible values can only ever be a shape check.</p>
+<h1 id="so-what-makes-the-credential-free-path-boot-only">So what makes the credential-free path boot-only<a class="headerlink" href="#so-what-makes-the-credential-free-path-boot-only" title="Permanent link">&para;</a></h1>
+<p>A lint, and it is named here rather than implied: <code>clippy.toml</code> bans
+<code>sutura_domain::warehouse::Warehouse::verify_anchor</code>, verified to resolve by writing the call and
+watching clippy reject it. <code>sutura_app::verify_anchors</code> holds the single <code>#[expect]</code>, so a second
+call site is an error under <code>-D warnings</code> until somebody writes a second expectation a reviewer
+sees in the diff. That is the same mechanism the ban on the panicking fragment API and the ban on a
+bare <code>spawn_blocking</code> already rest on. <strong>Its limit is that a lint is not a type:</strong> it reaches this
+workspace and not a crate outside it, and an <code>#[allow]</code> walks past it.</p>
+<p>A genuinely closed constructor is not available. The domain cannot compile a plan - compilation is
+<code>sutura-semantic</code>'s and dependencies point inward - and a token only <code>sutura-app</code>'s private <code>proof</code>
+module could mint would have to be constructible from <code>sutura-domain</code>, which is the same public
+door one level down. <code>docs/adr/0008</code>'s own corrections are the precedent for saying this rather
+than implying more.</p>
 <h4 id="methods_56">Methods<a class="headerlink" href="#methods_56" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-300-1"><a id="__codelineno-300-1" name="__codelineno-300-1" href="#__codelineno-300-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">bundle</span><span class="w"> </span><span class="nc">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MetricName</span><span class="p">,</span><span class="w"> </span><span class="n">anchor</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Anchor</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotAnAnchorsPlan</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-300-1"><a id="__codelineno-300-1" name="__codelineno-300-1" href="#__codelineno-300-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="na">bundle</span><span class="w"> </span><span class="nc">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">pinned</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">PinnedDefinitions</span><span class="p">,</span><span class="w"> </span><span class="n">metric</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">MetricName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NotAnAnchorsPlan</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>Parses a plan as one anchor's, refusing every shape a question could be.</p>
-<p>Takes the metric's name as well as the <code>Anchor</code>, because an anchor carries a range and a
-value and does not know which metric declared it - so without the name the metric check would
-have nothing to compare against.</p>
+<p>Parses a plan as one of <code>pinned</code>'s own anchors', reading every fact it compares off the bundle.</p>
+<p>Takes the metric's name as well as the bundle, because the bundle holds many anchors and the
+caller is asserting <em>which</em> one this plan is of - so the first check is that the plan agrees.
+Everything after that is the bundle's own statement about that metric.</p>
+<p><strong>It does not take a <code>sutura_app::Validated</code> bundle, and it cannot:</strong> validating a bundle is
+what this call is part of, so the proof does not exist yet. That is one more reason the type is
+a self-check rather than an authority.</p>
+<p>The order of the checks is chosen for the diagnostic rather than for cost - every input is
+already bounded and in memory. Which metric, then what the bundle says about that metric, then
+the two shapes only a question has, then the two values an anchor's own question pins.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-301-1"><a id="__codelineno-301-1" name="__codelineno-301-1" href="#__codelineno-301-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">QueryPlan</span>
 </span></code></pre></div>
 <p>The plan, for the adapter that has to execute it.</p>
@@ -4807,14 +4830,17 @@ have nothing to compare against.</p>
 <h3 id="enum-notananchorsplan"><code>enum NotAnAnchorsPlan</code><a class="headerlink" href="#enum-notananchorsplan" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-302-1"><a id="__codelineno-302-1" name="__codelineno-302-1" href="#__codelineno-302-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotAnAnchorsPlan</span>
 </span></code></pre></div>
-<p>A plan that is not a declared anchor's own, so nothing may execute it with no credential.</p>
+<p>A plan that is not a declared anchor's own, so the boot path did not compile what it meant to.</p>
 <p><strong>An error and not a refusal</strong>: reaching it means the boot path compiled something other than the
 anchor's question, which is a defect here rather than anything about a caller.</p>
 <h4 id="variants_39">Variants<a class="headerlink" href="#variants_39" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>NotThatMetric</code> - The plan computes a different metric from the one whose anchor it would be checked against.</li>
+<li><code>MetricNotDefined</code> - The bundle this plan is checked against does not define the metric at all.</li>
+<li><code>DeclaresNoAnchor</code> - The metric is defined and declares no certified number, so there is no anchor to be a plan of.</li>
 <li><code>Grouped</code> - The plan groups by something. An anchor is a metric's own number, not a slice of it.</li>
 <li><code>Requested</code> - The plan carries a predicate a question asked for, which an anchor's plan never does.</li>
+<li><code>NotTheCoarsestGrain</code> - The plan buckets at a finer grain than the metric's coarsest, so it returns a series.</li>
 <li><code>NotTheAnchorsRange</code> - The plan's range is not the range the anchor's author certified.</li>
 </ul>
 <h4 id="implements_81">Implements<a class="headerlink" href="#implements_81" title="Permanent link">&para;</a></h4>
@@ -5807,13 +5833,26 @@ then named a <code>compile_fail</code> test asserting that answering a question 
 could not have held: <code>crate::source::VerificationIdentity::parse</code> is <code>pub</code>, so any crate can
 construct one. A method that takes NO credential has no parameter to pass one to, which is the
 property the record wanted, reached by removing the argument instead of by typing it.</p>
-<p><strong>And a method with no credential still has an INPUT, which is where this was wrong by one
-method until a review said so.</strong> While <code>verify_anchor</code> took a bare <a href="crate::plan::QueryPlan"><code>QueryPlan</code></a>
-it would execute anything - a caller's question included - under whatever identity the deployment
-configured the adapter with, and what kept the request path off it was where the call sites
-happen to be. It takes an <code>AnchorPlan</code> now, which refuses a grouped plan, a plan carrying a
-requested predicate, a plan for another metric and a plan over another range. That type states
-its own limit: its constructor is <code>pub</code>, so it narrows the door rather than closing it.</p>
+<p><strong>What bounds a method with no credential is WHERE it is called from, and that is a lint here
+rather than a type - which is a second review's correction to a claim this comment used to make.</strong>
+The first correction gave <code>Self::verify_anchor</code> an <code>AnchorPlan</code> instead of a bare
+<a href="crate::plan::QueryPlan"><code>QueryPlan</code></a> and said the method could no longer be handed a question. A
+reviewer disproved that in one function: the constructor is <code>pub</code>, every value it read was
+publicly constructible, and a fabricated tuple passed all four guards. That is not a hole a fifth
+guard closes - a shape check over caller-constructible values can only ever be a shape check, and
+Rust has no cross-crate friend visibility to hide the constructor behind.</p>
+<p>So the two mechanisms are named separately, because they do different jobs:</p>
+<ul>
+<li><code>clippy.toml</code> bans <code>sutura_domain::warehouse::Warehouse::verify_anchor</code>, verified to resolve by
+  writing the call and watching clippy reject it. <code>sutura_app::verify_anchors</code> holds the single
+  <code>#[expect]</code>, so a second call site is an error under <code>-D warnings</code> until somebody writes a
+  second expectation a reviewer sees in the diff. <strong>That is what makes the path boot-only</strong>, and
+  its limit is that a lint reaches this workspace and an <code>#[allow]</code> walks past it.</li>
+<li><code>AnchorPlan</code> checks that the boot path compiled the question it meant to, reading the metric's
+  definition, its anchor's range and its coarsest grain off the pinned bundle rather than taking
+  them as arguments. It is a <strong>self-check on that one caller and not an authority</strong>, and the type
+  says so at length.</li>
+</ul>
 <h1 id="the-two-identity-declarations-and-why-they-are-two">The two identity declarations, and why they are two<a class="headerlink" href="#the-two-identity-declarations-and-why-they-are-two" title="Permanent link">&para;</a></h1>
 <p><code>Self::IMPERSONATION</code> is a property of the <strong>code</strong>: whether this adapter has anywhere for a
 subject's own credential to arrive. It is an associated constant with no default, so an adapter
