@@ -1,9 +1,14 @@
 //! Per-worktree isolation: the part that has to be right.
 //!
 //! Several worktrees of this repo are open at once - that is the point of stacked branches -
-//! and each needs its own Postgres, `ClickHouse` and an identity provider. Two worktrees sharing a
+//! and each needs its own services. Two worktrees sharing a
 //! container is the worst outcome available: a test passes because the *other* branch's
 //! migration ran, and the failure appears in whichever branch is unlucky.
+//!
+//! Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
+//! it is nix-native, provisioned by `nix/postgres-tier.nix` and run by `checks.nextest` and by
+//! `just test`, over a unix socket in a short per-worktree directory under `$TMPDIR` - see that
+//! module).
 //!
 //! So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 //! of the worktree's CANONICAL path.
@@ -148,11 +153,6 @@ pub fn profiles() -> Vec<&'static str> {
 /// compared against this repository's root, because that is the one property a colliding stranger
 /// cannot accidentally have.
 pub const SERVICES: &[Service] = &[
-    Service {
-        name: "postgres",
-        container_port: 5432,
-        profile: None,
-    },
     Service {
         name: "clickhouse",
         container_port: 8123,

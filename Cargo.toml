@@ -30,6 +30,10 @@ members = [
   # AGENTS.md's *Built And Not Wired* section and `docs/adr/0017` carry the argument.
   "crates/sutura-exec-bigquery",
   "crates/sutura-exec-datafusion",
+  # A network data system over an existing `Dialect::Postgres` rendering. THE DATA SOURCE, not an
+  # engine, and (like `sutura-exec-duckdb`) not shipped: it proves the Postgres statement we render
+  # is accepted by a real Postgres, reached through the compose tier.
+  "crates/sutura-exec-postgres",
   "crates/sutura-cli",
   # The service runtime. Four crates rather than one, and the split is the dependency direction:
   # `sutura-config` holds no framework at all, `sutura-runtime` owns the process-global concerns
@@ -81,6 +85,7 @@ sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
 # left this table when nothing linked the crate, and it is back because something does.
 sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
+sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 sutura-config = { path = "crates/sutura-config" }
 sutura-runtime = { path = "crates/sutura-runtime" }
 sutura-http = { path = "crates/sutura-http" }
@@ -94,6 +99,18 @@ sutura-dev = { path = "dev" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+
+# The Postgres driver. Pure Rust and links nothing, which is the point this adapter exists to prove:
+# the musl cross-build matrix survives a source whose driver pulls no native library. It is also the
+# row-18 inheritance: the same driver family underlies the OAuth work, so choosing it now does not
+# close that door.
+tokio-postgres = "0.7"
+# The wire buffer the driver hands a `ToSql` impl on the way out; already in the graph as a
+# tokio-postgres dependency, so naming it adds no supply-chain surface.
+bytes = "1"
+# The `Sink` API `CopyInSink` drives a text `COPY` through; already in the graph as a
+# tokio-postgres dependency, so naming it adds no supply-chain surface.
+futures-util = "0.3"
 
 # YAML, for the frontmatter of a catalog document. A maintained fork of `serde_yaml`, which
 # was archived by its author: the original still resolves and still parses, and it is exactly

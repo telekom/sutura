@@ -207,7 +207,9 @@ fn a_catalog_naming_a_source_with_no_declaration_starts_nothing() {
     // the point of this branch rather than a regression.** That test asserted a constraint the
     // source registry removes: a catalog whose models sit on two DECLARED sources is now a
     // deployment that opens two engines, and only a QUESTION whose plan spans both is refused -
-    // `PlanSpansTwoSources`, at plan time, which is where the refusal always belonged.
+    // once the splitter produces a federated plan it is refused by `answer` as
+    // `FederationNotExecutable` while no adapter executes a leg (three or more sources are refused
+    // at plan time, which is where the blanket bound always belonged).
     //
     // What survives, and what this asserts, is the half that is still a misconfiguration: a source
     // the catalog reads and the deployment never declared. There is nothing to open it as, no

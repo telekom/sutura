@@ -174,9 +174,6 @@ the bound whether or not it is serving traffic. A candidate that will not parse,
 of the pinned kind, is logged at `error` and **not** adopted: the previous keys keep verifying, because
 adopting a broken set turns a rotation mistake into a total outage.
 
-Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
-it, and the bucket it counts against is a network address rather than a principal.
-
 ### What a scope grants
 
 **Only where `security.inbound` is configured.** A deployment with no block has no verified claim to
@@ -282,7 +279,10 @@ depends on why:
 | `dimension_not_permitted` | `403` | The metric declares no such dimension |
 | `dimension_not_filterable` | `403` | It can be grouped by and not filtered on |
 | `dimension_value_not_allowed` | `403` | Use a value the catalog declares. The rejected value is never echoed back |
-| `plan_spans_two_sources` | `409` | Nothing. This deployment will not span two data systems |
+| `plan_spans_too_many_sources` | `409` | Nothing. This deployment will not read from more data systems than it serves |
+| `federation_not_executable` | `409` | Nothing. This build has no adapter that can execute one half of a two-source question yet |
+| `federation_link_ambiguous` | `409` | Nothing. The question's remote dimensions join through more than one relationship |
+| `measure_does_not_federate` | `409` | Nothing. The measure's aggregate cannot be recombined above two legs |
 | `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
@@ -614,9 +614,10 @@ and it makes a misconfiguration visible to whoever reads an answer; the startup 
 gate.
 
 **A catalog whose models sit on two declared sources is now servable**, and an engine is opened per
-source the catalog names. A *question* whose plan would span two is still refused, as
-`plan_spans_two_sources`, at plan time. There is no federation: nothing combines results from two
-sources, and the refusal is what says so rather than a partial answer.
+source the catalog names. A *question* whose plan spans exactly two is split by the plan stage into a
+fact leg and a lookup leg, and `answer` either executes it or refuses it as `federation_not_executable`
+while no adapter can execute a leg - so the split is never served as a partial or a half-executed
+answer. Three or more sources refuse at plan time as `plan_spans_too_many_sources`.
 
 *The limit, because it decides what is worth configuring today:* the only adapter this build links is
 the in-process engine, so two configured sources are two engines over two directories. A data system
@@ -763,7 +764,7 @@ asserted by a test rather than by the log call being careful.
 
 A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
-hand, so the last thing in the log says what happened and where instead of the log simply stopping.
+hand, so the last thing in the log says what happened and where instead of the log just stopping.
 
 ## Stopping
 

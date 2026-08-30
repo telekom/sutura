@@ -43,8 +43,9 @@
 //! itself.
 //!
 //! **Whether reaching two projects is one source or two.** It is **one**: a source is a credential
-//! plus a billing project, not a project, and `sutura_semantic::plan` says so where
-//! `PlanSpansTwoSources` is decided. Two projects read by one credential in one statement is a native
+//! plus a billing project, not a project, and `sutura_semantic::plan` says so where a source count
+//! decides between one statement, a split and `PlanSpansTooManySources`. Two projects read by one
+//! credential in one statement is a native
 //! join the data system pushes down, and routing it through a splitter and a client-side combiner
 //! would replace that with something slower which discards the pushdown.
 

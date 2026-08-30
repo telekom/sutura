@@ -212,6 +212,7 @@
         # explains why the crate is built without its `bundled` feature, and why the run-time path
         # is a third variable rather than an afterthought.
         duckdb = import ./nix/duckdb.nix { inherit pkgs; };
+        postgresTier = import ./nix/postgres-tier.nix { inherit pkgs; };
 
 
         # The CRAP gate's two tools, from the SAME file devenv.nix imports so the dev shell and
@@ -507,7 +508,7 @@
             cargoClippyExtraArgs = "--workspace --all-targets --all-features -- -D warnings";
           });
 
-          nextest = craneLib.cargoNextest (ciArgs // {
+          nextest = craneLib.cargoNextest ((ciArgs // {
             cargoArtifacts = ciArtifacts;
             # THE UNFILTERED TREE, and this is what ends a bug class rather than patching its
             # fourth instance. `xtask` is a repo-inspection tool, so its tests read repo files
@@ -529,6 +530,18 @@
             # diff in the log and nothing else. It is also the setting that makes a MISSING
             # snapshot a failure rather than something quietly created and passed.
             INSTA_UPDATE = "no";
+          }) // {
+            # A real Postgres, provisioned from nixpkgs inside this sandbox over a unix socket, so
+            # the postgres corpus and differential cells run HERE (in the single stable test pass)
+            # rather than in a separate `nix develop` job. `ciArtifacts` - the expensive dependent
+            # closure - is untouched, so its cache key does not move; only this cheap derivation
+            # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
+            # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
+            # that quietly failed to provision a RED run rather than a loud skip.
+            nativeCheckInputs = [ postgresTier.tier ];
+            preCheck = "${postgresTier.tier}/bin/sutura-postgres-tier start";
+            postCheck = "${postgresTier.tier}/bin/sutura-postgres-tier stop";
+            SUTURA_DEV_REQUIRE_TIER = "1";
           });
 
           # The image is supposed to hold one executable and no toolchain. It held three and
