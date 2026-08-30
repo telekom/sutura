@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **xtask**: Clean-branches, because --merged cannot see a squash merge (#74)
 - **catalog**: A metadata adapter says what it cannot supply (#59)
 - **identity**: A credential per leg, so nothing runs as the process (#58)
 - **dev**: The compose tier gets a reader, and the tier came up (#56)
