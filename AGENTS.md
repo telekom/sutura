@@ -408,10 +408,15 @@ different reasons - named at a constant a reviewer can grep. `docs/adr/0017`'s s
 record, including the cost per run, the dataset grant it needs, and the new limit it brings: the leg
 WRITES four fixed table names, so two runs against one dataset race.
 
+**It has RUN, green, in CI on 2026-08-31** - the `bigquery-acceptance` job, 8 tests passed, against
+the `bq-test` environment's real dataset. Measured: 22 corpus statements accepted, 9 refused by the
+compiler before a statement existed, 16 answers agreeing exactly with the engine's, 9 refusals
+agreeing, 1 excluded, and 6 anchors reproduced by the endpoint.
+
 **And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` does not
 say where a null goes, and `DataFusion` orders nulls LAST while `GoogleSQL` orders them FIRST - so
 every corpus question grouping by a dimension behind the example `LEFT JOIN` returns the same rows in a
-different order. **No golden could see it**, and for a sharper reason than the `ISOWEEK` case: a golden
+different order. **Five of the corpus's 31 questions, measured**, one of them at 61 rows. **No golden could see it**, and for a sharper reason than the `ISOWEEK` case: a golden
 pins the statement TEXT and the text is identical on both sides, so only two data systems executing it
 can disagree. No number is wrong; what differs is the order of a certified answer, which the plan
 claims by emitting `ORDER BY`. The fix belongs to `sutura-sql` - state the placement, which all four

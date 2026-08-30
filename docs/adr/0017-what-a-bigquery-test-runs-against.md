@@ -322,16 +322,20 @@ being true, and it named itself as the thing to watch:
 > the 21 questions, compare rows with the engine - and it is not built.**
 
 It is built. `crates/sutura-exec-bigquery/tests/corpus.rs`, three `#[ignore]`d tests behind the same
-`just bigquery-acceptance` the smoke leg uses.
+`just bigquery-acceptance` the smoke leg uses. **And it has RUN, green, in CI on 2026-08-31** - the
+`bigquery-acceptance` job, 8 tests passed, five of them the smoke leg's and three this one's, against
+the `bq-test` environment's real dataset. So the sentence above is superseded by a measurement rather
+than by an intention.
 
 ### Which of the four bullets, exactly
 
 | Bullet | Where it stands |
 | --- | --- |
-| the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below |
+| the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured: **16 agreed exactly, 5 agreed on content and differed on null placement** |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
+| *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
 
 **And one claim that is not on the list and is the strongest of the four.** The corpus leg also asks
 the endpoint to reproduce every ANCHOR the engine reproduces. An anchor is a number somebody
@@ -358,9 +362,21 @@ to its factual claim.
 LAST; `GoogleSQL` orders them FIRST. The example corpus reaches it because
 `fct_subscription_monthly` holds a `customer_key` with no row in `dim_customer`, so every question
 grouping by a dimension behind that `LEFT JOIN` comes back with one null-dimension row - and the two
-data systems put that row at opposite ends. Measured on the first CI run of the leg, on
+data systems put that row at opposite ends.
+
+**Measured, on the leg's first two CI runs.** The first went red on
 `recurring-revenue-by-region-and-family`: nineteen rows, identical contents, one of them moved from
-last to first.
+last to first. With the divergence pinned, the second run gives the full tally and it is **five
+questions rather than one** - `recurring-revenue-by-region-and-family`, `recurring-revenue-by-region`,
+`recurring-revenue-by-segment`, `revenue-per-customer-by-segment` and
+`subscription-months-by-region-and-term`, the last at 61 rows:
+
+```text
+bigquery-corpus: 16 answers agreed exactly, 5 agreed on content and differed on NULL
+                 placement, 9 refusals agreed, 1 excluded, 31 in the corpus
+```
+
+That is a fifth of the corpus, which is worth knowing before deciding the fix is cosmetic.
 
 **What it is, precisely.** No number is wrong: the row CONTENT is identical on both sides. What differs
 is the order of rows in a certified answer, which the plan does claim, because it emits `ORDER BY`. So
