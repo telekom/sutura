@@ -155,37 +155,19 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the failure this refusal exists to prevent - the cap itself, and the two things a caller
         // can narrow.
         //
-        // **One status and one code for both bounds, and a nested exhaustive match for the
-        // sentence.** The status and the code are what a client branches on, and *too much data* is
-        // one thing to branch on: the remedy is the same narrowing whichever side measured it, and a
-        // second code would make an operator configure a dashboard for two answers to one question.
-        // What differs is what can honestly be said, so the inner match has no wildcard arm - a
-        // third bound cannot be rendered as the cap by accident.
+        // **One status and one code for both bounds.** They are what a client branches on, and *too
+        // much data* is one thing to branch on: the remedy is the same narrowing whichever side
+        // measured it, and a second code would make an operator configure a dashboard for two
+        // answers to one question. What differs is what can honestly be SAID, and that is
+        // [`too_much_data`]'s own exhaustive match.
         //
-        // **Never `503`.** The volume arm is the defect this arm was widened for: a result over the
-        // data system's reply bound used to arrive as `ServiceError::Warehouse` and leave as `503`,
-        // which is what a dead data system looks like - so a caller was told to retry against a bound
-        // that returns the same reply.
-        RefusalReason::ResultTooLarge { bound } => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "result_too_large",
-            match bound {
-                ResultBound::Rows { limit } => format!(
-                    "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
-                     narrow the period or group by fewer dimensions and ask again"
-                ),
-                // No figure, because there is none this deployment was told - see
-                // `ResultBound::Volume`, which says at length why inventing one would be worse than
-                // leaving it out. So the sentence says which side the bound belongs to, that nothing
-                // was truncated to fit, and that a retry is not the remedy.
-                ResultBound::Volume => String::from(
-                    "the answer was more data than the data system would return at once and was NOT \
-                     truncated to fit; the bound is the data system's own and this service is not \
-                     told what it is, so narrow the period or group by fewer dimensions and ask \
-                     again. Retrying it unchanged returns this same refusal",
-                ),
-            },
-        ),
+        // **Never `503`.** The volume bound is the defect this arm was widened for: a result over
+        // the data system's reply bound used to arrive as `ServiceError::Warehouse` and leave as
+        // `503`, which is what a dead data system looks like - so a caller was told to retry against
+        // a bound that returns the same reply.
+        RefusalReason::ResultTooLarge { bound } => {
+            (StatusCode::PAYLOAD_TOO_LARGE, "result_too_large", too_much_data(bound))
+        }
         // 422, and choosing it is the whole point of this variant existing. Exhaustion used to reach
         // a caller as `503 unavailable` out of `ServiceError::Warehouse` - the same status a data
         // system that is down produces - so a caller was told to retry against a configured bound
@@ -267,6 +249,33 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
             detail,
         },
     )
+}
+
+/// The sentence for a result that was too much data, per bound.
+///
+/// **A function of its own because the two bounds share a status and a code and cannot share a
+/// sentence.** One of them has a number an operator configured and the other has no number at all, so
+/// a single string would either invent a cap for the volume case or drop the cap from the row case.
+///
+/// Exhaustive with no wildcard arm: a third bound has to be answered here rather than inheriting the
+/// row cap's wording, which would be a certified-looking figure for a bound nobody measured.
+fn too_much_data(bound: ResultBound) -> String {
+    match bound {
+        ResultBound::Rows { limit } => format!(
+            "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
+             narrow the period or group by fewer dimensions and ask again"
+        ),
+        // No figure, because there is none this deployment was told - see `ResultBound::Volume`,
+        // which says at length why inventing one would be worse than leaving it out. So the sentence
+        // says which side the bound belongs to, that nothing was truncated to fit, and that a retry
+        // is not the remedy.
+        ResultBound::Volume => String::from(
+            "the answer was more data than the data system would return at once and was NOT \
+             truncated to fit; the bound is the data system's own and this service is not told what \
+             it is, so narrow the period or group by fewer dimensions and ask again. Retrying it \
+             unchanged returns this same refusal",
+        ),
+    }
 }
 
 #[cfg(test)]
