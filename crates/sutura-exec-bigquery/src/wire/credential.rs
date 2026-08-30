@@ -89,7 +89,7 @@ use std::path::{Path, PathBuf};
 use base64::Engine as _;
 use sutura_domain::identity::{Expiry, Secret};
 
-use crate::wire::WireAgent;
+use crate::wire::{CallDeadline, WireAgent};
 
 /// A token usable now, and when it stops being usable.
 ///
@@ -162,8 +162,18 @@ pub trait AccessTokens {
     /// them silently.
     fn quota_project(&self) -> QuotaProject;
 
-    /// A token usable at `now_unix_seconds`.
-    fn bearer(&self, now_unix_seconds: u64) -> Result<Bearer, Self::Error>;
+    /// A token usable at `now_unix_seconds`, produced inside what is left of `within`.
+    ///
+    /// **The budget is an argument because the exchange is not free, and it is the FIRST thing one call
+    /// spends.** A review measured the shape this replaced: the client's timeout lived on the agent, so
+    /// an exchange and the job that followed it each got a full budget of their own and one answer's
+    /// four HTTP operations could outlive the request they were answering several times over. An
+    /// implementor that opens a socket reads [`CallDeadline::remaining`] and gives that, and only that,
+    /// to the client - and refuses rather than sending when it is gone.
+    ///
+    /// An implementor with nothing to fetch may ignore it, which is why it is a value and not a
+    /// `Result`.
+    fn bearer(&self, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error>;
 }
 
 /// The file a credential lives in.
@@ -387,6 +397,14 @@ pub enum TokenUnavailable {
     /// anyway would turn one clear failure into a `401` from the data system.
     #[error("the token endpoint returned a token that expired {at} seconds after the epoch, and it is now {now}")]
     AlreadyExpired { at: u64, now: u64 },
+    /// The call's budget was gone before the exchange could be attempted.
+    ///
+    /// **Reachable only where something before the exchange spent the whole call**, which today means a
+    /// clock read and a signature. It is a variant rather than a send with no timeout because a zero
+    /// budget handed to the client underneath means *no timeout at all* - see
+    /// `CallDeadline::remaining`.
+    #[error("this call's budget was spent before a token could be exchanged")]
+    DeadlineSpent,
     /// The assertion could not be signed.
     ///
     /// Only reachable for a `service_account`. The cause is kept: `ring`'s own error says whether the
@@ -683,14 +701,21 @@ impl Credential {
     /// response document, the same refusal shapes - and only the form differs. Two copies would be two
     /// vocabularies for one endpoint's answers, and the second copy is where the expired-on-arrival
     /// check would fail to get added.
-    fn exchange<'form, F>(&self, form: F, now_unix_seconds: u64) -> Result<Bearer, TokenUnavailable>
+    fn exchange<'form, F>(&self, form: F, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, TokenUnavailable>
     where
         F: IntoIterator<Item = (&'form str, &'form str)>,
     {
+        // **The exchange is the first thing a call spends, so it gets what the call has and no more.**
+        // The agent carries a whole-budget timeout as a backstop; this is the override that makes the
+        // budget one number for the exchange AND the job that follows it.
+        let left = within.remaining().ok_or(TokenUnavailable::DeadlineSpent)?;
         let mut answer = self
             .agent
             .agent()
             .post(TOKEN_ENDPOINT)
+            .config()
+            .timeout_global(Some(CallDeadline::socket(left)))
+            .build()
             .send_form(form)
             .map_err(|cause| TokenUnavailable::Unreachable { cause: Box::new(cause) })?;
         let status = answer.status();
@@ -741,7 +766,7 @@ impl AccessTokens for Credential {
     ///
     /// Form-encoded, because that is what both grants take; every value travels in the body and never
     /// in the URL, so none of them reaches a proxy log as a query string.
-    fn bearer(&self, now_unix_seconds: u64) -> Result<Bearer, Self::Error> {
+    fn bearer(&self, now_unix_seconds: u64, within: CallDeadline) -> Result<Bearer, Self::Error> {
         /// The grant a signed assertion is presented under, spelled as the endpoint documents it.
         const ASSERTION_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 
@@ -758,6 +783,7 @@ impl AccessTokens for Credential {
                     ("refresh_token", refresh_token.expose()),
                 ],
                 now_unix_seconds,
+                within,
             ),
             Kind::ServiceAccount {
                 ref client_email,
@@ -769,6 +795,7 @@ impl AccessTokens for Credential {
                 self.exchange(
                     [("grant_type", ASSERTION_GRANT), ("assertion", assertion.as_str())],
                     now_unix_seconds,
+                    within,
                 )
             }
         }

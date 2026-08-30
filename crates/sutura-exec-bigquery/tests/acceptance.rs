@@ -110,9 +110,12 @@ mod tests {
 
     /// What every job this leg submits is bounded by.
     ///
-    /// **30 seconds because that is `server.request_timeout_seconds`' shipped default**, which is the
-    /// setting a composition root would fill this from - so the number here is a copy of a real one
-    /// rather than a round guess, and this comment says which.
+    /// **The deadline is DERIVED from `server.request_timeout_seconds` rather than copied from it**,
+    /// which is the correction review forced. Thirty seconds is the shipped default, and thirty seconds
+    /// is NOT what one call may spend: one answer calls the port twice and each call pays connection
+    /// setup on top of its own budget, so the number a caller wants is the share -
+    /// `QueryDeadline::within_request_timeout` does that arithmetic once, here and in whichever
+    /// composition root links this crate.
     ///
     /// **1 GiB because this leg is the one path that spends real money.** A developer or a CI job
     /// pointed at a partitioned table with years of history gets `bytesBilledLimitExceeded` from the
@@ -120,7 +123,7 @@ mod tests {
     /// repository bounds bytes scanned - the row cap bounds rows returned, not bytes read.
     fn bounds() -> JobBounds {
         JobBounds::of(
-            QueryDeadline::parse(30).expect("30 seconds is a deadline"),
+            QueryDeadline::within_request_timeout(30).expect("the shipped request timeout leaves a budget"),
             BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
         )
     }
