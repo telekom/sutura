@@ -8,13 +8,23 @@
 //! digest needs, and nothing else - which is why there is a hand-written calendar in [`calendar`]
 //! and no SQL parser anywhere in this crate, [`expression`] included.
 //!
-//! **Three ports live here now, and each arrived with the adapter that implements it.** A port exists
+//! **Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 //! to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 //! guess at a signature that only the first real adapter can settle, and in a library crate `pub`
 //! hides such a guess from `dead_code`. [`pinned::SemanticCatalog`] arrived with the local catalog
-//! adapter, [`warehouse::Warehouse`] with the `DuckDB` one, and [`audit::AuditSink`] with the
-//! structured writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets.
-//! `CredentialBroker` is still absent for the same reason it always was: nothing implements it yet.
+//! adapter, [`warehouse::Warehouse`] with the `DuckDB` one, [`audit::AuditSink`] with the structured
+//! writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets - and
+//! [`identity::CredentialBroker`] with `sutura_config::StaticCredentialBroker`, which is in the
+//! settings crate because the identity provider it reads *is* the settings tree.
+//!
+//! **What the credential port did and did not buy, said here because the count above invites the
+//! wrong reading.** There is no longer a signature that reaches a data system with a question and no
+//! credential, and a subject with no credential at a source is refused rather than answered as the
+//! process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+//! credential to arrive, so a leg runs under the identity an operator declared for that source and
+//! [`pinned::Provenance`] records which. The one method that still executes with no credential is
+//! [`warehouse::Warehouse::verify_anchor`], the boot path's; `clippy.toml` bans it everywhere else and
+//! [`plan::AnchorPlan`] says plainly that it is a self-check on that path rather than a barrier.
 //!
 //! The modules are grouped by concept rather than named after traits, so a port sits next to the
 //! types it speaks in:
@@ -47,8 +57,9 @@
 //!   per-leg execution record [`pinned::Provenance`] carries, which is read off what the adapter was
 //!   handed rather than off a settings tree.
 //! - [`definitions`] and [`identity`] hold the digest and the credential-shaped newtypes. The
-//!   principal chain a call is attributed to lives in [`identity`] as well, beside the redaction,
-//!   because both are properties of who is asking rather than of what was asked.
+//!   principal chain a call is attributed to lives in [`identity`] as well, beside the redaction and
+//!   the credential port, because all three are properties of who is asking rather than of what was
+//!   asked.
 //! - [`audit`] is the record one call is written to, and the port it goes through. It is not a
 //!   store: sutura writes a record before the outcome returns and retains nothing, so what the
 //!   sink does with it is the deployment's.

@@ -431,16 +431,15 @@ pub enum NotExecutedReason {
     /// The result set was not the shape it reported.
     #[error("the result set was not the shape it reported")]
     ResultShapeMismatch,
-    /// The plan the boot path compiled is not this anchor's own, so nothing was allowed to execute it
-    /// with no credential.
+    /// The plan the boot path compiled is not this anchor's own, so nothing executed it.
     ///
     /// **A defect in the boot path rather than anything about the catalog**, which is why it is one
-    /// variant with the typed cause flattened into it rather than four: whoever reads a report needs
-    /// to know this anchor was not checked and why, and the four ways
-    /// `sutura_domain::plan::AnchorPlan::of` refuses a plan are all "the question compiled here was
-    /// not the anchor's". Nothing in this workspace can provoke it; it exists because a method that
-    /// takes no credential must be unable to take a question, and a check with no reportable outcome
-    /// would have to be a panic instead.
+    /// variant with the typed cause flattened into it rather than one per cause: whoever reads a
+    /// report needs to know this anchor was not checked and why, and every way
+    /// `sutura_domain::plan::AnchorPlan::of` refuses a plan is "the question compiled here was not the
+    /// anchor's". Nothing in this workspace can provoke it - it is a SELF-CHECK on the boot path, not
+    /// a barrier against a caller, and `AnchorPlan`'s own documentation is where that distinction is
+    /// argued - and a check with no reportable outcome would have to be a panic instead.
     #[error("the plan compiled for this anchor is not the anchor's own: {}", flattened(.message, .chain))]
     NotAnAnchor { message: String, chain: Vec<String> },
     /// The data system failed the statement. `message` is the adapter's own, `chain` is every cause

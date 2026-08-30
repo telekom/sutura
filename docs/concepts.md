@@ -128,12 +128,18 @@ than an `Err`, and the golden suite provokes every variant a question can reach.
 never echoed back either: `DimensionValueNotAllowed` names the dimension and stops there, so caller
 text cannot be reflected into a log, a UI or an agent's context.
 
-**Design target, not built.** Recording each refusal with the whole principal chain before it is
-returned. There is no audit sink, and no principal chain to record: `sutura-runtime` installs a
-tracing subscriber, so a refusal can be *logged*, but a log line is not an audit record - nothing
-correlates it to a caller, because there is no caller identity to correlate it to. Until both exist,
-a refused call is not attributable, and a refusal nobody can attribute is indistinguishable from a
-request that never happened.
+**Built, and the limit is the deployment's rather than ours.** Every outcome - a refusal as much as an
+answer - is written to an `AuditSink` before it is returned, and the record carries the principal
+chain. `sutura-runtime` ships the structured writer a deployment that attaches nothing else gets. Two
+things that are not the same as attribution: sutura **retains nothing**, so what a record is worth is
+what the deployment's sink is worth; and the subject in that chain is only as strong as what
+established it - a deployment behind the shared bearer token alone records the *deployment*, because
+that is who asked as far as anything can tell. A deployment that declares `security.inbound` records
+the caller, from a signature.
+
+**Still a design target.** A refusal recorded against a subject whose *access* decided the answer.
+The record can now say who asked and which identity each leg ran under; it cannot say the two were
+the same, because no adapter in this build can carry a per-subject credential.
 
 ## Principal, subject, and running as the caller
 

@@ -34,7 +34,7 @@ it in the code that is here now.
 | Property | The mechanism it rests on | Status |
 | --- | --- | --- |
 | Every query runs as the caller | A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity | **Design target, not built.** Neither a request context nor a credential broker exists, so no caller identity reaches the query path at all. In single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be |
-| A refusal is an answer | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works | **Enforced today.** `ToolOutcome::Refusal` is the public surface and the golden suite provokes every reachable variant. Recording a refusal against the principal chain is a *design target*: there is no audit sink |
+| A refusal is an answer | Refusal is a variant of the result type rather than an error return, so a caller cannot mistake it for a hiccup and retry until something works | **Enforced today.** `ToolOutcome::Refusal` is the public surface and the golden suite provokes every reachable variant. Recording it against the principal chain is enforced too - every outcome goes through an `AuditSink` before it is returned - with two limits: sutura retains nothing, and behind the shared bearer token alone the subject recorded is the deployment |
 | You cannot ask it to run SQL | The tool surface has no field for a query, a table or a filter. An uncertified question is unrepresentable, not merely refused | **Enforced today.** `Query` declares no such field, `deny_unknown_fields` turns an attempt into an error naming it, and a golden asserts no value a question carries reaches the statement as text |
 | Definitions come from elsewhere | They are authored in a semantic layer and arrive pinned and hashed. Nothing here edits one, because that would fork the definition from the number it certifies | **Enforced today.** The load path takes no request context, the bundle is hashed, and every declared anchor re-executes before the bundle may be served |
 
@@ -77,12 +77,16 @@ decision in the binary; there is no configuration that selects one.
 [What can be plugged in today](architecture.md#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table, and it is the section to read before assuming otherwise.
 
-What is not built is the part that makes the first sentence of this page true of a warehouse. There
-is no request context type, so no caller identity reaches the query path at all, and no credential
-broker, so "as the person or agent asking" holds here only because a file has nobody else to be.
-There is no audit sink either, so a refusal is a value the caller receives and is recorded nowhere.
-The MCP surface, Arrow results and federation are also still ahead. [The HTTP
-surface](serving.md) is not, and its token authenticates the deployment rather than the caller.
+What is not built is the part that makes the first sentence of this page true of a warehouse, and it is
+now one specific thing rather than four. There *is* a request context, a credential broker port with a
+static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
+`security.inbound` - a caller identity verified from a signature, with scopes deciding which operations
+that caller may invoke. What is absent is **leg 2**: no adapter in this build has anywhere for a
+per-subject credential to arrive, both declare so, and the broker mints what an operator configured.
+So "as the person or agent asking" holds here only because a file has nobody else to be - a deployment
+can know exactly who is asking, record it, refuse a subject it holds no credential for, and still read
+every row as one identity. Arrow results and federation are also still ahead. [The HTTP
+surface](serving.md) is not, and its bearer token authenticates the deployment rather than the caller.
 [What exists today](architecture.md#what-exists-today) is the honest inventory.
 
 ## Where to start

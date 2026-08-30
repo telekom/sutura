@@ -24,6 +24,7 @@ use crate::calendar::TimeRange;
 use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
 pub mod leg;
@@ -487,44 +488,53 @@ impl QueryPlan {
 }
 
 /// The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
-/// a declared anchor's own plan.
+/// a plan the pinned bundle itself agrees is one of its anchors' own.
 ///
-/// **This type exists because the sentence "no signature in this workspace can execute a question as
-/// this process" was false by one method, and a review caught it.**
-/// [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
-/// [`Presented`](crate::identity::Presented). `verify_anchor` deliberately takes no credential -
-/// there is no caller at boot - and while it took a bare [`QueryPlan`] it would execute *any* plan
-/// under whatever identity the deployment configured that adapter with, including a plan compiled
-/// from a caller's question. Placement kept the request path off it; placement is not a mechanism.
+/// # What this type is, and what it is not
 ///
-/// So the boot path gets an input a question's plan cannot be: [`Self::of`] refuses a plan that is
-/// grouped, a plan carrying a predicate the question asked for, a plan for a different metric, and a
-/// plan whose range is not the anchor's. An anchor is asked with no dimensions and no filters over
-/// the range its author certified, so those four checks accept exactly what the boot path builds and
-/// reject every shape a caller can reach.
+/// **It is a self-check on the boot path, and it is NOT an authority.** That distinction is the whole
+/// of what a second review corrected, and getting it wrong once put a false sentence in ten places
+/// across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
+/// [`Presented`](crate::identity::Presented); `verify_anchor` deliberately takes no credential,
+/// because there is no caller at boot, and it therefore runs under whatever identity the deployment
+/// configured that adapter with. So the question is what bounds its INPUT.
 ///
-/// # The limit, stated with the claim
+/// [`Self::of`] answers "did the boot path compile the question it meant to" and nothing stronger.
+/// The plan has to compute a metric **this bundle** defines, that metric has to declare an anchor,
+/// and the plan has to be that anchor's own question: the metric's coarsest declared grain, exactly
+/// the range the anchor certifies, no group-by keys, and no predicate a question asked for. Every one
+/// of those facts is read off the [`PinnedDefinitions`] rather than accepted as an argument, which is
+/// what makes the check worth making - a caller no longer supplies the anchor it will be compared
+/// against.
 ///
-/// [`Self::of`] is `pub`, because the boot path lives in `sutura-app` and this type lives here - the
-/// same reason [`LegCredentials::minted`](crate::identity::LegCredentials::minted) is. So this is a
-/// **narrowing and not a closure**: a caller that already holds the bundle can still ask for a metric
-/// at its coarsest grain, with no dimensions and no filters, over exactly the range that metric's
-/// anchor declares, and construct one. What that plan returns is the number the bundle certifies in
-/// its own catalog document and that provenance already publishes, so nothing reaches a caller
-/// through this door that the definitions did not already state. What is no longer reachable is a
-/// *question* - a grouped plan, a filtered one, a different range, a different metric - which is what
-/// the claim is about.
+/// **What it cannot do is stop code that wants to.** Every value it reads is publicly constructible -
+/// [`QueryPlan::new`], [`PinnedDefinitions::pin`], the metric and range types - and Rust has no
+/// cross-crate friend visibility, so a constructor `sutura-app` can call is a constructor anything in
+/// the workspace can call. A reviewer defeated the previous version of this type in one function by
+/// fabricating the tuple it took, and the fix for that class is not a fifth guard: a shape check over
+/// caller-constructible values can only ever be a shape check.
 ///
-/// A genuinely closed constructor would need the domain to compile the plan itself, and compilation
-/// is `sutura-semantic`'s: the domain may not depend on it. `docs/adr/0008`'s own correction 2 is the
-/// precedent for saying this rather than implying more - a `pub` constructor asserted as unreachable
-/// is exactly what that correction found wrong with the record's first attempt at this method.
+/// # So what makes the credential-free path boot-only
+///
+/// A lint, and it is named here rather than implied: `clippy.toml` bans
+/// `sutura_domain::warehouse::Warehouse::verify_anchor`, verified to resolve by writing the call and
+/// watching clippy reject it. `sutura_app::verify_anchors` holds the single `#[expect]`, so a second
+/// call site is an error under `-D warnings` until somebody writes a second expectation a reviewer
+/// sees in the diff. That is the same mechanism the ban on the panicking fragment API and the ban on a
+/// bare `spawn_blocking` already rest on. **Its limit is that a lint is not a type:** it reaches this
+/// workspace and not a crate outside it, and an `#[allow]` walks past it.
+///
+/// A genuinely closed constructor is not available. The domain cannot compile a plan - compilation is
+/// `sutura-semantic`'s and dependencies point inward - and a token only `sutura-app`'s private `proof`
+/// module could mint would have to be constructible from `sutura-domain`, which is the same public
+/// door one level down. `docs/adr/0008`'s own corrections are the precedent for saying this rather
+/// than implying more.
 #[derive(Debug)]
 pub struct AnchorPlan<'bundle> {
     plan: &'bundle QueryPlan,
 }
 
-/// A plan that is not a declared anchor's own, so nothing may execute it with no credential.
+/// A plan that is not a declared anchor's own, so the boot path did not compile what it meant to.
 ///
 /// **An error and not a refusal**: reaching it means the boot path compiled something other than the
 /// anchor's question, which is a defect here rather than anything about a caller.
@@ -533,30 +543,76 @@ pub enum NotAnAnchorsPlan {
     /// The plan computes a different metric from the one whose anchor it would be checked against.
     #[error("this plan computes `{plan}` and the anchor certifies `{anchor}`")]
     NotThatMetric { plan: MetricName, anchor: MetricName },
+    /// The bundle this plan is checked against does not define the metric at all.
+    #[error("this bundle defines no metric `{metric}`, so it has no anchor to be the plan of")]
+    MetricNotDefined { metric: MetricName },
+    /// The metric is defined and declares no certified number, so there is no anchor to be a plan of.
+    #[error("`{metric}` declares no anchor, so no plan of it is an anchor's")]
+    DeclaresNoAnchor { metric: MetricName },
     /// The plan groups by something. An anchor is a metric's own number, not a slice of it.
     #[error("an anchor's plan groups by nothing, and this one groups by {keys}")]
     Grouped { keys: usize },
     /// The plan carries a predicate a question asked for, which an anchor's plan never does.
     #[error("an anchor's plan carries only the metric's own predicates, and this one carries a requested one")]
     Requested,
+    /// The plan buckets at a finer grain than the metric's coarsest, so it returns a series.
+    ///
+    /// **The gap a second review found**, and the reason it is not cosmetic: an anchor certifies one
+    /// number, and a plan at `Day` grain over the anchor's range comes back as one row per day. The
+    /// comparison downstream insists on exactly one row, so this arrived as a mismatch that reads like
+    /// a broken definition - and a plan that returns a series is strictly more than the number the
+    /// bundle already publishes.
+    ///
+    /// `coarsest` is an [`Option`] because a set can be empty, and the empty case is folded in here
+    /// rather than given a variant of its own: [`Definitions::assemble`](crate::catalog::Definitions)
+    /// refuses a metric that declares no grain, so a separate variant would be one no test could
+    /// provoke - and this crate's rule is that an enum does not carry one of those.
+    #[error(
+        "an anchor of `{metric}` is asked at {} and this plan buckets at {plan}",
+        .coarsest.map_or("no grain it declares", Grain::as_str)
+    )]
+    NotTheCoarsestGrain {
+        metric: MetricName,
+        plan: Grain,
+        coarsest: Option<Grain>,
+    },
     /// The plan's range is not the range the anchor's author certified.
     #[error("the anchor certifies {anchor} and this plan covers {plan}")]
     NotTheAnchorsRange { plan: TimeRange, anchor: TimeRange },
 }
 
 impl<'bundle> AnchorPlan<'bundle> {
-    /// Parses a plan as one anchor's, refusing every shape a question could be.
+    /// Parses a plan as one of `pinned`'s own anchors', reading every fact it compares off the bundle.
     ///
-    /// Takes the metric's name as well as the [`Anchor`], because an anchor carries a range and a
-    /// value and does not know which metric declared it - so without the name the metric check would
-    /// have nothing to compare against.
-    pub fn of(plan: &'bundle QueryPlan, metric: &MetricName, anchor: &Anchor) -> Result<Self, NotAnAnchorsPlan> {
+    /// Takes the metric's name as well as the bundle, because the bundle holds many anchors and the
+    /// caller is asserting *which* one this plan is of - so the first check is that the plan agrees.
+    /// Everything after that is the bundle's own statement about that metric.
+    ///
+    /// **It does not take a `sutura_app::Validated` bundle, and it cannot:** validating a bundle is
+    /// what this call is part of, so the proof does not exist yet. That is one more reason the type is
+    /// a self-check rather than an authority.
+    ///
+    /// The order of the checks is chosen for the diagnostic rather than for cost - every input is
+    /// already bounded and in memory. Which metric, then what the bundle says about that metric, then
+    /// the two shapes only a question has, then the two values an anchor's own question pins.
+    pub fn of(plan: &'bundle QueryPlan, pinned: &PinnedDefinitions, metric: &MetricName) -> Result<Self, NotAnAnchorsPlan> {
         if plan.metric() != metric {
             return Err(NotAnAnchorsPlan::NotThatMetric {
                 plan: plan.metric().clone(),
                 anchor: metric.clone(),
             });
         }
+        let definition = pinned
+            .definitions()
+            .metric(metric)
+            .ok_or_else(|| NotAnAnchorsPlan::MetricNotDefined { metric: metric.clone() })?;
+        let anchor: &Anchor = definition
+            .anchor()
+            .ok_or_else(|| NotAnAnchorsPlan::DeclaresNoAnchor { metric: metric.clone() })?;
+        // The coarsest grain the metric declares, because that is the one grain at which the anchor's
+        // range yields a single number. Read here rather than passed in: a caller-supplied grain is a
+        // caller-supplied answer to the question this check is asking.
+        let coarsest = definition.grains().iter().copied().max();
         if !plan.keys().is_empty() {
             return Err(NotAnAnchorsPlan::Grouped { keys: plan.keys().len() });
         }
@@ -566,6 +622,13 @@ impl<'bundle> AnchorPlan<'bundle> {
             .any(|filter| matches!(filter.origin(), PredicateOrigin::Requested))
         {
             return Err(NotAnAnchorsPlan::Requested);
+        }
+        if coarsest != Some(plan.bucket().grain()) {
+            return Err(NotAnAnchorsPlan::NotTheCoarsestGrain {
+                metric: metric.clone(),
+                plan: plan.bucket().grain(),
+                coarsest,
+            });
         }
         if plan.range() != anchor.range() {
             return Err(NotAnAnchorsPlan::NotTheAnchorsRange {

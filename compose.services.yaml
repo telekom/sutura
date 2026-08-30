@@ -207,12 +207,18 @@ services:
   # JWKS the validator fetches and sign real JWTs for two subjects - at which point it is an issuer we
   # maintain, with its own key rotation, standing in for the one deployments actually run.
   #
-  # **Why off by default.** Nothing in this repository can use it yet: `CredentialBroker` does not
-  # exist, `feat/credential-port` is unbuilt, and there is no validator module. It is also the slowest
-  # of the three to become ready. A tier that starts it on every pull request pays for it on every
-  # pull request and tests nothing with it - and the plan's own selective-service-CI section is
-  # DEFERRED precisely because this tier's runtime has never been measured. It turns on with the
-  # branch that needs it.
+  # **Why off by default, and the reason is no longer "the port does not exist".** It does:
+  # `sutura_domain::identity::CredentialBroker` is a port with a static-credential implementor in
+  # `sutura-config`, and `sutura_http::inbound` verifies a caller's own token against an issuer, an
+  # audience and a pinned asymmetric algorithm. What that build still cannot do is the thing this tier
+  # would be for: **no adapter can carry a per-subject credential**, both declare so, and the broker
+  # mints what an operator configured - so there is no leg for two subjects to get different rows
+  # through, and a tier that issued two real tokens would prove nothing about rows. The refusal corpus
+  # already covers the port's shape with a fake, per the paragraphs above. It is also the slowest of the
+  # three to become ready, and a tier that starts it on every pull request pays for it on every pull
+  # request - the plan's own selective-service-CI section is DEFERRED precisely because this tier's
+  # runtime has never been measured. It turns on with the branch that gives an adapter somewhere for a
+  # subject's credential to arrive.
   keycloak:
     image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/keycloak/keycloak:26.7
     profiles:
