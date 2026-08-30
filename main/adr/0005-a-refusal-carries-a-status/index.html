@@ -2151,9 +2151,15 @@
 
 
 <h1 id="a-refusal-carries-a-status">A refusal carries a status<a class="headerlink" href="#a-refusal-carries-a-status" title="Permanent link">&para;</a></h1>
-<p>Status: accepted. It changes what the HTTP transport says about a refusal. It supersedes nothing and
-changes no domain type: <code>ToolOutcome::Refusal</code> is still a <em>result</em> and not an <code>Err</code>, which is the
-invariant <a href="../../architecture/">the tool surface</a> is built on and which this record does not touch.</p>
+<p>Status: <strong>accepted, and amended once.</strong> It changes what the HTTP transport says about a refusal. It
+supersedes nothing and changes no domain type: <code>ToolOutcome::Refusal</code> is still a <em>result</em> and not an
+<code>Err</code>, which is the invariant <a href="../../architecture/">the tool surface</a> is built on and which this record
+does not touch.</p>
+<p><strong>Amended by <a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a>.</strong> One
+sentence below - <em>"the <code>403</code>s are not a statement about a credential"</em> - stopped being true when
+<code>RefusalReason::CredentialUnavailable</code> arrived with a <code>403</code> of its own. The amendment is written where
+that sentence is, and the status table below carries the new row. A review is what found this record
+unamended while the code that amended it had already merged.</p>
 <h2 id="context">Context<a class="headerlink" href="#context" title="Permanent link">&para;</a></h2>
 <p><code>POST /v1/query</code> answered <code>200</code> for both outcomes. An answer and a refusal arrived with the same
 status, and the <code>outcome</code> field was what a caller branched on:</p>
@@ -2282,6 +2288,11 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td><code>503</code></td>
 <td>The one refusal where retrying is reasonable</td>
 </tr>
+<tr>
+<td><code>CredentialUnavailable</code></td>
+<td><code>403</code></td>
+<td><strong>Added by <a href="../0008-a-credential-per-leg-for-the-calling-subject/">0008</a>, and it is the row that amends the note below.</strong> The asking subject has no credential at the data system the plan reads, and this deployment will not read it under its own identity instead. <code>403</code> rather than <code>401</code>: re-authenticating to <em>this</em> service changes nothing, because the missing grant is at the data system. The sentence says so in as many words and a test asserts it does, precisely so a client cannot read the status as "authenticate harder" and retry forever</td>
+</tr>
 </tbody>
 </table>
 <p>Three groupings are deliberate rather than a shortage of numbers. The status is what a monitor counts
@@ -2292,6 +2303,18 @@ already took the same position, where <code>unavailable</code> and <code>at_capa
 token authenticates the deployment - so no token widens a metric's dimension set. <code>403</code> is used in its
 "understood the request, refuses to fulfil it" sense, and each sentence names the metric and the
 dimension so a caller cannot read it as "go and get a better token".</p>
+<blockquote>
+<p><strong>Amended by <a href="../0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a>.</strong> That
+paragraph is now true of every <code>403</code> on this surface <strong>except one</strong>. <code>CredentialUnavailable</code> <em>is</em> a
+statement about a credential - the asking subject's, at the data system, which is not the one they
+presented here - and it exists because a question that cannot run as the subject is refused rather
+than answered under the deployment's own identity. Both halves of the original reasoning survive in
+the narrower form: no token presented to this service widens anything, and the sentence still must
+not read as "go and get a better token", which is why the detail says the missing grant is at the
+data system and that repeating the question returns the same refusal. What is no longer true is the
+unqualified sentence, and the reason is written here rather than left for a reader to notice that
+the table above grew a row the paragraph contradicts.</p>
+</blockquote>
 <h3 id="two-statuses-are-shared-with-something-that-is-not-a-refusal">Two statuses are shared with something that is not a refusal<a class="headerlink" href="#two-statuses-are-shared-with-something-that-is-not-a-refusal" title="Permanent link">&para;</a></h3>
 <p><code>code</code> separates them, and so does the body: only a refusal carries <code>outcome</code>.</p>
 <ul>

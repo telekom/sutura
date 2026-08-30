@@ -2168,12 +2168,15 @@ is not, so this page is vocabulary rather than an API you can call.
 is here now, and the mechanism is named beside the claim. <strong>Design target</strong> means it is written
 down and not built: no port, no adapter, no test, and nothing that would notice if the property
 were false.</p>
-<p><strong>Every identity claim on this page is a design target.</strong> What exists today is a governed
-semantic compiler and executor over local files, served over HTTP behind a bearer token that
-authenticates the <strong>deployment</strong> rather than the caller. So the perimeter is real and the
-per-caller identity is not: anyone holding that token can ask anything the catalogue certifies.
-The identity-aware runtime this vocabulary describes is ahead of it, and no sentence here should
-be read as a control you can rely on unless it says <em>enforced today</em>.</p>
+<p><strong>The identity claims are the ones to read carefully, and they are no longer all design targets.</strong>
+A deployment can now establish who is asking, from a signature, and no question can execute
+without a credential a broker minted for the source it reads. What is still absent is a data
+system that evaluates the asking subject: no adapter in this build can carry a per-subject
+credential, so every question reads as one identity - and a deployment behind only the bearer
+token has no per-caller identity at all, because that token authenticates the <strong>deployment</strong>.
+So the perimeter is real, the subject is known where leg 1 is configured, and per-caller ACCESS
+is not here. No sentence should be read as a control you can rely on unless it says <em>enforced
+today</em>.</p>
 </div>
 <h2 id="a-question-and-what-it-is-made-of">A question, and what it is made of<a class="headerlink" href="#a-question-and-what-it-is-made-of" title="Permanent link">&para;</a></h2>
 <p>A question names a <strong>metric</strong>, some <strong>dimensions</strong>, a <strong>grain</strong> and a bounded <strong>time range</strong>.
@@ -2265,13 +2268,19 @@ request that never happened.</p>
 <h2 id="principal-subject-and-running-as-the-caller">Principal, subject, and running as the caller<a class="headerlink" href="#principal-subject-and-running-as-the-caller" title="Permanent link">&para;</a></h2>
 <p>The <strong>principal</strong> is who is asking. When an agent asks on somebody's behalf there is a chain of
 them, and the <strong>subject</strong> is the identity the data system must see: the person, not the service.</p>
-<p><strong>Design target, not built.</strong> Every query runs as the subject: a credential is minted per request,
-and a leg that cannot run as the subject is refused rather than falling back to the service's own
-identity. That fallback turns "you may not see these rows" into "here are the rows". None of that
-mechanism exists. There is no request context type, no credential broker port and no adapter behind
-one, so <strong>no caller identity reaches the query path at all</strong> - answering takes a bundle, a question
-and a data system, and nothing that says who is asking. A port arrives with the adapter that
-implements it, and nothing implements this one yet.</p>
+<p><strong>Half built, and the halves are worth telling apart.</strong> The target is that every query runs as the
+subject: a credential is minted per request, and a leg that cannot run as the subject is refused
+rather than falling back to the service's own identity - because that fallback turns "you may not see
+these rows" into "here are the rows".</p>
+<p><em>Built:</em> answering takes a request context and a credential broker, the broker mints once for every
+source the plan reads, and the execution port takes what it produced with <strong>no signature that omits
+it</strong>. A subject with no credential at a source is refused as <code>credential_unavailable</code>, and each
+adapter refuses credential material it has nowhere to put rather than quietly ignoring it. So the
+fallback is not forbidden by a rule - it is absent from every signature.</p>
+<p><em>Not built:</em> an adapter that can carry a per-subject credential. Both in this build declare that they
+have nowhere for one to arrive, and the broker that ships mints from configuration and performs no
+token exchange. So what a credential says today is <em>the deployment's own identity for this source,
+acknowledged by an operator</em> - which is honest, and is not impersonation.</p>
 <p><strong>Enforced today, and narrower than it sounds.</strong> Nothing in the query path can <em>choose</em> an identity.
 <code>SemanticCatalog::load</code> takes no request context, so a catalogue cannot return one definition to one
 caller and another to the next; a plan resolves to exactly one named data system; and <code>Secret</code>
@@ -2352,7 +2361,7 @@ an absence enforced are not the same thing:</p>
 <tr>
 <td>A query as the service identity</td>
 <td>A leg that cannot run as the subject should be refused rather than downgraded</td>
-<td><strong>Design target.</strong> Nothing enforces it. There is no second identity in the process to downgrade to, and no check that would notice one arriving</td>
+<td><strong>Enforced, and narrower than it reads.</strong> <code>Warehouse::execute</code> takes a credential a broker minted for that source and has no signature that omits one, so there is no fallback to downgrade THROUGH; a subject with no credential is refused as <code>credential_unavailable</code>, and an adapter handed material it cannot use returns an error rather than answering. What is NOT enforced is the sentence people hear in it: no adapter in this build can carry a per-subject credential, so a leg still runs as this process - by declaration and with the answer recording that it did</td>
 </tr>
 <tr>
 <td>An unbounded time range</td>
@@ -2376,10 +2385,12 @@ an absence enforced are not the same thing:</p>
 <code>sutura compile</code> renders the statement for a question and <code>sutura query</code> answers it, over a
 catalogue of documents in git and the CSV or Parquet files in a directory you name, with every
 certified number re-executed before the bundle may be served.</p>
-<p>Everything marked <em>design target</em> above is unbuilt, and the identity claims are all of them. There
-is no request context, no credential broker, no audit sink, no Arrow envelope and no MCP surface.
-There IS an HTTP surface, and its bearer token authenticates the deployment rather than the caller -
-so none of the per-caller claims above are made true by it. <a href="../architecture/#what-exists-today">What exists today</a> is the inventory, and
+<p>Everything marked <em>design target</em> above is unbuilt. The identity path is no longer one of them and is
+not finished either: there IS a request context, a credential broker port with a static-credential
+implementor, an audit sink and an MCP surface, and a deployment that declares <code>security.inbound</code>
+verifies a caller's own token. What there is NOT is an adapter that can carry a per-subject
+credential, so per-caller ACCESS is still absent - and a deployment behind only the bearer token has
+no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. <a href="../architecture/#what-exists-today">What exists today</a> is the inventory, and
 <code>AGENTS.md</code> in the repository lists each invariant beside the type, lint or gate that holds it -
 including the rows that say outright that nothing holds them yet.</p>
 <p>The mechanisms came first on purpose: every claim on this page is meant to be held up by a type,

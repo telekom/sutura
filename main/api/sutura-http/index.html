@@ -1947,11 +1947,13 @@ resource identifier - and the request runs under a
 <code>sutura_domain::identity::Subject::Verified</code>. Where it declares none, the answer is
 <code>sutura_domain::identity::Subject::TheDeploymentItself</code> and an access token, if one is
 configured, proves only that the caller holds a secret an operator distributed.</p>
-<p><strong>What neither shape does is make a data system execute as the asking subject.</strong> That is leg 2, it
-needs a credential per leg, and none of it is built - so every question is still answered with
-whatever access this process already had. <code>docs/adr/0014</code> says it in those words, the startup log
-prints it on every boot, and <code>inbound</code> lists the four things that record describes and this does
-not build.</p>
+<p><strong>What neither shape does is make a data system execute as the asking subject.</strong> That is leg 2, and
+the half of it that is built is the credential port: a question cannot execute without a credential
+minted for the source it reads, and a subject with no credential there is refused rather than
+answered as this process. What no adapter in this build can do is CARRY a per-subject credential, so
+every question is still answered with whatever access this process already had. The startup log
+prints that limit on every boot, and <code>inbound</code> lists the four things <code>docs/adr/0014</code> describes
+and this does not build.</p>
 <p><code>crate::principal</code> is the one place a <code>sutura_domain::identity::RequestContext</code> is constructed,
 and there are exactly two ways in: one takes no argument, and the other takes a
 <code>VerifiedCaller</code>, whose only constructor is a signature check and which implements no
@@ -3295,6 +3297,7 @@ come from the variant, so two handlers cannot answer the same situation with dif
 <li><code>Timeout</code> - The request took longer than the configured bound.</li>
 <li><code>Internal</code> - Something on our side went wrong. Carries nothing.</li>
 <li><code>Unavailable</code> - The data system did not answer. Distinguished from <code>Self::Internal</code> because it is the one failure that is worth retrying, and a caller cannot tell from a 500.</li>
+<li><code>IdentityUnavailable</code> - The credential broker did not answer, so nothing could be executed as the asking subject.</li>
 <li><code>AtCapacity</code> - Every execution slot was taken for the whole admission window, so the question was shed.</li>
 </ul>
 <h4 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h4>

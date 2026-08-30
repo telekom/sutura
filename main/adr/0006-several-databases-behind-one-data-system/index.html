@@ -2908,9 +2908,13 @@ has watched fail, and it is worth a test whichever route eventually lands.</p>
 <p>And what replaces the rule when it does move: the plan stage's set stops holding source names and
 starts holding the identity each source resolves to, refusing unless exactly one is in it. Two sources
 that resolve to one subject are then allowed and two subjects are refused, which is the property that
-was always meant. <strong>That check cannot be written today, and the reason is a missing type rather than a
-missing test:</strong> <code>sutura_domain::identity</code> holds <code>Secret</code> and nothing else - no principal, no request
-context, no credential broker - and nothing reaches <code>Warehouse::execute</code> that could say who is asking.</p>
+was always meant. <strong>That check cannot be written today, and the reason has narrowed since this was
+written:</strong> the types now exist - <code>sutura_domain::identity</code> holds the principal chain, the request context and the
+<code>CredentialBroker</code> port, and <code>Warehouse::execute</code> takes a credential minted for the source it reads.
+What is still missing is a second identity for two sources to resolve to: no adapter in this build can
+carry a per-subject credential, so every leg presents the identity this deployment holds for that
+source and a set keyed on identity would hold one element for a reason that has nothing to do with the
+asker.</p>
 <h3 id="the-shape-refused-in-advance">The shape refused in advance<a class="headerlink" href="#the-shape-refused-in-advance" title="Permanent link">&para;</a></h3>
 <p>Named so it cannot arrive unnoticed, and cited by ADR 0007 as the hazard at the end of the attach
 route: <strong>an adapter that composes two others, implements the port itself, and reports a synthetic

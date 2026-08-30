@@ -2055,12 +2055,14 @@ becomes decorative.</p>
 <div class="admonition warning">
 <p class="admonition-title">What is built, and what is a design target</p>
 <p>sutura today is <strong>a governed single-player semantic compiler and executor over local files.</strong>
-The half of the design that fixes the <em>second</em> failure above is not built: there is no request
-context, no credential broker, no audit sink, no Arrow result envelope and no MCP surface.
-There <strong>is</strong> an <a href="serving/">HTTP surface</a>, and its bearer token authenticates the <em>deployment</em>
-rather than the caller - so it serves the tool surface over a network and makes no per-caller
-claim true. Every claim on this site is marked <em>enforced today</em> or <em>design target</em> at the
-point it is made, and the identity claims are all design targets.</p>
+The half of the design that fixes the <em>second</em> failure above is <strong>half built, and the missing
+half is the one that matters.</strong> A request context, a credential broker port, an audit sink and
+an MCP surface all exist, and a deployment that declares <code>security.inbound</code> verifies a caller's
+own token - so who is asking can be known, no question can execute without a credential minted
+for the source it reads, and every outcome is recorded. What is absent is <strong>a data system that
+evaluates the asking subject</strong>: no adapter in this build can carry a per-subject credential, so
+every question still reads as one identity. No Arrow result envelope either. Every claim on this
+site is marked <em>enforced today</em> or <em>design target</em> at the point it is made.</p>
 </div>
 <h2 id="the-four-properties">The four properties<a class="headerlink" href="#the-four-properties" title="Permanent link">&para;</a></h2>
 <p>Three columns, deliberately. The middle one is the design; the last one says whether anything holds

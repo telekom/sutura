@@ -909,6 +909,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The credential port">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built-and-what-of-this-section-was-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built, and what of this section was wrong
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2137,6 +2154,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="The credential port">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built-and-what-of-this-section-was-wrong" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built, and what of this section was wrong
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -2423,6 +2457,43 @@ material it cannot use would report a leg as impersonated that ran shared.</p>
 <p><strong>Done when</strong> the fallback is removed rather than forbidden, the single-user path still works with
 static credentials, a deadline that fires stops an execution rather than stopping a wait, and the boot
 path cannot reach a request credential or the reverse.</p>
+<h3 id="built-and-what-of-this-section-was-wrong">Built, and what of this section was wrong<a class="headerlink" href="#built-and-what-of-this-section-was-wrong" title="Permanent link">&para;</a></h3>
+<p><strong>This subsection is the authority on the state, and where it contradicts the section above it, it
+wins.</strong> Three of the four <em>Done when</em> clauses hold; the third does not, and it is descoped rather than
+half-claimed.</p>
+<ul>
+<li><strong>The fallback is removed rather than forbidden.</strong> <code>Warehouse::execute</code> takes a <code>&amp;Presented</code> with no
+  default, so no signature runs as the process, and <code>dry_run</code> returns a <code>PreFlight</code> whose default says
+  <em>not asked</em>. Both adapters match exhaustively on what they were handed and refuse subject material
+  they have nowhere to put, as an <code>Err</code> and never a refusal.</li>
+<li><strong>The single-user path still works with static credentials.</strong> <code>sutura_config::StaticCredentialBroker</code>
+  is the implementor, mints from the <code>sources:</code> tree, and is wired in both roots - so the port arrived
+  with a real adapter rather than a fake, exactly as this section required.</li>
+<li><strong>A deadline that fires stops an execution: NOT BUILT.</strong> <code>Expiry</code> is carried and nothing reads it,
+  because the shipping implementor mints from configuration and a credential an operator wrote in a
+  file does not expire - <code>Expiry::NothingExpires</code> is a case a reader names rather than a sentinel. The
+  floor belongs in the broker adapter, the only component with a clock and the configured timeout, and
+  the per-leg check needs a splitter. <code>a_leg_that_would_start_after_the_deadline_is_not_attempted</code> and
+  <code>a_query_over_its_deadline_is_cancelled_in_the_adapter</code> are therefore <strong>not</strong> written: saying so is
+  cheaper than a test that passes because nothing expires.</li>
+<li><strong>The boot path cannot reach a request credential or the reverse</strong>, by a different mechanism than
+  this section describes. <code>verify_anchor</code> takes <strong>no</strong> credential rather than a distinct type, so there
+  is no parameter one could arrive in, and it returns <code>AnchorRows</code> so a boot result cannot be handed
+  back as an answer. <code>answer_cannot_pass_a_verification_identity</code> is <strong>deleted, not descoped</strong>, and the
+  reason is a finding: <code>VerificationIdentity::parse</code> is <code>pub</code>, so <code>sutura-app</code> could construct one and
+  that <code>compile_fail</code> block would have compiled. A test that cannot fail is worse than no test.</li>
+</ul>
+<p><strong>Three more corrections, each recorded in
+<a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a>'s own <em>What is
+built</em>:</strong> the port takes the existing <code>RequestContext</code> rather than a new <code>Caller</code>, and <strong>carries no
+caller assertion</strong> - the exchange is blocked on 0014 Decision 3's verification, so that field now would
+be the guess this step was delayed to avoid; <code>Minted::Refused</code> carries a source rather than a whole
+<code>RefusalReason</code>; and provenance still reads <code>Warehouse::posture</code> rather than <code>Presented::executed_as</code>,
+which belongs with the first adapter able to make the two disagree.</p>
+<p><strong>What this unblocks, and what it does not.</strong> Every row that needed a credential <em>type</em> to key on is
+unblocked. What is absent for all of them is <strong>an adapter that can carry a per-subject credential</strong>:
+both shipped ones declare <code>NoPlaceForASubject</code>, so the two subject shapes are constructed only by
+tests and the two-subject test at the foot of 0008 remains unwritable.</p>
 <h2 id="the-plan-stage-refusal-re-keyed-to-identity">The plan-stage refusal, re-keyed to identity<a class="headerlink" href="#the-plan-stage-refusal-re-keyed-to-identity" title="Permanent link">&para;</a></h2>
 <p><strong>Goal.</strong> <code>PlanSpansTwoSources</code> becomes <em>a plan spanning two identities</em>, which is the property the
 check was always reaching for. Today the plan stage collects sources into a <code>BTreeSet</code> and refuses

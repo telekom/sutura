@@ -1497,6 +1497,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and the four places this record was wrong about its own signature
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built, and the four places this record was wrong about its own signature">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four places this record was wrong, and each correction is to the record rather than only to the code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-built-and-named-rather-than-left-to-be-discovered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not built, and named rather than left to be discovered
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2518,6 +2568,56 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built, and the four places this record was wrong about its own signature
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built, and the four places this record was wrong about its own signature">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Built
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The four places this record was wrong, and each correction is to the record rather than only to the code
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#not-built-and-named-rather-than-left-to-be-discovered" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Not built, and named rather than left to be discovered
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2539,10 +2639,23 @@
 
 
 <h1 id="a-credential-per-leg-for-the-calling-subject">A credential per leg, for the calling subject<a class="headerlink" href="#a-credential-per-leg-for-the-calling-subject" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted as a design, and nothing in it is built.</strong> No line of this record describes code
-in the workspace. It decides the shape of the identity path before the first adapter that needs one,
-because both halves of that path are cheap to decide now and expensive to retrofit: the transport has
-to learn a subject, and the execution port has to stop being able to run without one.</p>
+<p>Status: <strong>accepted, and the port is built - along with four corrections to this record's own signature
+and, after a review of the code that landed, four amendments to those.</strong> <em>What is built, and the four
+places this record was wrong about its own signature</em>, at the foot, is the authority on the state:
+every "not built" above it is older than the code, and each <code>&gt; **Amended.**</code> block inside it is newer
+still. The line that used to be here - <em>"nothing in it is built"</em> - was true when it was written.</p>
+<p><strong>What the review changed, in one place so it can be found:</strong> the boot path's method takes an
+<code>AnchorPlan</code> rather than a bare plan, so the one signature with no credential cannot be handed a
+question (correction 2); each adapter compares the leg against its DECLARED posture and not only
+against its own capability, which is a hole this record's own <em>not built</em> list described as already
+closed (not-built item 4); and <code>Expiry</code> lost a derived ordering that made "the earliest" answer
+"nothing expires" (correction 4).</p>
+<p>It decides the shape of the identity path before the first adapter that needs one, because both
+halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
+subject, and the execution port has to stop being able to run without one. The second half is now
+true. The first is <a href="../0014-how-a-caller-proves-who-it-is/">how a caller proves who it is</a>, and what
+is still absent is an adapter that can carry a per-subject credential - so this record's own
+two-subject test remains unwritable.</p>
 <p><strong>Superseded in one part</strong> by <a href="../0009-the-plan-from-one-source-to-many/">the plan</a>: sutura declares no
 data sensitivity. What a person may see lives in the data catalog and in their own permissions at the
 source, which is what reaching it as the subject is for, and a classification here would be a second
@@ -4317,6 +4430,176 @@ shape delivers in a deployment with a shared source, and the accurate version is
 the table above. Second, the <em>Invariants</em> row for "an unvalidated bundle is never served" keeps its
 mechanism untouched and needs its reach stated: an anchor is verified under a declared verification
 identity, which is not necessarily any caller's.</p>
+<h2 id="what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature">What is built, and the four places this record was wrong about its own signature<a class="headerlink" href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" title="Permanent link">&para;</a></h2>
+<p>Added when the credential port landed. <strong>This section is the authority on the state of the code</strong>, and
+where it contradicts a sentence above it, it wins: the body was written before any of it existed, and
+its status line - <em>"accepted as a design, and nothing in it is built"</em> - is now false for the parts
+below and still true for the rest.</p>
+<h3 id="built">Built<a class="headerlink" href="#built" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Decision</th>
+<th>Where</th>
+<th>The mechanism, not the intent</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The port</td>
+<td><code>sutura_domain::identity::CredentialBroker</code></td>
+<td>One method, <code>mint</code>, taking the whole source set in one call, synchronous, with a per-adapter error type. <code>Minted</code> is two outcomes so a refusal comes back in the <code>Ok</code></td>
+</tr>
+<tr>
+<td>No signature runs a QUESTION as the process</td>
+<td><code>sutura_domain::warehouse::Warehouse::execute</code>, and <code>Warehouse::verify_anchor</code>'s input</td>
+<td><code>execute</code> takes a <code>&amp;Presented</code> and has <strong>no default</strong>, so there is no code path into a data system that answers a question as whatever the process is. A <code>compile_fail</code> doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included. <strong>The word QUESTION is a review's correction to this row, and the mechanism arrived with it:</strong> <code>verify_anchor</code> deliberately takes no credential, so while its input was a bare <code>QueryPlan</code> it would execute anything - a caller's plan included - under the identity the deployment configured the adapter with, and the row was false by one method. It takes an <code>AnchorPlan</code> now, which parses a plan as a declared anchor's own: no keys, no predicate a question asked for, the anchor's metric, the anchor's range. <code>AnchorPlan::of</code> is <code>pub</code>, so it narrows the door rather than closing it - the type says so, and what a conforming plan returns is the number the bundle already certifies</td>
+</tr>
+<tr>
+<td>A leg is checked against the DECLARED posture, not only against the adapter's capability</td>
+<td><code>sutura_domain::identity::Presented::agrees_with</code>, called by both adapters</td>
+<td>One exhaustive match over the pair (<code>Presented</code>, <code>SourcePosture</code>) with no wildcard arm. <strong>Also a review's correction, and it is the one that closed a real hole:</strong> each adapter matched the variant it was handed against <code>Warehouse::IMPERSONATION</code> - "can this code carry a subject at all" - and read <code>posture</code> not at all, so a <code>SharedServiceUser</code> leg carrying a <em>different</em> operator acknowledgement was accepted and then reported under the adapter's own declaration, because provenance is read off <code>posture</code>. The two values compared are independent: a broker reads the settings tree and an adapter holds what the composition root handed it. <strong>The limit:</strong> the witness is prose, so equality is the comparison available and a fabricated witness identical to this source's is indistinguishable from it</td>
+</tr>
+<tr>
+<td>A pre-flight cannot claim what it did not ask</td>
+<td><code>PreFlight</code></td>
+<td>Two variants, <code>NotAsked</code> and <code>Accepted</code>, and the DEFAULT is <code>NotAsked</code>. <code>dry_run</code> takes the credential too, because a pre-flight asked as the wrong identity answers a different question</td>
+</tr>
+<tr>
+<td>Three postures, and the third carries no credential material</td>
+<td><code>Presented</code></td>
+<td>Three variants. A test asserts the shared one's <code>Debug</code> carries the operator's acknowledgement and no <code>Secret</code> at all, and that the other two do carry material - so the assertion is not passing because nothing anywhere holds any</td>
+</tr>
+<tr>
+<td>One asker and one deadline for N legs</td>
+<td><code>LegCredentials</code></td>
+<td>One <code>asked_by</code>, one <code>not_after</code>, a private <code>by_source</code> with no <code>insert</code>, and <code>minted</code> as the only constructor - which also <strong>refuses a set that does not cover the sources it was minted for</strong>, in both directions. A <code>compile_fail</code> doctest for adding a leg with a second asker, with an out-of-crate compiling twin that pins <code>minted</code> as <code>pub</code></td>
+</tr>
+<tr>
+<td>The one refusal</td>
+<td><code>RefusalReason::CredentialUnavailable</code></td>
+<td><code>403 credential_unavailable</code> on HTTP and its own sentence on the agent surface, both from the exhaustive match each transport holds. Provoked by the REAL implementor from a real configuration, and the HTTP test asserts the sentence does not send a caller back to authenticate. <strong>The limit:</strong> on the shipped serve binary it is unreachable end to end, because the one configuration the shipped broker refuses is one the composition root will not boot - <code>SourcePosture::deliverable_by</code> refuses <code>impersonation-at-source</code> against an adapter declaring <code>NoPlaceForASubject</code> before a listener opens. It becomes reachable with the first adapter that can impersonate</td>
+</tr>
+<tr>
+<td>A wiring defect is an <code>Err</code></td>
+<td><code>DataFusionError::NoPlaceForASubject</code>, <code>DuckDbError::NoPlaceForASubject</code></td>
+<td>Each adapter matches exhaustively on what it received and refuses subject material it has nowhere to put, before it plans or prepares anything. One test per adapter, each also asserting that the shape it CAN use still reaches the engine - so neither is passing against an adapter that refuses everything</td>
+</tr>
+<tr>
+<td>A broker outage is neither a refusal nor a data system</td>
+<td><code>ServiceError::Broker</code>, <code>SurfaceFailure::Broker</code>, <code>Failure::IdentityUnavailable</code></td>
+<td><code>503 identity_unavailable</code>: the same status as a dead data system and a different code, which is what 0014 asks for. A test asserts the two share a status and not a code</td>
+</tr>
+<tr>
+<td>The implementor, and it is not a fake</td>
+<td><code>sutura_config::StaticCredentialBroker</code></td>
+<td>Mints from the <code>sources:</code> tree an operator wrote: a source declared <code>shared-service-user</code> gets that source's own acknowledgement witness, and a source declared <code>impersonation-at-source</code> gets <strong>nothing</strong> - so a question against one is refused rather than answered as the process. Wired in both roots: <code>sutura-serve</code> builds it from the registry, <code>sutura</code> from the one declaration that command makes in code</td>
+</tr>
+</tbody>
+</table>
+<h3 id="the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code">The four places this record was wrong, and each correction is to the record rather than only to the code<a class="headerlink" href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong><code>Caller { subject, assertion }</code> is not what the port takes.</strong> It takes the <code>RequestContext</code>, which
+   already existed, already reaches <code>Surface::answer</code>, and whose own documentation said the credential
+   an execution leg needs belongs there. A second type carrying a subject would have been a second
+   place the subject lives.</li>
+</ol>
+<p><strong>And the assertion field is deliberately absent, which is the sharper half.</strong> Part 2 has the broker
+   exchanging the caller's own token, so it gave <code>Caller</code> a <code>Secret</code>. <a href="../0014-how-a-caller-proves-who-it-is/">How a caller proves who it
+   is</a> Decision 3 then decided that the exchange chain differs
+   per inbound mode, needs TWO exchanges in the direct one, and is <strong>blocked on a verification nobody
+   has done</strong> - whether a deployment's own identity provider will mint a token of the required type for
+   an audience we do not control. The shape of the value a broker would exchange is what that
+   verification decides, so a <code>Secret</code> field added now is exactly the guess this port was delayed to
+   avoid. Adding it is a change to the port's signature, and it arrives with the broker that performs
+   an exchange.</p>
+<ol>
+<li><strong><code>verify_anchor</code> takes no identity at all, and the test this record named for it could not have
+   held.</strong> Part 1 gives that method a <code>VerificationIdentity</code> parameter so the two credentials cannot be
+   confused at a call site, and the plan named <code>answer_cannot_pass_a_verification_identity</code> as a
+   <code>compile_fail</code> test. <code>VerificationIdentity::parse</code> is <code>pub</code>, so any crate - <code>sutura-app</code> included -
+   can construct one: the test would have compiled and the block would have failed to fail. What is
+   built instead is a method that takes <strong>no credential</strong>, so there is no parameter to pass one to, and
+   returns <code>AnchorRows</code> rather than a <code>RowSet</code> so a boot result cannot be handed back as an answer
+   without a named conversion. That is the property the record wanted, reached by removing the argument
+   rather than by typing it.</li>
+</ol>
+<blockquote>
+<p><strong>Amended.</strong> "There is no parameter to pass one to" was true of the credential and it was not the
+whole property. A method with no credential still has an INPUT, and while that input was a bare
+<code>QueryPlan</code> this method would execute <em>any</em> plan under the identity the deployment configured the
+adapter with - a plan compiled from a caller's question included - and what kept the request path
+off it was where the call sites happen to be. A review said so. <code>verify_anchor</code> takes an
+<code>AnchorPlan</code> now: <code>AnchorPlan::of</code> parses a plan as a declared anchor's own, refusing a plan with
+keys, a plan carrying a predicate a question asked for, a plan for another metric and a plan over
+another range. <strong>And it repeats this correction's own lesson rather than escaping it:</strong>
+<code>AnchorPlan::of</code> is <code>pub</code>, because the boot path lives in <code>sutura-app</code> and the type in
+<code>sutura-domain</code>, so this is a NARROWING and not a closure - the type's documentation says so, and
+what a conforming plan returns is the number the bundle certifies in its own catalog document.
+A genuinely closed constructor would need the domain to compile the plan itself, which is
+<code>sutura-semantic</code>'s job and not a dependency the domain may take.</p>
+</blockquote>
+<p><strong>What that costs, stated plainly:</strong> an anchor runs under whatever identity the deployment
+   configured that adapter with, and nothing passes the declared <code>verification_identity</code> to the port.
+   The boot refusal for an anchor on a source with no declared identity already exists and is
+   unchanged. So this is narrower than part 1 asks for and it is not weaker than what shipped before:
+   the request path and the boot path are now two methods with two return types, where they were one.</p>
+<ol>
+<li>
+<p><strong><code>Minted::Refused</code> carries a source, not a <code>RefusalReason</code>.</strong> A broker holding a whole refusal enum
+   could answer that a metric is unknown, which is not a thing a credential broker knows. The
+   application turns the one fact a broker has into the one variant this record adds.</p>
+</li>
+<li>
+<p><strong><code>Expiry</code> is a two-variant enum rather than an instant.</strong> The implementor that ships mints from
+   configuration, and a credential an operator wrote in a file does not expire - so the alternatives
+   were an <code>Option</code>, where every reader decides what an absence permits, and a sentinel instant that
+   reads as a deadline and compares as one. <code>NothingExpires</code> is a case a reader has to name. Nothing in
+   the domain compares it to a clock, exactly as part 6 says.</p>
+</li>
+</ol>
+<blockquote>
+<p><strong>Amended.</strong> The first version of that enum also derived <code>PartialOrd</code> and <code>Ord</code>, and a review
+caught what that meant: a derived ordering on an enum is DECLARATION ORDER, so <code>NothingExpires</code>
+was the minimum and <code>.min()</code> over a set holding one static credential and one expiring token
+answered "nothing expires". The wrong direction, silently, in the one operation part 4 tells a
+minter to perform - and the test that existed pinned the inverted order and added a comment
+warning a reader not to read it as instants. The derive is gone. <code>Expiry::earlier_of</code> and
+<code>Expiry::earliest</code> are the operation, written out, with <code>NothingExpires</code> as the fold's identity;
+there is no comparison operator left for a call site to reach for instead.</p>
+</blockquote>
+<h3 id="not-built-and-named-rather-than-left-to-be-discovered">Not built, and named rather than left to be discovered<a class="headerlink" href="#not-built-and-named-rather-than-left-to-be-discovered" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>Any adapter that can carry a per-subject credential.</strong> Both shipped ones declare
+   <code>NoPlaceForASubject</code> and refuse the two subject shapes. So <code>Presented::SubjectToken</code> and
+   <code>Presented::SubjectPrincipal</code> are constructed only by tests today, and <em>the two-subject test at the
+   foot of this record is still unwritable</em> - which is the honest state of leg 2: a question cannot
+   execute without a credential, and no credential a broker can mint makes a source evaluate anybody's
+   own authorization.</li>
+<li><strong>The deadline check.</strong> <code>Expiry</code> is carried and nothing reads it. Part 6 puts the floor in the
+   broker adapter, which is the only component with a clock and the configured timeout, and the
+   implementor that ships has nothing that expires - so there is no number to check yet. Part 4's
+   per-leg check needs a splitter, which does not exist.</li>
+<li><strong>A per-leg credential on a second leg.</strong> <code>LegCredentials</code> holds N legs and nothing constructs a
+   second one: there is no splitter and no combiner, and both <code>Warehouse</code> implementors answer a leg
+   with a typed error.</li>
+<li><strong>Provenance is still read off <code>Warehouse::posture</code></strong> rather than off <code>Presented::executed_as</code>, which
+   the table at the foot of this record wants. The reason not to move it is that the posture on the
+   adapter is what the composition root built, while the credential comes from a broker that read the
+   settings tree. Moving it is a one-line change and a change to an invariant row, so it belongs with
+   the adapter that makes the two able to disagree.</li>
+</ol>
+<blockquote>
+<p><strong>Amended.</strong> "The two agree today by construction - each adapter refuses material that disagrees
+with its own posture" was <strong>not true when it was written</strong>, and a review is what found it: each
+adapter matched the variant it was handed against <code>Warehouse::IMPERSONATION</code>, which is a property
+of the code, and never read <code>posture</code> at all. So a <code>SharedServiceUser</code> leg carrying a different
+operator acknowledgement executed, and provenance then reported the adapter's declaration rather
+than what the broker presented. <code>Presented::agrees_with</code> is the comparison, both adapters call it
+beside their capability check, and each has a regression test that a fabricated witness is
+refused and the source's own is not. The sentence is now true because there is a mechanism, which
+is the only way this repository lets a sentence like it be written.</p>
+</blockquote>
 
 
 
