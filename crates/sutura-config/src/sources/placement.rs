@@ -238,6 +238,23 @@ pub enum SourcePlacement {
         billing_project: BillingProject,
         /// Where an unqualified table name resolves. See [`DatasetId`].
         dataset: DatasetId,
+        /// The credential file this source is reached with. Absolute, checked at parse.
+        ///
+        /// **A path rather than a credential**, so nothing in this tree holds token material and
+        /// `Secret` has nothing to redact here. Reading it is the adapter's job and happens once, at
+        /// the line that opens the source.
+        credential_file: PathBuf,
+        /// The most one job may be billed for scanning.
+        ///
+        /// **A bare number and not a newtype, and that is deliberate rather than an omission.** The
+        /// RANGE belongs to the adapter - `sutura_exec_bigquery::wire::BytesBilledCeiling::parse`
+        /// refuses a zero and refuses a value above the largest ceiling it will send - and a second
+        /// copy of those two bounds here would be the drifting duplicate this repository's
+        /// *canonical sources* rule exists to prevent. So there is exactly one parse of this number,
+        /// in the composition root, and a value outside the range is a startup refusal naming
+        /// `sources.<alias>.max_bytes_billed`. What this crate owns is that the key was WRITTEN, which
+        /// is the half a settings tree can see.
+        max_bytes_billed: u64,
     },
 }
 
@@ -259,6 +276,8 @@ impl SourcePlacement {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
     use crate::sources::SourceKind;
 
@@ -377,6 +396,8 @@ mod tests {
             SourcePlacement::BigQuery {
                 billing_project: BillingProject::parse("acme-analytics").expect("a test project is one"),
                 dataset: DatasetId::parse("warehouse").expect("a test dataset is one"),
+                credential_file: PathBuf::from("/etc/sutura/bq.json"),
+                max_bytes_billed: 1024 * 1024 * 1024,
             }
             .kind(),
             SourceKind::BigQuery

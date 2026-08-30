@@ -229,6 +229,22 @@ pub enum InvalidSourceRegistry {
         path.display()
     )]
     RelativeDataDirectory { alias: SourceName, path: PathBuf },
+    /// A path a kind requires is relative, so it resolves against the process working directory.
+    ///
+    /// The same fact as [`Self::RelativeDataDirectory`] about a different key, and a second variant
+    /// rather than a widened first one: `data_dir` is the only key whose absence has a refusal of its
+    /// own - [`Self::NoDataDirectory`] - so folding them would make one message stand for two checks
+    /// that are not the same. This one names the key.
+    #[error(
+        "`sources.{alias}.{key}` is `{}`, which is relative and resolves against this process's \
+         working directory - a different directory on every host. Write an absolute path",
+        path.display()
+    )]
+    RelativePath {
+        alias: SourceName,
+        key: &'static str,
+        path: PathBuf,
+    },
     /// The `posture:` word is not one of the two.
     #[error("`sources.{alias}.posture` does not say how this source establishes identity")]
     Posture {
@@ -326,6 +342,8 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) data_dir: Option<&'raw str>,
     pub(crate) billing_project: Option<&'raw str>,
     pub(crate) dataset: Option<&'raw str>,
+    pub(crate) credential_file: Option<&'raw str>,
+    pub(crate) max_bytes_billed: Option<u64>,
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,
     pub(crate) verification_identity: Option<&'raw str>,
@@ -483,6 +501,8 @@ fn parse_placement(
             for (key, present) in [
                 ("billing_project", written(entry.billing_project)),
                 ("dataset", written(entry.dataset)),
+                ("credential_file", written(entry.credential_file)),
+                ("max_bytes_billed", entry.max_bytes_billed.is_some()),
             ] {
                 if present {
                     return Err(InvalidSourceRegistry::KeyNotForKind {
@@ -517,9 +537,27 @@ fn parse_placement(
                     cause,
                 }
             })?;
+            let credential_file = parse_absolute(
+                alias,
+                "credential_file",
+                required(alias, kind, "credential_file", entry.credential_file)?,
+            )?;
+            // Required, and the refusal is `MissingForKind` like the three keys above it - so an
+            // operator who left it out is told the same thing about the same kind rather than being
+            // handed a range error about a zero nobody wrote. The RANGE is the adapter's, checked
+            // where the source is opened; see `SourcePlacement::BigQuery::max_bytes_billed`.
+            let max_bytes_billed = entry
+                .max_bytes_billed
+                .ok_or_else(|| InvalidSourceRegistry::MissingForKind {
+                    alias: alias.clone(),
+                    kind,
+                    key: "max_bytes_billed",
+                })?;
             Ok(SourcePlacement::BigQuery {
                 billing_project,
                 dataset,
+                credential_file,
+                max_bytes_billed,
             })
         }
     }
@@ -546,6 +584,23 @@ fn required<'raw>(
             kind,
             key,
         })
+}
+
+/// Reads a kind-specific path that has to be absolute, naming the key it refuses.
+///
+/// Separate from [`parse_data_dir`] rather than shared with it, because the two differ in what an
+/// ABSENCE means: `data_dir` has its own refusal for that, and every other path arrives already
+/// required by [`required`]. What is shared is the check that matters, and it is one line.
+fn parse_absolute(alias: &SourceName, key: &'static str, written: &str) -> Result<PathBuf, InvalidSourceRegistry> {
+    let path = PathBuf::from(written);
+    if path.is_relative() {
+        return Err(InvalidSourceRegistry::RelativePath {
+            alias: alias.clone(),
+            key,
+            path,
+        });
+    }
+    Ok(path)
 }
 
 /// Reads one entry's file location.

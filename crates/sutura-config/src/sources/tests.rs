@@ -29,6 +29,8 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         data_dir: Some(DATA),
         billing_project: None,
         dataset: None,
+        credential_file: None,
+        max_bytes_billed: None,
         posture: "impersonation-at-source",
         acknowledged_because: None,
         verification_identity: None,
@@ -375,6 +377,8 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         data_dir: None,
         billing_project: Some("acme-analytics"),
         dataset: Some("warehouse"),
+        credential_file: Some("/etc/sutura/bigquery.json"),
+        max_bytes_billed: Some(1024 * 1024 * 1024),
         posture: "shared-service-user",
         acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
         verification_identity: None,
@@ -393,9 +397,13 @@ fn a_bigquery_source_declares_its_billing_project_and_dataset() {
         super::placement::SourcePlacement::BigQuery {
             ref billing_project,
             ref dataset,
+            ref credential_file,
+            max_bytes_billed,
         } => {
             assert_eq!(billing_project.as_str(), "acme-analytics");
             assert_eq!(dataset.as_str(), "warehouse");
+            assert_eq!(credential_file, std::path::Path::new("/etc/sutura/bigquery.json"));
+            assert_eq!(max_bytes_billed, 1024 * 1024 * 1024);
         }
         super::placement::SourcePlacement::Files { .. } => panic!("the entry declared kind: bigquery"),
     }
@@ -413,7 +421,23 @@ fn a_bigquery_source_missing_a_required_key_does_not_parse() {
         dataset: None,
         ..bigquery("warehouse")
     };
-    for (key, entry) in [("billing_project", without_project), ("dataset", without_dataset)] {
+    // The two keys the composition root needs to OPEN the source, as opposed to the two that name
+    // it: without a credential file there is no identity to reach the dataset as, and without a
+    // ceiling there is no bound on what one question may be billed for.
+    let without_credential = RawSourceEntry {
+        credential_file: None,
+        ..bigquery("warehouse")
+    };
+    let without_ceiling = RawSourceEntry {
+        max_bytes_billed: None,
+        ..bigquery("warehouse")
+    };
+    for (key, entry) in [
+        ("billing_project", without_project),
+        ("dataset", without_dataset),
+        ("credential_file", without_credential),
+        ("max_bytes_billed", without_ceiling),
+    ] {
         let entries = [entry];
         let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a bigquery entry missing a key is refused");
         match error {
@@ -466,6 +490,59 @@ fn a_key_that_means_nothing_for_this_kind_is_refused_rather_than_ignored() {
         ),
         "{error:?}"
     );
+}
+
+#[test]
+fn a_relative_credential_file_is_refused_and_the_refusal_names_the_key() {
+    // The same argument `data_dir` makes and a different key, which is why the refusal names one: a
+    // service's working directory is whatever its supervisor chose, so a relative path is a different
+    // file on every host - and for a CREDENTIAL that is the difference between the identity an
+    // operator declared and whatever happened to be beside the process.
+    let entries = [RawSourceEntry {
+        credential_file: Some("bigquery.json"),
+        ..bigquery("warehouse")
+    }];
+    let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative credential file is refused");
+    match error {
+        InvalidSourceRegistry::RelativePath { key, ref path, .. } => {
+            assert_eq!(key, "credential_file");
+            assert_eq!(path, std::path::Path::new("bigquery.json"));
+        }
+        other => panic!("expected a relative-path refusal, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_two_keys_that_open_a_bigquery_source_mean_nothing_on_a_files_source() {
+    // The other direction for the two keys this step added, held to the same rule the first two are:
+    // a key an operator wrote and a deployment reads past is a configuration nobody can see.
+    for (key, entry) in [
+        (
+            "credential_file",
+            RawSourceEntry {
+                credential_file: Some("/etc/sutura/bigquery.json"),
+                ..impersonating("local")
+            },
+        ),
+        (
+            "max_bytes_billed",
+            RawSourceEntry {
+                max_bytes_billed: Some(1024),
+                ..impersonating("local")
+            },
+        ),
+    ] {
+        let entries = [entry];
+        let error = SourceRegistry::parse(&entries, Some(&single_user()))
+            .expect_err("a bigquery-only key on a files source is refused");
+        match error {
+            InvalidSourceRegistry::KeyNotForKind { kind, key: named, .. } => {
+                assert_eq!(kind, super::SourceKind::Files);
+                assert_eq!(named, key);
+            }
+            other => panic!("expected a wrong-kind refusal for {key}, got {other:?}"),
+        }
+    }
 }
 
 #[test]
