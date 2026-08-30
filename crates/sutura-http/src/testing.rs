@@ -14,6 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
 use sutura_domain::identity::{
     CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
@@ -131,6 +132,14 @@ pub(crate) struct Infallible;
 impl SemanticCatalog for FixedCatalog {
     type Error = Infallible;
 
+    /// Everything, and for a pass-through that is the accurate answer rather than the convenient one:
+    /// this adapter hands back whatever bundle it was constructed with, so there is no kind it could
+    /// not carry. Nothing checks it, because a fake is not registered in the conformance matrix -
+    /// `crates/sutura-app/tests/adapters/mod.rs` says why.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::everything()
+    }
+
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         Ok(self.bundle.clone())
     }
@@ -210,6 +219,12 @@ pub(crate) struct FailingCatalog;
 
 impl SemanticCatalog for FailingCatalog {
     type Error = CatalogUnreadable;
+
+    /// Nothing, because this adapter never returns a bundle. `nothing()` is a legitimate declaration
+    /// rather than a broken one, and it is reachable here only by writing it: the port has no default.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::nothing()
+    }
 
     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
         Err(CatalogUnreadable { cause: DirectoryMissing })

@@ -913,6 +913,31 @@ the compile half runs on every push, and an orphaned snapshot fails a gate rathe
 
 ## The metadata capability declaration
 
+**Built on `feat/metadata-capabilities`, not yet merged** - the stack table above is the one owner of
+a step's status and it marks a row DONE when its PR lands, so this note says what the branch does and
+claims nothing about the table. `sutura_domain::capabilities` holds the vocabulary and
+`SemanticCatalog::capabilities` is the required associated item. **Three things landed differently
+from what is specified below, and each is written where the code is rather than only here:**
+
+1. **An associated FUNCTION taking no `self`, not an associated constant.** The property
+   `Warehouse::IMPERSONATION`'s constness buys is that the declaration cannot vary per instance, and
+   taking no `self` buys exactly that. What is given up is const evaluation, and the reason is
+   representational: the declaration reuses `KnowledgeCapabilities` verbatim rather than growing a
+   second vocabulary over the same four kinds, and that is a `BTreeSet` newtype no `const` expression
+   can build. The const-friendly alternative is a boolean per kind, which `sutura_domain::knowledge`
+   already argues against. Nothing needs the value in a const context.
+2. **Two of the nine kinds are observed through their consequence rather than through a field.**
+   `Cardinality` is observed as *some dimension is reached through a relationship*, because every
+   `Relationship` holds a `JoinType` - the type has no other shape - so the field's presence says
+   nothing and what a caller loses is the join. `Descriptions` is observed as *some description is
+   non-empty*, because a bundle of `Description::default()` carries no prose whatever its fields are.
+3. **No narrow adapter was registered to exercise declaration fidelity, and none was invented.**
+   `tests/adapters/mod.rs` registers only what somebody could deploy, so the declaring case is
+   exercised over the two narrow fakes the suite already had - `HandWrittenCatalog`, which carries no
+   prose, and `TwoSourceCatalog`, which carries five fewer kinds. Each now declares that, and the
+   fidelity test is what holds it. Both fidelity directions also expand over every registered catalog,
+   which for the reference adapter asserts the example corpus really carries all thirteen kinds.
+
 **Goal.** A `SemanticCatalog` adapter cannot be silent about what it does not provide.
 [Pluggable by declaration](adr/0011-pluggable-by-declaration.md) decided this and
 [what DataHub can carry](adr/0016-what-datahub-can-carry.md) is why it is now scheduled: the first
@@ -944,15 +969,28 @@ An adapter mapping a fixed external schema gets the opposite treatment - `of([..
 leaves its declaration alone."* That sentence is about knowledge capabilities and it generalises
 unchanged.
 
-**Tests.**
+**Tests.** Specified here, and the names that landed are given beside each, because two of the four
+were merged into one function and a name nobody can grep for is not a test list.
 - `an_adapter_that_declares_nothing_does_not_compile` - a `compile_fail` doctest with its compiling
-  twin, differing by the one line, verified non-vacuous by unmarking it.
+  twin, differing by the one line, verified non-vacuous by unmarking it. **Landed** on
+  `SemanticCatalog`'s own doc comment, with the failing struct literally named `Undeclared` and its
+  twin named `Declared`, which is `Warehouse::IMPERSONATION`'s shape exactly.
 - `a_declared_kind_with_no_content_is_not_the_same_as_an_undeclared_kind` - the three-state
-  distinction, which is the whole reason the declaration exists.
+  distinction, which is the whole reason the declaration exists. **Landed under that name twice**:
+  once in `sutura_domain::capabilities`'s own tests over a built bundle, and once in
+  `tests/golden/catalogs.rs` over the oracle's real one.
 - **Declaration fidelity, which is the assertion a declaring adapter gets instead of the oracle:**
   `everything_it_declared_it_produced` and `nothing_of_an_undeclared_kind_appears_in_the_bundle`.
   The second direction already exists for knowledge as `Knowledge::assemble`'s `UndeclaredContent`
-  guard and exists nowhere for definitions.
+  guard and exists nowhere for definitions. **Landed as ONE function** -
+  `MetadataCapabilities::checked_against` - because two functions a caller has to remember to run
+  both of is the shape this repository avoids, and the returned variant
+  (`UnfaithfulDeclaration::Undeclared` or `::Unprovided`) names which direction failed. Its callers
+  are `it_provides_exactly_what_it_declares` per registered catalog,
+  `a_declaring_adapter_provides_exactly_what_it_declares` over the two narrow fakes, and
+  `a_declaration_wider_than_the_bundle_names_the_kind_it_over_claimed` for the over-claim direction
+  against a real bundle. The domain's own tests provoke each variant separately and assert the
+  undeclared direction is the one reported when a declaration is wrong both ways.
 - **`agrees_with_the_oracle` is NOT touched.** It stays the golden adapters' contract. A version of it
   that tolerated a missing measure would pass a golden adapter that had silently stopped reading them,
   which is the one thing that test is for.
