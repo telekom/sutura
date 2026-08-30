@@ -712,6 +712,44 @@ jobs:
           # The shape, never the content: enough to know a key arrived and nothing that reveals it.
           echo "credential placed, $(wc -c < "$RUNNER_TEMP/bq-key.json") bytes, outside the checkout"
 
+      # **Mask the three resource names before anything can print them, and this step exists because
+      # of a channel the rest of the job would otherwise open.**
+      #
+      # Workflow logs on a PUBLIC repository are public. The wire carries the endpoint's own `message`
+      # on a refusal - bounded, deliberately, because a `400 invalidQuery` with only a reason code is
+      # undiagnosable - and that message quotes the resource it refused, as `project:dataset.table`. So
+      # a FAILING acceptance run would print a project id, a dataset and a table name into a log
+      # anybody can read, which is exactly the class `AGENTS.md` says not to disclose.
+      #
+      # `::add-mask::` is the mechanism that fits, because it does not care WHERE the value appears: it
+      # redacts it from every subsequent log line in the job, including a panic message from a test.
+      # Masking the diagnostic away is the right trade in this direction - a maintainer who needs the
+      # unredacted message runs the leg locally, where the log is theirs.
+      #
+      # The project id is read from the key rather than configured, for the reason the fixture reads it
+      # from the key: a service-account key names its own project, and a second declaration is a second
+      # answer to *who pays*. `python3 -c` rather than a shell read, so the value never becomes a shell
+      # word that could be logged by `set -x`.
+      - name: Mask the resource names
+        env:
+          K: ${{ runner.temp }}/bq-key.json
+          SUTURA_BQ_DATASET: ${{ vars.SUTURA_BQ_DATASET }}
+          SUTURA_BQ_TABLE: ${{ vars.SUTURA_BQ_TABLE }}
+        run: |
+          set -eu
+          python3 -c 'import json,os;print("::add-mask::" + json.load(open(os.environ["K"]))["project_id"])' \
+            2>/dev/null || { echo "the key names no project_id" >&2; exit 1; }
+          for name in SUTURA_BQ_DATASET SUTURA_BQ_TABLE; do
+            if [ -z "$(printenv "$name" || true)" ]; then
+              echo "the bq-test environment defines no $name - it names a resource this leg has to be pointed at" >&2
+              exit 1
+            fi
+            printf '::add-mask::%s\n' "$(printenv "$name")"
+          done
+          echo "three resource names masked for the rest of this job"
+        # `K` separately, so the credential path is an environment value rather than an interpolation.
+        # Same rule the rest of this file follows: no `${{ }}` reaches a shell body.
+
       # `nix run .#bigquery-acceptance` and not a check: `checks.*` run in the nix sandbox, which has
       # no network. `check-workflows` verifies that this output exists.
       #

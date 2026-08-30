@@ -218,6 +218,28 @@ environment's secret to a path under `$RUNNER_TEMP` - **outside the checkout** -
   The dataset and table come from environment `vars`; all three fail loudly when unset rather than
   skipping.
 
+**And the three RESOURCE names are masked, which is a second disclosure channel that the credential
+handling above does not cover and that this record nearly missed.** Workflow logs on a public
+repository are public. The wire carries the endpoint's own `message` on a refusal - bounded,
+deliberately, because a `400 invalidQuery` with only a reason code proved undiagnosable - and that
+message quotes what it refused, as `project:dataset.table`. So a **failing** acceptance run would have
+printed a project id, a dataset and a table name into a log anybody can read, which is precisely the
+class *This Repository Is Public* says not to disclose. The job therefore emits `::add-mask::` for all
+three before the leg runs: the project id read out of the key, and the dataset and table from the
+environment's variables. `::add-mask::` is the right mechanism because it does not care where a value
+appears - it redacts every later log line in the job, a panicking test's own message included.
+
+**The cost is stated rather than hidden:** in CI the diagnostic that made carrying the message worth
+while is redacted away. A maintainer who needs the unredacted text runs the leg locally, where the log
+is theirs. That is the correct direction for a public repository and it is a real loss.
+
+**Where the fixture's location lives, and where it does not.** The dataset and the table are GitHub
+**environment variables** on `bq-test` - scoped to the one environment, not repository-wide - and the
+billing project is read from the key. None of the three is written into this repository, which is the
+same split `.envrc` already uses for a developer's machine: the hook is in the repository and the value
+is not. **A missing variable fails the job with a message naming it**, rather than skipping, because
+reaching this job at all means somebody configured the environment.
+
 **It is an app and not a `checks.*` output, and that is forced rather than chosen:** nix checks run in
 a sandbox with no network, so acceptance could not be a check even with a credential. `just validate`
 therefore still does not cover this, and the *Consequences* below still hold on that point.
