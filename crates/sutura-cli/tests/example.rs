@@ -344,6 +344,13 @@ mod tests {
                     let query = sutura_sql::generate(plan, DIALECT).expect("a planned question renders");
                     insta::assert_snapshot!(format!("{name}__statement"), rendered(&query));
                 }
+                // Not reached by the example corpus, which is single-source; a federated plan has no
+                // single statement (the CLI renders it leg by leg), so assert the split instead.
+                Compiled::Federated { ref plan } => {
+                    assert!(!expected_refusal, "{name} is named as a refusal and was federated");
+                    statements += 1;
+                    assert_eq!(plan.legs().len(), 2, "{name} federated into something other than two legs");
+                }
             });
         }
         // Both halves have to be non-empty or the assertions above are vacuous: a corpus of only

@@ -577,6 +577,17 @@ mod tests {
                     continue;
                 }
                 sutura_semantic::Compiled::Planned { plan } => plan,
+                // **The corpus declares ONE source**, so a federated plan here means the corpus
+                // changed rather than that this leg needs a second arm. Named rather than skipped,
+                // because a `continue` would drop the question out of the tally silently and this
+                // file's whole tally exists so that cannot happen.
+                sutura_semantic::Compiled::Federated { .. } => {
+                    panic!(
+                        "{name}: the compiler split this question across sources, and the example \
+                         corpus declares only `{SOURCE}` - so either the corpus gained a second \
+                         source or this leg needs a federated arm, and neither is a thing to guess at"
+                    );
+                }
             };
             let verdict = warehouse
                 .dry_run(Executable::Query(&plan), &presented())

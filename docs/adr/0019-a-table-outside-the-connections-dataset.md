@@ -85,8 +85,9 @@ for byte.
 ## Decision 2 - cross-project is NOT federation, and must not reach the splitter
 
 **A source is a credential plus a billing project, not a project.** Two datasets, or two projects,
-reached by one credential in one statement is **one** source, and `PlanSpansTwoSources` must not fire
-on it.
+reached by one credential in one statement is **one** source, and neither the splitter nor
+`PlanSpansTooManySources` (`PlanSpansTwoSources` when this was written, before [0007](0007-federating-across-different-data-systems.md)'s
+federation landed) must fire on it.
 
 This is the most expensive thing in this record to get wrong, and it was live rather than
 hypothetical: row 10's splitter and combiner were being built in parallel. `BigQuery` joins across
@@ -97,8 +98,9 @@ discard exactly the pushdown that makes the adapter worth having.
 So the mechanism is a *shape* rather than a check: `sutura_semantic::plan` collects `SourceName` and
 **nothing from any table path**, and the paragraph saying why now sits at that collection rather than
 in a document. `PlanJoin` carries its own `QualifiedTable`, so a fact table in one dataset joined to a
-dimension table in another is one `JOIN` in one statement. What `PlanSpansTwoSources` still refuses is
-a second **credential**, which is the case it was always for.
+dimension table in another is one `JOIN` in one statement. What the source count still acts on is a
+second **credential**, which is the case it was always for: two are split into legs, and more are
+refused.
 
 ## Decision 3 - how deep a path a data system resolves is declared, not guessed
 
@@ -211,12 +213,13 @@ fields, which `sutura_sql::generate`'s own header rules out. An alias on one sid
 the other is not a fix.
 
 So the decision is the other one, and it is made **unrepresentable rather than checked at render
-time**: `sutura_domain::plan::StatementTables` is the only way to a `QueryPlan` - `QueryPlan::new`
-takes it instead of a table plus a vector of joins - and its `parse` refuses two occurrences answering
-to one identifier under `IdentifierCase::COARSEST`. There is therefore no ambiguous plan for any
-dialect to render. `sutura_semantic::plan` turns that refusal into
-`RefusalReason::PlanTablesShareAnIdentifier`, beside `PlanSpansTwoSources`, which is the other refusal
-that stage produces about the shape of a statement rather than about anything a caller wrote.
+time**: `sutura_domain::plan::StatementTables` is the only way to a `QueryPlan` *or* to a
+`LegPlan::Fact` - `QueryPlan::new` takes it instead of a table plus a vector of joins, and the leg
+variant holds one as a field - and its `parse` refuses two occurrences answering to one identifier
+under `IdentifierCase::COARSEST`. There is therefore no ambiguous plan of either shape for any dialect
+to render. `sutura_semantic::plan` turns that refusal into
+`RefusalReason::PlanTablesShareAnIdentifier`, beside `PlanSpansTooManySources`, which is the other
+refusal that stage produces about the shape of a statement rather than about anything a caller wrote.
 
 **A QUERY-time refusal and not a load-time one, which is the opposite of Decision 4 and deliberately
 so.** A colliding *label* costs its author a rename; a colliding *table* is a physical name nobody
@@ -229,10 +232,23 @@ The comparison is over **positions** rather than over distinct paths, so the sam
 through two relationships is refused too: two occurrences under one identifier is a duplicate alias
 whether or not they name the same rows.
 
-**One limit, stated because the shape is now in two places.** `LegPlan::Fact` carries a `joins` field
-of its own and is built by struct literal, so this guard does not reach a leg. Nothing outside a test
-constructs a leg - `AGENTS.md`'s *Built And Not Wired* says so - and the change that gives a leg a
-producer is the change that should route it through `StatementTables`.
+**The limit this section used to state was the fact leg, and it was reached rather than left
+hypothetical - which is why the correction is recorded here instead of the claim being quietly
+widened.** This record shipped saying the guard did not reach a `LegPlan::Fact`, that nothing outside
+a test constructed a leg, and that *"the change that gives a leg a producer is the change that should
+route it through `StatementTables`"*. [0007](0007-federating-across-different-data-systems.md)'s
+splitter is that change, and the first version of it built both legs by struct literal: a federated
+question with a same-source hop to a colliding table rendered
+`FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id`, measured
+through `generate_leg` for `Dialect::BigQuery`. Worse than the whole-answer case rather than equal to
+it, because a leg's rows are combined above it and nothing downstream sees the statement. `Fact` now
+carries a `StatementTables` as its field, pinned by a `compile_fail` doctest with a compiling twin
+(E0559 on `table` and `joins`), and `golden/service.rs` provokes the refusal through a three-model
+catalog. **A prediction in a doc comment is not a mechanism.**
+
+What remains is narrow: a `LegPlan::Lookup` reads one table and declares no joins, so it has no pair
+to compare, and two LEGS whose tables collide are not this defect - each leg is its own statement on
+its own data system, and what the combiner joins on is a label rather than a table qualifier.
 
 ## What the goldens pin, and where
 
