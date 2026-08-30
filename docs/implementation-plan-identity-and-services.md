@@ -326,11 +326,6 @@ The mechanism is one flag read from the environment, and the direction it points
 where the flag is read - which is what `AGENTS.md` asks for: neither direction is the default, and what
 a wrong answer costs decides it per mechanism.
 
-**Note the docker tier cannot be a nix check** - a docker tier needs a network and a docker socket,
-which the sandbox does not have (a service needing neither, like the Unix-socket Postgres the
-adapter hosts inside its check, can be one) - so it is a CI job and a `just` task that consume
-nix-built artifacts. The strongest version runs the OCI image that ships.
-
 **Tests.** These are testable without docker, and the ones that matter are:
 
 - `the_project_name_is_derived_from_the_worktree_path_and_is_stable` - the same worktree gets the same

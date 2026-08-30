@@ -174,9 +174,6 @@ the bound whether or not it is serving traffic. A candidate that will not parse,
 of the pinned kind, is logged at `error` and **not** adopted: the previous keys keep verifying, because
 adopting a broken set turns a rotation mistake into a total outage.
 
-Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
-it, and the bucket it counts against is a network address rather than a principal.
-
 ### What a scope grants
 
 **Only where `security.inbound` is configured.** A deployment with no block has no verified claim to
@@ -715,7 +712,7 @@ asserted by a test rather than by the log call being careful.
 
 A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
-hand, so the last thing in the log says what happened and where instead of the log simply stopping.
+hand, so the last thing in the log says what happened and where instead of the log just stopping.
 
 ## Stopping
 
