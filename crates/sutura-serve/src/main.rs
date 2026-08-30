@@ -451,6 +451,14 @@ type BigQuerySource = sutura_exec_bigquery::BigQueryWarehouse<
     sutura_exec_bigquery::wire::BigQueryWire<sutura_exec_bigquery::wire::credential::Credential>,
 >;
 
+/// The started service, with the adapter it was built over erased.
+///
+/// Named because `Result<Arc<dyn Surface>, String>` is over the `type_complexity` threshold this
+/// workspace tightened - the same reason `sutura_exec_bigquery`'s `Mapped` exists - and because the
+/// erasure is the thing worth naming: what the transport takes is a trait object, so which adapter
+/// answered stops being visible in a type exactly here.
+type Serving = Arc<dyn Surface>;
+
 /// Loads the catalog a second time through its port, verifies every anchor, and erases the adapter.
 ///
 /// Generic in the adapter and returning `Arc<dyn Surface>`, which is what lets the two arms above
@@ -460,13 +468,13 @@ fn started<W>(
     catalog: &LocalCatalog,
     engines: sutura_app::Warehouses<W>,
     broker: StaticCredentialBroker,
-) -> Result<Arc<dyn Surface>, String>
+) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
     LocalService::start(catalog, engines, TracingAuditSink::new(), broker)
-        .map(|service| Arc::new(service) as Arc<dyn Surface>)
+        .map(|service| Arc::new(service) as Serving)
         .map_err(flatten)
 }
 
