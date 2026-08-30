@@ -408,6 +408,18 @@ different reasons - named at a constant a reviewer can grep. `docs/adr/0017`'s s
 record, including the cost per run, the dataset grant it needs, and the new limit it brings: the leg
 WRITES four fixed table names, so two runs against one dataset race.
 
+**And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` does not
+say where a null goes, and `DataFusion` orders nulls LAST while `GoogleSQL` orders them FIRST - so
+every corpus question grouping by a dimension behind the example `LEFT JOIN` returns the same rows in a
+different order. **No golden could see it**, and for a sharper reason than the `ISOWEEK` case: a golden
+pins the statement TEXT and the text is identical on both sides, so only two data systems executing it
+can disagree. No number is wrong; what differs is the order of a certified answer, which the plan
+claims by emitting `ORDER BY`. The fix belongs to `sutura-sql` - state the placement, which all four
+dialects spell `NULLS LAST` and which matches the engine's default - and it rewrites every SQL golden
+in four dialects, so it is **flagged as its own diff and PINNED here**: the comparison requires the two
+orders to agree once the null-bearing rows are dropped, so any other ordering difference fails and this
+one fails the day the generator states the placement.
+
 **What is still untouched by either leg is identity.** A service-account key is `SharedServiceUser` -
 one identity for everybody who asks - so what both legs establish is *accepted, and correct for that
 identity*, and nothing whatever about per-subject execution.

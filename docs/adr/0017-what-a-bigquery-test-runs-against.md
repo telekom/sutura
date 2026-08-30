@@ -329,7 +329,7 @@ It is built. `crates/sutura-exec-bigquery/tests/corpus.rs`, three `#[ignore]`d t
 | Bullet | Where it stands |
 | --- | --- |
 | the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison |
-| the rows **agree with the engine's** for the same plan | **Answered**, row for row, with ONE stated exclusion below |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
 
@@ -351,6 +351,37 @@ match arm.
 is not now**: `data-per-subscription-by-week` is in the corpus and renders `ISOWEEK` three times. That
 section stays as the record of why the keyword is pinned by value, and this paragraph is the correction
 to its factual claim.
+
+### The finding, which is what having the leg was for
+
+**`ORDER BY x` does not say where a null goes, and the two sides disagree.** `DataFusion` orders nulls
+LAST; `GoogleSQL` orders them FIRST. The example corpus reaches it because
+`fct_subscription_monthly` holds a `customer_key` with no row in `dim_customer`, so every question
+grouping by a dimension behind that `LEFT JOIN` comes back with one null-dimension row - and the two
+data systems put that row at opposite ends. Measured on the first CI run of the leg, on
+`recurring-revenue-by-region-and-family`: nineteen rows, identical contents, one of them moved from
+last to first.
+
+**What it is, precisely.** No number is wrong: the row CONTENT is identical on both sides. What differs
+is the order of rows in a certified answer, which the plan does claim, because it emits `ORDER BY`. So
+it is the class this record already names as the thing a parse check cannot see - *a rendered statement
+that is valid SQL with different semantics* - and it is invisible to every local check for a sharper
+reason than `ISOWEEK` was: a golden pins the statement TEXT, and **the text is identical on both
+sides**. There is no arm to get wrong. Only two data systems executing it can disagree.
+
+**Why it is pinned rather than fixed in the same diff.** The fix belongs to `sutura-sql`: state the
+placement, which all four dialects spell `NULLS LAST` and which matches the engine's own default. That
+rewrites every SQL golden in four dialects and is a change with its own review; the branch that found
+it owns the acceptance leg. So the divergence is pinned in a way that cannot rot:
+`the_corpus_rows_agree_with_the_engine` compares content as a SET and, where the two orders differ,
+**requires the orders to be identical once the null-bearing rows are dropped** and requires at least
+one such row to exist. A divergence for any other reason fails; a content difference fails; and this
+one fails on the day the generator states the placement, at which point this section and the
+`NULL_PLACEMENT` constant get re-scoped rather than deleted.
+
+**Whether `ClickHouse` and `Postgres` agree with the engine here is not answered by anything**, which
+is the same shape as this page's existing note about `ClickHouse`'s week. Both are rendered and
+parse-checked and neither has ever executed.
 
 ### The one question excluded from the row comparison, and why it is not a hole
 
