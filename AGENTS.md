@@ -757,7 +757,12 @@ is a habit rather than a gate.
   `check-changed` / `changed-packages` decide what a diff requires, and **fail open**: an
   unmapped path, a bad base ref, an empty diff or a git that will not answer all run everything
   and say why, because the expensive failure is a new directory silently skipped, not a wasted CI
-  minute. `check-scope` is the one that reads the `justfile` rather than Rust: a recipe compiling
+  minute. **`clean-branches` is the one that points the other way, and it says so at its own
+  decision:** it deletes local branches and the worktrees holding them, so anything undetermined
+  KEEPS the branch and the report names the signal that was missing. It is a dry run unless
+  `--delete` is passed and no flag overrides a refusal; `git branch --merged` is deliberately not
+  its mechanism, because a squash-merged branch's commits are not ancestors of anything on the
+  default branch and it therefore cannot see the case this repository produces every day. `check-scope` is the one that reads the `justfile` rather than Rust: a recipe compiling
   PART of the workspace has to print which part, name a task that covers the whole of it, and cite
   nothing that has been renamed away - which is checkable where "did you read the scope in the
   comment" is not. `check-hook-tiers` is its sibling over `.pre-commit-config.yaml`: the push stage

@@ -208,17 +208,11 @@ fn base_has(root: &Path, base: &str, path: &str) -> bool {
 }
 
 /// Git env vars that would point a subprocess at another repository.
+///
+/// The list moved to `repo` when a second gate needed it. This stays as the name the call sites
+/// here already read by, and as the one place that would have to change if they diverged.
 fn strip_git_env_for(command: &mut Command) {
-    for name in [
-        "GIT_DIR",
-        "GIT_WORK_TREE",
-        "GIT_INDEX_FILE",
-        "GIT_OBJECT_DIRECTORY",
-        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-        "GIT_COMMON_DIR",
-    ] {
-        command.env_remove(name);
-    }
+    crate::repo::strip_git_env(command);
 }
 
 /// What the base run actually told us.

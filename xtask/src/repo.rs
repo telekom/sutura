@@ -33,6 +33,25 @@ const SKIP_DIRS: &[&str] = &[
     "site",
 ];
 
+/// Strip the git environment variables that would point a subprocess at another repository.
+///
+/// A gate that shells out to git is often invoked BY git - from a hook, or from inside a command
+/// that set up its own index - and those variables outlive the process that set them. Two gates
+/// need it, so it lives here rather than in either of them: `test-causality` builds a worktree and
+/// `clean-branches` decides what may be deleted, and neither may read another checkout's state.
+pub(crate) fn strip_git_env(command: &mut std::process::Command) {
+    for name in [
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_INDEX_FILE",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+        "GIT_COMMON_DIR",
+    ] {
+        command.env_remove(name);
+    }
+}
+
 /// The workspace root, derived from this crate's manifest rather than from the current
 /// directory - so a gate behaves the same whether it is invoked by a hook, by CI, or by
 /// hand from a subdirectory.

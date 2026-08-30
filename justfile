@@ -448,6 +448,21 @@ worktree branch:
 worktrees:
     cargo run -q -p sutura-dev -- worktree list
 
+# What has landed and could go: local branches, and the worktrees holding them. DELETES NOTHING.
+#
+# Dry run is the default, because a cleanup task that deletes on a bare invocation is one nobody
+# runs twice. `git branch --merged` is deliberately not the mechanism: it cannot see a
+# squash-merged branch at all, because the branch's commits are not ancestors of the commit
+# carrying their content - so where everything is squash-merged its answer is useless. What decides
+# instead is patch-id equivalence against the default branch, a merged pull request whose recorded
+# head is still this branch's tip, and an optional age bound. A reason is printed for every branch,
+# kept ones included, and anything undetermined keeps the branch.
+#
+# `just clean-branches --delete` applies the plan. The other flags are `--unused-days <n>`,
+# `--fetch` and `--repo <path>`; there is none that overrides a refusal.
+clean-branches *args:
+    cargo run -q -p xtask -- clean-branches {{ args }}
+
 # What is present, what is missing, what would fail.
 doctor:
     cargo run -q -p sutura-dev -- doctor

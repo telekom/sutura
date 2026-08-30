@@ -10,6 +10,7 @@
 mod api_docs;
 mod arrow_major;
 mod boundaries;
+mod branches;
 mod causality;
 mod changes;
 mod commit_msg;
@@ -300,6 +301,17 @@ const TASKS: &[Task] = &[
         run: compose::run_endpoint,
     },
     Task {
+        // `Kind::Standalone`, and for the reason the compose tier is: this is an ACTION. It takes
+        // flags, and under `--delete` it removes worktrees and branches - neither of which belongs
+        // in a sweep that runs on every commit. It also asks the forge, which needs the network the
+        // Nix sandbox does not have; a silent forge makes it delete nothing, so collecting it would
+        // have added a gate that can only ever report that it could not decide.
+        name: "clean-branches",
+        description: "branches and worktrees whose work has landed; DRY RUN unless --delete",
+        kind: Kind::Standalone,
+        run: branches::run,
+    },
+    Task {
         name: "test-causality",
         description: "a changed test is red on base, green on head; --since <ref>",
         kind: Kind::Standalone,
@@ -448,6 +460,15 @@ mod tests {
         // rustdoc's unstable JSON output, while the hygiene sweep runs on every commit and
         // inside the Nix sandbox, neither of which has a nightly.
         let task = TASKS.iter().find(|t| t.name == "check-api-docs").expect("task is registered");
+        assert_eq!(task.kind, super::Kind::Standalone);
+    }
+
+    #[test]
+    fn the_branch_cleanup_is_not_collected_into_hygiene() {
+        // It takes no REQUIRED arguments, so the argument test above would not catch this one, and
+        // it is the entry in this table that can DELETE things. A hygiene sweep runs on every
+        // commit; a task that removes a branch may not be in it whatever its default mode is.
+        let task = TASKS.iter().find(|t| t.name == "clean-branches").expect("task is registered");
         assert_eq!(task.kind, super::Kind::Standalone);
     }
 
