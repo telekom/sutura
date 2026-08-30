@@ -905,3 +905,121 @@ impl SemanticCatalog for SameNameTablesCatalog {
         Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
     }
 }
+
+// -------------------------- a catalog whose FEDERATED fact leg reads two tables of one name ---
+
+/// [`SameNameTablesCatalog`]'s collision, on a catalog that also reaches a SECOND data system.
+///
+/// **It exists because the guard that catches the collision was reached by one of the two plan
+/// shapes and not by the other, and the second shape is the one that renders the wrong number.**
+/// `sutura_semantic::plan` splits a two-source question into a fact leg and a lookup leg; the fact
+/// leg keeps every SAME-SOURCE hop as a `JOIN` of its own, so the whole ambiguity
+/// [`SameNameTablesCatalog`] provokes is available inside one leg's statement - and until the change
+/// this fake arrived with, the splitter built that leg by struct literal and never asked
+/// `sutura_domain::plan::StatementTables::parse` about it.
+///
+/// **Three models rather than two, and each one is load-bearing.** The fact model and the
+/// same-source dimension model are the collision - two paths ending in `orders`, one credential, one
+/// statement. The third model sits on `elsewhere`, and it is what makes the question FEDERATE rather
+/// than take the whole-answer path the sibling fake already covers: without it the plan stage would
+/// never reach the splitter, and the bypass would stay invisible.
+pub(crate) fn federated_same_name_tables_catalog() -> FederatedSameNameTablesCatalog {
+    FederatedSameNameTablesCatalog
+}
+
+/// See [`federated_same_name_tables_catalog`].
+pub(crate) struct FederatedSameNameTablesCatalog;
+
+impl SemanticCatalog for FederatedSameNameTablesCatalog {
+    type Error = Never;
+
+    /// **Declaring**, for [`TwoSourceCatalog`]'s reason: it supplies part of the model and none of
+    /// the kinds a plan would consume after the refusal this fake exists to provoke.
+    const KIND: CatalogKind = CatalogKind::Declaring;
+
+    /// The same five declared absences [`TwoSourceCatalog`] declares, and for the same reason.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Relationships,
+                DefinitionKind::Cardinality,
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+            ]),
+            sutura_domain::knowledge::KnowledgeCapabilities::none(),
+        )
+    }
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "every value here is a literal in this file, so a parse failure is a broken test \
+                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \
+                  not this one, which fires on position rather than on being test code"
+    )]
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        let fact = Model::new(
+            ModelName::parse("sales_orders").expect("a name"),
+            source(),
+            QualifiedTable::parse("analytics_prod.sales.orders").expect("a path"),
+            BTreeSet::from([column("order_date"), column("customer_id"), column("amount_cents")]),
+            Description::default(),
+        );
+        // The SAME table name in another dataset of another project, on the SAME source - so the
+        // splitter keeps it as a join on the fact leg and both paths land in one statement.
+        let crm = Model::new(
+            ModelName::parse("crm_orders").expect("a name"),
+            source(),
+            QualifiedTable::parse("reference_data.crm.orders").expect("a path"),
+            BTreeSet::from([column("customer_id"), column("segment")]),
+            Description::default(),
+        );
+        // The second data system, and the only reason this question federates at all.
+        let geo = Model::new(
+            ModelName::parse("geo").expect("a name"),
+            SourceName::parse("elsewhere").expect("a name"),
+            TableName::parse("dim_region").expect("a name"),
+            BTreeSet::from([column("customer_id"), column("region")]),
+            Description::default(),
+        );
+        let joins = vec![
+            Relationship::new(
+                RelationshipName::parse("order_crm").expect("a name"),
+                ModelName::parse("sales_orders").expect("a name"),
+                column("customer_id"),
+                ModelName::parse("crm_orders").expect("a name"),
+                column("customer_id"),
+                JoinType::ManyToOne,
+            ),
+            Relationship::new(
+                RelationshipName::parse("order_geo").expect("a name"),
+                ModelName::parse("sales_orders").expect("a name"),
+                column("customer_id"),
+                ModelName::parse("geo").expect("a name"),
+                column("customer_id"),
+                JoinType::ManyToOne,
+            ),
+        ];
+        let revenue = Metric::new(
+            MetricName::parse("revenue").expect("a name"),
+            ModelName::parse("sales_orders").expect("a name"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+            Vec::new(),
+            column("order_date"),
+            BTreeSet::from([Grain::Month]),
+            // `segment` reaches the colliding same-source table, `region` reaches the second data
+            // system, and `customer` reaches neither - so one question can federate WITH the
+            // collision, and another can federate without it.
+            BTreeMap::from([
+                dimension("segment", "segment", Some("order_crm"), None),
+                dimension("region", "region", Some("order_geo"), None),
+                dimension("customer", "customer_id", None, None),
+            ]),
+            None,
+            Description::default(),
+        );
+        let definitions = Definitions::assemble(vec![fact, crm, geo], joins, vec![revenue])
+            .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
+        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
+    }
+}

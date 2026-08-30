@@ -23,7 +23,9 @@
 //!   suite span two.
 //! - [`same_name_tables_catalog`]'s fake provokes one refusal too, and is built in code for the same
 //!   reason: qualifying the shipped corpus would move every existing golden and break the executed
-//!   axis in order to demonstrate a refusal.
+//!   axis in order to demonstrate a refusal. [`federated_same_name_tables_catalog`] is the same
+//!   collision on the other plan shape - a two-source question, so the collision lands inside the
+//!   fact LEG - because a guard reached by one shape and not the other is not a guard.
 //!
 //! Only one test target includes this module, because a fake is used where it is needed rather than
 //! everywhere: `unused_imports` and `dead_code` are both `deny` in the workspace lint table, so an
@@ -32,8 +34,8 @@
 mod oracle;
 
 pub(crate) use oracle::{
-    HandWrittenCatalog, TwoSourceCatalog, executable_definitions, june_range, oracle_definitions, oracle_knowledge,
-    same_name_tables_catalog, stated_knowledge, two_source_catalog,
+    HandWrittenCatalog, TwoSourceCatalog, executable_definitions, federated_same_name_tables_catalog, june_range,
+    oracle_definitions, oracle_knowledge, same_name_tables_catalog, stated_knowledge, two_source_catalog,
 };
 
 use std::cell::RefCell;
