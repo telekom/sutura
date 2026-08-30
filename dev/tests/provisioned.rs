@@ -96,10 +96,7 @@ mod tests {
         if !docker_tier() {
             return;
         }
-        for service in SERVICES
-            .iter()
-            .filter(|s| s.is_default() && s.provisioner() == sutura_dev::scope::Provisioner::Docker)
-        {
+        for service in SERVICES.iter().filter(|service| service.is_default()) {
             let Some(endpoint) = provisioned(service.name()) else {
                 continue;
             };

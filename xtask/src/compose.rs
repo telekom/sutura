@@ -526,7 +526,6 @@ mod tests {
         // The reviewer's question turned into a mechanism: `dev-up` with no flag does not start
         // keycloak, so CI does not pay for a service nothing here can use yet.
         let default_set = super::expected_services(&[]);
-        assert!(default_set.contains(&"postgres"));
         assert!(default_set.contains(&"clickhouse"));
         assert!(
             !default_set.contains(&"keycloak"),

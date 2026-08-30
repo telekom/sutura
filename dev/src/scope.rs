@@ -1,9 +1,13 @@
 //! Per-worktree isolation: the part that has to be right.
 //!
 //! Several worktrees of this repo are open at once - that is the point of stacked branches -
-//! and each needs its own Postgres, `ClickHouse` and an identity provider. Two worktrees sharing a
+//! and each needs its own services. Two worktrees sharing a
 //! container is the worst outcome available: a test passes because the *other* branch's
 //! migration ran, and the failure appears in whichever branch is unlucky.
+//!
+//! Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
+//! it is nix-native, provisioned by `nix/postgres-tier.nix`, and the sandbox's `checks.nextest`
+//! runs it on a unix socket under the build tree - see that module).
 //!
 //! So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 //! of the worktree's CANONICAL path.
@@ -37,22 +41,7 @@ use std::path::{Path, PathBuf};
 
 use sha2::Digest as _;
 
-/// How a service is provisioned.
-///
-/// One declaration per service, read by `dev-up`, `dev-down`, `expected_services` and the
-/// docker-wiring tests, so a service is docker or nix once and nowhere else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Provisioner {
-    /// A [docker] service: a container per worktree, its host port allocated and discovered.
-    ///
-    /// [docker]: https://docs.docker.com/
-    Docker,
-    /// A nix-native service: the same derivation the sandbox runs, reached over a unix socket
-    /// under the worktree - no port, no allocator. For this repository, `postgres`.
-    Nix,
-}
-
-/// A dev service that gets its own instance per worktree.
+/// A dev service that gets its own container per worktree.
 ///
 /// No port field, derived or otherwise: what a service publishes on the host is allocated at
 /// provision time and read back, so a port here would be a second answer to a question this type
@@ -70,8 +59,6 @@ pub struct Service {
     /// than a paragraph. `keycloak` carries one because nothing in this repository can use an
     /// identity provider yet, and a tier that starts it on every run pays for it on every run.
     profile: Option<&'static str>,
-    /// How this service is provisioned.
-    provisioner: Provisioner,
 }
 
 impl Service {
@@ -92,12 +79,6 @@ impl Service {
     #[must_use]
     pub const fn profile(&self) -> Option<&'static str> {
         self.profile
-    }
-
-    /// How this service is provisioned.
-    #[must_use]
-    pub const fn provisioner(&self) -> Provisioner {
-        self.provisioner
     }
 
     /// Is this service started when no profile was asked for?
@@ -172,16 +153,9 @@ pub fn profiles() -> Vec<&'static str> {
 /// cannot accidentally have.
 pub const SERVICES: &[Service] = &[
     Service {
-        name: "postgres",
-        container_port: 5432,
-        profile: None,
-        provisioner: Provisioner::Nix,
-    },
-    Service {
         name: "clickhouse",
         container_port: 8123,
         profile: None,
-        provisioner: Provisioner::Docker,
     },
     Service {
         // OFF unless asked for. The reasoning lives beside the service in `compose.services.yaml`:
@@ -190,7 +164,6 @@ pub const SERVICES: &[Service] = &[
         name: "keycloak",
         container_port: 8080,
         profile: Some("identity"),
-        provisioner: Provisioner::Docker,
     },
 ];
 
@@ -423,7 +396,7 @@ mod tests {
                 "`Service` grew a host-port field: {field}"
             );
         }
-        assert_eq!(fields.len(), 4, "an unreviewed field on `Service`: {fields:?}");
+        assert_eq!(fields.len(), 3, "an unreviewed field on `Service`: {fields:?}");
         for service in SERVICES {
             assert!(service.container_port() > 0, "{} has no container port", service.name());
         }
