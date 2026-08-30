@@ -652,6 +652,46 @@ pub trait Warehouse {
     fn working_set_exhausted(&self, _error: &Self::Error) -> Option<u64> {
         None
     }
+
+    /// Was this failure the data system declining to hand back a result this large?
+    ///
+    /// **The sibling of [`working_set_exhausted`](Warehouse::working_set_exhausted), added against
+    /// the same defect one place further out.** That method exists because exhaustion used to leave
+    /// as a transport failure and reach a caller as `503`, which is what a data system being down
+    /// looks like - so a caller was told to retry against a bound that fires again in the same place.
+    /// A result the data system will not deliver in one piece is that defect exactly: a networked
+    /// endpoint caps a reply by size, and a result INSIDE the row cap can still be over it. Retrying
+    /// returns the same reply.
+    ///
+    /// `true` leaves as [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge)
+    /// carrying [`ResultBound::Volume`](crate::query::ResultBound::Volume) - the same refusal, code
+    /// and status the row cap produces, because *too much data* is one answer to a caller whichever
+    /// side measured it. `false` is every other failure.
+    ///
+    /// **A predicate rather than a conversion**, for the reason `working_set_exhausted` gives: the
+    /// refusal vocabulary belongs to the domain, and an adapter that could return a
+    /// [`RefusalReason`](crate::query::RefusalReason) could mint any of them from a failure of its
+    /// own. And a `bool` rather than an `Option<u64>` for a reason of its own, stated where the
+    /// signature is: **there is no honest number to carry.** The bound is the data system's, and the
+    /// endpoint this was built for reports neither the cap nor the size of the reply that hit it - so
+    /// a numeric return would be a field every adapter had to fill with something, and something is
+    /// how a certified-looking figure gets attached to a bound nobody measured. If an adapter ever
+    /// does know its bound, widening this is a diff with that adapter's evidence in it.
+    ///
+    /// An adapter that cannot tell the difference must answer `false`, because the two mistakes do
+    /// not cost the same: a transport failure reported as a governance refusal tells a caller not to
+    /// retry something a retry would have answered.
+    ///
+    /// Defaulted to `false`, which is the honest answer for an adapter with no such bound - an
+    /// in-process engine hands back whatever it computed, and a local driver reads a whole result.
+    ///
+    /// **The limit, stated with the claim:** this is asked only of a failure from
+    /// [`execute`](Warehouse::execute). `dry_run`'s contract is that a check reads no data, so there
+    /// is no reply for a size bound to refuse there, and the boot path's `verify_anchor` runs one
+    /// certified scalar.
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

@@ -228,7 +228,7 @@ pub enum RefusalReason {
     DuplicateDimension { dimension: DimensionName },
     /// More group-by keys than [`MAX_DIMENSIONS`].
     TooManyDimensions { requested: usize, limit: usize },
-    /// The result would carry more rows than `plan::MAX_ROWS`.
+    /// The result was too much data to certify, and [`ResultBound`] says which bound said so.
     ///
     /// **The refusal that replaced a silent truncation, and it was a wrong-number bug.** The cap
     /// used to be the `LIMIT` on the statement and nothing compared the rows that came back against
@@ -242,11 +242,14 @@ pub enum RefusalReason {
     /// over part of the groups is not a smaller answer to the question asked - it is a different
     /// number wearing the same name.
     ///
-    /// Carries the limit and **not** how many rows there would have been, because nobody knows: the
-    /// plan asks for one row more than the cap and stops there, so what is known is "more than
-    /// this". That is the difference from [`TooManyDimensions`](RefusalReason::TooManyDimensions),
-    /// which can name what was requested because the caller sent it.
-    ResultTooLarge { limit: u32 },
+    /// **One variant for two bounds, and the payload is what keeps that from being a lie.** A row cap
+    /// this deployment configured and a data system declining to hand a result back in one piece are
+    /// the same answer to a caller - *too much data, ask a narrower question* - so they share a
+    /// variant, a code and a status rather than teaching an authorization server, a dashboard and an
+    /// agent a second vocabulary for one remedy. What they do not share is a number, which is why the
+    /// field is [`ResultBound`] rather than a `limit` that would have to be filled in with something
+    /// for the case that has none.
+    ResultTooLarge { bound: ResultBound },
     /// A span of history longer than [`MAX_RANGE_DAYS`].
     ///
     /// The availability boundary, and a governance outcome rather than a malformed question: the
@@ -326,6 +329,48 @@ pub enum RefusalReason {
     /// system's to say, and guessing it here would be this deployment holding a second opinion about
     /// somebody else's authorization.
     CredentialUnavailable { source: SourceName },
+}
+
+/// Which bound a result was too large for.
+///
+/// **The vocabulary exists so one refusal can be honest about two causes.** The answer a caller gets
+/// is one sentence - *too much data, ask a narrower question* - and
+/// [`RefusalReason::ResultTooLarge`] is that one answer. This is what the deployment knows about why,
+/// and the two arms differ in who measured it: the row cap is a number an operator configured here,
+/// and the volume bound belongs to the data system and is not one this process was told.
+///
+/// **Closed, and read by exhaustive matches with no wildcard arm in both transports and in the
+/// agent-facing prompt.** A third bound is a compile error in each of them rather than a case one
+/// renders as another - which is what stops a bound with no number being described using somebody
+/// else's number.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+pub enum ResultBound {
+    /// The plan's row cap, in rows.
+    ///
+    /// Carries the limit and **not** how many rows there would have been, because nobody knows: the
+    /// plan asks for one row more than the cap and stops there, so what is known is "more than
+    /// this". That is the difference from
+    /// [`TooManyDimensions`](RefusalReason::TooManyDimensions), which can name what was requested
+    /// because the caller sent it.
+    Rows { limit: u32 },
+    /// The data system would not hand this result back in one piece.
+    ///
+    /// Raised through `Warehouse::result_did_not_fit`, a predicate for the reason that port method's
+    /// own documentation gives. It is *not* the row cap: the statement carries `MAX_ROWS + 1` as its
+    /// `LIMIT`, so a result reaching this arm was inside the cap and was still more data than the
+    /// data system would deliver at once - a wide result rather than a tall one.
+    ///
+    /// **Carries no number, and that is a decision rather than a field somebody forgot.** The bound
+    /// belongs to the data system and is not stated to a client: the endpoint this arm was built for
+    /// caps a reply by size and reports neither that cap nor the reply's size, so the only figures
+    /// in scope are how much was scanned and how much would be billed - neither of which is the
+    /// bound that fired. An `Option<u64>` here would make every reader decide what an absence
+    /// permits, and a figure filled in from one of those would be a certified-looking number for a
+    /// bound that is not the one that refused. A fabricated limit is worse than an absent one.
+    ///
+    /// **The limit, stated with the claim:** a caller is told to narrow the question and is not told
+    /// by how much. That is the whole of what this deployment honestly knows.
+    Volume,
 }
 
 /// What a tool call produced.

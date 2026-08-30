@@ -35,7 +35,7 @@ use sutura_domain::identity::{
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
 use sutura_domain::plan::{AnchorPlan, Executable};
-use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
+use sutura_domain::query::{Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
@@ -532,6 +532,27 @@ where
                     },
                 ));
             }
+            // The SAME defect one bound further out, and the arm sits here rather than beside the row
+            // cap below because there are no rows to count: the data system declined to hand the
+            // result over at all. A networked endpoint caps a reply by size, and a result INSIDE the
+            // row cap can be over that - a wide result rather than a tall one. It used to leave as
+            // `ServiceError::Warehouse` too, so the caller was told `503` and invited to retry
+            // against a bound that returns the same reply.
+            //
+            // One refusal for both bounds, because *too much data* is one answer to a caller and the
+            // remedy is the same narrowing. `ResultBound` is what keeps that from being a lie about
+            // which bound fired - and the volume arm carries no number, because the bound is the data
+            // system's and this deployment was not told it.
+            if warehouse.result_did_not_fit(&cause) {
+                return Ok(Answered::under(
+                    &credentials,
+                    ToolOutcome::Refusal {
+                        reason: RefusalReason::ResultTooLarge {
+                            bound: ResultBound::Volume,
+                        },
+                    },
+                ));
+            }
             // Anything else is a failure rather than a refusal, and the typed cause travels with it.
             return Err(ServiceError::Warehouse { cause });
         }
@@ -545,7 +566,9 @@ where
         return Ok(Answered::under(
             &credentials,
             ToolOutcome::Refusal {
-                reason: RefusalReason::ResultTooLarge { limit: plan.max_rows() },
+                reason: RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Rows { limit: plan.max_rows() },
+                },
             },
         ));
     }
