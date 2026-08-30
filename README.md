@@ -104,9 +104,12 @@ reproduces it before the bundle can be served.
 sutura query <catalog-dir> <question.yaml> <data-dir>
 ```
 
-Two things read as more than they are. The plan can be **rendered** as SQL for DuckDB, Postgres or
-ClickHouse - `sutura compile` does that and the goldens parse-check each one - but rendering a dialect
-is not a data system, and there is no Postgres or ClickHouse adapter. And **DuckDB is a test
+Two things read as more than they are. The plan can be **rendered** as SQL for DuckDB, Postgres,
+ClickHouse or BigQuery - `sutura compile` does that and the goldens parse-check each one - but
+rendering a dialect is not a data system, and there is no Postgres or ClickHouse adapter. There *is* a
+BigQuery adapter and it is still not a data system this build can reach: it has no transport that
+speaks to the endpoint, nothing links it, and the service refuses `kind: bigquery` by name -
+`docs/adr/0017` is why. And **DuckDB is a test
 dependency, not the runtime data source**: the adapter that pushes SQL down to it is exercised by the
 golden suite and by a differential test that runs one plan both ways and compares the rows, but the
 binary does not link it and you need no `libduckdb` to run the command above. `sutura doctor` prints
