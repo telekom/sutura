@@ -2357,6 +2357,17 @@ reject.</p>
 arrive through: one trait, implemented once per catalogue. A directory of documents in git and a
 metadata catalogue with an HTTP API are two adapters behind it, and swapping one for the other does
 not touch the query path.</p>
+<p><strong>And an adapter behind it says what it can supply, because the absence is the part that matters.</strong>
+<code>SemanticCatalog::capabilities</code> is required with no default: an adapter that omitted it would not
+compile. It names which of nine definition kinds - structure, descriptions, relationships, a join's
+cardinality, metrics, definitional filters, grains, value allowlists, anchors - and which of the four
+knowledge kinds this source can carry at all. The reason it exists is that an empty collection is two
+different facts: a reviewed catalogue that has not certified a metric yet, and a source that holds a
+measure this runtime will not execute. <code>sutura-catalog-local</code> declares every kind, which is a
+statement about the format rather than about the directory it read; a source that supplies part of the
+model declares the part, and its conformance test is that what it declared is exactly what it
+produced. <a href="../adr/0016-what-datahub-can-carry/">What DataHub can carry</a> is the measurement this came
+from.</p>
 <p><strong>This sentence used to say lineage arrives through that port too, and it does not.</strong> There is no
 lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
 reads columns a model declares, and where a column came from upstream changes neither. It is real
@@ -2488,9 +2499,13 @@ Today a catalogue that names something else gets an error saying there is no ada
 <p><strong>What it costs to add a fourth adapter.</strong> A <code>Warehouse</code> or <code>SemanticCatalog</code> implementation, one line
 in the workspace manifest, one line in the composition root - and, in the test suite, one <code>impl</code> of
 <code>adapters::CatalogUnderTest</code> or <code>adapters::DataSystemUnderTest</code> plus one line in
-<code>adapters::registered</code>. No test body changes: the golden corpus, the refusal corpus, the anchor check
-and the engine comparison are all expanded once per registration, so a new adapter arrives with all of
-them already pointed at it. That is the property the two ports exist for, and it is the one worth
+<code>adapters::registered</code>. For a catalogue there is one more thing and it is a line rather than a body:
+the capability declaration, which the port requires with no default. No test body changes: the golden
+corpus, the refusal corpus, the anchor check and the engine comparison are all expanded once per
+registration, so a new adapter arrives with all of
+them already pointed at it - and for a catalogue the declaration is what selects between agreeing with
+the hand-written oracle, which is the reference adapters' contract, and being held to its own
+declaration, which is what a source supplying part of the model gets. That is the property the two ports exist for, and it is the one worth
 checking has not quietly stopped being true.</p>
 <h2 id="security-is-the-reason-for-the-shape">Security is the reason for the shape<a class="headerlink" href="#security-is-the-reason-for-the-shape" title="Permanent link">&para;</a></h2>
 <p>The three sections above are not features arranged around a core. They are what falls out of one

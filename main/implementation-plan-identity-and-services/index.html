@@ -3433,11 +3433,12 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a> measured it and found it carries part of
   a model rather than all of one. This bullet used to say all six were <em>"<code>feat/source-registry</code>-shaped
   once the packs exist: a registration, a declaration, and fixtures"</em>, and that is <strong>right about the
-  cost and wrong about one precondition</strong>: the declaration it names does not exist yet on the metadata
-  side. <code>SemanticCatalog</code> declares nothing today, so <em>a registration and a declaration</em> is the correct
-  price only after <code>feat/metadata-capabilities</code> makes a declaration a thing an adapter can write - and
-  it has to be REQUIRED there, because a narrow source that is silent about what it cannot supply is
-  exactly the failure the declaration exists to prevent. Four of the five remaining names are narrow by
+  cost and wrong about one precondition</strong>: the declaration it names did not exist on the metadata side
+  when that was written. <strong>It does now</strong> - <code>feat/metadata-capabilities</code> made
+  <code>SemanticCatalog::capabilities</code> a required associated item with no default, so <em>a registration and a
+  declaration</em> is the correct price and the declaration is a thing an adapter can write. It is REQUIRED
+  rather than defaulted, because a narrow source that is silent about what it cannot supply is exactly
+  the failure the declaration exists to prevent. Four of the five remaining names are narrow by
   the same reading, so each is a registration plus a declaration <strong>on top of that row</strong>, and none of
   them needs metadata composition first.</li>
 <li><strong>Metadata COMPOSITION - the assembler over N sources, and the contribution manifest.</strong> Decided in
