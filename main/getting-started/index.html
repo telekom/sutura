@@ -1561,6 +1561,8 @@
       
         
       
+        
+      
     
     
     
@@ -1795,6 +1797,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2110,12 +2140,12 @@
 
 <h1 id="getting-started">Getting started<a class="headerlink" href="#getting-started" title="Permanent link">&para;</a></h1>
 <p>There is a catalogue, the data behind it and a directory of questions in the repository already -
-<code>examples/single-player</code>, the one corpus both test suites run on - so the fastest way to see what
-this does is to point the binary at those.</p>
+<code>examples/single-player</code>, the one corpus both test suites run on. The fastest way to see what this
+does is to point the binary at those.</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>cargo<span class="w"> </span>run<span class="w"> </span>-p<span class="w"> </span>sutura-cli<span class="w"> </span>--<span class="w"> </span><span class="se">\</span>
 </span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a><span class="w">  </span>catalog<span class="w"> </span>examples/single-player/catalog
 </span></code></pre></div>
-<p>No feature flag, and nothing to install. The engine is compiled into the binary and reads the CSVs
+<p>No feature flag, nothing to install. The engine is compiled into the binary and reads the CSVs
 itself, so <code>query</code> works in a plain <code>cargo run</code>. A data system's driver is a development dependency
 here - present to prove the SQL we render actually runs, not to answer your questions.</p>
 <h2 id="what-a-catalogue-says">What a catalogue says<a class="headerlink" href="#what-a-catalogue-says" title="Permanent link">&para;</a></h2>
@@ -2203,8 +2233,8 @@ command to reach for when the question is what we would have run:</p>
 a dialect as a third argument - <code>duckdb</code>, <code>postgres</code> or <code>clickhouse</code> - to see the same plan rendered
 for another data system: <code>ClickHouse</code> gets <code>dateTrunc</code> and <code>sum</code>, Postgres gets <code>$1</code> and <code>$2</code>
 instead of <code>?</code>.</p>
-<p>Three details in there are deliberate and easy to misread. <strong>Every value is a bind parameter,
-including <code>$3</code></strong> - that one is not something the caller sent, it is <code>recurring_revenue</code>'s own
+<p>Three details are deliberate and easy to misread. <strong>Every value is a bind parameter, including
+<code>$3</code></strong> - that one is not something the caller sent, it is <code>recurring_revenue</code>'s own
 <code>status = "active"</code>, and it is bound rather than written into the statement so that there is one
 path for values and not two. The join is a <strong><code>LEFT JOIN</code></strong>, because an inner one drops fact rows
 that have no matching dimension row and so silently changes the measure it was only asked to break
@@ -2314,7 +2344,7 @@ a caller chooses:</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="nt">required_filters</span><span class="p">:</span>
 </span><span id="__span-15-2"><a id="__codelineno-15-2" name="__codelineno-15-2" href="#__codelineno-15-2"></a><span class="w">  </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">equals</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">{</span><span class="nt"> column</span><span class="p">:</span><span class="w"> </span><span class="nv">status</span><span class="p p-Indicator">,</span><span class="nt"> value</span><span class="p">:</span><span class="w"> </span><span class="nv">active</span><span class="w"> </span><span class="p p-Indicator">}</span>
 </span></code></pre></div>
-<p>Four things about all that are worth knowing before you write one:</p>
+<p>Four things matter before you write one:</p>
 <ul>
 <li><strong>A measure is a shape and terms from a closed vocabulary, not an expression.</strong> There is no field
   for <code>sum(price * quantity)</code>, and <a href="../adr/0002-a-closed-vocabulary-for-measures/">the closed vocabulary for
@@ -2328,9 +2358,9 @@ a caller chooses:</p>
   <code>recurring_revenue</code> <em>means</em> the active figure; a statement that left the predicate out would
   return revenue including terminated subscriptions under a certified name. That is a wrong answer
   arrived at by omission rather than by tampering, which is the more likely failure and the harder
-  one to notice. Note the consequence for modelling: a metric with a required filter on <code>status</code>
-  should not also declare <code>status</code> as a dimension, or grouping by it would be a way to ask the
-  metric for the figure it excludes.</li>
+  one to notice. The modelling consequence: a metric with a required filter on <code>status</code> should not
+  also declare <code>status</code> as a dimension, or grouping by it would be a way to ask the metric for the
+  figure it excludes.</li>
 <li><strong><code>values</code> is what makes a dimension filterable.</strong> Without it the dimension can be grouped by and
   not filtered on, because a filter needs an allowlist - the alternative is comparing against
   whatever the caller sent. <code>recurring_revenue</code> declares <code>product_name</code> without one for exactly

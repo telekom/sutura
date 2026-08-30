@@ -1616,6 +1616,8 @@
       
         
       
+        
+      
     
     
     
@@ -1850,6 +1852,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2219,8 +2249,8 @@
 
 
 <h1 id="concepts">Concepts<a class="headerlink" href="#concepts" title="Permanent link">&para;</a></h1>
-<p>The words on the tool surface, and what each one commits to. The design is settled and the code
-is not, so this page is vocabulary rather than an API you can call.
+<p>The words on the tool surface, and what each one commits to. The design is settled and the code is
+not, so this page is vocabulary rather than an API you can call.
 <a href="../architecture/">Architecture</a> says how the pieces fit.</p>
 <div class="admonition warning">
 <p class="admonition-title">Two kinds of claim on this page, marked at each one</p>
@@ -2457,9 +2487,9 @@ not finished either: there IS a request context, a credential broker port with a
 implementor, an audit sink and an MCP surface, and a deployment that declares <code>security.inbound</code>
 verifies a caller's own token. What there is NOT is an adapter that can carry a per-subject
 credential, so per-caller ACCESS is still absent - and a deployment behind only the bearer token has
-no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. <a href="../architecture/#what-exists-today">What exists today</a> is the inventory, and
-<code>AGENTS.md</code> in the repository lists each invariant beside the type, lint or gate that holds it -
-including the rows that say outright that nothing holds them yet.</p>
+no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. <a href="../architecture/#what-exists-today">What exists today</a> is the inventory, and <code>AGENTS.md</code> in the
+repository lists each invariant beside the type, lint or gate that holds it - including the rows
+that say outright that nothing holds them yet.</p>
 <p>The mechanisms came first on purpose: every claim on this page is meant to be held up by a type,
 a lint, a hook or a gate, and those are cheaper to build before there is code to retrofit them
 onto.</p>

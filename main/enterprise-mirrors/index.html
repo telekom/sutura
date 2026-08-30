@@ -1633,6 +1633,8 @@
       
         
       
+        
+      
     
     
     
@@ -1867,6 +1869,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2318,10 +2348,10 @@ mirror cannot substitute different content undetected.</p>
 </span></code></pre></div>
 <p><code>sparse+</code> is required and the trailing slash matters. Without them cargo expects a git index and
 fails with a confusing clone error.</p>
-<p><code>rustup</code> is not involved in the Nix path. <code>flake.nix</code> and <code>devenv.nix</code> resolve both pinned toolchains
-through rust-overlay - <code>rust-toolchain.toml</code>, and <code>devco/rust-toolchain-nightly.toml</code> for the local
-inner loop - so the compilers come from the Nix cache and the crates mirror above is all this section
-needs.</p>
+<p><code>rustup</code> is not involved in the Nix path. <code>flake.nix</code> and <code>devenv.nix</code> resolve both pinned
+toolchains through rust-overlay - <code>rust-toolchain.toml</code>, and <code>devco/rust-toolchain-nightly.toml</code>
+for the local inner loop - so the compilers come from the Nix cache and the crates mirror above is
+all this section needs.</p>
 <p>If you do use rustup, set <code>RUSTUP_DIST_SERVER</code> and <code>RUSTUP_UPDATE_ROOT</code>. An exact version pin needs
 that version to exist on the mirror, and a lazily-caching remote <code>404</code>s until something asks, which
 reads as "no such version".</p>
@@ -2330,8 +2360,8 @@ reads as "no such version".</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">channels</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"conda-forge"</span><span class="p">]</span>
 </span></code></pre></div>
 <p>That name is public because this repository is public. The redirect to a mirror goes in pixi's
-<strong>global</strong> configuration instead, so the manifest resolves identically for everybody and no
-internal URL is ever committed:</p>
+<strong>global</strong> configuration instead, so the manifest resolves identically for everybody and no internal
+URL is ever committed:</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="c1"># ~/.pixi/config.toml</span>
 </span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="k">[mirrors]</span>
 </span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="s2">"https://conda.anaconda.org"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"https://&lt;host&gt;/&lt;path&gt;/&lt;conda&gt;"</span><span class="p">]</span>
@@ -2381,20 +2411,21 @@ which is the one file a mirror URL must not go in, because it is inside the repo
 <p><code>--no-config</code> skips the system and user layers; <code>--config-file &lt;path&gt;</code> replaces them with one file.
 Both reproduce a resolve without your machine's settings in it.</p>
 <h2 id="pip">pip<a class="headerlink" href="#pip" title="Permanent link">&para;</a></h2>
-<p><strong>This repository installs nothing from PyPI.</strong> <code>pixi.toml</code> has <code>[dependencies]</code> only - conda packages
-from <code>conda-forge</code> - and no <code>[pypi-dependencies]</code> table, so no pip, no uv and no PyPI index takes part
-in any build, gate or docs render. A <code>pip.conf</code> on your machine changes nothing here.</p>
+<p><strong>This repository installs nothing from PyPI.</strong> <code>pixi.toml</code> has <code>[dependencies]</code> only - conda
+packages from <code>conda-forge</code> - and no <code>[pypi-dependencies]</code> table, so no pip, no uv and no PyPI
+index takes part in any build, gate or docs render. A <code>pip.conf</code> on your machine changes nothing
+here.</p>
 <p>If you add a <code>[pypi-dependencies]</code> entry, pixi resolves it with uv. One thing first:</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="c1"># ~/.pixi/config.toml</span>
 </span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="k">[pypi-config]</span>
 </span><span id="__span-7-3"><a id="__codelineno-7-3" name="__codelineno-7-3" href="#__codelineno-7-3"></a><span class="n">index-url</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">"https://&lt;host&gt;/&lt;path&gt;/&lt;pypi&gt;/simple"</span>
 </span></code></pre></div>
 <p><strong>That does not redirect anything.</strong> Per pixi's documented behaviour, <code>index-url</code> and
-<code>extra-index-urls</code> in the global config are written into a manifest by <code>pixi init</code> and are otherwise
-not interpreted, because the manifest is meant to be complete on its own. Only <code>keyring-provider</code> and
-<code>allow-insecure-host</code> apply globally.</p>
-<p>What does redirect uv is <code>[mirrors]</code>, and it needs <strong>two</strong> entries, because the index and the files are
-served from different hosts:</p>
+<code>extra-index-urls</code> in the global config are written into a manifest by <code>pixi init</code> and are
+otherwise not interpreted, because the manifest is meant to be complete on its own. Only
+<code>keyring-provider</code> and <code>allow-insecure-host</code> apply globally.</p>
+<p>What does redirect uv is <code>[mirrors]</code>, and it needs <strong>two</strong> entries, because the index and the files
+are served from different hosts:</p>
 <div class="language-toml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="c1"># ~/.pixi/config.toml</span>
 </span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="k">[mirrors]</span>
 </span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="s2">"https://pypi.org/simple"</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">"https://&lt;host&gt;/&lt;path&gt;/&lt;pypi&gt;/simple"</span><span class="p">]</span>
@@ -2499,11 +2530,13 @@ changes nothing. It belongs in the daemon's environment.</p>
 <p><code>nix-cache-info</code> returning 200 while a build reports 401 means artifacts need credentials: back to
 the netrc step.</p>
 <h2 id="why-none-of-these-values-are-in-the-repository">Why none of these values are in the repository<a class="headerlink" href="#why-none-of-these-values-are-in-the-repository" title="Permanent link">&para;</a></h2>
-<p>They configure a <strong>network</strong>, not a project. A contributor on a different network needs different ones,
-and both would be wrong for the public CI runner, which needs none at all. This repository is also
-public, so committing them would publish the shape of an internal estate to everybody who clones it.</p>
+<p>They configure a <strong>network</strong>, not a project. A contributor on a different network needs different
+ones, and both would be wrong for the public CI runner, which needs none at all. This repository is
+also public, so committing them would publish the shape of an internal estate to everybody who
+clones it.</p>
 <p>Hence the split: public defaults in the manifests, file locations here, values on your machine.
-<code>.env.example</code> documents each build argument the container build takes, and the trap that goes with it.</p>
+<code>.env.example</code> documents each build argument the container build takes, and the trap that goes with
+it.</p>
 
 
 

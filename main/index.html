@@ -1557,6 +1557,8 @@
       
         
       
+        
+      
     
     
     
@@ -1791,6 +1793,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2109,8 +2139,8 @@
 metric definitions somebody certified, and to refuse when it cannot do either.</p>
 <p>Give an agent a database connection and it answers with SQL it invented, run under whatever
 credential the service holds. Two failures, not one. The number is uncertified, so nobody can
-say whether "revenue" means what finance means by it. And the rows are the ones the <em>service</em>
-may read rather than the ones the <em>caller</em> may read, which is how a row-level security policy
+say whether "revenue" means what finance means by it. The rows are the ones the <em>service</em> may
+read rather than the ones the <em>caller</em> may read, which is how a row-level security policy
 becomes decorative.</p>
 <div class="admonition warning">
 <p class="admonition-title">What is built, and what is a design target</p>
@@ -2139,7 +2169,7 @@ it in the code that is here now.</p>
 <tr>
 <td>Every query runs as the caller</td>
 <td>A credential minted per request for the calling principal. A leg that cannot run as the subject is refused, never downgraded to a service identity</td>
-<td><strong>Design target, not built.</strong> Neither a request context nor a credential broker exists, so no caller identity reaches the query path at all. In single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be</td>
+<td><strong>Design target, not built.</strong> No caller identity reaches the query path as the subject, and in single-player the property is trivially true and worth nothing: a file has no login, so there is nobody else to be</td>
 </tr>
 <tr>
 <td>A refusal is an answer</td>
@@ -2158,10 +2188,10 @@ it in the code that is here now.</p>
 </tr>
 </tbody>
 </table>
-<p>Those mechanisms are the design. <a href="architecture/">Architecture</a> says how the four force the
-shape of the system and which parts are compiled today. <code>AGENTS.md</code> in the repository lists
-every invariant beside the type, lint or gate that enforces it - including the rows that say
-outright that nothing enforces them yet.</p>
+<p>Those mechanisms are the design. <a href="architecture/">Architecture</a> says how the four force the shape
+of the system and which parts are compiled today. <code>AGENTS.md</code> in the repository lists every invariant
+beside the type, lint or gate that enforces it - including the rows that say outright that nothing
+enforces them yet.</p>
 <h2 id="what-it-borrows">What it borrows<a class="headerlink" href="#what-it-borrows" title="Permanent link">&para;</a></h2>
 <p>Two Apache-2.0 projects got there first.</p>
 <ul>
@@ -2173,14 +2203,14 @@ outright that nothing enforces them yet.</p>
 </ul>
 <p>Between them they cover compiling a question and federating it. What sutura <em>means to</em> add is
 identity: not only what a question means, but who is asking and whether they may see the answer.
-That is the designed and unbuilt part, so what actually differs today is the narrow tool surface
-and the pinned bundle, not the identity.</p>
+That is the designed and unbuilt part, so what differs today is the narrow tool surface and the
+pinned bundle, not the identity.</p>
 <p><a href="architecture/#where-the-parts-come-from">Where the parts come from</a> sets those two and
 <a href="https://github.com/tobilg/polyglot">polyglot</a> on the line from a modelled question to executed SQL,
 and says which parts we mean to build.</p>
 <h2 id="status">Status<a class="headerlink" href="#status" title="Permanent link">&para;</a></h2>
-<p>The query path is built, and the combination it supports is exactly one: <strong>metadata from a catalogue of
-markdown documents with YAML frontmatter in git, and execution by the in-process engine over the CSV or
+<p>The query path is built, and it supports exactly one combination: <strong>metadata from a catalogue of
+markdown documents with YAML frontmatter in git, executed by the in-process engine over the CSV or
 Parquet files you point it at.</strong> A question naming a metric, a grain, a bounded range and some
 dimensions compiles to a plan and executes, and every metric that declares a certified number
 reproduces it before the bundle can be served.</p>
@@ -2190,15 +2220,15 @@ source, and the shipped binary links neither it nor any driver. Which adapter is
 decision in the binary; there is no configuration that selects one.
 <a href="architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses">What can be plugged in today</a>
 is the table, and it is the section to read before assuming otherwise.</p>
-<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it is
-now one specific thing rather than four. There <em>is</em> a request context, a credential broker port with a
-static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
-<code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which operations
-that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere for a
-per-subject credential to arrive, both declare so, and the broker mints what an operator configured.
-So "as the person or agent asking" holds here only because a file has nobody else to be - a deployment
-can know exactly who is asking, record it, refuse a subject it holds no credential for, and still read
-every row as one identity. Arrow results and federation are also still ahead. <a href="serving/">The HTTP
+<p>What is not built is the part that makes the first sentence of this page true of a warehouse, and it
+is now one specific thing rather than four. There <em>is</em> a request context, a credential broker port
+with a static-credential implementor, an audit sink, an MCP surface, and - where a deployment
+declares <code>security.inbound</code> - a caller identity verified from a signature, with scopes deciding which
+operations that caller may invoke. What is absent is <strong>leg 2</strong>: no adapter in this build has anywhere
+for a per-subject credential to arrive, both declare so, and the broker mints what an operator
+configured. So "as the person or agent asking" holds here only because a file has nobody else to be -
+a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for,
+and still read every row as one identity. Arrow results and federation are also still ahead. <a href="serving/">The HTTP
 surface</a> is not, and its bearer token authenticates the deployment rather than the caller.
 <a href="architecture/#what-exists-today">What exists today</a> is the honest inventory.</p>
 <h2 id="where-to-start">Where to start<a class="headerlink" href="#where-to-start" title="Permanent link">&para;</a></h2>

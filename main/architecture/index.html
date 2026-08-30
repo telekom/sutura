@@ -1694,6 +1694,8 @@
       
         
       
+        
+      
     
     
     
@@ -1928,6 +1930,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2377,8 +2407,8 @@
 <h1 id="architecture">Architecture<a class="headerlink" href="#architecture" title="Permanent link">&para;</a></h1>
 <p>This page is the settled design and the reason the repository is laid out the way it is, not an
 inventory of what compiles. <a href="#what-exists-today">What exists today</a> is that inventory, and it is
-short. <code>AGENTS.md</code> in the repository root holds the crate table and the invariant table; this
-page says why they look the way they do.</p>
+short. <code>AGENTS.md</code> in the repository root holds the crate table and the invariant table; this page
+says why they look the way they do.</p>
 <div class="admonition warning">
 <p class="admonition-title">Read every section here as a design, not as a control</p>
 <p>Most of this page describes a system that is not built. What exists is a governed single-player
@@ -2386,10 +2416,9 @@ semantic compiler and executor over local files, served over HTTP - behind a tok
 authenticates the DEPLOYMENT, unless the deployment declares <code>security.inbound</code> and verifies a
 caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
 exist now; what does not is an adapter that can carry a per-subject credential, so every question
-still reads as one identity. No Arrow result envelope. Sections
-that describe something enforced today say so in the section itself, and
-<a href="#what-exists-today">What exists today</a> is the inventory. <strong>Do not deep-link a section of this
-page as evidence that a control is in place.</strong></p>
+still reads as one identity. No Arrow result envelope. Sections that describe something enforced
+today say so inside the section, and <a href="#what-exists-today">What exists today</a> is the inventory.
+<strong>Do not deep-link a section of this page as evidence that a control is in place.</strong></p>
 </div>
 <h2 id="serving-is-mcp">Serving is MCP<a class="headerlink" href="#serving-is-mcp" title="Permanent link">&para;</a></h2>
 <p><strong>Partly built, and the built half is not the one this section describes.</strong> <code>sutura-http</code> exists: a
@@ -2421,21 +2450,20 @@ not touch the query path.</p>
 <code>SemanticCatalog::capabilities</code> is required with no default: an adapter that omitted it would not
 compile. It names which of nine definition kinds - structure, descriptions, relationships, a join's
 cardinality, metrics, definitional filters, grains, value allowlists, anchors - and which of the four
-knowledge kinds this source can carry at all. The reason it exists is that an empty collection is two
-different facts: a reviewed catalogue that has not certified a metric yet, and a source that holds a
-measure this runtime will not execute. <code>sutura-catalog-local</code> declares every kind, which is a
-statement about the format rather than about the directory it read; a source that supplies part of the
-model declares the part, and its conformance test is that what it declared is exactly what it
-produced. <a href="../adr/0016-what-datahub-can-carry/">What DataHub can carry</a> is the measurement this came
-from.</p>
+knowledge kinds this source can carry at all. An empty collection is two different facts: a reviewed
+catalogue that has not certified a metric yet, and a source that holds a measure this runtime will
+not execute. <code>sutura-catalog-local</code> declares every kind, a statement about the format rather than
+about the directory it read; a source that supplies part of the model declares the part, and its
+conformance test is that what it declared is exactly what it produced.
+<a href="../adr/0016-what-datahub-can-carry/">What DataHub can carry</a> is the measurement this came from.</p>
 <p><strong>This sentence used to say lineage arrives through that port too, and it does not.</strong> There is no
 lineage type anywhere in the workspace and none is planned: a plan resolves to one source, a measure
 reads columns a model declares, and where a column came from upstream changes neither. It is real
-metadata that real catalogues carry - <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a> reads
-three lineage aspects out of one of them - and this port has no shape to put it in.</p>
+metadata that real catalogues carry - <a href="../adr/0016-what-datahub-can-carry/">what DataHub can carry</a>
+reads three lineage aspects out of one of them - and this port has no shape to put it in.</p>
 <p>The catalogue may be outside this repository or in it, and
-<a href="../adr/0001-first-party-semantic-models/">the first-party models decision</a> is why both are allowed. What the port
-guarantees is the same either way.</p>
+<a href="../adr/0001-first-party-semantic-models/">the first-party models decision</a> is why both are allowed.
+What the port guarantees is the same either way.</p>
 <p>Two properties of that trait carry the weight:</p>
 <ul>
 <li><code>load</code> takes no request context. A catalogue cannot see who is asking, so it cannot return a
@@ -2450,9 +2478,9 @@ is authored here, so reviewing a change to it is reviewing what will execute, an
 in the same pull request as any other change to behaviour.</p>
 <h2 id="the-engine-and-the-data-systems-behind-a-port">The engine, and the data systems behind a port<a class="headerlink" href="#the-engine-and-the-data-systems-behind-a-port" title="Permanent link">&para;</a></h2>
 <p>Two different things, and conflating them is the mistake this section exists to prevent.</p>
-<p><strong>The engine is one thing: DataFusion, with <code>polyglot-sql</code> rendering SQL when a query is pushed down.</strong>
-Not one engine per data system, and not a second engine kept in step with a first. It executes what it
-must locally over Arrow, and it is where a plan becomes rows.</p>
+<p><strong>The engine is one thing: DataFusion, with <code>polyglot-sql</code> rendering SQL when a query is pushed
+down.</strong> Not one engine per data system, and not a second engine kept in step with a first. It
+executes what it must locally over Arrow, and it is where a plan becomes rows.</p>
 <p><strong>A data system is a place data already lives</strong> - DuckDB, Postgres, ClickHouse, BigQuery - that
 somebody wants queried. Those sit behind the <code>Warehouse</code> port. What differs per data system is
 dialect, connection and how an identity is presented; neither the plan nor what a metric means
@@ -2464,11 +2492,10 @@ adapter's private business, which is what makes an adapter possible that cannot 
 because it emits no dialect. <a href="../adr/0003-datafusion-for-local-execution/">DataFusion for local execution</a>
 is the record.</p>
 <h3 id="where-the-engine-sits-and-where-it-is-going">Where the engine sits, and where it is going<a class="headerlink" href="#where-the-engine-sits-and-where-it-is-going" title="Permanent link">&para;</a></h3>
-<p>Today the engine is <em>behind</em> the port, as one adapter among the others, executing local files. That is
-a stepping stone and worth naming as one: an engine belongs <strong>above</strong> the port, deciding which subplan
-each data system runs and executing the remainder itself. That is what federation means here, and it
-is the shape the surveyed projects converge on. Today's arrangement is the engine with zero remote
-sources.</p>
+<p>Today the engine is <em>behind</em> the port, as one adapter among the others, executing local files. Call
+that a stepping stone: an engine belongs <strong>above</strong> the port, deciding which subplan each data system
+runs and executing the remainder itself. That is what federation means here, and it is the shape the
+surveyed projects converge on. Today's arrangement is the engine with zero remote sources.</p>
 <h3 id="connectors-arrow-flight-not-a-driver-per-data-system">Connectors: Arrow Flight, not a driver per data system<a class="headerlink" href="#connectors-arrow-flight-not-a-driver-per-data-system" title="Permanent link">&para;</a></h3>
 <p>The intended transport to a data system is <strong>Arrow Flight SQL</strong>, uniformly - DuckDB, Postgres and
 BigQuery alike - rather than a linked native driver each.</p>
@@ -2569,21 +2596,21 @@ in the workspace manifest, one line in the composition root - and, in the test s
 <code>adapters::registered</code>. For a catalogue there is one more thing and it is a line rather than a body:
 the capability declaration, which the port requires with no default. No test body changes: the golden
 corpus, the refusal corpus, the anchor check and the engine comparison are all expanded once per
-registration, so a new adapter arrives with all of
-them already pointed at it - and for a catalogue the declaration is what selects between agreeing with
-the hand-written oracle, which is the reference adapters' contract, and being held to its own
-declaration, which is what a source supplying part of the model gets. That is the property the two ports exist for, and it is the one worth
-checking has not quietly stopped being true.</p>
+registration, so a new adapter arrives with all of them already pointed at it - and for a catalogue
+the declaration is what selects between agreeing with the hand-written oracle, which is the reference
+adapters' contract, and being held to its own declaration, which is what a source supplying part of
+the model gets. That is the property the two ports exist for, and it is the one worth checking has not
+quietly stopped being true.</p>
 <h2 id="security-is-the-reason-for-the-shape">Security is the reason for the shape<a class="headerlink" href="#security-is-the-reason-for-the-shape" title="Permanent link">&para;</a></h2>
 <p>The three sections above are not features arranged around a core. They are what falls out of one
 requirement: an agent may be handed a database only if the database can still tell who is asking.</p>
 <p>Of the four properties below, two are enforced today, one is half built and one is not built. Each
 says which, because a reader who lands on this section from a search result gets no other warning.</p>
 <p><strong>The caller's identity reaches the data system. Half built, and the missing half is the point.</strong> Not
-a service account holding the union of everyone's access. A credential is minted per request, and a request that
-cannot run as the subject is refused rather than downgraded to the service's own identity: that
-downgrade turns "you may not see these rows" into "here are the rows". A row-level security policy
-that holds only for human callers is decorative.</p>
+a service account holding the union of everyone's access. A credential is minted per request, and a
+request that cannot run as the subject is refused rather than downgraded to the service's own
+identity: that downgrade turns "you may not see these rows" into "here are the rows". A row-level
+security policy that holds only for human callers is decorative.</p>
 <p><em>Built:</em> the mechanism that removes the downgrade. A request context reaches the query path, a
 credential broker mints once per answer for every source the plan reads, and <code>Warehouse::execute</code> has
 no signature that omits the result - so <strong>no question executes as this process</strong>, and a subject with
@@ -2689,9 +2716,9 @@ can reach <code>sutura-sql</code> or the dialect layer, over the whole transitiv
 <p>The stages above are the same either way. What differs is who wrote the statement.</p>
 <p><strong>A first-party model.</strong> The catalog declares models, relationships and metrics, and the generator
 produces the whole statement from them. This is the path that is built, and
-<a href="../adr/0001-first-party-semantic-models/">The first-party models decision</a> is the record: it exists because the spliced
-path below has a precondition - something upstream must already have rendered dialect-correct SQL -
-and on a laptop, or over a single file, there is no upstream to have done it.</p>
+<a href="../adr/0001-first-party-semantic-models/">The first-party models decision</a> is the record: it exists
+because the spliced path below has a precondition - something upstream must already have rendered
+dialect-correct SQL - and on a laptop, or over a single file, there is no upstream to have done it.</p>
 <p>Its load-bearing constraint is that <strong>a model may not contain a free-text SQL expression.</strong> A measure
 is one of two closed shapes over a <code>Term</code> of two terms - a term is one aggregate over a named column
 or a conditional count, and a measure is either a single term or a ratio of two of them, which is what

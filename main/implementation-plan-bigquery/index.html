@@ -1567,6 +1567,8 @@
       
         
       
+        
+      
     
     
     
@@ -1801,6 +1803,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2349,9 +2379,8 @@ provider registration, not one this step may quietly take because it is easier.<
 two audiences" is not a syntax limitation. An ID token's <code>aud</code> may be an array and may carry several
 audience identifiers. That does not rescue a shared credential - it is still the wrong credential
 <em>type</em> for one of the two uses, and sharing a bearer across intended recipients is the exposure
-audience restriction exists to prevent.
- . "
-" . <strong>A third route exists, it is newly the most practical one, and it changes what the blocking
+audience restriction exists to prevent.</p>
+<p><strong>A third route exists, it is newly the most practical one, and it changes what the blocking
 verification is for.</strong> The two options above are both <strong>workforce</strong> pools. A <strong>workload</strong> identity
 pool is the one that has a configurable <code>allowedAudiences</code> list - up to ten values of 256 characters -
 and researching whether a human subject may use one produced a clearer answer than expected:</p>

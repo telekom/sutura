@@ -1789,6 +1789,8 @@
       
         
       
+        
+      
     
     
     
@@ -2023,6 +2025,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2824,8 +2854,6 @@ a client that followed it would start putting credentials in a header this deplo
 the bound whether or not it is serving traffic. A candidate that will not parse, or that holds no key
 of the pinned kind, is logged at <code>error</code> and <strong>not</strong> adopted: the previous keys keep verifying, because
 adopting a broken set turns a rotation mistake into a total outage.</p>
-<p>Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
-it, and the bucket it counts against is a network address rather than a principal.</p>
 <h3 id="what-a-scope-grants">What a scope grants<a class="headerlink" href="#what-a-scope-grants" title="Permanent link">&para;</a></h3>
 <p><strong>Only where <code>security.inbound</code> is configured.</strong> A deployment with no block has no verified claim to
 narrow by, so every operation is available - and a filter over an unverified claim would look like a
@@ -3663,7 +3691,7 @@ credential-shaped value in the tree is held in a type whose <code>Debug</code> p
 asserted by a test rather than by the log call being careful.</p>
 <p>A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
-hand, so the last thing in the log says what happened and where instead of the log simply stopping.</p>
+hand, so the last thing in the log says what happened and where instead of the log just stopping.</p>
 <h2 id="stopping">Stopping<a class="headerlink" href="#stopping" title="Permanent link">&para;</a></h2>
 <p><code>SIGTERM</code> or an interrupt - and the platform equivalent elsewhere - drains in-flight work and logs
 why it stopped. <code>runtime.shutdown_grace_seconds</code> is the budget, and it is the budget for the <strong>whole</strong>

@@ -1627,6 +1627,8 @@
       
         
       
+        
+      
     
     
     
@@ -1861,6 +1863,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2244,33 +2274,34 @@
 <p>Where another page says it better, this one links rather than restates.</p>
 <h2 id="why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql">Why not just give the agent a database connection and let it write SQL?<a class="headerlink" href="#why-not-just-give-the-agent-a-database-connection-and-let-it-write-sql" title="Permanent link">&para;</a></h2>
 <p>Two things go wrong at once, and only one of them is obvious. An agent that invents SQL invents a
-definition with it, so nobody can say whether "revenue" means what finance means by it. And the rows
-come back according to what the <em>service</em> may read rather than what the <em>caller</em> may read, which is
-how a row-level security policy becomes decorative.</p>
-<p>sutura fixes the first by construction, today: definitions arrive certified and pinned, the tool
-surface has no field an invented query could arrive in, and every value a question carries binds as
-a parameter rather than reaching the statement as text.</p>
-<p>The second is <strong>half built, and the missing half is the one that matters.</strong> "Every query runs as the
-caller" needs a credential minted per request, and that now exists: a request context reaches the
-query path, a credential broker mints once per answer for every source a plan reads, and the execution
-port has no signature that runs without the result - so a subject with no credential at a source is
-refused rather than answered as this process. What is absent is a data system that evaluates the
-asking subject: no adapter in this build can carry a per-subject credential. Against a local file the
-property is trivially true and worth nothing, because a file has no login. Against a warehouse it is
-still a target - what changed is that no QUESTION has a code path for a warehouse to be read as this
-process through. The boot path does, by design: it re-executes every anchor before a listener is
-bound, there is no caller then, and <code>Warehouse::verify_anchor</code> takes no credential.</p>
-<p><strong>What bounds that path is placement made checkable, and not its input type - which is a correction a
-second review forced.</strong> <code>verify_anchor</code> takes an <code>AnchorPlan</code>, which parses a plan as one the pinned
-bundle itself agrees is a declared anchor's own: the metric has to be defined and anchored, the range
-has to be the one the bundle certifies, the grain has to be the coarsest that metric declares, and
-there may be no group-by key and no predicate a question asked for. Every one of those facts is read
-off the bundle, so the check catches a boot path that compiled the wrong question. It does <strong>not</strong> stop
-code that wants to reach the method: the constructor is public, every value it reads is publicly
-constructible, and Rust has no cross-crate friend visibility. So the mechanism that makes the
-credential-free path boot-only is a lint - <code>clippy.toml</code> bans the method and the boot path holds the
-single expectation, so a second call site is a build error until somebody writes a second one a
-reviewer sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
+definition with it, so nobody can say whether "revenue" means what finance means by it. The rows
+come back according to what the <em>service</em> may read rather than what the <em>caller</em> may read, which
+is how a row-level security policy becomes decorative.</p>
+<p>sutura fixes the first by construction today: definitions arrive certified and pinned, the tool
+surface has no field an invented query could arrive in, and every value a question carries binds
+as a parameter rather than reaching the statement as text.</p>
+<p>The second is <strong>half built, and the missing half is the one that matters.</strong> "Every query runs as
+the caller" needs a credential minted per request. That now exists: a request context reaches the
+query path, a credential broker mints once per answer for every source a plan reads, and the
+execution port has no signature that runs without the result - so a subject with no credential at
+a source is refused rather than answered as this process. What is absent is a data system that
+evaluates the asking subject: no adapter in this build can carry a per-subject credential. Against
+a local file the property is trivially true and worth nothing, because a file has no login.
+Against a warehouse it is still a target - what changed is that no <em>question</em> has a code path for
+a warehouse to be read as this process through. The boot path does, by design: it re-executes
+every anchor before a listener is bound, there is no caller then, and <code>Warehouse::verify_anchor</code>
+takes no credential.</p>
+<p><strong>What bounds that path is placement made checkable, not its input type - a correction a second
+review forced.</strong> <code>verify_anchor</code> takes an <code>AnchorPlan</code>, a plan the pinned bundle itself agrees is
+a declared anchor's own: the metric must be defined and anchored, the range the one the bundle
+certifies, the grain the coarsest that metric declares, and there may be no group-by key and no
+predicate a question asked for. Every one of those facts is read off the bundle, so the check
+catches a boot path that compiled the wrong question. It does <strong>not</strong> stop code that wants to
+reach the method: the constructor is public, every value it reads is publicly constructible, and
+Rust has no cross-crate friend visibility. So the mechanism that makes the credential-free path
+boot-only is a lint - <code>clippy.toml</code> bans the method and the boot path holds the single
+expectation, so a second call site is a build error until somebody writes a second one a reviewer
+sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
 stated on the type as well.</p>
 <h2 id="why-is-a-refusal-not-an-error">Why is a refusal not an error?<a class="headerlink" href="#why-is-a-refusal-not-an-error" title="Permanent link">&para;</a></h2>
 <p>An error invites a retry. A refusal is a variant of the result type with a typed reason, so a
@@ -2278,83 +2309,84 @@ caller cannot mistake "you may not ask this" for a transport hiccup and loop unt
 answers. That part is enforced today, and the golden suite provokes every variant a question can
 reach.</p>
 <p>Recording each refusal with the whole principal chain is <strong>built</strong>: an <code>AuditSink</code> takes every
-outcome, refusal and answer alike, before it is returned, and <code>sutura-runtime</code> ships the structured
-writer a deployment that attaches nothing else gets. Two limits, both deliberate. sutura <strong>retains
-nothing</strong> - what a record is worth is what the deployment's sink is worth. And the subject in the chain
-is only as strong as what established it: behind the shared bearer token alone the record names the
-<em>deployment</em>, because that is who asked as far as anything can tell; a deployment that declares
-<code>security.inbound</code> names the caller, from a signature. What is still a design target is a refusal
-attributable to a subject whose own <strong>access</strong> decided it - the record can say which identity each leg
-ran under, and on this build that is never the asking subject.</p>
+outcome, refusal and answer alike, before it is returned, and <code>sutura-runtime</code> ships the
+structured writer a deployment that attaches nothing else gets. Two limits, both deliberate.
+sutura <strong>retains nothing</strong> - what a record is worth is what the deployment's sink is worth. And
+the subject in the chain is only as strong as what established it: behind the shared bearer token
+alone the record names the <em>deployment</em>, because that is who asked as far as anything can tell; a
+deployment that declares <code>security.inbound</code> names the caller, from a signature. Still a design
+target is a refusal attributable to a subject whose own <strong>access</strong> decided it - the record can say
+which identity each leg ran under, and on this build that is never the asking subject.</p>
 <h2 id="why-does-the-tool-surface-take-no-table-name">Why does the tool surface take no table name?<a class="headerlink" href="#why-does-the-tool-surface-take-no-table-name" title="Permanent link">&para;</a></h2>
 <p>Because a refusal can be retried, reworded and eventually satisfied, and an absent field cannot.
 <code>Query</code> carries no SQL, no table, no filter expression and no row ids, so an uncertified question
-does not compile. That is enforced today, and <code>deny_unknown_fields</code> means a question carrying <code>sql:</code>
-is an error naming the field rather than one silently dropped.</p>
+does not compile. That is enforced today, and <code>deny_unknown_fields</code> means a question carrying
+<code>sql:</code> is an error naming the field rather than one silently dropped.</p>
 <p>The intended backstop - widening the surface changes a dumped schema, so the widening lands in the
 diff of the review that did it - is a <strong>design target</strong>. The schema dump is not written yet, so
 today the only thing catching a widened surface is review.</p>
 <h2 id="why-is-there-no-result-cache">Why is there no result cache?<a class="headerlink" href="#why-is-there-no-result-cache" title="Permanent link">&para;</a></h2>
 <p>Under row-level security, two callers asking the same question are entitled to different rows. A
-cache keyed on the query text serves the first caller's rows to the second: a cross-user leak
-with a hit rate. The same reasoning rules out a materialised copy refreshed on a schedule, which
-is read under whoever refreshed it.</p>
+cache keyed on the query text serves the first caller's rows to the second: a cross-user leak with
+a hit rate. The same reasoning rules out a materialised copy refreshed on a schedule, which is
+read under whoever refreshed it.</p>
 <p>No mechanism can prove an absence, so this one is written down as a decision. Adding any cache of
 rows is an architecture change, keyed on subject first or not at all.</p>
 <h2 id="why-can-a-question-not-span-two-data-systems">Why can a question not span two data systems?<a class="headerlink" href="#why-can-a-question-not-span-two-data-systems" title="Permanent link">&para;</a></h2>
 <p>A second data system is a second identity to satisfy, not a bigger version of the same query. The
-one-source rule is enforced today: the plan stage collects every source the plan reaches into a set
-and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to provoke
-the refusal.</p>
-<p>The <em>identity</em> half of that reasoning is a design target. There is no per-leg credential, so nothing
-asserts that two subjects get different rows, and nothing can until one exists.</p>
-<p>Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed into
-ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows never
-enter this process.
+one-source rule is enforced today: the plan stage collects every source the plan reaches into a
+set and refuses unless exactly one name is in it, and a golden builds a two-source catalogue to
+provoke the refusal.</p>
+<p>The <em>identity</em> half of that reasoning is a design target. There is no per-leg credential, so
+nothing asserts that two subjects get different rows, and nothing can until one exists.</p>
+<p>Federation is wanted, in this order: per-leg identity first, then federation. A predicate pushed
+into ClickHouse or Postgres is evaluated there, under the caller's own grants, so excluded rows
+never enter this process.
 <a href="../architecture/#where-the-parts-come-from">Where the parts come from</a> names the projects that
 already do that part well.</p>
 <h2 id="why-are-definitions-not-editable-here">Why are definitions not editable here?<a class="headerlink" href="#why-are-definitions-not-editable-here" title="Permanent link">&para;</a></h2>
 <p>Editing a certified statement forks the definition from the number it certifies, which was the
-only thing certifying it bought. Definitions are authored in the semantic layer that renders
-them and arrive pinned and hashed. A wrong definition is wrong upstream.</p>
+only thing certifying it bought. Definitions are authored in the semantic layer that renders them
+and arrive pinned and hashed. A wrong definition is wrong upstream.</p>
 <h2 id="what-happens-if-the-agent-asking-is-manipulated">What happens if the agent asking is manipulated?<a class="headerlink" href="#what-happens-if-the-agent-asking-is-manipulated" title="Permanent link">&para;</a></h2>
 <p>For a system whose input is natural language from wherever the user found it, a manipulated agent
 is the expected case rather than the disaster case, and the defence is not detecting it. The most
 an attacker can make the agent emit is a different certified question over the same pinned
 definitions - that much is enforced today by the shape of <code>Query</code>. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.</p>
-<p>The clause "asked as the same caller, against the same authorization" is <strong>half built.</strong> The credential
-broker exists and <code>Warehouse::execute</code> has no signature that runs without what it minted, so there is
-no code path a question reaches a data system through as an unnamed identity. What is still absent is
-an adapter that can carry a per-subject credential, so nothing today makes a statement about <strong>whose
-rows</strong> come back: the bound on a manipulated agent is the tool surface plus, where a deployment
-declares <code>security.inbound</code>, the scopes that caller was granted - which decide which operations it may
-invoke and not which rows an answer contains.</p>
+<p>The clause "asked as the same caller, against the same authorization" is <strong>half built.</strong> The
+credential broker exists and <code>Warehouse::execute</code> has no signature that runs without what it
+minted, so there is no code path a question reaches a data system through as an unnamed identity.
+What is still absent is an adapter that can carry a per-subject credential, so nothing today makes
+a statement about <strong>whose rows</strong> come back: the bound on a manipulated agent is the tool surface
+plus, where a deployment declares <code>security.inbound</code>, the scopes that caller was granted - which
+decide which operations it may invoke and not which rows an answer contains.</p>
 <h2 id="why-do-the-musl-builds-swap-the-allocator">Why do the musl builds swap the allocator?<a class="headerlink" href="#why-do-the-musl-builds-swap-the-allocator" title="Permanent link">&para;</a></h2>
 <p>musl's <code>mallocng</code> serialises the whole process on one lock word. With one binary and only
 threading toggled, a 48-core run takes 4.45s on glibc and 92.16s on musl, slower than musl's own
 single-core run; linking mimalloc brings it to 3.83s.
 <a href="../architecture/#what-ships">What ships</a> has the details, including the cost of <code>MI_SECURE=4</code>.</p>
 <h2 id="can-i-use-it-today">Can I use it today?<a class="headerlink" href="#can-i-use-it-today" title="Permanent link">&para;</a></h2>
-<p>For single-player work over local files, yes. <code>sutura compile</code> renders the statement for a question
-and <code>sutura query</code> answers it, over a catalogue of documents in git and the CSV or Parquet files in
-a directory you name. That is the honest description: <strong>a governed single-player semantic compiler
-and executor over local files</strong>, served either from the command line or
+<p>For single-player work over local files, yes. <code>sutura compile</code> renders the statement for a
+question and <code>sutura query</code> answers it, over a catalogue of documents in git and the CSV or
+Parquet files in a directory you name. That is the honest description: <strong>a governed single-player
+semantic compiler and executor over local files</strong>, served either from the command line or
 <a href="../serving/">over HTTP</a>.</p>
-<p>Not yet as the identity-aware runtime this site describes, and the gap is narrower and more specific
-than it used to be. There <strong>is</strong> a request context, a credential broker port with a static-credential
-implementor, an audit sink, an MCP surface, and - where a deployment declares <code>security.inbound</code> - a
-verified caller identity from a signature, with OAuth scopes deciding which operations that caller may
-invoke. What there is <strong>not</strong> is leg 2: no adapter in this build has anywhere for a per-subject
-credential to arrive, both declare so, and the broker that ships mints what an operator configured. So
-a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for -
-and still read every row as one identity. There is no Arrow result envelope. The one data system the
-shipped binary opens is the in-process engine over those files - <code>sutura-exec-duckdb</code> renders and
-pushes down, and is a development dependency rather than something the binary links. So the governance
-that decides <strong>which rows</strong> is still the narrow tool surface and the pinned bundle, not identity.
+<p>Not yet as the identity-aware runtime this site describes, and the gap is narrower and more
+specific than it used to be. There <strong>is</strong> a request context, a credential broker port with a
+static-credential implementor, an audit sink, an MCP surface, and - where a deployment declares
+<code>security.inbound</code> - a verified caller identity from a signature, with OAuth scopes deciding which
+operations that caller may invoke. What there is <strong>not</strong> is leg 2: no adapter in this build has
+anywhere for a per-subject credential to arrive, both declare so, and the broker that ships mints
+what an operator configured. So a deployment can know exactly who is asking, record it, refuse a
+subject it holds no credential for - and still read every row as one identity. There is no Arrow
+result envelope. The one data system the shipped binary opens is the in-process engine over those
+files - <code>sutura-exec-duckdb</code> renders and pushes down, and is a development dependency rather than
+something the binary links. So the governance that decides <strong>which rows</strong> is still the narrow tool
+surface and the pinned bundle, not identity.
 <a href="../architecture/#what-exists-today">What exists today</a> is the inventory.</p>
-<p>The environment, the gates and the release pipeline do work, because a mechanism is cheaper to build
-before there is code to retrofit it onto.</p>
+<p>The environment, the gates and the release pipeline do work, because a mechanism is cheaper to
+build before there is code to retrofit it onto.</p>
 <h2 id="how-do-i-work-on-it">How do I work on it?<a class="headerlink" href="#how-do-i-work-on-it" title="Permanent link">&para;</a></h2>
 <p><a href="../contributing/">Contributing</a> covers the three routes to an environment, the two toolchains and
 which gates run when. On a network with no direct egress, read

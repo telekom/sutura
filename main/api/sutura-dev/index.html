@@ -1472,6 +1472,8 @@
       
         
       
+        
+      
     
     
     
@@ -1706,6 +1708,34 @@
     
   
     sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
   
 
     
@@ -2081,13 +2111,18 @@ temporary directory, rather than at compile time because the door is missing:</p
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The compose project these endpoints came from.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">services</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">provisioner</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What provisioned this tier, where the file says.</p>
+<p><code>docker</code> for <code>xtask dev-up</code>, <code>nix</code> for <code>nix/postgres-tier.nix</code>. <code>None</code> when an older file (or
+a hand-written one) carried no marker - a reader must not assume docker from the absence.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">services</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every service and where it is listening, in name order.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-discoveryerror"><code>enum DiscoveryError</code><a class="headerlink" href="#enum-discoveryerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DiscoveryError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DiscoveryError</span>
 </span></code></pre></div>
 <p>Why an endpoint could not be learned, or could not be recorded.</p>
 <h4 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h4>
@@ -2102,7 +2137,7 @@ temporary directory, rather than at compile time because the door is missing:</p
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-malformed"><code>enum Malformed</code><a class="headerlink" href="#enum-malformed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Malformed</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Malformed</span>
 </span></code></pre></div>
 <p>Which part of the discovery file is wrong. A variant rather than a sentence, because a caller
 that has to match on prose has no contract.</p>
@@ -2112,15 +2147,16 @@ that has to match on prose has no contract.</p>
 <li><code>NoProject</code> - No <code>project</code> string.</li>
 <li><code>NoServices</code> - No <code>services</code> object.</li>
 <li><code>ServiceEntry</code> - A service entry without a readable <code>host</code> and <code>port</code>.</li>
+<li><code>HostNeitherLoopbackNorSocket</code> - A service host that is neither loopback nor a <code>/</code>-prefixed socket directory.</li>
 </ul>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-path_for"><code>fn path_for</code><a class="headerlink" href="#fn-path_for" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path_for</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path_for</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span>
 </span></code></pre></div>
 <p>Where this worktree's discovery file lives. Under the worktree, so a neighbour cannot read it.</p>
 <h3 id="fn-publish"><code>fn publish</code><a class="headerlink" href="#fn-publish" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">publish</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">,</span><span class="w"> </span><span class="n">reported</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="p">[(</span><span class="o">&amp;</span><span class="kt">str</span><span class="p">,</span><span class="w"> </span><span class="nb">String</span><span class="p">)])</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="p">,</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Record what provisioning actually bound, and return the path written.</p>
 <p><code>reported</code> pairs a service name with the line a container runtime printed for its published
@@ -2129,7 +2165,7 @@ mint in one place: nothing else in this crate turns a number into an <code>Endpo
 <p>It returns the PATH and not an <code>Endpoints</code>, deliberately. Even the writer reads its own work
 back through <code>Endpoints::discover</code>, so there is exactly one door and no second shape of it.</p>
 <h3 id="fn-forget"><code>fn forget</code><a class="headerlink" href="#fn-forget" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">forget</span><span class="p">(</span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">crate</span><span class="p">::</span><span class="n">scope</span><span class="p">::</span><span class="n">Scope</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">DiscoveryError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Remove this worktree's discovery file, if there is one.</p>
 <p>Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
@@ -2160,7 +2196,7 @@ would remove the design.</p>
 <p><strong>No knowledge of docker</strong>, for the same reason the rest of this crate has none: bringing
 services up is <code>xtask</code>'s job. This module reads a file.</p>
 <h3 id="enum-provisioned"><code>enum Provisioned</code><a class="headerlink" href="#enum-provisioned" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Provisioned</span>
 </span></code></pre></div>
 <p>What a harness gets when it asks for a provisioned service.</p>
 <p>Two variants and no third, because the fail direction does not return: see <code>here</code>.</p>
@@ -2170,7 +2206,7 @@ services up is <code>xtask</code>'s job. This module reads a file.</p>
 <li><code>Skipped</code> - Nothing to connect to, on a machine class where that is not a failure.</li>
 </ul>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">endpoint</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Endpoint</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The endpoint, where there is one.</p>
 <p>For a caller that wants <code>let Some(endpoint) = .. else { return }</code> rather than a match. The
@@ -2178,7 +2214,7 @@ skip has already been reported either way, so discarding the <code>Absent</code>
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code></p>
 <h3 id="struct-absent"><code>struct Absent</code><a class="headerlink" href="#struct-absent" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Absent</span>
 </span></code></pre></div>
 <p>Nothing to connect to, and what to do about it.</p>
 <p>The typed fields are the contract and the <code>Display</code> form is the message; a caller that wants to
@@ -2193,16 +2229,16 @@ and one of them is another error, which puts the whole thing past <code>result_l
 one allocation, so the box is here and not at the call sites - a public
 <code>Result&lt;Endpoint, Box&lt;Absent&gt;&gt;</code> would push it onto everybody instead.</p>
 <h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">reason</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Reason</span>
 </span></code></pre></div>
 <p>What stopped it. Branch on this, never on the message.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The service that was asked for.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="enum-reason"><code>enum Reason</code><a class="headerlink" href="#enum-reason" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Reason</span>
 </span></code></pre></div>
 <p>Which half failed. A variant rather than a sentence, because "run <code>just dev-up</code>" is the wrong
 advice for two of these and a caller matching on prose has no contract.</p>
@@ -2215,22 +2251,22 @@ advice for two of these and a caller matching on prose has no contract.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code></p>
 <h3 id="fn-in_worktree"><code>fn in_worktree</code><a class="headerlink" href="#fn-in_worktree" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">in_worktree</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">discovery</span><span class="p">::</span><span class="n">Endpoint</span><span class="p">,</span><span class="w"> </span><span class="n">Absent</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Where one service in ONE named worktree is listening.</p>
 <p>The half with no environment and no printing in it, so a caller that already knows which
 worktree it means - a <code>just</code> task, a test over a fixture directory - can drive it directly.</p>
-<div class="language-text highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a>use sutura_dev::provisioned;
-</span><span id="__span-22-2"><a id="__codelineno-22-2" name="__codelineno-22-2" href="#__codelineno-22-2"></a>
-</span><span id="__span-22-3"><a id="__codelineno-22-3" name="__codelineno-22-3" href="#__codelineno-22-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
-</span><span id="__span-22-4"><a id="__codelineno-22-4" name="__codelineno-22-4" href="#__codelineno-22-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
-</span><span id="__span-22-5"><a id="__codelineno-22-5" name="__codelineno-22-5" href="#__codelineno-22-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
-</span><span id="__span-22-6"><a id="__codelineno-22-6" name="__codelineno-22-6" href="#__codelineno-22-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
-</span><span id="__span-22-7"><a id="__codelineno-22-7" name="__codelineno-22-7" href="#__codelineno-22-7"></a>assert_eq!(problem.service(), "postgres");
-</span><span id="__span-22-8"><a id="__codelineno-22-8" name="__codelineno-22-8" href="#__codelineno-22-8"></a>assert!(problem.to_string().contains("just dev-up"), "{problem}");
+<div class="language-text highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a>use sutura_dev::provisioned;
+</span><span id="__span-23-2"><a id="__codelineno-23-2" name="__codelineno-23-2" href="#__codelineno-23-2"></a>
+</span><span id="__span-23-3"><a id="__codelineno-23-3" name="__codelineno-23-3" href="#__codelineno-23-3"></a>// A temporary directory is a real directory and nothing has provisioned it, so this is the
+</span><span id="__span-23-4"><a id="__codelineno-23-4" name="__codelineno-23-4" href="#__codelineno-23-4"></a>// diagnostic path rather than an endpoint. Note what it is NOT: a default port.
+</span><span id="__span-23-5"><a id="__codelineno-23-5" name="__codelineno-23-5" href="#__codelineno-23-5"></a>let problem = provisioned::in_worktree(&amp;std::env::temp_dir(), "postgres")
+</span><span id="__span-23-6"><a id="__codelineno-23-6" name="__codelineno-23-6" href="#__codelineno-23-6"></a>    .expect_err("nothing is provisioned in a temporary directory");
+</span><span id="__span-23-7"><a id="__codelineno-23-7" name="__codelineno-23-7" href="#__codelineno-23-7"></a>assert_eq!(problem.service(), "postgres");
+</span><span id="__span-23-8"><a id="__codelineno-23-8" name="__codelineno-23-8" href="#__codelineno-23-8"></a>assert!(problem.to_string().contains("just dev-up"), "{problem}");
 </span></code></pre></div>
 <h3 id="fn-here"><code>fn here</code><a class="headerlink" href="#fn-here" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">here</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">,</span><span class="w"> </span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Provisioned</span>
 </span></code></pre></div>
 <p>Where one service in THIS worktree is listening, with the skip-or-fail decision applied.</p>
 <p><code>inside</code> is any directory in the worktree; an integration test passes
@@ -2242,7 +2278,7 @@ a test fails, and returning <code>Provisioned::Skipped</code> there would be the
 whole tier exists to prevent. On a developer machine the direction is
 <code>Requirement::Optional</code>, the notice goes to stderr, and nothing panics.</p>
 <h3 id="fn-worktree_root"><code>fn worktree_root</code><a class="headerlink" href="#fn-worktree_root" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">worktree_root</span><span class="p">(</span><span class="n">inside</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">std</span><span class="p">::</span><span class="n">path</span><span class="p">::</span><span class="n">PathBuf</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The worktree root at or above <code>inside</code>, or <code>None</code> if there is not one.</p>
 <p><strong>Both markers, not either</strong>, and this is borrowed from <code>xtask</code>'s own root walk because the same
@@ -2269,18 +2305,20 @@ deliberately does not pin with nix. A false pass reports green having tested not
 the failure the whole tier exists to prevent.</p>
 <p><strong>So the signal is "somebody provisioned a tier here", and it is NOT the <code>CI</code> variable.</strong> That
 distinction was learned rather than designed: this module first read <code>CI</code>, on the reasoning that
-CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
-provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
-job that runs the suite never brings the services up - so <code>CI=true</code> made a missing tier fatal in
-the one place its absence is expected, and it failed on the first push of the branch that added
-it, in a step that had tested nothing needing docker.</p>
-<p>Only the job that provisions the tier knows that it did. So that job opts in by setting the
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong, and the
+event that proved it happened IN CI: the branch that added this module provisioned no tier, so
+<code>CI=true</code> made a missing tier fatal right where its absence was expected - on its first push, in
+a step that had provisioned nothing. And nothing has changed that shape: no CI job sets <code>CI</code>
+only when it has provisioned a tier. What DOES opt in is the nix <code>checks.nextest</code> derivation,
+which provisions its own Postgres over a unix socket (<code>nix/postgres-tier.nix</code>) and sets the
+variable below; a docker tier needs docker on the host and opts in the same way.</p>
+<p>Only the thing that provisions the tier knows that it did. So that thing opts in by setting the
 variable below and gets the fail-closed direction; everything else skips loudly and names what did
-not run. <strong>The limit, stated with the claim:</strong> nothing here verifies that a job setting the
-variable really did provision anything - it is a declaration, and a job that lies about it gets
-the failure it asked for.</p>
+not run. <strong>The limit, stated with the claim:</strong> nothing here verifies that a process setting the
+variable really did provision anything - it is a declaration, and a process that lies about it
+gets the failure it asked for.</p>
 <h3 id="enum-requirement"><code>enum Requirement</code><a class="headerlink" href="#enum-requirement" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Requirement</span>
 </span></code></pre></div>
 <p>Whether a missing tier is fatal.</p>
 <h4 id="variants_4">Variants<a class="headerlink" href="#variants_4" title="Permanent link">&para;</a></h4>
@@ -2289,16 +2327,16 @@ the failure it asked for.</p>
 <li><code>Optional</code> - A missing tier SKIPS, loudly, naming what did not run. The developer-machine direction.</li>
 </ul>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_env</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The direction this process is running under, read from the environment.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_required</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is a missing tier fatal here?</p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-decide"><code>fn decide</code><a class="headerlink" href="#fn-decide" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">decide</span><span class="p">(</span><span class="n">forced</span><span class="p">:</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Requirement</span>
 </span></code></pre></div>
 <p>The decision, over the value rather than over the environment, so it is testable.</p>
 <p><strong>One parameter, and it used to be two.</strong> The other was <code>CI</code>, and it is gone rather than ignored:
@@ -2311,9 +2349,13 @@ differently is a fix that does not work and looks like it should.</p>
 <h2 id="module-scope">Module <code>scope</code><a class="headerlink" href="#module-scope" title="Permanent link">&para;</a></h2>
 <p>Per-worktree isolation: the part that has to be right.</p>
 <p>Several worktrees of this repo are open at once - that is the point of stacked branches -
-and each needs its own Postgres, <code>ClickHouse</code> and an identity provider. Two worktrees sharing a
+and each needs its own services. Two worktrees sharing a
 container is the worst outcome available: a test passes because the <em>other</em> branch's
 migration ran, and the failure appears in whichever branch is unlucky.</p>
+<p>Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
+it is nix-native, provisioned by <code>nix/postgres-tier.nix</code> and run by <code>checks.nextest</code> and by
+<code>just test</code>, over a unix socket in a short per-worktree directory under <code>$TMPDIR</code> - see that
+module).</p>
 <p>So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 of the worktree's CANONICAL path.</p>
 <ul>
@@ -2340,30 +2382,30 @@ reason one of the two moved and the other did not. A hash collision in a NAME is
 error somebody reads; a hash collision in a PORT is a test that passes against the wrong
 fixture.</p>
 <h3 id="struct-service"><code>struct Service</code><a class="headerlink" href="#struct-service" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Service</span>
 </span></code></pre></div>
 <p>A dev service that gets its own container per worktree.</p>
 <p>No port field, derived or otherwise: what a service publishes on the host is allocated at
 provision time and read back, so a port here would be a second answer to a question this type
 is not allowed to answer.</p>
 <h4 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">container_port</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u16</span>
 </span></code></pre></div>
 <p>The port INSIDE the container. Provisioning publishes it ephemerally and reads back the
 host port docker chose.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_default</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Is this service started when no profile was asked for?</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Name used in the compose file, in the discovery file and in output.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profile</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The compose profile that turns this service on, or <code>None</code> for one always started.</p>
 <h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-scopeerror"><code>enum ScopeError</code><a class="headerlink" href="#enum-scopeerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ScopeError</span>
 </span></code></pre></div>
 <p>Why a worktree root could not become a scope.</p>
 <h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
@@ -2373,17 +2415,17 @@ host port docker chose.</p>
 <h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="struct-scope"><code>struct Scope</code><a class="headerlink" href="#struct-scope" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Scope</span>
 </span></code></pre></div>
 <p>Everything derived from one worktree.</p>
 <p>If an instance exists, its root is canonical: <code>Scope::from_root</code> is the only public
 constructor and it canonicalises first, so no caller has to wonder which spelling of a path a
 scope was built from.</p>
 <h4 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">digest</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Short digest of the canonical root. Printed so a stray container can be traced back.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">from_root</span><span class="p">(</span><span class="n">root</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">ScopeError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Derive a scope from a worktree root.</p>
 <p>The canonical constructor. It resolves the path first - symlinks included - so two spellings
@@ -2392,22 +2434,22 @@ case-folding filesystem that is what makes a case-only difference one worktree, 
 case-sensitive one it is what stops two real directories being folded into one. Neither
 property comes from lowercasing the string, which an earlier version did and which was wrong
 on exactly one of those two platforms.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
 </span></code></pre></div>
 <p>Compose project name. Lowercase alphanumeric and dashes only, which is all docker
 compose accepts, and prefixed so a stray container is identifiable as ours.</p>
 <p><strong>The one function that supplies this name</strong>, to start and to stop alike. Rule 3 of the
 teardown contract on <code>SERVICES</code> is about the two of them agreeing.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">root</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
 </span></code></pre></div>
 <p>The canonical worktree root.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">state_dir</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PathBuf</span>
 </span></code></pre></div>
 <p>Where provisioning keeps this worktree's state. Under the worktree, never shared.</p>
 <h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="fn-profiles"><code>fn profiles</code><a class="headerlink" href="#fn-profiles" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">profiles</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;&amp;'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every profile any service declares, in declaration order and without repeats.</p>
 <p>Teardown enables all of them, and that is the reason this exists: <code>docker compose down</code> only
