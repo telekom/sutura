@@ -56,11 +56,7 @@ fn app(settings: Settings) -> Router {
 /// port's predicate over that type, so a fake with a flag would let one code path pretend to be both.
 /// `ServiceState` erases the surface behind a `dyn Surface`, so there is nothing downstream of here
 /// for the parameter to reach.
-fn over<W>(
-    pinned: sutura_domain::pinned::PinnedDefinitions,
-    warehouses: sutura_app::Warehouses<W>,
-    settings: Settings,
-) -> Router
+fn over<W>(pinned: sutura_domain::pinned::PinnedDefinitions, warehouses: sutura_app::Warehouses<W>, settings: Settings) -> Router
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,

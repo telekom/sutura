@@ -171,9 +171,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // the data system's reply bound used to arrive as `ServiceError::Warehouse` and leave as
         // `503`, which is what a dead data system looks like - so a caller was told to retry against
         // a bound that returns the same reply.
-        RefusalReason::ResultTooLarge { bound } => {
-            (StatusCode::PAYLOAD_TOO_LARGE, "result_too_large", too_much_data(bound))
-        }
+        RefusalReason::ResultTooLarge { bound } => (StatusCode::PAYLOAD_TOO_LARGE, "result_too_large", too_much_data(bound)),
         // 422, and choosing it is the whole point of this variant existing. Exhaustion used to reach
         // a caller as `503 unavailable` out of `ServiceError::Warehouse` - the same status a data
         // system that is down produces - so a caller was told to retry against a configured bound
