@@ -50,6 +50,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Tests
 
+- **sql**: Prove and cover the week grain's Monday semantics (#67) (#75)
 - **golden**: A value in double quotes was stripped before we looked (#51)
 - **startup**: The source refusals both binaries make and neither proved (#31)
 
