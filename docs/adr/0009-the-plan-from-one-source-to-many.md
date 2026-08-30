@@ -408,8 +408,10 @@ per-worktree directory under `$TMPDIR`, keyed by a hash of the worktree so two w
 clobber each other; only the endpoint file lives in the worktree, where the harness looks. The
 `sutura-postgres-tier` script is the ONE provisioner: `checks.nextest` runs it in the sandbox over
 `$NIX_BUILD_TOP`, and `just test` runs it in the dev shell - the same derivation, so the two cannot
-drift. No compose service, no `dev-up` entry, and no `Provisioner` marker: docker orchestrates
-docker, and Postgres is not docker.
+drift. Postgres is NOT a compose service: no `dev-up` entry, and no `Provisioner` variant on the
+`Services` table's rows (the discovery FILE still carries a per-file `provisioner` string, so a
+harness can tell docker-written from nix-written endpoints). Docker orchestrates docker, and
+Postgres is not docker.
 
 **Absent docker is a SKIP locally and a FAILURE in CI, and those are not the same default.** An earlier
 version of this record said the tier prints SKIPPED and exits 0, and said in the same breath that a

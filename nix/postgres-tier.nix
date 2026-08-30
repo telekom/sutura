@@ -48,6 +48,15 @@
       # (nix would strip them); `listen_addresses` empty means no TCP at all.
       empty=
 
+      # A unix socket path caps around 100 bytes on macOS. Refuse early with a message that names the
+      # cause, rather than let pg_ctl fail with a bare "could not create any Unix-domain sockets" in
+      # the log. `$TMPDIR` on a dev machine is well short of this; a custom long one is the case
+      # this catches at the point it fails.
+      if [ ''${#pg} -gt 80 ]; then
+        echo "socket path too long (\$pg): a unix socket cannot be created here" >&2
+        exit 1
+      fi
+
       start() {
         mkdir -p "$pg" "$root/.sutura-dev"
         if [ ! -f "$pg/PG_VERSION" ]; then
@@ -61,13 +70,24 @@
       fsync = off
       synchronous_commit = off
       EOC
-        pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start
-        # Role and database, idempotently (the superuser here is postgres).
-        psql -h "$pg" -p "$port" -U postgres -d postgres \
-          -v ON_ERROR_STOP=1 -c "CREATE ROLE sutura LOGIN PASSWORD 'sutura'"
-        psql -h "$pg" -p "$port" -U postgres -d postgres \
-          -v ON_ERROR_STOP=1 \
-          -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
+        # Idempotent: if the server is already up - a repeated `just test`, or an interrupted run
+        # whose trap did not fire - pg_ctl would abort on the existing postmaster.pid. Start only if
+        # it is not already running, and create the role and database only if they are missing. The
+        # sandbox never saw this because `$NIX_BUILD_TOP` is fresh every build.
+        if ! pg_ctl -D "$pg" status >/dev/null 2>&1; then
+          pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start
+        fi
+        if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
+          "SELECT 1 FROM pg_roles WHERE rolname='sutura'" | grep -q 1; then
+          psql -h "$pg" -p "$port" -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 -c "CREATE ROLE sutura LOGIN PASSWORD 'sutura'"
+        fi
+        if ! psql -h "$pg" -p "$port" -U postgres -d postgres -tAc \
+          "SELECT 1 FROM pg_database WHERE datname='sutura'" | grep -q 1; then
+          psql -h "$pg" -p "$port" -U postgres -d postgres \
+            -v ON_ERROR_STOP=1 \
+            -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
+        fi
         # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket dir.
         printf '{"project":"sutura","provisioner":"nix","services":{"postgres":{"host":"%s","port":%s}}}\n' \
           "$pg" "$port" > "$root/.sutura-dev/endpoints.json"

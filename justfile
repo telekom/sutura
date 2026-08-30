@@ -124,7 +124,7 @@ test:
     # writes `.sutura-dev/endpoints.json`; a start failure aborts the recipe before any test runs.
     trap 'sutura-postgres-tier stop' EXIT
     sutura-postgres-tier start
-    cargo nextest run --workspace --all-features
+    SUTURA_DEV_REQUIRE_TIER=1 cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 
 # `*paths`, not `+paths`, and the no-argument form is the one a PERSON uses: with nothing to go on

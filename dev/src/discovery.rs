@@ -95,7 +95,8 @@ impl std::fmt::Display for Endpoint {
 pub struct Endpoints {
     /// The compose project these came from. Carried so a harness can say which worktree answered.
     project: String,
-    /// What wrote the file - `docker` (`xtask dev-up`) or `nix-sandbox` (the nix check). A fact in
+    /// What wrote the file - `docker` (`xtask dev-up`) or `nix` (`nix/postgres-tier.nix`, in the
+    /// sandbox or the dev shell). A fact in
     /// the file rather than an inference, so a reader need not guess docker from the project name.
     provisioner: Option<String>,
     /// Service name to endpoint. Ordered, so output and any digest over it are stable.
@@ -129,7 +130,7 @@ impl Endpoints {
 
     /// What provisioned this tier, where the file says.
     ///
-    /// `docker` for `xtask dev-up`, `nix-sandbox` for the nix check. `None` when an older file (or
+    /// `docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
     /// a hand-written one) carried no marker - a reader must not assume docker from the absence.
     #[must_use]
     pub fn provisioner(&self) -> Option<&str> {

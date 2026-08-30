@@ -154,7 +154,7 @@ pub fn provisioner(&self) -> Option<&str>
 
 What provisioned this tier, where the file says.
 
-`docker` for `xtask dev-up`, `nix-sandbox` for the nix check. `None` when an older file (or
+`docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
 a hand-written one) carried no marker - a reader must not assume docker from the absence.
 
 ```rust

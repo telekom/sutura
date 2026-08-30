@@ -754,8 +754,8 @@ is a habit rather than a gate.
 ## Where Detailed Guidance Lives
 
 - `devenv.nix` - the shell, the tool pins, and the task names used above.
-- `nix/*.nix` - the modules `flake.nix` imports, one topic each: `toolchains`, `duckdb` and
-  `crap` are shared with `devenv.nix` so a pin cannot differ between the shell and CI;
+- `nix/*.nix` - the modules `flake.nix` imports, one topic each: `toolchains`, `duckdb`, `crap`
+  and `postgres-tier` are shared with `devenv.nix` so a pin cannot differ between the shell and CI;
   `mimalloc`, `oci`, `api-docs` and `cargo-env` are flake-only, carved out when `flake.nix`
   reached the 1000-line limit. **What may NOT move out of `flake.nix`:** `apps.<name>`, the
   `packages = ` block and the `checks = {` block, because `xtask/src/pins.rs` and
