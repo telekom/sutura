@@ -547,13 +547,33 @@ reason one of the two moved and the other did not. A hash collision in a NAME is
 error somebody reads; a hash collision in a PORT is a test that passes against the wrong
 fixture.
 
+### `enum Provisioner`
+
+```rust
+pub enum Provisioner
+```
+
+How a service is provisioned.
+
+One declaration per service, read by `dev-up`, `dev-down`, `expected_services` and the
+docker-wiring tests, so a service is docker or nix once and nowhere else.
+
+#### Variants
+
+- `Docker` - A [docker] service: a container per worktree, its host port allocated and discovered.
+- `Nix` - A nix-native service: the same derivation the sandbox runs, reached over a unix socket under the worktree - no port, no allocator. For this repository, `postgres`.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `struct Service`
 
 ```rust
 pub struct Service
 ```
 
-A dev service that gets its own container per worktree.
+A dev service that gets its own instance per worktree.
 
 No port field, derived or otherwise: what a service publishes on the host is allocated at
 provision time and read back, so a port here would be a second answer to a question this type
@@ -585,6 +605,12 @@ pub const fn profile(&self) -> Option<&'static str>
 ```
 
 The compose profile that turns this service on, or `None` for one always started.
+
+```rust
+pub const fn provisioner(&self) -> Provisioner
+```
+
+How this service is provisioned.
 
 #### Implements
 

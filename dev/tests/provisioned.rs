@@ -96,7 +96,10 @@ mod tests {
         if !docker_tier() {
             return;
         }
-        for service in SERVICES.iter().filter(|service| service.is_default()) {
+        for service in SERVICES
+            .iter()
+            .filter(|s| s.is_default() && s.provisioner() == sutura_dev::scope::Provisioner::Docker)
+        {
             let Some(endpoint) = provisioned(service.name()) else {
                 continue;
             };
@@ -129,7 +132,7 @@ mod tests {
         }
         let scope = provisioned_scope();
 
-        let Some(_endpoint) = provisioned("postgres") else {
+        let Some(_endpoint) = provisioned("clickhouse") else {
             return;
         };
         let endpoints = sutura_dev::discovery::Endpoints::discover(&scope).expect("something answered, so the file is readable");

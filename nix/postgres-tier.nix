@@ -1,45 +1,78 @@
-# The Postgres tier as a test-input, so the corpus and differential cells that need a real server
-# run inside the `checks.nextest` sandbox instead of a second, separately-compiling CI job.
+# The Postgres tier as ONE provisioner in two places: nixpkgs' `postgresql_18`, started from the
+# same script by the `checks.nextest` sandbox and by `xtask dev-up` in the dev shell.
 #
-# The nix build sandbox has no network and no docker socket (see `flake.nix`'s own notes), so the
-# server has to be bundled and reached over a unix socket. nixpkgs' `postgresqlTestHook` already
-# does the lifecycle: `initdb -U postgres` + `pg_ctl` under `$NIX_BUILD_TOP`, `listen_addresses=''`
-# (no TCP at all), exporting `PGHOST` as the socket directory. It is the standard "database up
-# during checkPhase" mechanism and carries the Linux-sandbox evidence in its ~40 nixpkgs adopters,
-# which is where this claim gets its binding rather than from us.
+# The nix build sandbox has no network and no docker socket, so a docker tier cannot be a check.
+# Postgres needs neither: it runs over a unix socket beneath the worktree, which has no port, so no
+# allocator, no collision, no race - the port machinery `docs/adr/0009` spends itself on is for
+# docker services only. One package and one start script in both places means the two cannot drift
+# (the SQL_ASCII slip in this PR's first go at a second provisioner is what one script prevents),
+# and `just update` moves both.
 #
-# The hook's `meta.badPlatforms` names darwin via NixOS/nix#12548 (SysV IPC not cleaned up in the
-# darwin sandbox), which is closed by NixOS/nix#14459; without the override `just validate` stops
-# *evaluating* on a Mac. Measured green sandboxed on aarch64-darwin, 2026-08-30; re-check when
-# either issue moves.
-#
-# This is the second provisioner for `.sutura-dev/endpoints.json`, the first being `xtask dev-up`
-# over docker. The file is the contract: `sutura_dev::provisioned::here` reads it and nothing
-# distinguishes who wrote it, and `SUTURA_DEV_REQUIRE_TIER` makes an absent tier in this derivation
-# a red check rather than a loud skip.
+# `postgresql_18` pins the same minor the docker image once used, and like `nix/duckdb.nix` it is
+# the single path from nixpkgs to the server used by flake.nix AND devenv.nix.
 { pkgs }:
 {
   package = pkgs.postgresql_18;
-  hook = pkgs.postgresqlTestHook.overrideAttrs (old: {
-    meta = old.meta // { badPlatforms = [ ]; };
-  });
 
-  # Hook inputs on the derivation, so the hook's own `checkPhase` wrapper reads them. `LOCALE 'C'`
-  # pins the collation to bytewise, matching DuckDB/DataFusion so the differential does not depend
-  # on a libc, and matching what the compose tier must declare for the same reason.
-  env = {
-    PGUSER = "sutura";
-    PGDATABASE = "sutura";
-    postgresqlTestSetupSQL = ''
-      CREATE ROLE "sutura" LOGIN PASSWORD 'sutura';
-      CREATE DATABASE "sutura" OWNER 'sutura' TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8';
+  # The provisioner, usable from any shell that has it and `postgresql`'s binaries on PATH; the
+  # dev shell gets this on PATH through `devenv.nix`, the sandbox gets it as a native input.
+  #
+  # `start` brings up (or is a no-op restart of) a socket-only server under
+  # `<cwd>/.sutura-dev/pg/` and writes `<cwd>/.sutura-dev/endpoints.json` naming its socket
+  # directory, so `sutura_dev::provisioned::here` can read it unchanged. `stop` tears it back down.
+  tier = pkgs.writeShellApplication {
+    name = "sutura-postgres-tier";
+    runtimeInputs = [ pkgs.postgresql_18 ];
+    text = ''
+      set -o errexit -o nounset
+
+      root="$(pwd -P)"
+      # In the sandbox `$NIX_BUILD_TOP` is short; the build-tree source path under it would make a
+      # unix-socket path longer than macOS allows (104 chars). In the dev shell it falls back to the
+      # worktree, which is both short enough for a socket and where the data may live.
+      base="''${NIX_BUILD_TOP:-$root}"
+      pg="$base/.sutura-dev/pg"
+      port=5432
+      # Two single quotes at RUNTIME, so the nix indented string never holds two adjacent apostrophes
+      # (nix would strip them); `listen_addresses` empty means no TCP at all.
+      empty=
+
+      start() {
+        mkdir -p "$base/.sutura-dev" "$pg" "$root/.sutura-dev"
+        if [ ! -f "$pg/PG_VERSION" ]; then
+          initdb -D "$pg" -U postgres -E UTF8 --locale=C
+        fi
+        # Socket-only, under the build/worktree. No TCP, so no port allocation or collision.
+        cat > "$pg/postgresql.conf" <<EOC
+      listen_addresses = '$empty'
+      unix_socket_directories = '$pg'
+      port = $port
+      fsync = off
+      synchronous_commit = off
+      EOC
+        pg_ctl -D "$pg" -o "-p $port" -l "$pg/server.log" start
+        # Role and database, idempotently (the superuser here is postgres).
+        psql -h "$pg" -p "$port" -U postgres -d postgres \
+          -v ON_ERROR_STOP=1 -c "CREATE ROLE sutura LOGIN PASSWORD 'sutura'"
+        psql -h "$pg" -p "$port" -U postgres -d postgres \
+          -v ON_ERROR_STOP=1 \
+          -c "CREATE DATABASE sutura OWNER sutura TEMPLATE template0 LOCALE 'C' ENCODING 'UTF8'"
+        # The harness reads `<root>/.sutura-dev/endpoints.json` and treats the host as the socket dir.
+        printf '{"project":"sutura","provisioner":"nix","services":{"postgres":{"host":"%s","port":%s}}}\n' \
+          "$pg" "$port" > "$root/.sutura-dev/endpoints.json"
+      }
+
+      stop() {
+        if [ -d "$pg" ]; then
+          pg_ctl -D "$pg" stop -m fast || true
+        fi
+      }
+
+      case "''${1:-}" in
+        start) start ;;
+        stop) stop ;;
+        *) echo "usage: $0 start|stop" >&2; exit 2 ;;
+      esac
     '';
-    postgresqlTestSetupPost = ''
-      mkdir -p .sutura-dev
-      printf '{"project":"nix-sandbox","provisioner":"nix-sandbox","services":{"postgres":{"host":"%s","port":5432}}}\n' "$PGHOST" \
-        > .sutura-dev/endpoints.json
-    '';
-    postgresqlExtraSettings = "fsync = off\nsynchronous_commit = off";
-    SUTURA_DEV_REQUIRE_TIER = "1";
   };
 }

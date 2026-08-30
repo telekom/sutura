@@ -445,7 +445,16 @@ mod tests {
         // `discover` is the only entry that produces endpoints; the rest read one they were given,
         // name the file, or write it.
         const SURFACE: &[&str] = &[
-            "host", "port", "discover", "project", "provisioner", "endpoint", "services", "path_for", "publish", "forget",
+            "host",
+            "port",
+            "discover",
+            "project",
+            "provisioner",
+            "endpoint",
+            "services",
+            "path_for",
+            "publish",
+            "forget",
         ];
 
         let source = include_str!("discovery.rs");
@@ -516,7 +525,10 @@ mod tests {
             ("not json at all", Malformed::NotJson),
             (r#"{"services":{}}"#, Malformed::NoProject),
             (r#"{"project":"p"}"#, Malformed::NoServices),
-            (r#"{"project":"p","services":{"pg":{"host":"127.0.0.1"}}}"#, Malformed::ServiceEntry),
+            (
+                r#"{"project":"p","services":{"pg":{"host":"127.0.0.1"}}}"#,
+                Malformed::ServiceEntry,
+            ),
             (
                 r#"{"project":"p","services":{"pg":{"host":"127.0.0.1","port":0}}}"#,
                 Malformed::ServiceEntry,

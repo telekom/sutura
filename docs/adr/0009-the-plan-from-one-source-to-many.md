@@ -397,6 +397,16 @@ A service needing neither, like the Unix-socket Postgres tier the adapter hosts 
 CAN be one (`nix/postgres-tier.nix`). The docker tier is a CI job and a `just` task that CONSUME
 nix-built artifacts. The strongest version of it runs the OCI image that actually ships.
 
+**Amended for a nix-native service.** All the port machinery above - derived project names,
+allocated-and-discovered ports, the withdrawn hash-to-port scheme, the race analysis - exists
+because docker publishes TCP ports. A nix-native service (`nix/postgres-tier.nix`) is reached over
+a unix socket beneath the worktree: it has no port, so no allocator, no collision, no race, no
+per-worktree name. The discovery file is written the same way (host = the socket directory), so a
+harness cannot tell the two apart, and `just update` moves the pinned minor for the sandbox and a
+developer machine together. The sandbox runs this script today (`checks.nextest`); the dev-shell
+`dev-up` is the remaining half, where `SERVICES` now marks `postgres` as `Nix` so `dev-up`,
+`dev-down` and the docker-wiring tests read one declaration.
+
 **Absent docker is a SKIP locally and a FAILURE in CI, and those are not the same default.** An earlier
 version of this record said the tier prints SKIPPED and exits 0, and said in the same breath that a
 missing service cannot silently pass. Both cannot hold on one machine class. So: on a developer machine
