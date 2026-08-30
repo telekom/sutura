@@ -24,7 +24,7 @@ Eleven metrics; five of them below, and the elision is this page's rather than t
 
 ```text
 version local-working-tree
-digest  1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
+digest  2383faeaab05d6a4abd62d8701c5c6de970ec7f61e85043444e500e6908c73fc
 
 active_subscriptions
   measure    count_distinct(subscription_key)
@@ -143,7 +143,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```text
--- definitions local-working-tree 1b93d51a85befdee9170d5d43c0a5d3423e27d1d5ecc6a7b9411630f24b3bd50
+-- definitions local-working-tree 2383faeaab05d6a4abd62d8701c5c6de970ec7f61e85043444e500e6908c73fc
 region	period	recurring_revenue
 central	2026-06-01	51739
 east	2026-06-01	32598

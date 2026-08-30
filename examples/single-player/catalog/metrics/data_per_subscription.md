@@ -8,7 +8,7 @@ measure:
     denominator: { aggregate: count_distinct, column: subscription_key }
     zero_denominator: yields_null
 time_column: usage_date
-grains: [day, month]
+grains: [day, week, month]
 ---
 Data volume per subscription, in gigabytes.
 
