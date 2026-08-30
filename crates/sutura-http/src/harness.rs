@@ -311,19 +311,19 @@ async fn asking_outside_what_the_catalog_permits_is_a_403() {
 }
 
 #[tokio::test]
-async fn a_question_that_would_span_two_data_systems_is_a_409() {
-    // Answerable in principle, and this deployment will not do it: a second data system is a second
-    // identity to satisfy. A conflict between what was asked and how the deployment is arranged,
-    // which is what no status about the request's own content would say.
+async fn a_question_that_spans_two_data_systems_is_refused_until_a_leg_executes() {
+    // Issue #72's splitter and combiner exist and are tested, but neither shipped adapter can execute
+    // a leg yet - both answer `Executable::Leg` with a typed refusal. Until one does, `answer` keeps
+    // refusing a two-source question here rather than surfacing the adapter's refusal as a 503, the
+    // status reserved for a retryable outage. This pins the restored 409.
     let app = over(two_source_bundle(), fake_warehouse(), settings(Environment::Development, ""));
     let (status, code, detail) = refusal(
         &app,
         r#"{"metric":"revenue","grain":"month","range":{"start":"2026-06-01","end":"2026-07-01"},"dimensions":["region"]}"#,
     )
     .await;
-    assert_eq!(status, StatusCode::CONFLICT);
-    assert_eq!(code, "plan_spans_two_sources");
-    assert!(detail.contains('2'), "{detail}");
+    assert_eq!(status, StatusCode::CONFLICT, "{detail}");
+    assert_eq!(code, "federation_not_executable", "{detail}");
 }
 
 #[tokio::test]

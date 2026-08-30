@@ -99,6 +99,14 @@ impl JobTransport for Recording {
         *self.validated.borrow_mut() += 1;
         Ok(())
     }
+
+    /// Recorded like the other two, which is what lets a test assert what a fixture load PUT ON THE
+    /// WIRE without an endpoint - the statement text, and that it carries no parameters.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        self.record(request);
+        Ok(())
+    }
 }
 
 /// A transport that fails, for the one arm that needs the endpoint to say no.
@@ -117,6 +125,11 @@ impl JobTransport for Broken {
     }
 
     fn validate(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(EndpointSaidNo)
+    }
+
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
         Err(EndpointSaidNo)
     }
 }
@@ -540,6 +553,12 @@ impl JobTransport for Paged {
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         true
     }
+
+    // This fake is about a failure, so the fixtures method fails the same way the others do.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, _request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        Err(OnePageOfMore)
+    }
 }
 
 #[test]
@@ -647,8 +666,7 @@ fn a_leg() -> sutura_domain::plan::LegPlan {
     sutura_domain::plan::LegPlan::Fact {
         source: source(),
         metric: MetricName::parse("mrr").expect("a test metric is a metric"),
-        table: table.clone().into(),
-        joins: Vec::new(),
+        tables: sutura_domain::plan::StatementTables::only(table.clone()),
         bucket: PlanBucket::new(String::from("period"), Grain::Month, column("month")),
         keys: Vec::new(),
         terms: Vec::new(),

@@ -419,6 +419,16 @@ where
     // the plan itself, for its own dialect.
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
+        Compiled::Federated { .. } => {
+            // The splitter and the combiner exist and are tested, but neither shipped adapter can
+            // execute a leg yet - both answer `Executable::Leg` with a typed refusal - so an answer
+            // that would need `combine` cannot be produced on this build. Executing it would surface
+            // the adapter's refusal as a 503, the status reserved for a retryable outage; refusing
+            // here first keeps a two-source question a clean 409 until an adapter executes a leg.
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::FederationNotExecutable,
+            }));
+        }
         Compiled::Planned { plan } => plan,
     };
     let (Some(warehouse), Some(executed_as)) = (warehouses.get(plan.source()), warehouses.executed_on(plan.source())) else {
@@ -677,6 +687,14 @@ where
     let plan = match compiled {
         Compiled::Refused { reason } => {
             return not_executed(NotExecutedReason::Refused { reason });
+        }
+        // An anchor is asked with no dimensions, so it can only ever be one source. Reaching this
+        // arm is a defect here rather than anything about the data.
+        Compiled::Federated { .. } => {
+            return not_executed(NotExecutedReason::NotCompiled {
+                message: String::from("an anchor's question resolved to two data systems"),
+                chain: Vec::new(),
+            });
         }
         Compiled::Planned { plan } => plan,
     };

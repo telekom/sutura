@@ -87,6 +87,30 @@ pub(crate) struct RawSource {
     /// The dataset an unqualified table name resolves in. Required for `kind: bigquery`.
     #[serde(default)]
     pub(crate) dataset: Option<String>,
+    /// The credential file a `bigquery` source is reached with. Required for `kind: bigquery`, and
+    /// absolute.
+    ///
+    /// **A path and not a token, and not an environment variable this service reads at startup.** The
+    /// adapter's credential source reads a file - a service-account key, or the file an
+    /// application-default login writes - so the deployment names that file and nothing else. Absolute
+    /// for the reason `data_dir` is: a service's working directory is whatever its supervisor chose.
+    ///
+    /// Required rather than falling back to the well-known location, which is the direction this
+    /// repository's other startup decisions point: a credential resolved from whichever of three
+    /// variables happened to be exported is an identity nobody declared, and the file a service reaches
+    /// a warehouse with is exactly the value that has to be visible in a settings file a reviewer reads.
+    #[serde(default)]
+    pub(crate) credential_file: Option<String>,
+    /// The most one query job on a `bigquery` source may be billed for scanning. Required for
+    /// `kind: bigquery`.
+    ///
+    /// **Required, with no default, because it is the one bound in this tree that spends money.** A
+    /// default would be a number nobody chose standing between a mistyped question and an invoice, and
+    /// the two safe defaults are both wrong: a small one refuses ordinary questions on a large table,
+    /// and a large one is indistinguishable from no bound. The adapter's own newtype owns the range -
+    /// see the composition root, which parses this number at the line that opens the source.
+    #[serde(default)]
+    pub(crate) max_bytes_billed: Option<u64>,
     /// `shared-service-user` or `impersonation-at-source`. No default.
     pub(crate) posture: String,
     /// The operator's reason for serving this source under one identity for everybody.

@@ -62,7 +62,9 @@ const LOOPBACK: &str = "127.0.0.1";
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
-    /// Host to connect to. Loopback, always - see [`LOOPBACK`].
+    /// Host to connect to. Loopback (`127.0.0.1`) for the docker tier, or the unix-socket
+    /// directory for the nix tier (`nix/postgres-tier.nix`) - what the driver treats a
+    /// `/`-prefixed host as. See [`LOOPBACK`].
     host: String,
     /// The host port docker allocated.
     port: u16,
@@ -93,6 +95,10 @@ impl std::fmt::Display for Endpoint {
 pub struct Endpoints {
     /// The compose project these came from. Carried so a harness can say which worktree answered.
     project: String,
+    /// What wrote the file - `docker` (`xtask dev-up`) or `nix` (`nix/postgres-tier.nix`, in the
+    /// sandbox or the dev shell). A fact in
+    /// the file rather than an inference, so a reader need not guess docker from the project name.
+    provisioner: Option<String>,
     /// Service name to endpoint. Ordered, so output and any digest over it are stable.
     services: BTreeMap<String, Endpoint>,
 }
@@ -120,6 +126,15 @@ impl Endpoints {
     #[must_use]
     pub fn project(&self) -> &str {
         &self.project
+    }
+
+    /// What provisioned this tier, where the file says.
+    ///
+    /// `docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
+    /// a hand-written one) carried no marker - a reader must not assume docker from the absence.
+    #[must_use]
+    pub fn provisioner(&self) -> Option<&str> {
+        self.provisioner.as_deref()
     }
 
     /// Where `service` is listening.
@@ -193,6 +208,11 @@ pub enum Malformed {
     NoServices,
     /// A service entry without a readable `host` and `port`.
     ServiceEntry,
+    /// A service host that is neither loopback nor a `/`-prefixed socket directory.
+    ///
+    /// The docker tier connects on loopback, the nix tier on a socket path. Anything else would
+    /// let a discovery file hand a harness an arbitrary host, so it is refused rather than trusted.
+    HostNeitherLoopbackNorSocket,
 }
 
 impl std::fmt::Display for DiscoveryError {
@@ -257,6 +277,7 @@ pub fn publish(scope: &Scope, reported: &[(&str, String)]) -> Result<PathBuf, Di
 
     let document = serde_json::json!({
         "project": scope.project(),
+        "provisioner": "docker",
         "root": scope.root().to_string_lossy(),
         "services": serde_json::Value::Object(services),
     });
@@ -336,6 +357,10 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
         .get("project")
         .and_then(serde_json::Value::as_str)
         .ok_or_else(|| bad(Malformed::NoProject))?;
+    let provisioner = document
+        .get("provisioner")
+        .and_then(serde_json::Value::as_str)
+        .map(String::from);
     let entries = document
         .get("services")
         .and_then(serde_json::Value::as_object)
@@ -347,6 +372,10 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
             .get("host")
             .and_then(serde_json::Value::as_str)
             .ok_or_else(|| bad(Malformed::ServiceEntry))?;
+        let valid_host = host == "127.0.0.1" || host == "::1" || host.starts_with('/');
+        if !valid_host {
+            return Err(bad(Malformed::HostNeitherLoopbackNorSocket));
+        }
         let port = value
             .get("port")
             .and_then(serde_json::Value::as_u64)
@@ -364,6 +393,7 @@ fn parse(path: &Path, text: &str) -> Result<Endpoints, DiscoveryError> {
 
     Ok(Endpoints {
         project: String::from(project),
+        provisioner,
         services,
     })
 }
@@ -416,7 +446,16 @@ mod tests {
         // `discover` is the only entry that produces endpoints; the rest read one they were given,
         // name the file, or write it.
         const SURFACE: &[&str] = &[
-            "host", "port", "discover", "project", "endpoint", "services", "path_for", "publish", "forget",
+            "host",
+            "port",
+            "discover",
+            "project",
+            "provisioner",
+            "endpoint",
+            "services",
+            "path_for",
+            "publish",
+            "forget",
         ];
 
         let source = include_str!("discovery.rs");
@@ -487,10 +526,19 @@ mod tests {
             ("not json at all", Malformed::NotJson),
             (r#"{"services":{}}"#, Malformed::NoProject),
             (r#"{"project":"p"}"#, Malformed::NoServices),
-            (r#"{"project":"p","services":{"pg":{"host":"h"}}}"#, Malformed::ServiceEntry),
             (
-                r#"{"project":"p","services":{"pg":{"host":"h","port":0}}}"#,
+                r#"{"project":"p","services":{"pg":{"host":"127.0.0.1"}}}"#,
                 Malformed::ServiceEntry,
+            ),
+            (
+                r#"{"project":"p","services":{"pg":{"host":"127.0.0.1","port":0}}}"#,
+                Malformed::ServiceEntry,
+            ),
+            (
+                // A host that is neither loopback nor a socket path is refused, so a discovery
+                // file cannot hand the harness an arbitrary remote host.
+                r#"{"project":"p","services":{"pg":{"host":"db.internal","port":5432}}}"#,
+                Malformed::HostNeitherLoopbackNorSocket,
             ),
         ];
         for (text, expected) in cases {
@@ -499,6 +547,15 @@ mod tests {
                 other => panic!("{text} gave {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_socket_directory_host_is_kept_as_an_address_the_driver_treats_as_unix() {
+        let path = Path::new("/somewhere/endpoints.json");
+        let text = r#"{"project":"p","services":{"pg":{"host":"/build/sutura-pg","port":5432}}}"#;
+        let parsed = parse(path, text).expect("a socket-directory host is valid");
+        let endpoint = parsed.endpoint("pg").expect("decodes");
+        assert_eq!(endpoint.host(), "/build/sutura-pg");
     }
 
     #[test]

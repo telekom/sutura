@@ -37,6 +37,12 @@ use sutura_domain::query::{RefusalReason, ResultBound};
 ///
 /// The match is exhaustive with no wildcard arm, and it decides both at once rather than in two
 /// matches that could drift apart.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive match over every refusal, deciding code and sentence together - so it \
+              grows by one arm per domain variant and splitting it would need a wildcard arm, which \
+              is exactly the gap the exhaustiveness exists to close"
+)]
 pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     match *reason {
         RefusalReason::MetricUnknown { ref metric } => {
@@ -103,9 +109,32 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
             "time_range_too_long",
             format!("the period asked about is {days} days; at most {limit} are allowed"),
         ),
-        RefusalReason::PlanSpansTwoSources { sources } => (
-            "plan_spans_two_sources",
-            format!("this question would read from {sources} data systems, and one answer reads from one"),
+        RefusalReason::PlanSpansTooManySources { sources, limit } => (
+            "plan_spans_too_many_sources",
+            format!("this question would read from {sources} data systems, and one answer reads from {limit} at most"),
+        ),
+        RefusalReason::FederationNotExecutable => (
+            "federation_not_executable",
+            String::from(
+                "this deployment has no adapter that can execute one half of a question spanning two \
+                 data systems. Nothing you can change in the question helps and this is not an outage \
+                 to retry; ask without the dimension on the second data system, or report it.",
+            ),
+        ),
+        RefusalReason::FederationLinkAmbiguous { ref source } => (
+            "federation_link_ambiguous",
+            format!(
+                "the dimensions on `{source}` join through more than one relationship, and the two \
+                 legs link on a single column"
+            ),
+        ),
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
+            "measure_does_not_federate",
+            format!(
+                "`{metric}` cannot be computed across two data systems because its {aggregate} \
+                 aggregate is not additive; ask it without the dimension that sits on the second \
+                 data system"
+            ),
         ),
         // Written for an agent, so it says which of the two moves is available rather than only that
         // this one failed: unlike the two-source refusal there usually is another question, because a
@@ -149,7 +178,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
+    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
@@ -192,7 +221,15 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTwoSources { sources: 2 },
+            RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
+            RefusalReason::FederationNotExecutable,
+            RefusalReason::FederationLinkAmbiguous {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
+            },
+            RefusalReason::MeasureDoesNotFederate {
+                metric: metric(),
+                aggregate: Aggregate::CountDistinct,
+            },
             RefusalReason::PlanTablesShareAnIdentifier {
                 table: TableName::parse("orders").expect("a test table is a table"),
             },
@@ -215,10 +252,15 @@ mod tests {
     fn the_code_is_the_variant_name_in_snake_case() {
         for reason in every_reason() {
             let value = serde_json::to_value(&reason).expect("a refusal serializes");
-            let object = value.as_object().expect("every variant carries fields, so it is an object");
-            let variant = object.keys().next().expect("an externally tagged enum has one key");
+            // A struct variant serializes externally tagged, so its one key IS the variant name; a
+            // unit variant (`FederationNotExecutable`) serializes as the bare name string.
+            let variant = match value {
+                serde_json::Value::Object(map) => map.keys().next().cloned().expect("an externally tagged enum has one key"),
+                serde_json::Value::String(name) => name,
+                _ => panic!("a refusal serializes to an object or a unit string"),
+            };
             let (code, _) = refused(&reason);
-            assert_eq!(code, &snake_case(variant), "{variant}");
+            assert_eq!(code, &snake_case(&variant), "{variant}");
         }
     }
 

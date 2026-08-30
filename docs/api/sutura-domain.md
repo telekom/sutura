@@ -142,8 +142,10 @@ incident can ask how much life the credential that read these rows had left. `No
 was minted for this call, which is the honest answer for a question refused before the broker was
 asked.
 
-A plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
-what makes that true - so the source set is one name a reader already has from the bundle.
+A plan reads from the sources a `Compiled::Federated` answer spans, or from a single source for a
+`Compiled::Planned` one (a question spanning three or more is refused at plan time by
+`crate::query::RefusalReason::PlanSpansTooManySources`), so the source set is a name a reader
+already has from the bundle.
 
 ### `trait AuditSink`
 
@@ -1828,7 +1830,7 @@ The aggregate the leg computes.
 
 #### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Pulled`
 
@@ -1852,7 +1854,7 @@ The aggregate the combine applies to the pulled-up rows.
 
 #### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum Descent`
 
@@ -1888,7 +1890,7 @@ here.
 
 #### Implements
 
-`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum Carried`
 
@@ -1978,7 +1980,7 @@ returning one row per group and one row per distinct key.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `enum Above`
 
@@ -2004,7 +2006,7 @@ the numbers a leg produces are re-aggregated, and only then divided.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `struct Federation`
 
@@ -2056,7 +2058,7 @@ condition to fail on.
 
 #### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ### `fn descend`
 
@@ -4027,6 +4029,37 @@ Why a bundle is not validated.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum CatalogKind`
+
+```rust
+pub enum CatalogKind
+```
+
+Which class of catalog adapter this is: held to the whole model, or supplying part of it.
+
+The two classes are measured differently, and `docs/adr/0016` is where the difference is
+decided. A **golden** adapter defines the model here - the wren-style directory of markdown -
+so it can be held to producing the whole of it, which is what agreeing with the hand-written
+oracle asserts. Everything else is **declaring**: it supplies part of the model and must say
+which part through `SemanticCatalog::capabilities`, and is measured against that declaration
+(the two directions of `MetadataCapabilities::checked_against`) rather than against the oracle.
+
+**Required on `SemanticCatalog` with no default, so an adapter that omits it does not build.**
+The two classes give a registration different assertions and different goldens - the oracle for
+a golden adapter, fidelity for a declaring one - so leaving the choice to a default would mean
+an adapter that said nothing got measured the wrong way, and both defaults are wrong: defaulted
+to golden, a narrow source silently keeps a test it cannot pass; defaulted to declaring, a
+reference adapter that forgot the line loses the test that exists to hold it honest.
+
+#### Variants
+
+- `Golden` - A **reference** adapter: can produce every kind the model defines, so it is held to the hand-written oracle that states the same model. `sutura-catalog-local` is one.
+- `Declaring` - Supplies part of the model. Measured against its own `SemanticCatalog::capabilities` declaration rather than against the oracle, and registered with only the catalog cells that apply to a partial model.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `trait SemanticCatalog`
 
 ```rust
@@ -4086,12 +4119,14 @@ the two is the declaration:
 ```
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 
 struct Declared;
 
 impl SemanticCatalog for Declared {
     type Error = core::fmt::Error;
+
+    const KIND: CatalogKind = CatalogKind::Golden;
 
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(
@@ -4191,7 +4226,8 @@ One join to a table, wherever that table lives.
 than completeness:** a fact table in one dataset joined to a dimension table in another is
 what a multi-project estate looks like, and it is one statement, one job and one credential -
 a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
-so where `PlanSpansTwoSources` is decided.
+so where a source count decides between one statement, a split and
+`PlanSpansTooManySources`.
 
 `impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
@@ -4672,6 +4708,18 @@ one place: the caller owns the order, which is what the placeholder-position con
 
 ### `use None`
 
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
 ### `constant MAX_ROWS`
 
 The most rows any plan may return.
@@ -4694,6 +4742,250 @@ short; and a row count above this is
 [`RefusalReason::ResultTooLarge`](crate::query::RefusalReason::ResultTooLarge). A refusal is the
 honest outcome: "your question is too wide to certify" is a governance answer, not an error, and
 the caller's move is to narrow the range or drop a dimension.
+
+### Module `federated`
+
+The federated question: two legs, and the combine that happens above them.
+
+**This module gives `crate::federation` its caller.** Until now that module was "a
+classification and a rule, nothing executes it": `Descent::of` and `Federation::of` were total but
+nothing produced a `crate::plan::LegPlan` and nothing consumed the rows one returns. This module
+is the other half - the small, closed contract that a splitter fills with facts and this module's
+own `FederatedPlan::combine` turns back into rows.
+
+**What the splitter and the combiner agree on, and it is one function.** A fact leg's terms are
+projected under labels, and the combiner has to find each term's column *by* its label - the
+mistake this design refuses to make is the two halves agreeing by review. `labels` is that one
+function: the splitter names the fact leg's terms with it and the combiner re-derives the same
+names from the same `Federation` and looks them up in the fact leg's result. There is no second
+copy of the naming rule to drift.
+
+**The division cannot happen in a leg, and [`combine`](FederatedPlan::combine) is where it
+happens instead.** The `Above` tree already carries the only
+[`ZeroDenominator`](crate::measure::ZeroDenominator) in the federated path; this module walks it
+above the legs, after every leg's rows have been re-aggregated. Applying a guard inside a leg is
+the wrong number this shape exists to prevent.
+
+**What this module will not do, because `combine` cannot express it.** The re-aggregation
+`combine` performs covers the leaves a *decomposable* measure produces - a re-aggregating
+[`Sum`](crate::model::Aggregate::Sum), [`Min`](crate::model::Aggregate::Min) or
+[`Max`](crate::model::Aggregate::Max) over already-aggregated leg columns. A measure that does not
+decompose at all (a distinct count) has no re-aggregating function, and the honest answer for this
+slice is to refuse it in the splitter rather than pull its rows up through a combiner that would
+have to re-count. The refusal names the aggregate.
+
+#### `struct FederatedPlan`
+
+```rust
+pub struct FederatedPlan
+```
+
+The one federated shape this workspace combines: a fact leg on one source and a lookup leg on
+another, linked by a single column.
+
+**Two legs, as two named fields.** A match over `LegPlan` is exhaustive, so the fact leg *is*
+the [`Fact`](LegPlan::Fact) variant and the lookup leg the [`Lookup`](LegPlan::Lookup) one, and
+a plan that had anything other than exactly these two is a type that does not exist rather than a
+count a caller checks. The shape is deliberately the one `crate::plan::leg` pins in its goldens:
+the metric's own rows (and any same-source dimension) form the fact leg, and a dimension on a
+second data system forms the lookup leg. The final answer groups by the answer's keys - each
+named by which leg's result it is read from, in question order - bucketed and measured under the
+metric's own name.
+
+**The `serde::Serialize` derive exists for the CLI's plan dump and nothing else.** A plan is
+serialized to be printed; nothing in the workspace gains `serde::Deserialize`, so a plan cannot
+be reconstructed from its serialized form and no field here is a request a caller writes.
+
+##### Methods
+
+```rust
+pub fn combine(&self, fact: &RowSet, lookup: &RowSet, byte_budget: u64) -> Result<RowSet, FederatedFailure>
+```
+
+Turns one result per leg into one answer's rows.
+
+The fact and lookup results are joined on the recorded link column, grouped by the answer's
+keys - in the order the question asked them, matching the mono path - and the bucket,
+re-aggregated by each leaf's own `Carried::combine`, and only then divided through the
+`Above` tree.
+
+`byte_budget` is the working-set ceiling `docs/adr/0009` applies at the conversion boundary:
+the answer materialised here is counted as it is built, and a question that would cross it is
+refused as `FederatedFailure::ResourcesExhausted` rather than truncated, so a caller never
+reads a result that stopped early as a result that returned.
+
+```rust
+pub const fn fact(&self) -> &LegPlan
+```
+
+The fact leg.
+
+```rust
+pub fn keys(&self) -> &[AnswerKey]
+```
+
+The answer's group-by keys, in question order.
+
+```rust
+pub const fn legs(&self) -> [&LegPlan; 2]
+```
+
+Every leg, in execution order: the fact leg, then the lookup leg.
+
+```rust
+pub const fn lookup(&self) -> &LegPlan
+```
+
+The lookup leg.
+
+```rust
+pub const fn metric(&self) -> &MetricName
+```
+
+The metric this answer is measured in.
+
+```rust
+pub fn new(metric: MetricName, measure_label: String, bucket: PlanBucket, fact: LegPlan, lookup: LegPlan, fact_join: String, lookup_join: String, include_unmatched: bool, federation: Federation, keys: Vec<AnswerKey>) -> Result<Self, FederatedPlanError>
+```
+
+Constructs a federated plan from its two legs and the answer's key order.
+
+A `Result` constructor is this workspace's convention for a value with an invariant: a plan
+that is not a fact leg beside a lookup leg, or that names one data system on both legs, is not
+a plan and cannot be built.
+
+```rust
+pub fn sources(&self) -> impl Iterator<Item> + '_
+```
+
+Every data system this plan reads from, in execution order.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum LegSide`
+
+```rust
+pub enum LegSide
+```
+
+Which leg's result an answer key is read from.
+
+##### Variants
+
+- `Fact` - The metric's own leg.
+- `Lookup` - The second data system's leg.
+
+##### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `struct AnswerKey`
+
+```rust
+pub struct AnswerKey
+```
+
+One group-by key of the answer: which leg owns it, and the label it carries in that leg's result.
+
+##### Methods
+
+```rust
+pub const fn fact(label: String) -> Self
+```
+
+A key read from the fact leg's result, under `label`.
+
+```rust
+pub fn label(&self) -> &str
+```
+
+The label this key carries in its leg's result.
+
+```rust
+pub const fn lookup(label: String) -> Self
+```
+
+A key read from the lookup leg's result, under `label`.
+
+```rust
+pub const fn side(&self) -> LegSide
+```
+
+Which leg this key is read from.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+#### `enum FederatedPlanError`
+
+```rust
+pub enum FederatedPlanError
+```
+
+Why a federated plan could not be built.
+
+##### Variants
+
+- `NotFact` - The leg meant to be the fact leg is not a `LegPlan::Fact`.
+- `NotLookup` - The leg meant to be the lookup leg is not a `LegPlan::Lookup`.
+- `SameSource` - Both legs name the same data system, which is a single-source question, not a federated one.
+- `KeyNotOnLeg` - An answer key names a column the leg it belongs to does not project.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum FederatedFailure`
+
+```rust
+pub enum FederatedFailure
+```
+
+Why a federated answer could not be assembled.
+
+The shape failures are defects in this workspace's own wiring - a leg result missing a column
+`labels` named, or a row narrower than its result's own columns. The [`NonFinite`](FederatedFailure::NonFinite)
+variant is a `fails` guard meeting a zero denominator, which no divide-tree node can produce a
+value for.
+
+##### Variants
+
+- `MissingColumn` - A column `combine` reached for by label was absent from a leg's result.
+- `NonFinite` - A division happened by a zero denominator while the measure declared `fails`.
+- `DuplicateLabels` - A leg result had two columns under one label, so the combiner could not tell which of them a leaf or key names.
+- `FloatLinkKey` - A link cell carried a floating-point key, which the ADR's float-key rule forbids.
+- `AmbiguousLink` - A link value had more than one lookup row, which would double every measure.
+- `NonNumericLeaf` - A leaf cell that was not a number reached a re-aggregating aggregate.
+- `Overflow` - A leaf total overflowed a 64-bit integer.
+- `UnsupportedAggregate` - An aggregate the combiner does not know how to re-aggregate with.
+- `ResourcesExhausted` - Materialising the answer crossed the byte budget `docs/adr/0009` applies at the conversion boundary.
+- `MalformedRow` - A row whose width contradicts the result's own column count.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Error`, `PartialEq`
+
+#### `fn labels`
+
+```rust
+pub fn labels(federation: &crate::federation::Federation, metric: &crate::model::MetricName) -> Vec<String>
+```
+
+The one definition of what a carried leaf is projected under.
+
+The splitter and the combiner both call this, so the column the combiner reads a leaf from and
+the label the splitter projected it under cannot disagree - there is no second copy of the rule.
+
+**A single leaf is the answer's own name; several leaves disambiguate by position.** A plain sum
+travels as the metric's own label, and the halves of a decomposition travel as `metric__{n}`,
+where `n` is the leaf's position in carried order. Position cannot collide: a ratio of two sums -
+`sum(a) / sum(b)` - is one aggregating function twice, so naming by aggregate would give both
+leaves the same label and a combine that divides a column by itself. Whatever makes the labels
+unique within one plan is enough - the final measure comes back under the metric's own name - and
+this rule is that minimum.
 
 ### Module `leg`
 
@@ -4879,6 +5171,64 @@ fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
 }
 ```
 
+A fact leg's tables arrive as a checked set, so a producer cannot state a table beside a vector
+of joins and skip the ambiguity guard - which is exactly what the first producer of a leg did:
+
+```compile_fail
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+
+fn _unchecked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> LegPlan {
+    LegPlan::Fact {
+        source,
+        metric,
+        table,
+        joins,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    }
+}
+```
+
+```
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+
+fn _checked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> Result<LegPlan, sutura_domain::plan::AmbiguousTables> {
+    Ok(LegPlan::Fact {
+        source,
+        metric,
+        tables: StatementTables::parse(table, joins)?,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    })
+}
+```
+
 ##### Variants
 
 - `Fact` - Read off the metric's own model, grouped by the bucket and by every key the answer or a non-descending term needs.
@@ -5049,20 +5399,36 @@ for a reason. An alias on one side of a join and not the other is not a fix.
 
 So the decision is the other one, and it is made where the plan is built rather than where it is
 rendered: **a statement whose tables cannot be told apart is unrepresentable.** There is no
-[`QueryPlan`](crate::plan::QueryPlan) holding such a set, because `StatementTables` is the only
-way to construct one and its canonical constructor refuses the pair. `sutura_semantic::plan` turns
+[`QueryPlan`](crate::plan::QueryPlan) and no [`LegPlan::Fact`](crate::plan::LegPlan::Fact) holding
+such a set, because `StatementTables` is the only way to construct either and its canonical
+constructor refuses the pair. `sutura_semantic::plan` turns
 that refusal into
 [`PlanTablesShareAnIdentifier`](crate::query::RefusalReason::PlanTablesShareAnIdentifier), so the
 question is declined and the metric stays authorable: a question that does NOT reach the colliding
 table is still answered. The alternative - refusing the metric at load - would make the estate
 shape unauthorable, and unlike a label a physical table is not something an author can rename.
 
-# The limit
+# The limit, and what it used to be
 
-[`LegPlan::Fact`](crate::plan::LegPlan::Fact) carries a `joins` field of its own and is constructed
-by struct literal, so this guard does not reach it. Nothing outside a test constructs a leg -
-`AGENTS.md`'s *Built And Not Wired* says so - and the change that gives a leg a producer is the
-change that should route it through here.
+**It used to be the fact leg, and that was not theoretical: the change that gave a leg a producer
+shipped the bypass this section predicted.** `LegPlan::Fact` carried a `table` and a `joins` field
+and was built by struct literal, so a federated question over a fact table at
+`analytics_prod.sales.orders` with a same-source dimension table at `reference_data.crm.orders`
+compiled, and its fact leg rendered
+`FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id`. Worse
+than the whole-answer case rather than equal to it, because a leg's rows are combined above it and
+nothing downstream sees the statement. That variant now takes a `StatementTables` as its field
+instead, pinned by a `compile_fail` doctest with a compiling twin, so a second leg producer cannot
+reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
+keeping from this.**
+
+What remains is narrow and stated so it is not mistaken for the above. A
+[`Lookup`](crate::plan::LegPlan::Lookup) leg reads ONE table and declares no joins, so it has no
+pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
+each leg is its own statement on its own data system, so nothing binds one identifier to two
+tables; what the combiner joins on is a label, and a label that shadowed a table is
+[`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
+load.
 
 #### `enum AmbiguousTables`
 
@@ -5148,7 +5514,7 @@ Where the statement's own table lives: the whole path, which is what the `FROM` 
 
 ##### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `query`
 
@@ -5310,7 +5676,10 @@ somebody else's input.
 - `TooManyDimensions` - More group-by keys than `MAX_DIMENSIONS`.
 - `ResultTooLarge` - The result was too much data to certify, and `ResultBound` says which bound said so.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
-- `PlanSpansTwoSources` - The plan would need to read from more than one data system.
+- `PlanSpansTooManySources` - The plan would need to read from more than the deployment serves.
+- `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
+- `FederationLinkAmbiguous` - The question's remote dimensions join the metric's own through more than one relationship.
+- `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
 - `PlanTablesShareAnIdentifier` - Two tables the plan would read answer to one identifier inside one statement.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.

@@ -1,0 +1,29 @@
+[package]
+name = "sutura-exec-postgres"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# Not published to a registry: sutura ships as an OCI image, not as crates.
+publish = false
+description = "A Warehouse adapter over PostgreSQL, rendered through the compiled Postgres dialect."
+
+[dependencies]
+sutura-domain = { workspace = true }
+# Rendering, shared with every other SQL adapter: this adapter asks `sutura-sql` to render the plan
+# for `Dialect::Postgres` rather than growing a second set of quoting and placeholder decisions.
+# NOT `sutura-semantic`: compiling stops at a plan, the port carries the plan, and this adapter
+# never compiles anything.
+sutura-sql = { workspace = true }
+# Pure Rust and links nothing, which is the point this adapter exists to prove: Postgres is the
+# first source whose driver does not pull a native library, so the cross-build matrix survives it.
+tokio = { workspace = true, features = ["rt-multi-thread", "time", "net", "io-util", "sync", "macros"] }
+tokio-postgres = { workspace = true }
+# The wire buffer a `ToSql` impl hands bytes to, and the `Sink` item a text `COPY` drives.
+bytes = { workspace = true }
+futures-util = { workspace = true }
+thiserror = { workspace = true }
+
+[lints]
+workspace = true

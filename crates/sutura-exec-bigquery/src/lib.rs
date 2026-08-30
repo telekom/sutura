@@ -33,15 +33,21 @@
 //! 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
 //!    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
 //!    service-account key - the first statement this repository generated to be accepted by
-//!    `BigQuery`. **What that is, exactly:** one hand-built `SUM` over a two-column fixture, so it
+//!    `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column fixture, so it
 //!    says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
 //!    the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
-//!    about. The corpus-wide leg that record specifies is not built.
+//!    about. **The corpus-wide leg that record specifies is `tests/corpus.rs`, beside it**, behind the
+//!    default-off `fixtures` feature: it loads the example fixtures into four tables through
+//!    [`BigQueryWarehouse::load_fixture`], runs the corpus questions, and compares its rows with the
+//!    engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 //!
 //! So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
 //! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
-//! and the `data_systems:` axis of the golden matrix still gains no entry - a cell that has never
-//! executed reads as coverage.
+//! and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
+//! last one has changed rather than gone away.** It was *a cell that has never executed reads as
+//! coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+//! runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
+//! `nix run` app and not a `checks.*` output.
 //!
 //! # Identity
 //!
@@ -60,13 +66,18 @@
 //!
 //! **No arbitrary SQL entry point.** [`BigQueryWarehouse::execute`] takes an [`Executable`] and
 //! renders the statement itself; `transport::JobRequest::new` is `pub(crate)`, so there is no way to
-//! hand a statement to a transport from outside this crate.
+//! hand a statement to a transport from outside this crate. **The `fixtures` feature does not open
+//! one:** `load_fixture` takes a table name and a path, and `crate::importer` renders the statement
+//! from names that parsed and cells that parsed - refusing, rather than escaping, a cell that could
+//! close a literal.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 //! is the first adapter where there would be row-level security to leak through.
 
 use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::SourceName;
+#[cfg(feature = "fixtures")]
+use sutura_domain::model::TableName;
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, NotFinite, PreFlight, Real, RowSet, Value, Warehouse};
@@ -76,6 +87,15 @@ use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 pub mod transport;
 #[cfg(feature = "wire")]
 pub mod wire;
+
+// The fixture loader, behind the default-off `fixtures` feature. `Cargo.toml` carries the argument
+// for why it is a feature and not simply a `#[cfg(test)]` helper: an INTEGRATION test target is a
+// separate crate, so it cannot reach a `#[cfg(test)]` item here, and a method that issues
+// `CREATE OR REPLACE TABLE` is one no shipped build should contain.
+#[cfg(feature = "fixtures")]
+mod importer;
+#[cfg(feature = "fixtures")]
+pub use crate::importer::{FixtureNotLoaded, FixtureNotUsable, Loaded};
 
 use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
 
@@ -292,6 +312,50 @@ where
     /// point where this adapter would be the one to break it.
     fn request<'job>(&'job self, query: &'job GeneratedQuery) -> JobRequest<'job> {
         JobRequest::new(query.sql(), query.params(), &self.billing_project, &self.default_dataset)
+    }
+
+    /// Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
+    ///
+    /// **The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+    /// does: a relational data system has to be GIVEN tables before a corpus can be run against it,
+    /// and the example models are files.** The differences from the Postgres shape are in
+    /// [`crate::importer`]'s header - there is no `COPY`, so the rows travel inside the statement and
+    /// every cell is re-rendered from a parsed value.
+    ///
+    /// **Behind the `fixtures` feature, so no shipped build holds it.** `Cargo.toml` carries that
+    /// argument. What it buys over a `#[cfg(test)]` helper is that the acceptance leg is an
+    /// INTEGRATION target - a separate crate - which cannot reach a test-gated item here.
+    ///
+    /// It takes a table name and a path and never a statement, which is what keeps *no arbitrary SQL
+    /// entry point* true of this crate: the statement is rendered from names that parsed and cells
+    /// that parsed.
+    ///
+    /// **In THIS impl block rather than in the module that renders the statement**, because
+    /// `clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
+    /// methods are spread over files is one whose surface nobody can read in one place.
+    ///
+    /// Returns how many data rows the fixture carried, so a caller can assert the load moved what the
+    /// file holds rather than trusting a green.
+    #[cfg(feature = "fixtures")]
+    pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<T::Error> {
+        let text = std::fs::read_to_string(csv).map_err(|cause| FixtureNotLoaded::Unreadable {
+            path: csv.display().to_string(),
+            cause,
+        })?;
+        let fixture = crate::importer::read_fixture(&text).map_err(|cause| FixtureNotLoaded::NotUsable {
+            path: csv.display().to_string(),
+            cause,
+        })?;
+        let statement = fixture.create_statement(table);
+        // No parameters, deliberately, and it is worth naming because the no-injection invariant is
+        // about exactly this position: a bind parameter carries a VALUE FROM A QUESTION, and there is
+        // no question here. What makes the literals safe is that each one was parsed - see the header
+        // of `crate::importer`.
+        let request = JobRequest::new(&statement, &[], &self.billing_project, &self.default_dataset);
+        self.transport
+            .apply(&request)
+            .map_err(|cause| FixtureNotLoaded::Endpoint { cause })?;
+        Ok(fixture.rows())
     }
 
     /// One cell, as the domain names it.

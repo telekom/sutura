@@ -336,10 +336,10 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
              condition, so this is not an outage to wait out.",
 };
 
-const PLAN_SPANS_TWO_SOURCES: Guide = Guide {
-    reason: "PlanSpansTwoSources",
-    meaning: "answering would need to read from two data systems, and a question is answered from \
-              one",
+const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
+    reason: "PlanSpansTooManySources",
+    meaning: "answering would need to read from more data systems than this deployment serves (two at \
+              most)",
     remedy: "Nothing you can change. Report it to a person: it is a fact about how the metric is \
              defined, not about how you asked. Do not retry and do not try a different dimension \
              in the hope of avoiding it.",
@@ -353,6 +353,31 @@ const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
              one statement, so a question without it is still answered. If every dimension you need \
              goes through it, report it to a person: it is a fact about where the tables live, not \
              about how you asked.",
+};
+
+const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
+    reason: "FederationNotExecutable",
+    meaning: "this deployment has no adapter that can execute one half of a question spanning two data \
+              systems, so the question cannot be answered yet",
+    remedy: "Nothing you can change by re-asking, and do not retry it as if it were an outage: this is \
+             not a data system being down. Ask the same metric without the dimension on the second \
+             data system, or report it to a person.",
+};
+
+const FEDERATION_LINK_AMBIGUOUS: Guide = Guide {
+    reason: "FederationLinkAmbiguous",
+    meaning: "the question's dimensions on the second data system join the metric through more than \
+              one relationship, and the two legs link on a single column",
+    remedy: "Nothing you can change about the question. Report it to a person: it is a fact about how \
+             the metric is defined.",
+};
+
+const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
+    reason: "MeasureDoesNotFederate",
+    meaning: "across two data systems this measure cannot be computed and recombined - its aggregate \
+              (a distinct count) is not additive the way a sum or an average is",
+    remedy: "Nothing you can change about the question. Ask the same metric without the dimension that \
+             sits on the second data system, or report it to a person.",
 };
 
 const SOURCE_UNAVAILABLE: Guide = Guide {
@@ -396,10 +421,14 @@ const GUIDES: &[&Guide] = &[
     // Actionable, and last of the actionable ones: the remedy is the same narrowing
     // `ResultTooLarge` asks for, and an agent reaching this one has already read that.
     &RESOURCES_EXHAUSTED,
-    &PLAN_SPANS_TWO_SOURCES,
-    // Actionable, and the reason it sits after the two-source refusal rather than with the narrowing
-    // ones: the move is to drop a JOIN rather than to narrow anything, and an agent reaching it has
-    // already read that a refusal about the plan's shape is not one to retry unchanged.
+    &PLAN_SPANS_TOO_MANY_SOURCES,
+    &FEDERATION_NOT_EXECUTABLE,
+    &FEDERATION_LINK_AMBIGUOUS,
+    &MEASURE_DOES_NOT_FEDERATE,
+    // Actionable, and the reason it sits after the source-count refusals rather than with the
+    // narrowing ones: the move is to drop a JOIN rather than to narrow anything, and an agent
+    // reaching it has already read that a refusal about the plan's shape is not one to retry
+    // unchanged.
     &PLAN_TABLES_SHARE_AN_IDENTIFIER,
     &SOURCE_UNAVAILABLE,
     &CREDENTIAL_UNAVAILABLE,
@@ -428,7 +457,10 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::ResultTooLarge { .. } => &RESULT_TOO_LARGE,
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
-        RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
+        RefusalReason::PlanSpansTooManySources { .. } => &PLAN_SPANS_TOO_MANY_SOURCES,
+        RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
+        RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
+        RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,

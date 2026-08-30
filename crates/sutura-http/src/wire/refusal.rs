@@ -61,13 +61,20 @@ use super::RefusalBody;
 /// **The match is exhaustive with no wildcard arm, deliberately**, and it decides all three at once
 /// rather than in three matches that could drift apart. A refusal variant added to the domain fails
 /// to compile here until it is given a status, a code and a sentence.
-// No `#[expect(clippy::too_many_lines)]` any more, and that is worth a line rather than a silent
-// deletion: this function carried one, because the match grows by an arm per domain variant and
-// splitting it would need a wildcard arm - exactly the gap the exhaustiveness exists to close. Moving
-// the per-bound sentence for `ResultTooLarge` into `too_much_data` brought it back under the bound,
-// so the suppression's cause is gone and *a suppression cannot outlive its cause*. The next variant
-// that pushes it over is the one that decides whether the arm's PROSE moves out the same way or the
-// expectation comes back.
+// **The expectation is back, and which way that went is the record worth keeping.** It was deleted
+// on the branch that split the per-bound sentence for `ResultTooLarge` out into `too_much_data`:
+// that brought the function under the bound, so the suppression's cause was gone and *a suppression
+// cannot outlive its cause* said to remove it. Four federation refusals then arrived from the base
+// this branch merged - `PlanSpansTooManySources`, `FederationNotExecutable`,
+// `FederationLinkAmbiguous` and `MeasureDoesNotFederate` - and put it at 117 lines. So the cause is
+// a live one again rather than a leftover, which is exactly the case `#[expect]` is for: it fires
+// today, and the day another arm's prose moves out it stops firing and says so.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive match over every refusal, deciding status, code and detail together - so \
+              it grows by one arm per domain variant and splitting it would need a wildcard arm, which \
+              is exactly the gap the exhaustiveness exists to close"
+)]
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     let (status, code, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
@@ -198,17 +205,40 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  again. Retrying it unchanged returns this same refusal"
             ),
         ),
-        // 409. The question is answerable in principle and this deployment will not answer it: a
-        // second data system is a second identity to satisfy, and a plan that runs partly as
-        // somebody else is the failure the whole design is arranged against. That is a conflict
-        // between what was asked and how this deployment is arranged, which is what 409 says and
-        // what no status about the request's own content would.
-        RefusalReason::PlanSpansTwoSources { sources } => (
+        // 409. A question spanning more than two data systems is answerable in principle and this
+        // deployment will not answer it: each source is a separate identity to satisfy, and a plan
+        // that runs partly as somebody else is the failure the whole design is arranged against.
+        // Two are served - that is what the status does NOT say.
+        RefusalReason::PlanSpansTooManySources { sources, limit } => (
             StatusCode::CONFLICT,
-            "plan_spans_two_sources",
-            format!("answering this would read from {sources} data systems, and a plan runs against one"),
+            "plan_spans_too_many_sources",
+            format!("answering this would read from {sources} data systems, and a plan runs against {limit} at most"),
         ),
-        // 409, and the same reasoning `PlanSpansTwoSources` above carries: the question is well formed,
+        // A question that would need federation execution this deployment cannot do yet, and a link
+        // shape the combiner does not express - both 409, because neither is a data system being down
+        // and a caller must not retry either as an outage.
+        RefusalReason::FederationNotExecutable => (
+            StatusCode::CONFLICT,
+            "federation_not_executable",
+            String::from("this deployment has no adapter that can execute one half of a question spanning two data systems"),
+        ),
+        RefusalReason::FederationLinkAmbiguous { ref source } => (
+            StatusCode::CONFLICT,
+            "federation_link_ambiguous",
+            format!("the dimensions on `{source}` join through more than one relationship"),
+        ),
+        // The same 409 - a question this deployment will not answer - for a measure that would have
+        // to be recombined into a number it cannot make.
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
+            StatusCode::CONFLICT,
+            "measure_does_not_federate",
+            format!(
+                "`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is \
+                 not additive"
+            ),
+        ),
+        // 409, and the same reasoning `PlanSpansTooManySources` above carries: the question is well
+        // formed,
         // the metric permits it, and this deployment cannot express it as one statement. That is a
         // conflict between what was asked and how the tables it reads are named, which is what 409 says
         // and what no status about the request's own content would.
@@ -304,7 +334,7 @@ fn too_much_data(bound: ResultBound) -> String {
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use sutura_domain::model::{DimensionName, Grain, MetricName, TableName};
+    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
@@ -328,6 +358,10 @@ mod tests {
     /// A list rather than one test per variant, and it is the same list the exhaustive match above
     /// is checked against: a variant added to `RefusalReason` breaks the compile in `refused`, and
     /// this is where somebody then writes down what they decided.
+    #[expect(
+        clippy::too_many_lines,
+        reason = "this is the exhaustive enum's table of status and code per refusal"
+    )]
     fn every_reason() -> Vec<Expected> {
         vec![
             (
@@ -397,9 +431,29 @@ mod tests {
                 "resources_exhausted",
             ),
             (
-                RefusalReason::PlanSpansTwoSources { sources: 2 },
+                RefusalReason::PlanSpansTooManySources { sources: 3, limit: 2 },
                 StatusCode::CONFLICT,
-                "plan_spans_two_sources",
+                "plan_spans_too_many_sources",
+            ),
+            (
+                RefusalReason::FederationNotExecutable,
+                StatusCode::CONFLICT,
+                "federation_not_executable",
+            ),
+            (
+                RefusalReason::FederationLinkAmbiguous {
+                    source: SourceName::parse("warehouse").expect("a test source is a source"),
+                },
+                StatusCode::CONFLICT,
+                "federation_link_ambiguous",
+            ),
+            (
+                RefusalReason::MeasureDoesNotFederate {
+                    metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
+                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
+                },
+                StatusCode::CONFLICT,
+                "measure_does_not_federate",
             ),
             (
                 RefusalReason::PlanTablesShareAnIdentifier {

@@ -11,14 +11,11 @@ use sutura_semantic::compile;
 use crate::shared::{PROVOKED, question, settings};
 
 #[test]
-fn a_plan_that_would_reach_a_second_data_system_is_refused() {
+fn a_question_that_would_reach_a_second_data_system_is_split_into_two_legs() {
     // Not reachable from a question file: it needs a catalog whose models sit on two data systems,
-    // which `SourceUnavailable` and this variant are the only defences against. Built in code
-    // rather than as a directory of documents, because a corpus with a second source would make
-    // every other test in the suite span two - which is also why it is not a registry entry.
-    //
-    // The refusal exists because a second data system is a second identity to satisfy, and a plan
-    // that runs partly as somebody else is the failure the whole design is arranged against.
+    // which is why it is not a registry entry. The two-source fake spans exactly one more source,
+    // and a question whose dimension sits on it now compiles into a fact leg and a lookup leg rather
+    // than into the refusal this test used to assert.
     use sutura_domain::pinned::SemanticCatalog as _;
 
     let split = crate::support::two_source_catalog()
@@ -31,12 +28,13 @@ fn a_plan_that_would_reach_a_second_data_system_is_refused() {
         vec![sutura_domain::model::DimensionName::parse("region").expect("a name")],
         Vec::new(),
     );
-    let compiled = compile(&asked, &split).expect("this is a refusal");
-    assert!(
-        matches!(compiled.refusal(), Some(&RefusalReason::PlanSpansTwoSources { sources: 2 })),
-        "expected a two-source refusal, got {:?}",
-        compiled.refusal()
-    );
+    let compiled = compile(&asked, &split).expect("this is a plan, not an error");
+    match compiled {
+        sutura_semantic::Compiled::Federated { ref plan } => {
+            assert_eq!(plan.legs().len(), 2, "a fact leg and a lookup leg");
+        }
+        other => panic!("a two-source question should federate, got {other:?}"),
+    }
 }
 
 #[test]
@@ -423,4 +421,78 @@ fn a_range_with_no_end_is_not_a_range() {
     // error, provoked by `refused-range-too-long.yaml` and pinned to the day above.
     let unbounded = "metric: recurring_revenue\ngrain: month\nrange:\n  start: 2026-06-01\n";
     drop(serde_norway::from_str::<Query>(unbounded).expect_err("a range without an end is not a range"));
+}
+
+#[test]
+fn a_federated_question_whose_fact_leg_would_read_two_tables_of_one_name_is_refused() {
+    // **The same reproduced wrong-answer report as the test above, on the OTHER plan shape, and it
+    // was reproduced here too rather than reasoned about from the first one.** A two-source question
+    // is split into a fact leg and a lookup leg, and the fact leg keeps every SAME-SOURCE hop as a
+    // `JOIN` of its own - so the whole ambiguity is available inside one leg's statement. The
+    // splitter built that leg by struct literal and never asked `StatementTables::parse` about it,
+    // and `sutura_sql::generate_leg` rendered this for `Dialect::BigQuery`, measured:
+    //
+    // ```text
+    // SELECT `orders`.`segment` AS `segment`, ... FROM `analytics_prod`.`sales`.`orders`
+    //   LEFT JOIN `reference_data`.`crm`.`orders`
+    //   ON `orders`.`customer_id` = `orders`.`customer_id` ...
+    // ```
+    //
+    // One table compared with itself, every projected column qualified by an identifier naming two
+    // tables, and a `SUM` under a certified metric name over whichever side a target happened to
+    // bind. Worse than the whole-answer case rather than equal to it, because a leg's rows are
+    // combined above it: nothing downstream sees the statement.
+    //
+    // Asserted at the compiler and not on a rendered string, for the sibling test's reason: the fix
+    // is that no such leg exists to be rendered.
+    use sutura_domain::pinned::SemanticCatalog as _;
+
+    let collides = crate::support::federated_same_name_tables_catalog()
+        .load()
+        .expect("a catalog whose two same-source tables share a name still LOADS");
+
+    // `segment` reaches the colliding same-source table, `region` reaches the second data system -
+    // so this question both federates AND puts two `orders` in the fact leg.
+    let both = Query::new(
+        sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+        sutura_domain::model::Grain::Month,
+        crate::support::june_range(),
+        vec![
+            sutura_domain::model::DimensionName::parse("segment").expect("a name"),
+            sutura_domain::model::DimensionName::parse("region").expect("a name"),
+        ],
+        Vec::new(),
+    );
+    let compiled = compile(&both, &collides).expect("this is a refusal, not an error");
+    let expected = RefusalReason::PlanTablesShareAnIdentifier {
+        table: sutura_domain::model::TableName::parse("orders").expect("a name"),
+    };
+    assert_eq!(
+        compiled.refusal(),
+        Some(&expected),
+        "expected the fact leg's tables to be refused as indistinguishable, got {:?}",
+        compiled.refusal()
+    );
+
+    // **And the half that keeps this a refusal about the QUESTION.** The same catalog, the same
+    // second data system, and a local dimension that needs no colliding join: still split into two
+    // legs. Without this the assertion above would pass on a splitter that refused every federated
+    // question over this catalog, which is not the guard being claimed.
+    let without_the_collision = Query::new(
+        sutura_domain::model::MetricName::parse("revenue").expect("a name"),
+        sutura_domain::model::Grain::Month,
+        crate::support::june_range(),
+        vec![
+            sutura_domain::model::DimensionName::parse("customer").expect("a name"),
+            sutura_domain::model::DimensionName::parse("region").expect("a name"),
+        ],
+        Vec::new(),
+    );
+    let split = compile(&without_the_collision, &collides).expect("this is a plan, not an error");
+    match split {
+        sutura_semantic::Compiled::Federated { ref plan } => {
+            assert_eq!(plan.legs().len(), 2, "a fact leg and a lookup leg");
+        }
+        ref other => panic!("a two-source question with no colliding join should still federate, got {other:?}"),
+    }
 }

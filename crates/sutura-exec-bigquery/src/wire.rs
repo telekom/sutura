@@ -120,6 +120,8 @@ mod tests;
 
 // The document half, re-exported into this module so `wire.rs` stays the one path callers and tests
 // read - the split is a file boundary rather than an API one.
+#[cfg(feature = "fixtures")]
+use crate::wire::document::applied;
 use crate::wire::document::{QueryAnswer, body, complete, refusal, url};
 
 /// The API this module speaks to. A compile-time constant: there is no configuration key for it, so
@@ -849,6 +851,13 @@ where
     fn run_job(&self, request: &JobRequest<'_>) -> Wired<JobRows, C::Error> {
         complete(self.submit(request, DryRun::No)?)
     }
+
+    /// That one statement with no result set finished. `document::applied` says what it checks and
+    /// what it deliberately does not.
+    #[cfg(feature = "fixtures")]
+    fn apply_job(&self, request: &JobRequest<'_>) -> Wired<(), C::Error> {
+        applied(&self.submit(request, DryRun::No)?)
+    }
 }
 
 impl<C> JobTransport for BigQueryWire<C>
@@ -899,5 +908,10 @@ where
             | WireError::NoSchema { .. }
             | WireError::NotAScalar { .. } => false,
         }
+    }
+
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
+        self.apply_job(request)
     }
 }

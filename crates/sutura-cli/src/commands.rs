@@ -288,6 +288,17 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
                 let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
                 print!("{rendered}");
             }
+            Compiled::Federated { plan } => {
+                println!("-- federated, one statement per leg for {dialect}");
+                for leg in plan.legs() {
+                    let query = sutura_sql::generate_leg(leg, dialect).map_err(|e| render(&e))?;
+                    println!("{}", query.sql());
+                    println!();
+                }
+                println!("-- plan");
+                let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
+                print!("{rendered}");
+            }
         }
         Ok(())
     })())
@@ -652,8 +663,9 @@ mod tests {
 
     #[test]
     fn a_catalog_spanning_two_data_systems_gets_no_engine() {
-        // The arm nothing proved. A plan runs against one data system - `PlanSpansTwoSources` is the
-        // refusal for the query path - and this is that rule at startup: a bundle whose models name
+        // The arm nothing proved. A plan runs against one data system - the CLI takes one data
+        // directory and reads no source registry, so a question that would span two is refused - and
+        // this is that rule at startup: a bundle whose models name
         // two systems gets no engine at all, rather than one over whichever half happens to be local.
         //
         // `local` is deliberately ONE OF THE PAIR, and its table has a real file in the example's

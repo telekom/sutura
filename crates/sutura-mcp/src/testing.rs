@@ -31,7 +31,7 @@ use sutura_domain::identity::{
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
@@ -112,6 +112,10 @@ pub(crate) struct Unreachable;
 
 impl SemanticCatalog for FixedCatalog {
     type Error = Unreachable;
+
+    /// Golden, matching what `capabilities` below declares: the bundle is Rust literals in this
+    /// repository, so there is no kind this fixture could not express.
+    const KIND: CatalogKind = CatalogKind::Golden;
 
     /// Everything, and the reason is the one `sutura-catalog-local` gives for its own `all()`: the
     /// bundle one function above is Rust literals in this repository, so there is no kind this

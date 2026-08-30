@@ -357,11 +357,16 @@ impl JobRows {
 
 /// A `BigQuery` endpoint, as narrow as this adapter's needs.
 ///
-/// Two methods, because the port above it has two questions with different costs: running a job reads
-/// data and is billed, and validating one does neither. The endpoint really does distinguish them -
-/// its request body carries a dry-run flag, and a dry run uses no slots and is not charged - which is
-/// what makes `Warehouse::dry_run` able to answer `PreFlight::Accepted` honestly here rather than
-/// inheriting the port's `NotAsked` default.
+/// Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
+/// different costs: running a job reads data and is billed, and validating one does neither. The
+/// endpoint really does distinguish them - its request body carries a dry-run flag, and a dry run
+/// uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
+/// `PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
+///
+/// **Two more members are not that, and the count is spelled out because it has been wrong twice.**
+/// `result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
+/// `apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
+/// build that loads fixtures, so no deployment can reach it.
 pub trait JobTransport {
     /// Why the endpoint could not answer. The adapter wraps it and never lets it reach a caller of
     /// the domain port raw.
@@ -399,6 +404,27 @@ pub trait JobTransport {
     fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
         false
     }
+
+    /// Runs a statement that produces no result set.
+    ///
+    /// **A method of its own rather than a use of [`Self::run`], and it is behind the `fixtures`
+    /// feature so a build that serves questions cannot issue one.** This trait's header says why it
+    /// puts two questions to the endpoint, each with its own cost; this is a third - *put these rows
+    /// in this table* - that only the corpus acceptance leg asks, and nothing a deployment links can.
+    ///
+    /// **Why it cannot be [`Self::run`].** `run`'s contract is a COMPLETE result set: the wire refuses
+    /// an answer whose `totalRows` is absent or does not equal the delivered count, which is the
+    /// mechanism that stops a first page reading as a whole answer. A `CREATE OR REPLACE TABLE` job
+    /// has no result set for that check to be about, and what its answer document carries is not
+    /// something this repository has verified - so routing a `CREATE` through `run` would be relying
+    /// on a response shape nobody here has measured, in the one place a failure is a silently
+    /// half-loaded fixture. This method requires the job to have COMPLETED and requires nothing else.
+    ///
+    /// It still takes a [`JobRequest`], whose constructor is `pub(crate)`, so this is not the string
+    /// entry point the module header says does not exist: the statement is rendered by
+    /// [`crate::importer`] from a committed CSV whose every cell was parsed first.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
 }
 
 #[cfg(test)]

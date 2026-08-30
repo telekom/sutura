@@ -174,9 +174,6 @@ the bound whether or not it is serving traffic. A candidate that will not parse,
 of the pinned kind, is logged at `error` and **not** adopted: the previous keys keep verifying, because
 adopting a broken set turns a rotation mistake into a total outage.
 
-Rate limiting is not authentication either. It bounds how fast something can be done, not who may do
-it, and the bucket it counts against is a network address rather than a principal.
-
 ### What a scope grants
 
 **Only where `security.inbound` is configured.** A deployment with no block has no verified claim to
@@ -282,7 +279,10 @@ depends on why:
 | `dimension_not_permitted` | `403` | The metric declares no such dimension |
 | `dimension_not_filterable` | `403` | It can be grouped by and not filtered on |
 | `dimension_value_not_allowed` | `403` | Use a value the catalog declares. The rejected value is never echoed back |
-| `plan_spans_two_sources` | `409` | Nothing. This deployment will not span two data systems |
+| `plan_spans_too_many_sources` | `409` | Nothing. This deployment will not read from more data systems than it serves |
+| `federation_not_executable` | `409` | Nothing. This build has no adapter that can execute one half of a two-source question yet |
+| `federation_link_ambiguous` | `409` | Nothing. The question's remote dimensions join through more than one relationship |
+| `measure_does_not_federate` | `409` | Nothing. The measure's aggregate cannot be recombined above two legs |
 | `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit. **One code for two bounds:** more rows than this service's cap, or more data than the data system would return at once. The sentence says which, and names a number only for the first - the second bound belongs to the data system and is not reported to us |
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
@@ -524,7 +524,8 @@ security:
 
 sources:
   local:
-    # `files` is the only kind this build has an adapter for. Required, with no default.
+    # `files` or `bigquery`. Required, with no default - and which of them a given BINARY can
+    # actually open is a second question, answered below.
     kind: "files"
     # Absolute. A relative path resolves against whatever working directory the supervisor chose.
     data_dir: "/srv/sutura/data"
@@ -532,13 +533,60 @@ sources:
     posture: "shared-service-user"
 ```
 
+### A `bigquery` source, and the build it needs
+
+```yaml
+sources:
+  warehouse:
+    kind: "bigquery"
+    # The project the query job is billed to, and its quota project. Declared, never inferred:
+    # it is a path segment of the request that submits a job, and a federated identity has no
+    # project of its own.
+    billing_project: "your-project"
+    # Where an unqualified table name resolves, inside that project.
+    dataset: "your_dataset"
+    # The service-account key, or the file an application-default login writes. Absolute, and
+    # REQUIRED: a service resolving a credential from whichever of three Google variables
+    # happened to be exported is running as an identity nobody declared. Read at startup, so an
+    # unreadable file stops the process rather than failing every question.
+    credential_file: "/etc/sutura/bigquery.json"
+    # The most one query job may be billed for scanning. Required, with no default, because it
+    # is the only number here that spends money: a small default refuses ordinary questions on a
+    # large table and a large one is indistinguishable from no bound. Enforced at the service,
+    # so a job that would exceed it fails and is not charged. 1 GiB here.
+    max_bytes_billed: 1073741824
+    # `shared-service-user` is the only posture this adapter can deliver - see the cross-check
+    # below. One service account reaching the dataset for everybody who asks.
+    posture: "shared-service-user"
+    acknowledged_because: "one service account reaching the dataset for every caller"
+```
+
+The job's DEADLINE is not a key here: it is filled from `server.request_timeout_seconds`, because a
+job that outlives the request it is answering is billed for a result nobody is waiting for.
+
+**Three things about which builds can serve this**, and the first is the one to check before writing
+the block above:
+
+- **`sutura-serve` opens it only when built with `--features bigquery`.** A binary without the feature
+  refuses the source at startup, naming the feature. Default-off because the adapter's wire pulls an
+  outbound TLS stack, and two of the four release triples are musl - so asking for it is a build
+  decision a reviewer can see in a manifest line.
+- **No published artifact opens it.** The image and the cross-compiled binaries are `sutura-cli`, which
+  links the in-process engine only.
+- **One process opens one KIND of data system at a time.** A catalog whose models sit on a `files`
+  source and a `bigquery` source is refused at startup, naming both entries - the registry a process
+  holds is generic in one adapter type, and the alternative is a source nothing opened.
+
 Two facts, declared by two different parties, and conflating them gives the mode two owners:
 
 - **the deployment declares the POSTURE**, per source - which identity a query is to reach that source
   as;
 - **the adapter declares its CAPABILITY**, in code - whether it can carry a per-subject credential at
   all. The in-process engine cannot: one process, one operating-system identity, and nowhere for a
-  subject to appear. Saying so explicitly is the point of the declaration.
+  subject to appear. **Nor can the `BigQuery` adapter**, for a different reason worth knowing: a
+  credential file is one service account, and per-subject execution needs a credential minted per
+  question through a token exchange that does not exist here yet. Saying so explicitly is the point of
+  the declaration.
 
 The boot check compares them. A source configured to impersonate on an adapter that cannot does not
 start, and there is no fallback.
@@ -566,9 +614,10 @@ and it makes a misconfiguration visible to whoever reads an answer; the startup 
 gate.
 
 **A catalog whose models sit on two declared sources is now servable**, and an engine is opened per
-source the catalog names. A *question* whose plan would span two is still refused, as
-`plan_spans_two_sources`, at plan time. There is no federation: nothing combines results from two
-sources, and the refusal is what says so rather than a partial answer.
+source the catalog names. A *question* whose plan spans exactly two is split by the plan stage into a
+fact leg and a lookup leg, and `answer` either executes it or refuses it as `federation_not_executable`
+while no adapter can execute a leg - so the split is never served as a partial or a half-executed
+answer. Three or more sources refuse at plan time as `plan_spans_too_many_sources`.
 
 *The limit, because it decides what is worth configuring today:* the only adapter this build links is
 the in-process engine, so two configured sources are two engines over two directories. A data system
@@ -715,7 +764,7 @@ asserted by a test rather than by the log call being careful.
 
 A panic is traced before the process gives up on it. The shipped profiles abort, so there is no
 unwinding to catch; what a hook can still do is run first, with the payload and the location in
-hand, so the last thing in the log says what happened and where instead of the log simply stopping.
+hand, so the last thing in the log says what happened and where instead of the log just stopping.
 
 ## Stopping
 

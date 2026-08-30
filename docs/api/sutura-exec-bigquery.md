@@ -42,15 +42,21 @@ it costs; the two reasons it was absent are answered rather than repealed:
 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
    service-account key - the first statement this repository generated to be accepted by
-   `BigQuery`. **What that is, exactly:** one hand-built `SUM` over a two-column fixture, so it
+   `BigQuery`. **What that one is, exactly:** one hand-built `SUM` over a two-column fixture, so it
    says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
    the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
-   about. The corpus-wide leg that record specifies is not built.
+   about. **The corpus-wide leg that record specifies is `tests/corpus.rs`, beside it**, behind the
+   default-off `fixtures` feature: it loads the example fixtures into four tables through
+   `BigQueryWarehouse::load_fixture`, runs the corpus questions, and compares its rows with the
+   engine's for the same plan. That is where the join, the ratio and `ISOWEEK` are reached.
 
 So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
 as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
-and the `data_systems:` axis of the golden matrix still gains no entry - a cell that has never
-executed reads as coverage.
+and the `data_systems:` axis of the golden matrix still gains no entry - **and the reason for that
+last one has changed rather than gone away.** It was *a cell that has never executed reads as
+coverage*; the corpus leg executes, so what keeps the entry out now is that a cell in that registry
+runs inside `just test` and this one cannot: the nix sandbox has no network, so acceptance is a
+`nix run` app and not a `checks.*` output.
 
 # Identity
 
@@ -69,7 +75,10 @@ leg as impersonated that ran shared.
 
 **No arbitrary SQL entry point.** `BigQueryWarehouse::execute` takes an `Executable` and
 renders the statement itself; `transport::JobRequest::new` is `pub(crate)`, so there is no way to
-hand a statement to a transport from outside this crate.
+hand a statement to a transport from outside this crate. **The `fixtures` feature does not open
+one:** `load_fixture` takes a table name and a path, and `crate::importer` renders the statement
+from names that parsed and cells that parsed - refusing, rather than escaping, a cell that could
+close a literal.
 
 **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this
 is the first adapter where there would be row-level security to leak through.
@@ -122,6 +131,33 @@ composition, and a generic keeps the transport's own error type visible in `BigQ
 ### Methods
 
 ```rust
+pub fn load_fixture(&self, table: &TableName, csv: &std::path::Path) -> Loaded<<T as >::Error>
+```
+
+Replaces one table in the connection's dataset with the rows of a committed fixture CSV.
+
+**The mirror of #78's `PostgresWarehouse::load_csv`, and it exists for the reason that one
+does: a relational data system has to be GIVEN tables before a corpus can be run against it,
+and the example models are files.** The differences from the Postgres shape are in
+`crate::importer`'s header - there is no `COPY`, so the rows travel inside the statement and
+every cell is re-rendered from a parsed value.
+
+**Behind the `fixtures` feature, so no shipped build holds it.** `Cargo.toml` carries that
+argument. What it buys over a `#[cfg(test)]` helper is that the acceptance leg is an
+INTEGRATION target - a separate crate - which cannot reach a test-gated item here.
+
+It takes a table name and a path and never a statement, which is what keeps *no arbitrary SQL
+entry point* true of this crate: the statement is rendered from names that parsed and cells
+that parsed.
+
+**In THIS impl block rather than in the module that renders the statement**, because
+`clippy::multiple_inherent_impl` is denied here and it is right to be: a type whose inherent
+methods are spread over files is one whose surface nobody can read in one place.
+
+Returns how many data rows the fixture carried, so a caller can assert the load moved what the
+file holds rather than trusting a green.
+
+```rust
 pub const fn new(source: SourceName, posture: SourcePosture, billing_project: ProjectId, default_dataset: DatasetId, transport: T) -> Self
 ```
 
@@ -137,6 +173,12 @@ of its own.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## Module `transport`
 
@@ -474,11 +516,16 @@ pub trait JobTransport
 
 A `BigQuery` endpoint, as narrow as this adapter's needs.
 
-Two methods, because the port above it has two questions with different costs: running a job reads
-data and is billed, and validating one does neither. The endpoint really does distinguish them -
-its request body carries a dry-run flag, and a dry run uses no slots and is not charged - which is
-what makes `Warehouse::dry_run` able to answer `PreFlight::Accepted` honestly here rather than
-inheriting the port's `NotAsked` default.
+Two methods PUT A QUESTION TO THE ENDPOINT, because the port above it has two questions with
+different costs: running a job reads data and is billed, and validating one does neither. The
+endpoint really does distinguish them - its request body carries a dry-run flag, and a dry run
+uses no slots and is not charged - which is what makes `Warehouse::dry_run` able to answer
+`PreFlight::Accepted` honestly here rather than inheriting the port's `NotAsked` default.
+
+**Two more members are not that, and the count is spelled out because it has been wrong twice.**
+`result_did_not_fit` asks the implementor about a failure it already has and sends nothing; and
+`apply`, behind the `fixtures` feature, is the third statement-issuing method - present only in a
+build that loads fixtures, so no deployment can reach it.
 
 ## Module `wire`
 
