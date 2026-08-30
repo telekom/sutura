@@ -2734,6 +2734,7 @@ id does not, and the two are different strings to whoever wrote them.</p>
 <li><code>UnusableKeyId</code></li>
 <li><code>DuplicateKeyId</code> - Two keys under one id.</li>
 <li><code>SymmetricKey</code> - A symmetric key.</li>
+<li><code>UnsupportedKeyFamily</code></li>
 <li><code>UnusableKey</code></li>
 <li><code>NoKeyOfThePinnedFamily</code> - Not one key of the family the pinned algorithms need.</li>
 </ul>
@@ -3181,7 +3182,7 @@ a configured limit in a log and in a review, and it is not one.</p>
 </span></code></pre></div>
 <p>Gives up on a request that outran the configured bound, with the documented body.</p>
 <p><strong>Written here rather than taken from <code>tower_http</code>, and the reason is a body.</strong> Pinned
-<code>tower-http</code> 0.6.11 implements <code>TimeoutLayer::with_status_code</code> as
+<code>tower-http</code> 0.7.0 implements <code>TimeoutLayer::with_status_code</code> as
 <code>Response::new(B::default())</code> - the status and an <em>empty</em> body - so the <code>408</code> this surface
 documents, and which <code>problem.rs</code> promises carries a <code>crate::problem::ProblemBody</code> like every
 other failure, was a status nothing put a body behind. <code>Failure::Timeout</code> existed and was never

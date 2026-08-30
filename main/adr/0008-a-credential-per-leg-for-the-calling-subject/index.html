@@ -1498,15 +1498,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
+  <a href="#what-is-built-and-the-five-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is built, and the four places this record was wrong about its own signature
+        What is built, and the five places this record was wrong about its own signature
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="What is built, and the four places this record was wrong about its own signature">
+    <nav class="md-nav" aria-label="What is built, and the five places this record was wrong about its own signature">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -1521,10 +1521,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
+  <a href="#the-five-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The four places this record was wrong, and each correction is to the record rather than only to the code
+        The five places this record was wrong, and each correction is to the record rather than only to the code
       
     </span>
   </a>
@@ -2569,15 +2569,15 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
+  <a href="#what-is-built-and-the-five-places-this-record-was-wrong-about-its-own-signature" class="md-nav__link">
     <span class="md-ellipsis">
       
-        What is built, and the four places this record was wrong about its own signature
+        What is built, and the five places this record was wrong about its own signature
       
     </span>
   </a>
   
-    <nav class="md-nav" aria-label="What is built, and the four places this record was wrong about its own signature">
+    <nav class="md-nav" aria-label="What is built, and the five places this record was wrong about its own signature">
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
@@ -2592,10 +2592,10 @@
 </li>
         
           <li class="md-nav__item">
-  <a href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
+  <a href="#the-five-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" class="md-nav__link">
     <span class="md-ellipsis">
       
-        The four places this record was wrong, and each correction is to the record rather than only to the code
+        The five places this record was wrong, and each correction is to the record rather than only to the code
       
     </span>
   </a>
@@ -2639,17 +2639,27 @@
 
 
 <h1 id="a-credential-per-leg-for-the-calling-subject">A credential per leg, for the calling subject<a class="headerlink" href="#a-credential-per-leg-for-the-calling-subject" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted, and the port is built - along with four corrections to this record's own signature
-and, after a review of the code that landed, four amendments to those.</strong> <em>What is built, and the four
+<p>Status: <strong>accepted, and the port is built - along with five corrections to this record's own signature
+and, after two reviews of the code that landed, five <code>&gt; **Amended.**</code> blocks inside them.</strong> <em>What is built, and the five
 places this record was wrong about its own signature</em>, at the foot, is the authority on the state:
 every "not built" above it is older than the code, and each <code>&gt; **Amended.**</code> block inside it is newer
-still. The line that used to be here - <em>"nothing in it is built"</em> - was true when it was written.</p>
-<p><strong>What the review changed, in one place so it can be found:</strong> the boot path's method takes an
-<code>AnchorPlan</code> rather than a bare plan, so the one signature with no credential cannot be handed a
-question (correction 2); each adapter compares the leg against its DECLARED posture and not only
-against its own capability, which is a hole this record's own <em>not built</em> list described as already
-closed (not-built item 4); and <code>Expiry</code> lost a derived ordering that made "the earliest" answer
-"nothing expires" (correction 4).</p>
+still. The line that used to be here - <em>"nothing in it is built"</em> - was true when it was written.
+<strong>Both numbers in that line are countable against this document</strong> - five numbered corrections, five
+<code>&gt; **Amended.**</code> blocks - and the line was wrong once, claiming four amendments where the record held
+three. That is the drift a hand-counted number invites, so count it against the document rather than
+against this sentence.</p>
+<p><strong>What the first review changed:</strong> the boot path's method takes an <code>AnchorPlan</code> rather than a bare
+plan, so the one signature with no credential cannot be handed a question (correction 2); each adapter
+compares the leg against its DECLARED posture and not only against its own capability, which is a hole
+this record's own <em>not built</em> list described as already closed (not-built item 4); and <code>Expiry</code> lost a
+derived ordering that made "the earliest" answer "nothing expires" (correction 4).</p>
+<p><strong>What the second review changed, and all four of these were reproduced with a diagnostic broker
+rather than argued:</strong> the broker's answer is now compared with the request it was made for - subject,
+source set, deadline, and the source a refusal names - as one guard whose result is the only way to a
+<code>Presented</code> (correction 5); the deadline is enforced at both boundaries a credential crosses and
+recorded in the audit record (correction 4's second amendment); and the leg-against-posture comparison
+moved into <code>sutura_app::answer</code>, because <code>Warehouse</code> is a trait and an adapter can omit its own copy
+(not-built item 4's second amendment).</p>
 <p>It decides the shape of the identity path before the first adapter that needs one, because both
 halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
 subject, and the execution port has to stop being able to run without one. The second half is now
@@ -4086,11 +4096,15 @@ carried so an audit record can name it, exactly as <code>TimeRange</code> carrie
 that would start after <code>not_after</code> is not attempted, which is a case the parallel shape does not have.
 It is the same check against the same one field, before each leg rather than only before the first, and
 it lives in the same component for the same reason: the domain reads no clock.</p>
-<p>Which means <code>Expiry</code> is, for now, a field the domain holds and nothing in the domain reads - the shape
-<code>ParamValue::Integer</code> had before it was deleted, stated rather than hidden. It arrives with the broker
-adapter that refuses on it or the audit sink that prints it, and a variant for "expiring too soon"
-arrives the same way: a fake broker can provoke <code>CredentialUnavailable</code> from the day the port exists,
-and could not provoke that one.</p>
+<p>This paragraph used to conclude that <code>Expiry</code> is <em>"a field the domain holds and nothing in the domain
+reads"</em>, and a review of the implementation showed why that conclusion was too comfortable: a value
+carried and read by nobody is not a deadline, and a broker minting an already-expired credential had
+it presented to an adapter. <strong>The FLOOR still belongs in the broker</strong> for the reason above - it needs
+a clock and the configured query timeout. What does not need either is the fact that a deadline has
+already passed, and that is now checked in the domain, against an instant the application resolved:
+<code>Expiry::passed_by</code> is the comparison and <code>Minted::agreeing_with</code> is where it is made. The domain
+still reads no clock, exactly as this part requires; what changed is that the direction of the
+comparison lives with the value instead of being left to whoever has a clock.</p>
 <h3 id="7-secret-composes-it-does-not-grow-an-expiry">7. <code>Secret</code> composes; it does not grow an expiry<a class="headerlink" href="#7-secret-composes-it-does-not-grow-an-expiry" title="Permanent link">&para;</a></h3>
 <p><code>Secret</code> is unchanged: one property - opacity - an infallible constructor because every string is a
 valid secret, a hand-written redacting <code>Debug</code> and <code>Display</code>, and no <code>PartialEq</code>, so <code>==</code> on
@@ -4430,7 +4444,7 @@ shape delivers in a deployment with a shared source, and the accurate version is
 the table above. Second, the <em>Invariants</em> row for "an unvalidated bundle is never served" keeps its
 mechanism untouched and needs its reach stated: an anchor is verified under a declared verification
 identity, which is not necessarily any caller's.</p>
-<h2 id="what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature">What is built, and the four places this record was wrong about its own signature<a class="headerlink" href="#what-is-built-and-the-four-places-this-record-was-wrong-about-its-own-signature" title="Permanent link">&para;</a></h2>
+<h2 id="what-is-built-and-the-five-places-this-record-was-wrong-about-its-own-signature">What is built, and the five places this record was wrong about its own signature<a class="headerlink" href="#what-is-built-and-the-five-places-this-record-was-wrong-about-its-own-signature" title="Permanent link">&para;</a></h2>
 <p>Added when the credential port landed. <strong>This section is the authority on the state of the code</strong>, and
 where it contradicts a sentence above it, it wins: the body was written before any of it existed, and
 its status line - <em>"accepted as a design, and nothing in it is built"</em> - is now false for the parts
@@ -4497,7 +4511,7 @@ below and still true for the rest.</p>
 </tr>
 </tbody>
 </table>
-<h3 id="the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code">The four places this record was wrong, and each correction is to the record rather than only to the code<a class="headerlink" href="#the-four-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" title="Permanent link">&para;</a></h3>
+<h3 id="the-five-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code">The five places this record was wrong, and each correction is to the record rather than only to the code<a class="headerlink" href="#the-five-places-this-record-was-wrong-and-each-correction-is-to-the-record-rather-than-only-to-the-code" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong><code>Caller { subject, assertion }</code> is not what the port takes.</strong> It takes the <code>RequestContext</code>, which
    already existed, already reaches <code>Surface::answer</code>, and whose own documentation said the credential
@@ -4567,7 +4581,34 @@ minter to perform - and the test that existed pinned the inverted order and adde
 warning a reader not to read it as instants. The derive is gone. <code>Expiry::earlier_of</code> and
 <code>Expiry::earliest</code> are the operation, written out, with <code>NothingExpires</code> as the fold's identity;
 there is no comparison operator left for a call site to reach for instead.</p>
+<p><strong>Amended again, and this one is the other half: computing the earliest correctly is worth nothing
+if nobody reads it.</strong> <em>"Nothing in the domain compares it to a clock"</em> was true, and the review
+after that one demonstrated the cost - a broker returning <code>Expiry::At { unix_seconds: 0 }</code> had its
+credential presented to both warehouse calls and the question was answered. <code>Expiry::passed_by</code> is
+the comparison now, in the type that owns the deadline, taking the instant as an argument the way
+<code>TimeRange</code> carries dates a caller resolved - so the domain still reads no clock and there is one
+direction to get wrong. It is asked at both boundaries the credential crosses in
+<code>sutura_app::answer</code>: once when the grant comes back, so nothing already dead is ever presented,
+and once between the pre-flight and the execution, because a pre-flight against a networked data
+system is a round trip. The deadline is also recorded - <code>CallRecord::executed_until</code> - which is
+what this record's own content list asked for and had no way to reach. <strong>The FLOOR is still part
+6's and still unbuilt</strong>, and so is a check during execution: <code>Warehouse::execute</code> takes a
+<code>&amp;Presented</code> and no deadline, so an adapter cannot make part 4's before-leg check, and a
+credential that ages out mid-statement is refused by the data system rather than here.</p>
 </blockquote>
+<ol>
+<li><strong>The broker's answer is checked against the request it was made for, and that was missing.</strong> A
+   review reproduced three shapes of it with a diagnostic broker: a grant minted for
+   <code>Subject::TheDeploymentItself</code> while a verified person asked, which executed and answered; the
+   already-expired grant above; and <code>Minted::Refused</code> naming a source the request never asked about,
+   which reached the caller as <code>403 credential_unavailable</code> about that source - a broker defect
+   presented as a statement about the asker's access, disclosing a source alias they never named.</li>
+</ol>
+<p><code>Minted::agreeing_with</code> is one guard for all three, plus the coverage check asked about the set the
+   REQUEST named rather than the one the broker passed to <code>LegCredentials::minted</code>. Every disagreement
+   is a typed <code>Err</code>: a broker contradicting the request says nothing about the caller. <code>BoundToTheRequest</code>
+   is what stops the guard being skippable by placement - it is the only type in <code>identity::credential</code>
+   that hands out a <code>Presented</code>, and only that comparison builds one.</p>
 <h3 id="not-built-and-named-rather-than-left-to-be-discovered">Not built, and named rather than left to be discovered<a class="headerlink" href="#not-built-and-named-rather-than-left-to-be-discovered" title="Permanent link">&para;</a></h3>
 <ol>
 <li><strong>Any adapter that can carry a per-subject credential.</strong> Both shipped ones declare
@@ -4576,10 +4617,22 @@ there is no comparison operator left for a call site to reach for instead.</p>
    foot of this record is still unwritable</em> - which is the honest state of leg 2: a question cannot
    execute without a credential, and no credential a broker can mint makes a source evaluate anybody's
    own authorization.</li>
-<li><strong>The deadline check.</strong> <code>Expiry</code> is carried and nothing reads it. Part 6 puts the floor in the
-   broker adapter, which is the only component with a clock and the configured timeout, and the
-   implementor that ships has nothing that expires - so there is no number to check yet. Part 4's
-   per-leg check needs a splitter, which does not exist.</li>
+<li><strong>The FLOOR, and no longer the deadline itself.</strong> This item read <em>"<code>Expiry</code> is carried and nothing
+   reads it"</em>, and a review demonstrated what that costs: a broker returning
+   <code>Expiry::At { unix_seconds: 0 }</code> had its credential presented to an adapter and the question was
+   answered. So the deadline now has an enforced consumer. <code>Expiry::passed_by</code> is the comparison,
+   <code>Minted::agreeing_with</code> makes it, and <code>sutura_app::answer</code> supplies the instant - the domain still
+   reads no clock, exactly as part 6 says, and the direction of the comparison lives with the value
+   rather than with whoever holds a clock. <code>a_credential_whose_deadline_has_passed_never_reaches_an_adapter</code>
+   is the test, with a deadline of zero because that is in the past for every clock.
+   <strong>What is still not built is the FLOOR</strong> - is there enough life left for what this query may take -
+   which part 6 puts in the broker adapter for the reason it gives, and the implementor that ships has
+   nothing that expires so there is no number to compare. Neither is the RE-CHECK while an answer is in
+   flight: <code>agreeing_with</code> runs once, before anything reaches an adapter, so a credential whose life is
+   shorter than a pre-flight plus an execution can still age out at the data system, which is where it
+   would be refused. Covering that needs a clock the application can advance in a test rather than a
+   <code>SystemTime</code> call - a port, and an architecture decision. Part 4's per-leg check needs a splitter,
+   which does not exist.</li>
 <li><strong>A per-leg credential on a second leg.</strong> <code>LegCredentials</code> holds N legs and nothing constructs a
    second one: there is no splitter and no combiner, and both <code>Warehouse</code> implementors answer a leg
    with a typed error.</li>
@@ -4599,6 +4652,16 @@ than what the broker presented. <code>Presented::agrees_with</code> is the compa
 beside their capability check, and each has a regression test that a fabricated witness is
 refused and the source's own is not. The sentence is now true because there is a mechanism, which
 is the only way this repository lets a sentence like it be written.</p>
+<p><strong>Amended again, by the review after that one, and the correction is where the check lives rather
+than whether it is made.</strong> Both adapters do call <code>agrees_with</code> - and <code>Warehouse</code> is a trait, so an
+implementor can simply not, which this workspace's own <code>sutura_app</code> fake demonstrated: a fake
+declared <code>impersonation-at-source</code>, handed the deployment's own identity, executed and was
+reported as impersonated. So the comparison is made in <code>sutura_app::answer</code>, which holds both the
+leg and <code>Warehouse::posture()</code> and therefore reaches every adapter a registry can hold. It leaves
+as <code>ServiceError::Posture</code>, an internal failure and never a refusal. The adapters keep their own
+copy - an adapter is the last thing before a driver and may not assume who called it - and what
+moved is the <em>claim</em>: it is now a property of the application rather than a convention each
+adapter is trusted to follow.</p>
 </blockquote>
 
 
