@@ -1,42 +1,32 @@
-//! A [`Warehouse`] adapter over `PostgreSQL`, reached over the wire.
+//! A [`Warehouse`] adapter over PostgreSQL.
 //!
-//! The static-credential half of a Postgres data system: this adapter holds one connection under the
-//! shared service identity a deployment declared - the `SharedServiceUser` posture the example ships -
-//! and nothing here exchanges a caller's token for a per-subject grant. The OAuth half is deliberately
-//! out of scope (`docs/adr/0008`, `docs/adr/0014`); row 18, where a source executes as the asking
-//! subject, changes this adapter rather than arriving beside it.
+//! One connection, under the deployment's declared identity (`SharedServiceUser`). The static
+//! half of Postgres: no OAuth, no impersonation. That is row 18.
 //!
-//! ## The deployability limit, stated so the title is not read as more than it is
+//! Two things this adapter proves:
 //!
-//! The connection is **`NoTls`**, unconditionally: SCRAM keeps the password off the wire, but every
-//! row travels in plaintext, and a server configured `hostssl`-only refuses this adapter outright.
-//! That is the right shape for a localhost compose tier (which is all this ships for), and the row
-//! in `AGENTS.md` carries the same sentence. What a deployment wants before a real Postgres is
-//! reached is TLS at the very least, which is a change to `connect`.
+//! 1. **The artifact question.** `tokio-postgres` is pure Rust and links nothing, so Postgres is
+//!    the first source whose driver does not pull a native library.
+//! 2. **Acceptance.** `DuckDB` was the only data system that showed a rendered statement is *accepted*
+//!    rather than just parsed. This makes it two, over the wire.
 //!
-//! Why it exists at all is the two rows in `AGENTS.md` it answers:
+//! Rendering is `sutura-sql`'s (`generate(plan, Dialect::Postgres)`); the parameters are bound by
+//! hand. Nothing here is compiled or translated.
 //!
-//! - **The artifact question, in code.** `tokio-postgres` is pure Rust and links nothing, so Postgres
-//!   is the first source whose driver does not pull a native library - which is what keeps the musl
-//!   cross-build matrix a non-issue. `duckdb` is a dev-dependency for exactly the opposite reason
-//!   (nixpkgs has no musl `libduckdb`).
-//! - **A second data system vouching for acceptance, over the wire for the first time.** `DuckDB` was
-//!   the only thing confirming that a rendered statement is not just well formed but accepted, and
-//!   parse-checked is explicitly narrower than accepted. This adapter makes it two, over the Postgres
-//!   protocol.
+//! The client is async; the [`Warehouse`] port is not, so this adapter owns a `tokio` runtime and
+//! `block_on`s each call - the engine's own pattern. It was chosen over `sqlx` because its
+//! protocol and SASL support underpin the OAuth work already done against a live Postgres, which
+//! keeps row 18's door open.
 //!
-//! Rendering is `sutura-sql`'s job, exactly as it is for `sutura-exec-duckdb`: this adapter asks
-//! `generate(plan, Dialect::Postgres)` and binds the parameters by hand. It compiles nothing.
+//! ## Limits
 //!
-//! ## Why `tokio-postgres`, chosen and recorded
-//!
-//! The issue this row is answering leaves the client open, subject to "the choice is also row 18's
-//! inheritance". `sqlx` and `tokio-postgres` both owe nothing at link time. `tokio-postgres` is the
-//! one whose protocol- and SASL-support underpins the OAuth verification already done against a live
-//! Postgres, so choosing it keeps that door open with the least churn. The cost is that the
-//! [`Warehouse`] port is SYNCHRONOUS, so this adapter owns a `tokio` runtime and `block_on`s each
-//! call - the engine's own "it holds its runtime" precedent, applied to a driver rather than to a
-//! plan executor.
+//! - `NoTls`, unconditional. SCRAM protects the password, not the rows; a `hostssl`-only server
+//!   refuses this connection. Fine for a localhost tier (all this ships for). TLS is a change to
+//!   `connect`.
+//! - The corpus cells run only where a tier is provisioned, and skip loudly elsewhere. The signal
+//!   is `SUTURA_DEV_REQUIRE_DOCKER`, not `CI` - a job that sets it gets fail-closed.
+//! - A `statement_timeout` is set at connect so a slow server statement cannot hold a blocking-pool
+//!   thread past the caller's request deadline.
 
 mod importer;
 
@@ -78,19 +68,17 @@ pub enum PostgresError {
     },
     /// The server refused a statement as `division by zero` (SQLSTATE `22012`).
     ///
-    /// Where `DuckDB` and the engine divide with IEEE semantics and hand back a non-finite cell for
-    /// this adapter to refuse, Postgres RAISES - so this is how `zero_denominator: fails` is honored
-    /// on this source, and it is a type rather than a re-rendered sentence. The raw server error is
-    /// kept as the `#[source]` so nothing the server said is fabricated.
+    /// Postgres raises this where `DuckDB` and the engine hand back a non-finite cell to refuse. The
+    /// raw server error stays as the `#[source]`.
     #[error("the statement was refused by the server as a division by zero")]
     DivisionByZero {
         #[source]
         cause: tokio_postgres::Error,
     },
-    /// A `NUMERIC` whose exact value is wider than this build can carry.
+    /// A `NUMERIC` wider than this build can carry exactly.
     ///
-    /// Refused rather than rounded, for the reason the other two adapters keep decimals exact: an
-    /// approximated total would answer under the certified number.
+    /// Refused rather than rounded, so an approximated total never answers under the certified
+    /// number.
     #[error("column {column} came back as a number wider than this build can carry exactly")]
     NumericNotCarryable { column: String },
     /// A column came back as a type this adapter does not map.
@@ -234,14 +222,12 @@ impl PostgresWarehouse {
 
     /// Opens a connection whose every unqualified table name resolves to a fresh, private schema.
     ///
-    /// The corpus runs several independent warehouses against ONE shared Postgres, in parallel
-    /// threads. If two of them loaded the same tables into the same schema, one dropping and
-    /// recreating a table would clobber the other mid-query. A per-connection schema makes each cell
-    ///'s tables its own, so the cells cannot collide - which is the same reason the repository gives
-    /// each worktree its own compose project.
+    /// The corpus runs several warehouses against ONE shared Postgres, in parallel threads; a shared
+    /// schema would let one cell's drop-and-recreate clobber another mid-query. A per-connection
+    /// schema makes each cell's tables its own.
     ///
-    /// The schema name is taken on trust from the caller here (a name a corpus generated), so it is
-    /// validated to a word character to keep the `CREATE SCHEMA` from becoming an injection.
+    /// The schema name is caller-supplied (a corpus-generated name), so it is validated to a word
+    /// before it reaches `CREATE SCHEMA`.
     pub fn connect_in_schema(
         source: sutura_domain::model::SourceName,
         posture: sutura_domain::source::SourcePosture,
@@ -361,15 +347,10 @@ impl PostgresWarehouse {
 
     /// The parameters, as the driver wants them.
     ///
-    /// **A date is bound as a `DATE`, not as ISO text - a deliberate departure from `DuckDB`'s `bind`,
-    /// whose comment says text is enough "because `DuckDB` casts".** Postgres does NOT cast a text
-    /// parameter to a date in `date_col >= $1`: the placeholder's type is inferred from the column,
-    /// and handing it text produces an operator-not-exist error. This is the place the repo's "a date
-    /// is bound as its ISO text" rule has to give way, and the reason is the data system's type
-    /// strictness rather than a taste.
-    ///
-    /// The conversion is the driver's internal day number (Postgres counts from 2000-01-01) minus the
-    /// domain's era (1970-01-01), a 10 957-day offset.
+    /// A date is bound as a `DATE`, not as ISO text (`DuckDB` casts text; Postgres does not, and
+    /// `date_col >= $1` infers the placeholder's type from the column - text gives an
+    /// operator-not-exist error). The conversion is the driver's day number (days since
+    /// 2000-01-01) minus the domain's era (1970-01-01), a 10 957-day offset.
     fn bind(params: &[ParamValue]) -> Vec<PgParam> {
         params
             .iter()
@@ -380,20 +361,15 @@ impl PostgresWarehouse {
             .collect()
     }
 
-    /// One cell, as a domain value.
+    /// One cell, as a domain value, dispatched on the column's declared type.
     ///
-    /// Dispatched on the column's declared type, which is how the two adapters' shared table reads
-    /// over the wire: this half maps the types a real Postgres hands back (`INT8` for a sum, `FLOAT8`
-    /// for an average, `NUMERIC` for `AVG` over integers) and the `DuckDB` half maps its own, both
-    /// landing on the same [`Value`] for the same logical figure. `tests/differential.rs` holds them
-    /// to that agreement.
+    /// The `DuckDB` half maps the same logical figure its own way; `tests/differential.rs` holds the
+    /// two to an arm-for-arm agreement.
     ///
-    /// **`NUMERIC` is decoded EXACTLY and split on the value, the one arm that deserves its own
-    /// note.** Postgres's `sum(int8)` returns `NUMERIC` (to guard against overflow) where the
-    /// `DuckDB` side returns the same integer, so an integral `NUMERIC` maps to [`Value::Integer`].
-    /// A `NUMERIC` with a fraction is the case the other two adapters both map to [`Value::Text`]
-    /// ("so an exact total stays exact"); this arm does the same rather than round-tripping through
-    /// an `f64`. See [`numeric_cell`] for the limit about an integer-column `AVG`.
+    /// `NUMERIC` is decoded exactly (never through an `f64`): an integral value maps to
+    /// [`Value::Integer`] (a `sum`), a fractional one to [`Value::Text`] (an exact total stays exact,
+    /// matching the other two adapters). See [`numeric_cell`] for the one limit - an integer-column
+    /// `AVG`.
     fn cell(label: &str, column_type: &Type, row: &Row, index: usize) -> Result<Value, PostgresError> {
         let unsupported = |postgres_type: &'static str| PostgresError::UnsupportedType {
             column: String::from(label),
@@ -636,20 +612,17 @@ impl<'a> FromSql<'a> for PgNumeric {
     }
 }
 
-/// Maps a decoded `NUMERIC` to a domain cell, exactly and following the other two adapters.
+/// Maps a decoded `NUMERIC` to a domain cell, exactly.
 ///
-/// Postgres's `sum(int8)` returns `NUMERIC` (to guard against overflow) where the engine and
-/// `DuckDB` return the same exact integer - so an integral `NUMERIC` maps to [`Value::Integer`]. A
-/// `NUMERIC` with a fraction is the case `sutura-exec-duckdb` and `sutura-exec-bigquery` both map to
-/// [`Value::Text`] ("so an exact total stays exact"); this adapter now does the same rather than
-/// round-trip the value through an `f64`. This is the one mapping that has to read the VALUE to
-/// choose, because Postgres reports the width as `NUMERIC` either way.
+/// An integral `NUMERIC` (a `sum`) maps to [`Value::Integer`]; a fractional one (the type
+/// `sutura-exec-duckdb` and `sutura-exec-bigquery` both render as [`Value::Text`]) maps to
+/// [`Value::Text`], so an exact total stays exact. The value decides, because Postgres reports the
+/// width as `NUMERIC` either way.
 ///
-/// **The limit, stated beside the mapping:** Postgres's `AVG` over an INTEGER column returns a
-/// fractional `NUMERIC`, which is exactly the [`Value::Text`] branch - so until the generator casts
-/// a Postgres `AVG` to `float8`, such a mean answers as text rather than as the float the engine
-/// reaches. No metric in the shipped corpus averages an integer column, so the differential cannot
-/// see that disagreement; the change is `sutura-sql`'s, to be reviewed as a golden diff.
+/// Limit: Postgres's `AVG` over an INTEGER column returns a fractional `NUMERIC` and so takes the
+/// text branch, where the engine reaches a float. The fix is `sutura-sql` casting a Postgres `AVG`
+/// to `float8`; no metric in the corpus averages an integer column today, so the differential can't
+/// see it.
 fn numeric_cell(value: &PgNumeric, label: &str) -> Result<Value, PostgresError> {
     if value.is_not_finite() {
         return Err(PostgresError::NotFinite {

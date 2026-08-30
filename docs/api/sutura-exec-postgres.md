@@ -7,45 +7,35 @@
 
 The public API of `sutura-exec-postgres`, rendered from rustdoc JSON.
 
-A `Warehouse` adapter over `PostgreSQL`, reached over the wire.
+A `Warehouse` adapter over PostgreSQL.
 
-The static-credential half of a Postgres data system: this adapter holds one connection under the
-shared service identity a deployment declared - the `SharedServiceUser` posture the example ships -
-and nothing here exchanges a caller's token for a per-subject grant. The OAuth half is deliberately
-out of scope (`docs/adr/0008`, `docs/adr/0014`); row 18, where a source executes as the asking
-subject, changes this adapter rather than arriving beside it.
+One connection, under the deployment's declared identity (`SharedServiceUser`). The static
+half of Postgres: no OAuth, no impersonation. That is row 18.
 
-## The deployability limit, stated so the title is not read as more than it is
+Two things this adapter proves:
 
-The connection is **`NoTls`**, unconditionally: SCRAM keeps the password off the wire, but every
-row travels in plaintext, and a server configured `hostssl`-only refuses this adapter outright.
-That is the right shape for a localhost compose tier (which is all this ships for), and the row
-in `AGENTS.md` carries the same sentence. What a deployment wants before a real Postgres is
-reached is TLS at the very least, which is a change to `connect`.
+1. **The artifact question.** `tokio-postgres` is pure Rust and links nothing, so Postgres is
+   the first source whose driver does not pull a native library.
+2. **Acceptance.** `DuckDB` was the only data system that showed a rendered statement is *accepted*
+   rather than just parsed. This makes it two, over the wire.
 
-Why it exists at all is the two rows in `AGENTS.md` it answers:
+Rendering is `sutura-sql`'s (`generate(plan, Dialect::Postgres)`); the parameters are bound by
+hand. Nothing here is compiled or translated.
 
-- **The artifact question, in code.** `tokio-postgres` is pure Rust and links nothing, so Postgres
-  is the first source whose driver does not pull a native library - which is what keeps the musl
-  cross-build matrix a non-issue. `duckdb` is a dev-dependency for exactly the opposite reason
-  (nixpkgs has no musl `libduckdb`).
-- **A second data system vouching for acceptance, over the wire for the first time.** `DuckDB` was
-  the only thing confirming that a rendered statement is not just well formed but accepted, and
-  parse-checked is explicitly narrower than accepted. This adapter makes it two, over the Postgres
-  protocol.
+The client is async; the `Warehouse` port is not, so this adapter owns a `tokio` runtime and
+`block_on`s each call - the engine's own pattern. It was chosen over `sqlx` because its
+protocol and SASL support underpin the OAuth work already done against a live Postgres, which
+keeps row 18's door open.
 
-Rendering is `sutura-sql`'s job, exactly as it is for `sutura-exec-duckdb`: this adapter asks
-`generate(plan, Dialect::Postgres)` and binds the parameters by hand. It compiles nothing.
+## Limits
 
-## Why `tokio-postgres`, chosen and recorded
-
-The issue this row is answering leaves the client open, subject to "the choice is also row 18's
-inheritance". `sqlx` and `tokio-postgres` both owe nothing at link time. `tokio-postgres` is the
-one whose protocol- and SASL-support underpins the OAuth verification already done against a live
-Postgres, so choosing it keeps that door open with the least churn. The cost is that the
-`Warehouse` port is SYNCHRONOUS, so this adapter owns a `tokio` runtime and `block_on`s each
-call - the engine's own "it holds its runtime" precedent, applied to a driver rather than to a
-plan executor.
+- `NoTls`, unconditional. SCRAM protects the password, not the rows; a `hostssl`-only server
+  refuses this connection. Fine for a localhost tier (all this ships for). TLS is a change to
+  `connect`.
+- The corpus cells run only where a tier is provisioned, and skip loudly elsewhere. The signal
+  is `SUTURA_DEV_REQUIRE_DOCKER`, not `CI` - a job that sets it gets fail-closed.
+- A `statement_timeout` is set at connect so a slow server statement cannot hold a blocking-pool
+  thread past the caller's request deadline.
 
 ## `enum PostgresError`
 
@@ -62,7 +52,7 @@ Why this data system could not answer.
 - `Prepare`
 - `Execute`
 - `DivisionByZero` - The server refused a statement as `division by zero` (SQLSTATE `22012`).
-- `NumericNotCarryable` - A `NUMERIC` whose exact value is wider than this build can carry.
+- `NumericNotCarryable` - A `NUMERIC` wider than this build can carry exactly.
 - `UnsupportedType` - A column came back as a type this adapter does not map.
 - `NotFinite` - A floating-point (or `NUMERIC`) column came back as a value that is not a number.
 - `NotADate` - A day came back that is not a date this build can represent.
@@ -103,14 +93,12 @@ pub fn connect_in_schema(source: sutura_domain::model::SourceName, posture: sutu
 
 Opens a connection whose every unqualified table name resolves to a fresh, private schema.
 
- The corpus runs several independent warehouses against ONE shared Postgres, in parallel
- threads. If two of them loaded the same tables into the same schema, one dropping and
- recreating a table would clobber the other mid-query. A per-connection schema makes each cell
-'s tables its own, so the cells cannot collide - which is the same reason the repository gives
- each worktree its own compose project.
+The corpus runs several warehouses against ONE shared Postgres, in parallel threads; a shared
+schema would let one cell's drop-and-recreate clobber another mid-query. A per-connection
+schema makes each cell's tables its own.
 
- The schema name is taken on trust from the caller here (a name a corpus generated), so it is
- validated to a word character to keep the `CREATE SCHEMA` from becoming an injection.
+The schema name is caller-supplied (a corpus-generated name), so it is validated to a word
+before it reaches `CREATE SCHEMA`.
 
 ```rust
 pub fn load_csv(&self, table: &TableName, path: &Path) -> Result<(), PostgresError>
