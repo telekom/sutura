@@ -1150,6 +1150,7 @@ Why a document is not a usable key set.
 - `UnusableKeyId`
 - `DuplicateKeyId` - Two keys under one id.
 - `SymmetricKey` - A symmetric key.
+- `UnsupportedKeyFamily`
 - `UnusableKey`
 - `NoKeyOfThePinnedFamily` - Not one key of the family the pinned algorithms need.
 
@@ -1828,7 +1829,7 @@ pub async fn enforce_timeout(__arg0: axum::extract::State<std::time::Duration>, 
 Gives up on a request that outran the configured bound, with the documented body.
 
 **Written here rather than taken from `tower_http`, and the reason is a body.** Pinned
-`tower-http` 0.6.11 implements `TimeoutLayer::with_status_code` as
+`tower-http` 0.7.0 implements `TimeoutLayer::with_status_code` as
 `Response::new(B::default())` - the status and an *empty* body - so the `408` this surface
 documents, and which `problem.rs` promises carries a `crate::problem::ProblemBody` like every
 other failure, was a status nothing put a body behind. `Failure::Timeout` existed and was never

@@ -217,6 +217,8 @@ pub enum InvalidKeySet {
          is no configuration in which that key belongs here"
     )]
     SymmetricKey,
+    #[error("a key in the set uses a key family this deployment does not support")]
+    UnsupportedKeyFamily,
     #[error("a key in the set has parameters this deployment cannot build a verifier from")]
     UnusableKey {
         #[source]
@@ -345,6 +347,7 @@ fn verifier_for(jwk: &Jwk) -> Result<Verifier, InvalidKeySet> {
         AlgorithmParameters::RSA(_) => KeyFamily::Rsa,
         AlgorithmParameters::EllipticCurve(_) => KeyFamily::EllipticCurve,
         AlgorithmParameters::OctetKeyPair(_) => KeyFamily::EdwardsCurve,
+        _ => return Err(InvalidKeySet::UnsupportedKeyFamily),
     };
     let key = DecodingKey::from_jwk(jwk).map_err(|cause| InvalidKeySet::UnusableKey { cause })?;
     Ok(Verifier { key, family })

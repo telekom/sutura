@@ -325,7 +325,7 @@ fn layer(quota: Quota, tier: &'static str, key: ClientAddress) -> BuiltTier {
 /// Gives up on a request that outran the configured bound, with the documented body.
 ///
 /// **Written here rather than taken from `tower_http`, and the reason is a body.** Pinned
-/// `tower-http` 0.6.11 implements `TimeoutLayer::with_status_code` as
+/// `tower-http` 0.7.0 implements `TimeoutLayer::with_status_code` as
 /// `Response::new(B::default())` - the status and an *empty* body - so the `408` this surface
 /// documents, and which `problem.rs` promises carries a [`crate::problem::ProblemBody`] like every
 /// other failure, was a status nothing put a body behind. `Failure::Timeout` existed and was never
