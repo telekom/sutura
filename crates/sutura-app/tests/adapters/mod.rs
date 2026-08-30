@@ -39,7 +39,11 @@
 //! cannot execute, and a cell that cannot fail reads as coverage.
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
+use sutura_dev::discovery::Endpoint;
+use sutura_dev::provisioned::{self, Provisioned};
 use sutura_domain::model::TableName;
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::query::Query;
@@ -92,8 +96,8 @@ pub(crate) fn source() -> sutura_domain::model::SourceName {
 /// The posture every registered data system in this matrix is opened with.
 ///
 /// **Part of the registration, and it belongs here rather than on each adapter** - the mode is
-/// configuration and this file is the matrix's configuration. Both registered adapters happen to
-/// declare the same *capability* (neither can carry a per-subject credential), but that is a fact about
+/// configuration and this file is the matrix's configuration. Every registered adapter happens to
+/// declare the same *capability* (none can carry a per-subject credential), but that is a fact about
 /// them and not the reason this value is shared: a deployment of either one is legitimately
 /// `shared-service-user`, because one process reads a file or holds a connection under one
 /// operating-system identity.
@@ -136,7 +140,7 @@ pub(crate) struct BrokerCannotFail;
 ///
 /// **Part of the registration, for the reason [`posture`] is:** which credential a leg presents is
 /// configuration, and this file is the matrix's configuration. It grants what [`presented`] says,
-/// which is what both registered adapters can execute with - and when an adapter that CAN
+/// which is what every registered adapter can execute with - and when an adapter that CAN
 /// impersonate is registered, this and `posture` are the two lines that grow a second value.
 pub(crate) struct GrantsWhatTheMatrixDeclares;
 
@@ -254,6 +258,19 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
 
     /// Opens it with one table attached per model in `pinned`.
     fn open(pinned: &PinnedDefinitions) -> Self;
+
+    /// Whether this adapter can execute HERE at all.
+    ///
+    /// Defaults to `true`, which is the truth for the in-process and in-memory adapters. A network
+    /// adapter - one that needs a provisioned service to be listening - reports whether that tier is
+    /// up. When it is `false`, a corpus cell is SKIPPED (the skip notice has already reached stderr
+    /// through `sutura_dev::provisioned`); the skip-or-fail direction is
+    /// `SUTURA_DEV_REQUIRE_TIER`, read once by the provisioner. A provisioned tier makes the cells
+    /// run rather than skip, which is the point of the flag; in the sandbox that tier is the nix one
+    /// (`nix/postgres-tier.nix`), elsewhere docker, and both write the same discovery file.
+    fn available() -> bool {
+        true
+    }
 }
 
 impl DataSystemUnderTest for sutura_exec_datafusion::DataFusionWarehouse {
@@ -289,6 +306,58 @@ impl DataSystemUnderTest for sutura_exec_duckdb::DuckDbWarehouse {
         }
         warehouse
     }
+}
+
+impl DataSystemUnderTest for sutura_exec_postgres::PostgresWarehouse {
+    const NAME: &'static str = "postgres";
+
+    fn available() -> bool {
+        postgres_tier().is_some()
+    }
+
+    fn open(pinned: &PinnedDefinitions) -> Self {
+        // `available()` guards every cell, so this is reached only when discovery answered.
+        let endpoint = postgres_tier().expect("`available()` guards the Open of every postgres cell");
+        let config = Self::local_config(endpoint.host(), endpoint.port());
+        // One PRIVATE schema per open, so parallel corpus cells sharing one server cannot clobber one
+        // another's tables - the same per-worktree isolation the compose tier gets, applied per cell.
+        let schema = format!("cell_{}_{}", std::process::id(), schema_counter());
+        let warehouse = Self::connect_in_schema(source(), posture(), &config, &schema)
+            .unwrap_or_else(|e| panic!("postgres did not open at {endpoint}: {e}"));
+        for (table, csv) in fixture_tables(pinned) {
+            warehouse
+                .load_csv(&table, &csv)
+                .unwrap_or_else(|e| panic!("postgres could not load {}: {e}", csv.display()));
+        }
+        warehouse
+    }
+}
+
+/// A per-process counter, so each `open` in one test process gets a distinct schema name.
+fn schema_counter() -> usize {
+    static COUNTER: AtomicUsize = AtomicUsize::new(0);
+    COUNTER.fetch_add(1, Ordering::Relaxed)
+}
+
+/// This worktree's provisioned Postgres endpoint, if the tier is up.
+///
+/// Resolved once and cached: `sutura_dev::provisioned::here` prints its skip-or-fail notice on the
+/// skip path, and a corpus run reaches it from several cells - one notice is enough. The skip-or-fail
+/// direction is read by `here` from `SUTURA_DEV_REQUIRE_TIER`, so the nix sandbox (which provisions
+/// the tier itself) and a docker tier both make the cells RUN rather than skip.
+///
+/// The directory the walk starts from is this crate's manifest dir, which is inside the worktree and
+/// so resolves to the worktree root - the same discovery file `just dev-up` writes per worktree.
+fn postgres_tier() -> Option<&'static Endpoint> {
+    static CACHED: OnceLock<Option<Endpoint>> = OnceLock::new();
+    CACHED
+        .get_or_init(
+            || match provisioned::here(Path::new(env!("CARGO_MANIFEST_DIR")), "postgres") {
+                Provisioned::At(endpoint) => Some(endpoint),
+                Provisioned::Skipped(_) => None,
+            },
+        )
+        .as_ref()
 }
 
 /// The catalog the axes that are not *about* a catalog read through.
@@ -367,12 +436,14 @@ where
 ///
 /// # `data_systems: $cell` - `$cell!(name, Adapter)`
 ///
-/// `Adapter` implements [`DataSystemUnderTest`]. **Two entries, and they are two different kinds of
-/// thing behind one port**, which is the whole reason the port takes a `QueryPlan` rather than a
+/// `Adapter` implements [`DataSystemUnderTest`]. **Three entries, in two different kinds of thing
+/// behind one port**, which is the whole reason the port takes a `QueryPlan` rather than a
 /// statement. `DataFusion` is THE ENGINE: the plan becomes a logical plan over Arrow and no SQL is
-/// generated, so a dialect bug is unreachable on that path. `DuckDB` is a DATA SOURCE: the plan is
-/// rendered into `DuckDB` SQL and pushed down. Both are `Warehouse` implementations and the corpus
-/// does not know which it is talking to.
+/// generated, so a dialect bug is unreachable on that path. `DuckDB` and `Postgres` are DATA SOURCES:
+/// the plan is rendered into their dialect's SQL and pushed down. All three are `Warehouse`
+/// implementations and the corpus does not know which it is talking to. Of the two sources, only
+/// `Postgres` needs a provisioned tier to execute, so its cells skip where discovery answers no
+/// endpoint - see [`DataSystemUnderTest::available`].
 ///
 /// # `dialects: $cell` - `$cell!(name, Dialect, ParseTarget)`
 ///
@@ -401,6 +472,10 @@ macro_rules! registered {
         $cell!(datafusion, sutura_exec_datafusion::DataFusionWarehouse);
         // A DATA SOURCE, and a development dependency rather than a shipped one.
         $cell!(duckdb, sutura_exec_duckdb::DuckDbWarehouse);
+        // A DATA SOURCE, reached over the wire, and likewise a development dependency: it proves the
+        // Postgres statement we render is ACCEPTED by a real Postgres, which parse-checking cannot.
+        // Its cells run against this worktree's provisioned tier and skip where none is up.
+        $cell!(postgres, sutura_exec_postgres::PostgresWarehouse);
     };
 
     (dialects: $cell:ident) => {

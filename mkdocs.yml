@@ -181,6 +181,7 @@ nav:
       - sutura-exec-datafusion: api/sutura-exec-datafusion.md
       - sutura-exec-duckdb: api/sutura-exec-duckdb.md
       - sutura-exec-bigquery: api/sutura-exec-bigquery.md
+      - sutura-exec-postgres: api/sutura-exec-postgres.md
       - sutura-app: api/sutura-app.md
       - sutura-config: api/sutura-config.md
       - sutura-runtime: api/sutura-runtime.md

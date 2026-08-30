@@ -1,20 +1,19 @@
 # The implementation plan
 
 Operational, and expected to churn. The decisions it executes live in
-[the ADRs](adr/0009-the-plan-from-one-source-to-many.md) and do not change because a step turned out
-harder than it looked. If a step cannot be done as written, the ADR is the thing to argue with.
+[the ADRs](adr/0009-the-plan-from-one-source-to-many.md); a step that turns out harder than it looked
+does not change them. If a step cannot be done as written, argue with the ADR, not the plan.
 
 **Twenty-six steps, ten done, six of which can start at once.** Every number is counted off the table
-below rather than remembered, which is the fourth attempt at getting them right: a number typed by hand
-beside the table that owns it goes stale on the next row, and it has now gone stale three times -
-"eleven steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which"
-against eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows
-and seven done. **If the table and this sentence ever disagree again, the table is right**, and the
-three commands that settle it are `grep -c '^| [0-9]'` for the rows, `grep -c '^| [0-9].*\*\*DONE\*\*'` for the
-finished ones and `grep -c '| \*\*yes\*\* |$'` for the startable ones. **The middle command used to
-search for the strikethrough and it over-counted, which is worth a sentence because the fix is a
-habit:** the needle appeared in this paragraph as well as in the table, so the paragraph explaining the
-count was itself counted. Every command here is anchored at the start of a row for that reason. Every
+below rather than remembered - the fourth attempt at getting them right. A number typed by hand beside
+the table that owns it goes stale on the next row, and it has now gone stale three times: "eleven
+steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which" against
+eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows and
+seven done. **If the table and this sentence ever disagree again, the table is right.** The three
+commands that settle it are `grep -c '^| [0-9]'` for the rows, `grep -c '^| [0-9].*\*\*DONE\*\*'` for
+the finished ones and `grep -c '| \*\*yes\*\* |$'` for the startable ones. **The middle command used
+to search for the strikethrough and it over-counted**, because the needle appeared in the paragraph
+explaining the count as well as in the table - so every command anchors at the start of a row. Every
 step is one branch, one pull request, and green before the next depends on it. `stax` manages the
 stack; the `git-ops/stacked-branches` skill has the mechanics.
 
@@ -43,7 +42,7 @@ internal that a stable surface can grow behind.
 | 14 | ~~`feat/compose-tier`~~ | nothing in this repo - docker on the host | **DONE** - #34 |
 | 15 | `feat/bigquery-adapter` | 8 - **done**; the fixture decision is **made**, `adr/0017` | **MOSTLY DONE** - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. **The WIRE is not built**: no `JobTransport` reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it |
 | 16 | `feat/bigquery-impersonation` | 12, 15, and the ID-token verification | after 15 |
-| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | after 14 |
+| 17 | `feat/postgres-adapter` | 8 - **done**, 14, and the artifact question | **static-credential half built (18 remains)** |
 | 18 | `feat/postgres-oauth` | 12, 17, and the server-side validator decision | after 17 |
 | 19 | `feat/source-mtls` | 8 - **done**, 17 | after 17 |
 | 20 | `feat/raw-sql-tool` | 3, 8 - **done**, 12 | after 12 |
@@ -57,9 +56,9 @@ internal that a stable surface can grow behind.
 **Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
 [BigQuery](implementation-plan-bigquery.md), and rows 12 to 14 and 17 to 24 are in
 [identity, services and the operational work](implementation-plan-identity-and-services.md)** - three
-file names, one document: this table stays the only owner of a step number, and the
-split is at the stack's own phase boundary - nothing up to and including the conformance packs needs a
-live service or an identity decision, and everything after it needs one or both.
+file names, one document: this table stays the only owner of a step number, and the split is at the
+stack's own phase boundary - nothing up to and including the conformance packs needs a live service or
+an identity decision, and everything after it needs one or both.
 
 **Six orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:**
@@ -69,22 +68,22 @@ arrangement that would have gone wrong:**
   adapter is tested against, so an adapter that lands first has nothing real to run against and its
   tests become a fake asserting our own code back to us.
 - **A Postgres adapter with a static credential is its own step, ahead of the OAuth one.** This is
-  [track 1](adr/0007-federating-across-different-data-systems.md) - one source, queried directly - and
-  0007 prices it as nearly free: the dialect is compiled, the statement and parameter goldens exist,
-  every statement is already parse-checked. What it buys is disproportionate: it answers *which shipped
-  artifact links a native driver*, which is an open question in two ADRs and a cross-build matrix
+  [track 1](adr/0007-federating-across-different-data-systems.md) - one source, queried directly -
+  and 0007 prices it as nearly free: the dialect is compiled, the statement and parameter goldens
+  exist, every statement is already parse-checked. The payoff is disproportionate: it answers *which
+  shipped artifact links a native driver* - an open question in two ADRs and a cross-build matrix
   change; it puts the rendered SQL in front of a real Postgres for the first time, which the goldens
   cannot do; and it means the SASL OAUTHBEARER verification, if it fails, blocks one step instead of
   the whole network story.
 - **BigQuery moves ahead of Postgres, and the argument is value rather than cost.** The bullet above
-  is a cost argument and it still holds - Postgres is nearly free. It is also not the deciding one:
+  is a cost argument and it still holds - Postgres is nearly free. It is not the deciding one:
   **BigQuery is where per-subject execution has to work, and Postgres is where it would be nice if it
-  did.** An earlier version of this table had no BigQuery row at all, which meant the plan ordered
-  purely on cost while the deployment's priority ordered on value, and the two disagreed silently.
-  BigQuery is genuinely the more expensive step - there is no `Dialect::BigQuery`, so it costs a
-  fourth dialect of goldens and an AGENTS.md invariant the guidance gate will fail until it is
-  updated - and it goes first anyway. **Cheap-first is a tiebreak, not a rule**; when the expensive
-  step is the one that pays for the stack, it leads.
+  did.** An earlier version of this table had no BigQuery row at all, ordering purely on cost while
+  the deployment's priority ordered on value, and the two disagreed silently. BigQuery is genuinely
+  the more expensive step - there is no `Dialect::BigQuery`, so it costs a fourth dialect of goldens
+  and an AGENTS.md invariant the guidance gate will fail until it is updated - and it goes first
+  anyway. **Cheap-first is a tiebreak, not a rule**; when the expensive step is the one that pays for
+  the stack, it leads.
 - **The agent surface is split, and slice one is deliberately thin.** See below.
 - **One step in this stack is a RECORD rather than code, and it is deliberately early.**
   `docs/inbound-identity` answers the question
@@ -97,9 +96,9 @@ arrangement that would have gone wrong:**
   caller, and a filter over an unverified claim is worse than no filter - it looks like a control. A
   question with no owner blocks nothing, which is why this is a row and not a paragraph.
 - **The leg plan types are their own branch, ahead of the combine.** An earlier version had one
-  federation step that both invented the leg shapes and executed them, and that step could not be
-  written because the shapes did not exist: `QueryPlan` requires a bucket, a measure and a measure
-  label, and a dimension lookup has none of the three. Splitting it follows
+  federation step that both invented the leg shapes and executed them, and it could not be written
+  because the shapes did not exist: `QueryPlan` requires a bucket, a measure and a measure label, and
+  a dimension lookup has none of the three. Splitting it follows
   [0007](adr/0007-federating-across-different-data-systems.md)'s own ordering. **The reason given here
   for the split used to be that this branch moves the definition digest, and that was false** - checked
   since: `DefinitionDigest::of` hashes the `Definitions` and the `Knowledge`, so no plan type is under
@@ -127,10 +126,10 @@ project becomes something else.
 The model, the element set and the compile are here. What is NOT here is wren's fan-out arithmetic: a
 dimension reached through a relationship whose declared cardinality may duplicate rows is **refused**
 rather than computed safely. That is deliberate - a refusal beats a wrong number, and the cardinality
-declaration is a trusted precondition nothing checks against the data - but the consequence is worth
-stating plainly: **a question wren would answer, sutura declines.** Nobody should later file that as a
-bug. The closed measure vocabulary is narrower than wren's calculated fields for the same reason, and
-the authored-SQL hatch is the escape valve that exists and is not wired.
+declaration is a trusted precondition nothing checks against the data. The consequence, plainly:
+**a question wren would answer, sutura declines.** Do not later file that as a bug. The closed measure
+vocabulary is narrower than wren's calculated fields for the same reason, and the authored-SQL hatch is
+the escape valve that exists and is not wired.
 
 ### Spice is compared, never mined
 
@@ -169,8 +168,8 @@ If the feature is compiled to reach it, three things must hold and one must chan
   `Ok` and **discards the diagnostic**, and the raising level errors on every non-count aggregate
   targeting ClickHouse while staying silent on the four real breakages. Neither default is acceptable
   as-is.
-- And the invariant row changes, because its stated mechanism is "the feature is not compiled". A row
-  whose mechanism moves gets rewritten, not reinterpreted.
+- The invariant row changes, because its stated mechanism is "the feature is not compiled". A row whose
+  mechanism moves gets rewritten, not reinterpreted.
 
 ## Operating inside a platform we do not own
 
@@ -190,41 +189,39 @@ them constrain the surface, and most of the constraints land on the step that is
 - **Only TOOLS may be load-bearing.** A gateway of this kind surfaces tools and **ignores resources and
   prompts**. So a glossary, a catalog description or a "how to ask" hint may improve a cooperative
   client and must never be the thing that makes an answer correct. That matches what the prompt already
-  is - advisory - but it becomes enforced by the transport rather than by our discipline, which is a
-  stronger position and worth designing for deliberately.
+  is - advisory - but it becomes enforced by the transport rather than by our discipline, a stronger
+  position worth designing for deliberately.
 - **Two authentication adapters behind one port.** Direct callers need the full resource-server dance:
   metadata discovery, a challenge, an audience-bound token we validate ourselves. Behind a gateway, all
   of that is dead code on that route while remaining mandatory on the other. Implement both behind one
-  subject port **so the tool surface cannot tell the difference** - that is the most concrete
-  justification the hexagon has been given, and it is a real cost rather than a free abstraction.
+  subject port **so the tool surface cannot tell the difference** - the most concrete justification the
+  hexagon has been given, and a real cost rather than a free abstraction.
 - **A forwarded user token is credential forwarding, not identity proof.** It is acceptable only if it
   is a signed token from a discoverable issuer that sutura verifies itself: issuer, audience,
   signature, expiry. It is unacceptable if the front door re-mints an opaque string only it can
-  interpret. **This single question decides whether such a route can ever serve per-subject data**, and
-  it is a question to ask rather than to assume.
+  interpret. **This single question decides whether such a route can ever serve per-subject data** - a
+  question to ask rather than to assume.
 - **Never accept a plain user-id header as identity.** Behind a service token, anything holding that
   token could obtain a credential for ANY user - a confused deputy, and with a per-user credential
   store it turns our own API into a mass-exfiltration surface. Audit entries naming individual people
-  would then be fiction, which is worse than an honest shared-identity record because it will be
-  trusted.
+  would then be fiction, worse than an honest shared-identity record because it will be trusted.
 - **No auth-bearing tool parameter.** A credential in a tool argument is a credential in the model's
   context, and it makes the model a credential carrier. Authentication is transport-level, and the tool
   surface exposes no field for it - which the typed `Query` already guarantees by having no such field.
 - **A timeout may change the surface's SHAPE, not just a setting.** A gateway of this kind enforces a
   request timeout in the tens of seconds, and streaming does not exempt a connection from it. If a
   governed turn can exceed it, the surface has to become submit-and-poll - a design change, decided
-  before the tools are written rather than after. Measure a real turn first; and note that without push
-  notifications the obvious asynchronous pattern is foreclosed.
-  **And this is where two numbers in two records disagreed by an order of magnitude**, which is worth
-  settling before anybody measures anything: 0009's provisional query deadline is three minutes, and a
-  front door that cuts at tens of seconds means a turn allowed 180 seconds cannot complete on that
-  route. 0009 now decides which of the two yields - **the deadline does.** It is bounded by the front
-  door on any route that has one, rather than a default that quietly outlives the connection it is
-  supposed to bound. The measurement decides the second half: if a governed turn fits inside the front
-  door's limit, the deadline on that route is simply the smaller number and nothing else changes; if it
-  does not, the surface on that route is submit-and-poll from the first tool, and that is a decision to
-  take before the tool set exists rather than after somebody has built six tools around a request
-  shape.
+  before the tools are written rather than after. Measure a real turn first; without push notifications
+  the obvious asynchronous pattern is foreclosed. **And this is where two numbers in two records
+  disagreed by an order of magnitude** - worth settling before anybody measures: 0009's provisional
+  query deadline is three minutes, and a front door that cuts at tens of seconds means a turn allowed
+  180 seconds cannot complete on that route. 0009 now decides which yields - **the deadline does.** It
+  is bounded by the front door on any route that has one, rather than a default that quietly outlives
+  the connection it is supposed to bound. The measurement decides the second half: if a governed turn
+  fits inside the front door's limit, the deadline on that route is simply the smaller number and
+  nothing else changes; if it does not, the surface on that route is submit-and-poll from the first
+  tool, decided before the tool set exists rather than after somebody has built six tools around a
+  request shape.
 
 ### Two rules that outrank any of the above
 
@@ -254,14 +251,14 @@ and the one thing a first slice must not do is stay open. So:
 ### Slice one: `feat/agent-surface`
 
 **Adds.** One crate, one transport, **one tool**: ask a certified question. Its schema is GENERATED
-rather than hand-written, which is the property that has to be true from the first line because
-retrofitting it means reconciling two shapes that have already drifted.
+rather than hand-written, the property that has to be true from the first line because retrofitting it
+means reconciling two shapes that have already drifted.
 
 **Generated from what, decided here rather than left to the branch.** An earlier version of this
-section said "derived from the domain `Query`", which is one word away from an architecture decision
-and does not survive being looked at: the derive macro the agent transport needs is `schemars`, it
-appears **nowhere in `Cargo.toml` or `Cargo.lock` today** - verified, not assumed - and putting it on a
-domain type adds a macro crate and its whole tree to `ALLOWED_IN_DOMAIN`, which `AGENTS.md` calls an
+section said "derived from the domain `Query`", one word away from an architecture decision that does
+not survive being looked at: the derive macro the agent transport needs is `schemars`, it appears
+**nowhere in `Cargo.toml` or `Cargo.lock` today** - verified, not assumed - and putting it on a domain
+type adds a macro crate and its whole tree to `ALLOWED_IN_DOMAIN`, which `AGENTS.md` calls an
 architecture decision rather than a convenience, and which `cargo xtask check-boundaries` walks the
 transitive tree to enforce. So the derive goes on a **wire type in the agent-surface crate**, with
 `TryFrom<..> for Query` as the only way in, exactly the shape the HTTP transport already ships:
@@ -287,16 +284,15 @@ path or the tool surface* table says a new or widened tool input is caught becau
 schemas change and the byte-compare fails until they are re-dumped", and that a new failure mode meets
 "the schema drift check". **There is no such dump and no such check** - searched rather than assumed:
 `docs/generated/` does not exist, no `xtask` subcommand or `just` task dumps a schema, and `schemars` is
-in neither manifest nor lockfile. So the drift guard this step is described as inheriting is a guard this
-step has to BUILD, and it is the one mechanism in slice one that is load-bearing for the governance
-boundary rather than for the transport: without it, "no field carries SQL, a table, a predicate or row
-ids" is enforced by `Query`'s own `deny_unknown_fields` and by review, and not by a diff a reviewer
-cannot miss.
+in neither manifest nor lockfile. So the drift guard this step is described as inheriting is a guard it
+has to BUILD, and it is the one mechanism in slice one load-bearing for the governance boundary rather
+than for the transport: without it, "no field carries SQL, a table, a predicate or row ids" is enforced
+by `Query`'s own `deny_unknown_fields` and by review, and not by a diff a reviewer cannot miss.
 
 **The tool result carries ROWS, inline. Decided, and a finding was withdrawn to get here.** An audit of
-an older private record set surfaced a rule reading *"rows must not enter the model's context window - the
-tool result is provenance plus a handle, and the client fetches the data"*, and it was raised here as a
-gap this branch should close before slice one fixed the result shape.
+an older private record set surfaced a rule reading *"rows must not enter the model's context window -
+the tool result is provenance plus a handle, and the client fetches the data"*, raised here as a gap
+this branch should close before slice one fixed the result shape.
 
 **Withdrawn, because it was a misreading of what that rule protects.** The substance is that in
 federation mode **the join is done by the engine and its SQL, not by the model** - a language model must
@@ -311,10 +307,10 @@ capability: an agent asked for a number could not answer without a second fetch,
 would show its user nothing. **So: one result shape, rows inline, and no handle.**
 
 **What that leaves open, stated rather than assumed away:** the answer row cap is `max_rows + 1` with a
-default in the thousands, which is far above what any model's context tolerates. Whether the agent
-surface takes its own lower cap - and what number - is a real question and **nobody has measured it**, so
-it is not answered here. The hard bound stays where it is; an advisory cap for this surface is a decision
-for whoever builds slice one, with a measurement rather than a guess.
+default in the thousands, far above what any model's context tolerates. Whether the agent surface takes
+its own lower cap - and what number - is a real question and **nobody has measured it**, so it is not
+answered here. The hard bound stays where it is; an advisory cap for this surface is a decision for
+whoever builds slice one, with a measurement rather than a guess.
 
 **Tests.**
 - `a_certified_question_is_answered_over_the_agent_surface`.
@@ -472,8 +468,8 @@ why the sources' own logs, written under the asking subject, carry the part of t
 matters. **BUILT**, and by `feat/principal-chain` rather than by a later step: `sutura_domain::audit::AuditSink`
 is the port and `sutura_runtime::TracingAuditSink` is its first implementor, because `AGENTS.md` requires
 a port to arrive with one. `LocalService::start` now REQUIRES a sink, so a deployment that forgot to
-attach one is not a state that exists - which is a stronger guarantee than the sentence this replaced
-assumed was unavailable.
+attach one is not a state that exists - a stronger guarantee than the sentence this replaced assumed was
+unavailable.
 
 **Tests.**
 - `a_principal_with_no_actor_is_a_bare_subject_and_says_so`.
@@ -551,12 +547,11 @@ one question reaches two sources whose overrides disagree:
   byte budget applied as rows are converted, which lands with the `RowSet`-to-Arrow boundary in
   `feat/two-source-execution`. This step's acceptance test is therefore an operator reservation over
   the ceiling and nothing wider. An earlier version of this step promised "an oversized intermediate is
-  refused rather than aborting", which is a promise the pool cannot keep.
+  refused rather than aborting", a promise the pool cannot keep.
 - **It cannot cancel.** `Warehouse::execute` is synchronous and blocking, so a deadline that fires here
   leaves the leg running inside the driver. 0009 decides the fix - the deadline travels on the port -
-  and the port changes in `feat/credential-port`, which is where a test may first assert that an
-  execution stopped. Until then this bound is honestly **"stop waiting"**, and the test is named for
-  that.
+  and the port changes in `feat/credential-port`, where a test may first assert that an execution
+  stopped. Until then this bound is honestly **"stop waiting"**, and the test is named for that.
 
 **Tests.**
 - `an_operator_reservation_over_the_ceiling_is_refused_rather_than_aborting_the_process` - the
