@@ -24,7 +24,7 @@ use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::TableName;
 use sutura_domain::plan::Executable;
 use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, ParamValue, PreFlight, Real, RowSet, Value, Warehouse};
-use sutura_sql::generate::generate;
+use sutura_sql::generate::{generate, generate_leg};
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 /// Why this data system could not answer.
@@ -118,24 +118,14 @@ pub enum DuckDbError {
         #[source]
         cause: duckdb::Error,
     },
-    /// One leg of a federated answer, which nothing here can assemble above.
+    /// One leg of a federated answer, rendered here and assembled above by the combiner.
     ///
     /// **Not a refusal and not a default body.** [`Warehouse::execute`] takes an
-    /// [`Executable`], so this adapter's match over what it can be handed is exhaustive - that is
-    /// the mechanism, and this variant is what it costs today. Nothing constructs a
-    /// [`LegPlan`](sutura_domain::plan::LegPlan) outside a test: there is no splitter and no
-    /// combiner, so no code path reaches here.
+    /// [`Executable`], so this adapter's match over what it can be handed is exhaustive. A
+    /// [`LegPlan`](sutura_domain::plan::LegPlan) renders through `generate_leg` and runs like any
+    /// other statement; it carries no row cap, because a leg is not an answer - the combiner above
+    /// it applies `MAX_ROWS`.
     ///
-    /// **This adapter could RENDER one** - `sutura_sql::generate_leg` renders every leg shape for
-    /// this dialect and the golden family pins it - and rendering is not answering. Executing a leg
-    /// with nothing above it returns rows at a finer grouping than the question asked for, and a
-    /// half-federated answer under a certified metric name is the failure this repository exists to
-    /// prevent. So the leg path arrives with the combiner and its differential test, not before.
-    ///
-    /// It carries the table rather than a sentence, because that is the one thing a reader chasing
-    /// this needs and the message may be reworded.
-    #[error("this adapter answers a whole plan, and the leg against {table} needs a combiner above it")]
-    LegWithoutCombiner { table: String },
     /// The credential broker handed this adapter subject material it has nowhere to put.
     ///
     /// **An `Err` and never a refusal.** Nothing about the question was wrong: it is a wiring defect
@@ -271,8 +261,9 @@ impl DuckDbWarehouse {
     ///
     /// Free-standing rather than a method: it reads nothing from `self`, and taking `&self` would
     /// imply the rendering depends on which connection is open, which it must not.
-    /// One exhaustive match, so a third plan shape cannot be answered by accident. The leg arm
-    /// refuses rather than renders, and [`DuckDbError::LegWithoutCombiner`] says why.
+    /// One exhaustive match, so a third plan shape cannot be answered by accident: a whole plan
+    /// renders through `generate`, a leg through `generate_leg`.
+    ///
     /// Refuses credential material this adapter has nowhere to put.
     ///
     /// **One exhaustive match, called by both port methods that take a credential.** A copy per
@@ -302,9 +293,7 @@ impl DuckDbWarehouse {
     fn render(executable: Executable<'_>) -> Result<GeneratedQuery, DuckDbError> {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
-            Executable::Leg(leg) => Err(DuckDbError::LegWithoutCombiner {
-                table: leg.table().to_string(),
-            }),
+            Executable::Leg(leg) => generate_leg(leg, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
         }
     }
 
@@ -451,6 +440,11 @@ impl Warehouse for DuckDbWarehouse {
     /// `impersonation-at-source` on this adapter does not start.
     const IMPERSONATION: sutura_domain::source::ImpersonationCapability =
         sutura_domain::source::ImpersonationCapability::NoPlaceForASubject;
+
+    /// This adapter executes a [`LegPlan`](sutura_domain::plan::LegPlan): the differential suite
+    /// runs the combiner above its two sources, so a leg it renders is handed to a combiner, never
+    /// surfaced as a half-answer.
+    const EXECUTES_LEGS: bool = true;
 
     fn source(&self) -> &sutura_domain::model::SourceName {
         &self.source
