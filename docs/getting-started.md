@@ -6,15 +6,15 @@ description: Point the binary at a catalogue and a file, and ask one question.
 # Getting started
 
 There is a catalogue, the data behind it and a directory of questions in the repository already -
-`examples/single-player`, the one corpus both test suites run on - so the fastest way to see what
-this does is to point the binary at those.
+`examples/single-player`, the one corpus both test suites run on. The fastest way to see what this
+does is to point the binary at those.
 
 ```bash
 cargo run -p sutura-cli -- \
   catalog examples/single-player/catalog
 ```
 
-No feature flag, and nothing to install. The engine is compiled into the binary and reads the CSVs
+No feature flag, nothing to install. The engine is compiled into the binary and reads the CSVs
 itself, so `query` works in a plain `cargo run`. A data system's driver is a development dependency
 here - present to prove the SQL we render actually runs, not to answer your questions.
 
@@ -122,8 +122,8 @@ a dialect as a third argument - `duckdb`, `postgres` or `clickhouse` - to see th
 for another data system: `ClickHouse` gets `dateTrunc` and `sum`, Postgres gets `$1` and `$2`
 instead of `?`.
 
-Three details in there are deliberate and easy to misread. **Every value is a bind parameter,
-including `$3`** - that one is not something the caller sent, it is `recurring_revenue`'s own
+Three details are deliberate and easy to misread. **Every value is a bind parameter, including
+`$3`** - that one is not something the caller sent, it is `recurring_revenue`'s own
 `status = "active"`, and it is bound rather than written into the statement so that there is one
 path for values and not two. The join is a **`LEFT JOIN`**, because an inner one drops fact rows
 that have no matching dimension row and so silently changes the measure it was only asked to break
@@ -281,7 +281,7 @@ required_filters:
   - equals: { column: status, value: active }
 ```
 
-Four things about all that are worth knowing before you write one:
+Four things matter before you write one:
 
 - **A measure is a shape and terms from a closed vocabulary, not an expression.** There is no field
   for `sum(price * quantity)`, and [the closed vocabulary for
@@ -295,9 +295,9 @@ Four things about all that are worth knowing before you write one:
   `recurring_revenue` *means* the active figure; a statement that left the predicate out would
   return revenue including terminated subscriptions under a certified name. That is a wrong answer
   arrived at by omission rather than by tampering, which is the more likely failure and the harder
-  one to notice. Note the consequence for modelling: a metric with a required filter on `status`
-  should not also declare `status` as a dimension, or grouping by it would be a way to ask the
-  metric for the figure it excludes.
+  one to notice. The modelling consequence: a metric with a required filter on `status` should not
+  also declare `status` as a dimension, or grouping by it would be a way to ask the metric for the
+  figure it excludes.
 - **`values` is what makes a dimension filterable.** Without it the dimension can be grouped by and
   not filtered on, because a filter needs an allowlist - the alternative is comparing against
   whatever the caller sent. `recurring_revenue` declares `product_name` without one for exactly

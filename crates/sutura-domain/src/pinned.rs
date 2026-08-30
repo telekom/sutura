@@ -572,6 +572,32 @@ pub enum NotValidated {
     UnknownMetricChecked { metric: MetricName },
 }
 
+/// Which class of catalog adapter this is: held to the whole model, or supplying part of it.
+///
+/// The two classes are measured differently, and `docs/adr/0016` is where the difference is
+/// decided. A **golden** adapter defines the model here - the wren-style directory of markdown -
+/// so it can be held to producing the whole of it, which is what agreeing with the hand-written
+/// oracle asserts. Everything else is **declaring**: it supplies part of the model and must say
+/// which part through [`SemanticCatalog::capabilities`], and is measured against that declaration
+/// (the two directions of `MetadataCapabilities::checked_against`) rather than against the oracle.
+///
+/// **Required on [`SemanticCatalog`] with no default, so an adapter that omits it does not build.**
+/// The two classes give a registration different assertions and different goldens - the oracle for
+/// a golden adapter, fidelity for a declaring one - so leaving the choice to a default would mean
+/// an adapter that said nothing got measured the wrong way, and both defaults are wrong: defaulted
+/// to golden, a narrow source silently keeps a test it cannot pass; defaulted to declaring, a
+/// reference adapter that forgot the line loses the test that exists to hold it honest.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CatalogKind {
+    /// A **reference** adapter: can produce every kind the model defines, so it is held to the
+    /// hand-written oracle that states the same model. `sutura-catalog-local` is one.
+    Golden,
+    /// Supplies part of the model. Measured against its own [`SemanticCatalog::capabilities`]
+    /// declaration rather than against the oracle, and registered with only the catalog cells that
+    /// apply to a partial model.
+    Declaring,
+}
+
 /// Where definitions come from.
 ///
 /// One trait, implemented once per catalog. A directory of files in git and a metadata service over
@@ -625,12 +651,14 @@ pub enum NotValidated {
 /// ```
 /// use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 /// use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
-/// use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+/// use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 ///
 /// struct Declared;
 ///
 /// impl SemanticCatalog for Declared {
 ///     type Error = core::fmt::Error;
+///
+///     const KIND: CatalogKind = CatalogKind::Golden;
 ///
 ///     fn capabilities() -> MetadataCapabilities {
 ///         MetadataCapabilities::of(
@@ -655,6 +683,64 @@ pub trait SemanticCatalog {
     /// Why this catalog could not be read. Typed per adapter, because "the directory does not
     /// exist" and "the service returned 503" are not the same thing to anybody responding to it.
     type Error: core::error::Error + 'static;
+
+    /// Which class of adapter this is, and therefore which assertions and which catalog cells hold
+    /// for it.
+    ///
+    /// **Required, with no default, and that is the whole mechanism.** [`CatalogKind`] explains why
+    /// both defaults are wrong; what this line does is make the argument unnecessary, since an
+    /// adapter that omits it does not build. It is a constant rather than a method, for the reason
+    /// [`crate::warehouse::Warehouse::IMPERSONATION`] is one: it is a fact about what was linked,
+    /// fixed for the life of the process, and a source that changes class is a deployment decision.
+    ///
+    /// **An adapter that declares no kind does not compile:**
+    ///
+    /// ```compile_fail
+    /// use sutura_domain::capabilities::MetadataCapabilities;
+    /// use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+    ///
+    /// struct Undeclared;
+    ///
+    /// // No `const KIND`, so this impl is incomplete: the trait declares it with no default.
+    /// impl SemanticCatalog for Undeclared {
+    ///     type Error = core::fmt::Error;
+    ///
+    ///     fn capabilities() -> MetadataCapabilities {
+    ///         MetadataCapabilities::nothing()
+    ///     }
+    ///
+    ///     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+    ///         Err(core::fmt::Error)
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// The compiling twin, so the block above cannot be passing on a typo - the only difference
+    /// between the two is the one line that declares the kind:
+    ///
+    /// ```
+    /// use sutura_domain::capabilities::MetadataCapabilities;
+    /// use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
+    ///
+    /// struct Declared;
+    ///
+    /// impl SemanticCatalog for Declared {
+    ///     type Error = core::fmt::Error;
+    ///
+    ///     const KIND: CatalogKind = CatalogKind::Declaring;
+    ///
+    ///     fn capabilities() -> MetadataCapabilities {
+    ///         MetadataCapabilities::nothing()
+    ///     }
+    ///
+    ///     fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+    ///         Err(core::fmt::Error)
+    ///     }
+    /// }
+    ///
+    /// assert_eq!(<Declared as SemanticCatalog>::KIND, CatalogKind::Declaring);
+    /// ```
+    const KIND: CatalogKind;
 
     /// What this adapter can supply, and - by what its lists omit - what it cannot.
     ///

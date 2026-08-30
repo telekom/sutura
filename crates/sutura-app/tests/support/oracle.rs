@@ -56,7 +56,7 @@ use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
     TableName,
 };
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 
 use super::Never;
 use crate::adapters::{CatalogUnderTest, load, source, version};
@@ -559,6 +559,12 @@ fn the_ratios() -> Vec<Metric> {
 impl SemanticCatalog for HandWrittenCatalog {
     type Error = Never;
 
+    /// **Declaring, and that is the honest class for the oracle to hold.** It states the whole model
+    /// except prose - descriptions live in the markdown and nowhere else - so it supplies part of
+    /// the model and is measured against its declaration rather than against itself. The
+    /// declaration below is the two directions of that in one value.
+    const KIND: CatalogKind = CatalogKind::Declaring;
+
     /// **Everything except prose, and that makes this suite's oracle its own worked declaring
     /// adapter.** Descriptions are deliberately left empty here - they live in the markdown and
     /// nowhere else, which is the whole reason `without_descriptions` exists - so an adapter that
@@ -724,6 +730,10 @@ pub(crate) struct TwoSourceCatalog;
 impl SemanticCatalog for TwoSourceCatalog {
     type Error = Never;
 
+    /// **Declaring**, the narrow pole of the fidelity test: two models on two data systems and none
+    /// of the kinds a plan would only consume after the refusal this fake exists to provoke.
+    const KIND: CatalogKind = CatalogKind::Declaring;
+
     /// **Five declared absences, which is what makes this the narrow end of the fidelity test.** Two
     /// models on two data systems, one metric, one join that licenses one dimension - and no prose,
     /// no definitional filter, no value allowlist and no anchor, because the refusal this fake exists
@@ -822,6 +832,10 @@ pub(crate) struct SameNameTablesCatalog;
 
 impl SemanticCatalog for SameNameTablesCatalog {
     type Error = Never;
+
+    /// **Declaring**, for [`TwoSourceCatalog`]'s reason: it supplies part of the model and none of
+    /// the kinds a plan would consume after the refusal this fake exists to provoke.
+    const KIND: CatalogKind = CatalogKind::Declaring;
 
     /// The same five declared absences [`TwoSourceCatalog`] declares, and for the same reason: the
     /// refusal this fake provokes happens before prose, a definitional filter, an allowlist or an

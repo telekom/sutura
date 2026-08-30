@@ -85,8 +85,9 @@ for byte.
 ## Decision 2 - cross-project is NOT federation, and must not reach the splitter
 
 **A source is a credential plus a billing project, not a project.** Two datasets, or two projects,
-reached by one credential in one statement is **one** source, and `PlanSpansTwoSources` must not fire
-on it.
+reached by one credential in one statement is **one** source, and neither the splitter nor
+`PlanSpansTooManySources` (`PlanSpansTwoSources` when this was written, before [0007](0007-federating-across-different-data-systems.md)'s
+federation landed) must fire on it.
 
 This is the most expensive thing in this record to get wrong, and it was live rather than
 hypothetical: row 10's splitter and combiner were being built in parallel. `BigQuery` joins across
@@ -97,8 +98,9 @@ discard exactly the pushdown that makes the adapter worth having.
 So the mechanism is a *shape* rather than a check: `sutura_semantic::plan` collects `SourceName` and
 **nothing from any table path**, and the paragraph saying why now sits at that collection rather than
 in a document. `PlanJoin` carries its own `QualifiedTable`, so a fact table in one dataset joined to a
-dimension table in another is one `JOIN` in one statement. What `PlanSpansTwoSources` still refuses is
-a second **credential**, which is the case it was always for.
+dimension table in another is one `JOIN` in one statement. What the source count still acts on is a
+second **credential**, which is the case it was always for: two are split into legs, and more are
+refused.
 
 ## Decision 3 - how deep a path a data system resolves is declared, not guessed
 
@@ -215,8 +217,8 @@ time**: `sutura_domain::plan::StatementTables` is the only way to a `QueryPlan` 
 takes it instead of a table plus a vector of joins - and its `parse` refuses two occurrences answering
 to one identifier under `IdentifierCase::COARSEST`. There is therefore no ambiguous plan for any
 dialect to render. `sutura_semantic::plan` turns that refusal into
-`RefusalReason::PlanTablesShareAnIdentifier`, beside `PlanSpansTwoSources`, which is the other refusal
-that stage produces about the shape of a statement rather than about anything a caller wrote.
+`RefusalReason::PlanTablesShareAnIdentifier`, beside `PlanSpansTooManySources`, which is the other
+refusal that stage produces about the shape of a statement rather than about anything a caller wrote.
 
 **A QUERY-time refusal and not a load-time one, which is the opposite of Decision 4 and deliberately
 so.** A colliding *label* costs its author a rename; a colliding *table* is a physical name nobody

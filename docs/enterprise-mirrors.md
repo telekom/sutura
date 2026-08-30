@@ -69,10 +69,10 @@ registry = "sparse+https://<host>/<path>/<crates>/index/"
 `sparse+` is required and the trailing slash matters. Without them cargo expects a git index and
 fails with a confusing clone error.
 
-`rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve both pinned toolchains
-through rust-overlay - `rust-toolchain.toml`, and `devco/rust-toolchain-nightly.toml` for the local
-inner loop - so the compilers come from the Nix cache and the crates mirror above is all this section
-needs.
+`rustup` is not involved in the Nix path. `flake.nix` and `devenv.nix` resolve both pinned
+toolchains through rust-overlay - `rust-toolchain.toml`, and `devco/rust-toolchain-nightly.toml`
+for the local inner loop - so the compilers come from the Nix cache and the crates mirror above is
+all this section needs.
 
 If you do use rustup, set `RUSTUP_DIST_SERVER` and `RUSTUP_UPDATE_ROOT`. An exact version pin needs
 that version to exist on the mirror, and a lazily-caching remote `404`s until something asks, which
@@ -87,8 +87,8 @@ channels = ["conda-forge"]
 ```
 
 That name is public because this repository is public. The redirect to a mirror goes in pixi's
-**global** configuration instead, so the manifest resolves identically for everybody and no
-internal URL is ever committed:
+**global** configuration instead, so the manifest resolves identically for everybody and no internal
+URL is ever committed:
 
 ```toml
 # ~/.pixi/config.toml
@@ -126,9 +126,10 @@ Both reproduce a resolve without your machine's settings in it.
 
 ## pip
 
-**This repository installs nothing from PyPI.** `pixi.toml` has `[dependencies]` only - conda packages
-from `conda-forge` - and no `[pypi-dependencies]` table, so no pip, no uv and no PyPI index takes part
-in any build, gate or docs render. A `pip.conf` on your machine changes nothing here.
+**This repository installs nothing from PyPI.** `pixi.toml` has `[dependencies]` only - conda
+packages from `conda-forge` - and no `[pypi-dependencies]` table, so no pip, no uv and no PyPI
+index takes part in any build, gate or docs render. A `pip.conf` on your machine changes nothing
+here.
 
 If you add a `[pypi-dependencies]` entry, pixi resolves it with uv. One thing first:
 
@@ -139,12 +140,12 @@ index-url = "https://<host>/<path>/<pypi>/simple"
 ```
 
 **That does not redirect anything.** Per pixi's documented behaviour, `index-url` and
-`extra-index-urls` in the global config are written into a manifest by `pixi init` and are otherwise
-not interpreted, because the manifest is meant to be complete on its own. Only `keyring-provider` and
-`allow-insecure-host` apply globally.
+`extra-index-urls` in the global config are written into a manifest by `pixi init` and are
+otherwise not interpreted, because the manifest is meant to be complete on its own. Only
+`keyring-provider` and `allow-insecure-host` apply globally.
 
-What does redirect uv is `[mirrors]`, and it needs **two** entries, because the index and the files are
-served from different hosts:
+What does redirect uv is `[mirrors]`, and it needs **two** entries, because the index and the files
+are served from different hosts:
 
 ```toml
 # ~/.pixi/config.toml
@@ -231,9 +232,11 @@ the netrc step.
 
 ## Why none of these values are in the repository
 
-They configure a **network**, not a project. A contributor on a different network needs different ones,
-and both would be wrong for the public CI runner, which needs none at all. This repository is also
-public, so committing them would publish the shape of an internal estate to everybody who clones it.
+They configure a **network**, not a project. A contributor on a different network needs different
+ones, and both would be wrong for the public CI runner, which needs none at all. This repository is
+also public, so committing them would publish the shape of an internal estate to everybody who
+clones it.
 
 Hence the split: public defaults in the manifests, file locations here, values on your machine.
-`.env.example` documents each build argument the container build takes, and the trap that goes with it.
+`.env.example` documents each build argument the container build takes, and the trap that goes with
+it.

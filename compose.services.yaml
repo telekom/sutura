@@ -19,7 +19,7 @@
 # belongs to whatever else is on the host.
 #
 # Named volumes are declared at the bottom and are prefixed with the project name by compose, so a
-# Postgres data directory belongs to one worktree. A shared one is the fixture nobody can debug: a
+# service's data directory belongs to one worktree. A shared one is the fixture nobody can debug: a
 # migration from another branch, with no symptom pointing at where it came from.
 #
 # Every service declares a HEALTHCHECK, because provisioning gates on health rather than sleeping.
@@ -55,7 +55,7 @@
 # ## Tags
 #
 # Pinned to a minor series, checked against the registries on 2026-08-29 rather than assumed:
-# Postgres 18 (`18-alpine`), ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. A tag is mutable, so
+# ClickHouse 26.7 (`26.7-alpine`), Keycloak 26.7. A tag is mutable, so
 # this is a development fixture and not a supply-chain position. Nothing here ships.
 
 # ONE definition of the fixture credential, aliased everywhere it is needed. Two definitions is how
@@ -70,102 +70,6 @@ x-fixture-credentials:
   password: &fixture-password ${SUTURA_DEV_PASSWORD:-sutura}
 
 services:
-  # The relational source `feat/postgres-oauth` is tested against.
-  #
-  # **18 and not 17, deliberately.** PostgreSQL 18 is the first release with native OAuth - SASL
-  # `OAUTHBEARER`, RFC 7628 - and that is the mechanism the Postgres-over-OAuth step depends on, so a
-  # file pinning an older major would make that step untestable against this tier.
-  #
-  # The image supports it: the official 18 Alpine Dockerfile builds `--with-libcurl` and installs
-  # `curl-dev`, which is what the client-side device flow needs. **The limit, stated with the claim:**
-  # PostgreSQL ships NO built-in token validator - "the server cannot check the token itself;
-  # validator modules provide the integration layer" - so server-side validation needs a module in
-  # `oauth_validator_libraries` that neither this image nor core Postgres provides. What this tier
-  # gives `feat/postgres-oauth` is a server that can speak the mechanism, not a working OAuth
-  # deployment - and the rest of this comment is why the fixture validator is NOT here, because that
-  # turned out to be a finding rather than a deferral.
-  #
-  # ## There IS an upstream stub validator, and it reaches no installed artifact
-  #
-  # `src/test/modules/oauth_validator/validator.c`, and read what it does before wanting it: it
-  # authorizes EVERY token it is handed, takes the answer from two of its own settings rather than
-  # from the token, checks no signature, issuer, audience or expiry, and logs the bearer token at
-  # `LOG`. As a fixture that is fine and as anything else it is a hole - which is the reason a
-  # fixture has to be labelled where somebody looks rather than in a commit message.
-  #
-  # It cannot get here without a compiler. `src/Makefile`'s `SUBDIRS` names `test/regress`,
-  # `test/isolation` and `test/perl` and never `test/modules`; `src/test/Makefile` excludes `modules`
-  # from `install`; the module's own Makefile sets `NO_INSTALLCHECK`. The official image builds
-  # `world-bin`, installs `install-world-bin` plus `contrib`, then deletes the unpacked source and
-  # `apk del`s the toolchain - so the source, the object and the compiler are all absent. Reaching it
-  # means a derived image that re-fetches the PostgreSQL source and compiles a C module, and **a
-  # source fetch cannot come through `SUTURA_IMAGE_REGISTRY`**: that variable prefixes IMAGES, and it
-  # exists because such a network has no route to the public internet. A `build:` here would work on
-  # a laptop and fail exactly where the variable was added for, which is why `xtask` now checks that
-  # no service in this file is built here.
-  #
-  # ## The route that does work is a REGISTRATION, and it is what the OAuth step owes
-  #
-  # A prebuilt validator is on the SAME registry, so it needs no compiler and no second variable:
-  # `percona/percona-distribution-postgresql:18` installs `percona-pg_oidc_validator18`, whose source
-  # is `percona/pg_oidc_validator` (Apache-2.0, C++23, module version 1.1.0; read on 2026-08-29). So
-  # the fixture is a second, PROFILED postgres service on that image with
-  # `oauth_validator_libraries=pg_oidc_validator` - one more image reference through the one variable.
-  # **Its maturity, stated where somebody would look:** its vendor's launch post says "It's not
-  # production-ready yet" - written 2025-10-22, before 1.0 and before the distribution shipped it, and
-  # not retracted since. Reading its `validate_token` finds a gap that matters more than that label:
-  # it verifies the JWT signature against the issuer's JWKS and the `iss` claim, and it checks NO
-  # `aud` claim at all, which no document anywhere says. Fine for a FIXTURE and a thing to test for
-  # in anything else - `docs/adr/0008` carries the finding and what it does to that record's own
-  # reasoning about audience-scoped tokens.
-  #
-  # **It belongs under the `identity` profile, and mechanically rather than for tidiness:** that
-  # validator FETCHES the issuer's OIDC discovery document and its JWKS on every authentication, so
-  # it needs a running issuer - which keycloak below is, and only under that profile. Upstream's stub
-  # would not have needed one, because `pg_hba.conf` requires an `issuer=` STRING and nothing
-  # dereferences it on a token-first connection. The two candidates answer the profile question
-  # oppositely, so choosing the validator is what decides it.
-  #
-  # **Why it is not wired on this branch.** This tier's rule is that provisioning gates on health, and
-  # for this fixture the health gate IS the assertion: with an `oauth` line in `pg_hba.conf` and an
-  # empty `oauth_validator_libraries`, upstream's `check_oauth_validator` fails, `load_hba()` returns
-  # false and the postmaster exits `FATAL: could not load pg_hba.conf` - so a server that started is
-  # evidence that the setting names a validator and that the line parsed. A fixture whose whole proof
-  # is "the container came up" has to be proved by bringing it up, which needs a docker this branch
-  # was not written against. **And the limit, beside the claim:** a started server is NOT evidence
-  # that the module loads or validates anything - the library is opened at connection time, and no
-  # Rust client can open that connection today, because `tokio-postgres` and `sqlx` implement
-  # SCRAM only. Both halves land with `feat/postgres-oauth`, the branch that needs them and the only
-  # one that can run them.
-  postgres:
-    image: ${SUTURA_IMAGE_REGISTRY:-docker.io}/library/postgres:18-alpine
-    environment:
-      POSTGRES_USER: *fixture-user
-      POSTGRES_PASSWORD: *fixture-password
-      POSTGRES_DB: sutura
-    ports:
-      - 5432
-    volumes:
-      # `/var/lib/postgresql`, NOT `/var/lib/postgresql/data`, and this is a fix rather than a
-      # preference. The 18+ images store data in a major-version-specific subdirectory so
-      # `pg_upgrade --link` can work without crossing a mount boundary; a mount at `.../data` is
-      # therefore an "unused mount/volume" as far as the entrypoint is concerned, and it **exits
-      # rather than starting** - `Error: in 18+, these Docker images are configured to store
-      # database data in a format which is compatible with "pg_ctlcluster"`. Measured on
-      # 2026-08-29: `postgres: exited`, and `docker compose logs` carried that text.
-      #
-      # It went unnoticed because nothing consumed this tier: the file was written against
-      # Postgres 18 with a 17-shaped mount, and the first thing to actually bring it up was the
-      # harness test that reads the discovery file. Which is the argument for the consumption half
-      # existing at all, so it is recorded here rather than in a commit message.
-      - postgres-data:/var/lib/postgresql
-    healthcheck:
-      # Reads the variables the image was given, so the probe cannot drift from the credential above.
-      test: ["CMD-SHELL", "pg_isready -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
-      interval: 2s
-      timeout: 3s
-      retries: 30
-      start_period: 5s
 
   # The columnar source. The HTTP interface, which is what an adapter would speak.
   clickhouse:
@@ -252,7 +156,7 @@ services:
 # ## Services the plan names that are NOT here, and why - stated rather than left as an omission
 #
 # The compose-tier section of `docs/implementation-plan-identity-and-services.md` names Oracle,
-# Postgres, Datahub and OpenMetadata. Postgres is above; the other three are DEFERRED, each for a
+# Datahub and OpenMetadata. All three are DEFERRED, each for a
 # reason that is about this tier's job rather than about effort. That job is to stand up the source an
 # adapter is tested against - so a service with no adapter to test is cost with no coverage.
 #
@@ -275,5 +179,4 @@ services:
 # nothing later.
 
 volumes:
-  postgres-data:
   clickhouse-data:

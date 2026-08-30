@@ -64,8 +64,8 @@ fn source() -> SourceName {
     // **One source name across every fixture here, the cross-project join included, and that is the
     // assertion rather than the setup.** A source is a credential plus a billing project, not a
     // project: two projects reached by one credential in one statement is ONE source, so nothing here
-    // has a second `SourceName` to give. `sutura_semantic::plan` is where `PlanSpansTwoSources` is
-    // decided and carries the same boundary.
+    // has a second `SourceName` to give. `sutura_semantic::plan` is where a source count becomes a
+    // split or a `PlanSpansTooManySources`, and carries the same boundary.
     SourceName::parse("warehouse").expect("a fixture source is a source")
 }
 

@@ -1,0 +1,24 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: stable(rows)
+---
+region	product_family	period	recurring_revenue
+Text(central)	Text(convergent)	Text(2026-06-01)	Integer(19165)
+Text(central)	Text(fixed_internet)	Text(2026-06-01)	Integer(13830)
+Text(central)	Text(mobile)	Text(2026-06-01)	Integer(17495)
+Text(central)	Text(tv)	Text(2026-06-01)	Integer(1249)
+Text(east)	Text(convergent)	Text(2026-06-01)	Integer(17207)
+Text(east)	Text(fixed_internet)	Text(2026-06-01)	Integer(7665)
+Text(east)	Text(mobile)	Text(2026-06-01)	Integer(5415)
+Text(east)	Text(tv)	Text(2026-06-01)	Integer(2311)
+Text(north)	Text(fixed_internet)	Text(2026-06-01)	Integer(27161)
+Text(north)	Text(mobile)	Text(2026-06-01)	Integer(13747)
+Text(north)	Text(tv)	Text(2026-06-01)	Integer(1249)
+Text(south)	Text(fixed_internet)	Text(2026-06-01)	Integer(11165)
+Text(south)	Text(mobile)	Text(2026-06-01)	Integer(8789)
+Text(south)	Text(tv)	Text(2026-06-01)	Integer(1249)
+Text(west)	Text(convergent)	Text(2026-06-01)	Integer(7916)
+Text(west)	Text(fixed_internet)	Text(2026-06-01)	Integer(20662)
+Text(west)	Text(mobile)	Text(2026-06-01)	Integer(19598)
+Text(west)	Text(tv)	Text(2026-06-01)	Integer(1249)
+Null	Text(mobile)	Text(2026-06-01)	Integer(4999)

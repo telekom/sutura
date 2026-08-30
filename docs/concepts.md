@@ -5,8 +5,8 @@ description: The words on the tool surface, and what each one commits to.
 
 # Concepts
 
-The words on the tool surface, and what each one commits to. The design is settled and the code
-is not, so this page is vocabulary rather than an API you can call.
+The words on the tool surface, and what each one commits to. The design is settled and the code is
+not, so this page is vocabulary rather than an API you can call.
 [Architecture](architecture.md) says how the pieces fit.
 
 !!! warning "Two kinds of claim on this page, marked at each one"
@@ -200,10 +200,12 @@ problem, it is a second identity to satisfy, and a plan whose legs cannot all ru
 is refused rather than run partly as somebody else.
 
 **Enforced today.** The plan stage collects the source of the metric's own model and of every model
-reached through a join into a set, and refuses `PlanSpansTwoSources` unless exactly one name is in
-it. The count is computed from the plan rather than asserted about it afterwards, and a golden
-builds a two-source catalogue to provoke the refusal. **The identity half of that reasoning is a
-design target:** there is no per-leg credential, so nothing tests that two subjects get different
+reached through a join into a set. Three or more sources refuse as `PlanSpansTooManySources`; exactly
+two are split into a fact leg and a lookup leg - and `answer` refuses them as `FederationNotExecutable`
+while no adapter executes a leg - so no leg answers partly as somebody else. The count is computed
+from the plan rather than asserted about it afterwards, and a golden builds a two-source catalogue to
+provoke the split. **The identity half of that reasoning is a design target:** there is no per-leg
+credential, so nothing tests that two subjects get different
 rows, and nothing can until one exists.
 
 ## Provenance, and why results are meant to be Arrow
@@ -252,9 +254,9 @@ not finished either: there IS a request context, a credential broker port with a
 implementor, an audit sink and an MCP surface, and a deployment that declares `security.inbound`
 verifies a caller's own token. What there is NOT is an adapter that can carry a per-subject
 credential, so per-caller ACCESS is still absent - and a deployment behind only the bearer token has
-no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. [What exists today](architecture.md#what-exists-today) is the inventory, and
-`AGENTS.md` in the repository lists each invariant beside the type, lint or gate that holds it -
-including the rows that say outright that nothing holds them yet.
+no per-caller identity at all, because that token authenticates the deployment. No Arrow envelope. [What exists today](architecture.md#what-exists-today) is the inventory, and `AGENTS.md` in the
+repository lists each invariant beside the type, lint or gate that holds it - including the rows
+that say outright that nothing holds them yet.
 
 The mechanisms came first on purpose: every claim on this page is meant to be held up by a type,
 a lint, a hook or a gate, and those are cheaper to build before there is code to retrofit them

@@ -1,0 +1,8 @@
+---
+source: crates/sutura-app/tests/golden/data_systems.rs
+expression: chain(error)
+---
+the data system did not answer
+  caused by: the statement was refused by the server as a division by zero
+  caused by: db error
+  caused by: ERROR: division by zero
