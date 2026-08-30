@@ -62,7 +62,9 @@ const LOOPBACK: &str = "127.0.0.1";
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Endpoint {
-    /// Host to connect to. Loopback, always - see [`LOOPBACK`].
+    /// Host to connect to. Loopback (`127.0.0.1`) for the docker tier, or the unix-socket
+    /// directory for the nix tier (`nix/postgres-tier.nix`) - what the driver treats a
+    /// `/`-prefixed host as. See [`LOOPBACK`].
     host: String,
     /// The host port docker allocated.
     port: u16,
@@ -499,6 +501,15 @@ mod tests {
                 other => panic!("{text} gave {other:?}"),
             }
         }
+    }
+
+    #[test]
+    fn a_socket_directory_host_is_kept_as_an_address_the_driver_treats_as_unix() {
+        let path = Path::new("/somewhere/endpoints.json");
+        let text = r#"{"project":"p","services":{"pg":{"host":"/build/sutura-pg","port":5432}}}"#;
+        let parsed = parse(path, text).expect("a socket-directory host is valid");
+        let endpoint = parsed.endpoint("pg").expect("decodes");
+        assert_eq!(endpoint.host(), "/build/sutura-pg");
     }
 
     #[test]

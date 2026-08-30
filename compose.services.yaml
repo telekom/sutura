@@ -143,6 +143,9 @@ services:
       POSTGRES_USER: *fixture-user
       POSTGRES_PASSWORD: *fixture-password
       POSTGRES_DB: sutura
+      # C collation, matching the nix tier (`nix/postgres-tier.nix`) and what DuckDB/DataFusion
+      # do, so the differential's row order does not depend on a libc.
+      POSTGRES_INITDB_ARGS: "--locale=C"
     ports:
       - 5432
     volumes:

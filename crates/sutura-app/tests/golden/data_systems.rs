@@ -25,7 +25,7 @@ where
     W: DataSystemUnderTest,
 {
     // A network adapter with no provisioned tier to run against is SKIPPED (the notice is already
-    // on stderr) rather than failed; the skip-or-fail direction is `SUTURA_DEV_REQUIRE_DOCKER`.
+    // on stderr) rather than failed; the skip-or-fail direction is `SUTURA_DEV_REQUIRE_TIER`.
     if !W::available() {
         return;
     }

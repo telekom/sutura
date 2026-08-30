@@ -33,7 +33,8 @@ keeps row 18's door open.
   refuses this connection. Fine for a localhost tier (all this ships for). TLS is a change to
   `connect`.
 - The corpus cells run only where a tier is provisioned, and skip loudly elsewhere. The signal
-  is `SUTURA_DEV_REQUIRE_DOCKER`, not `CI` - a job that sets it gets fail-closed.
+  is `SUTURA_DEV_REQUIRE_TIER`, not `CI` - whoever provisions the tier sets it and gets
+  fail-closed.
 - A `statement_timeout` is set at connect so a slow server statement cannot hold a blocking-pool
   thread past the caller's request deadline.
 

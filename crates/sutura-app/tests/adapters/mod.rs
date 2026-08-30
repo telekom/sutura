@@ -265,8 +265,9 @@ pub(crate) trait DataSystemUnderTest: Warehouse + Sized {
     /// adapter - one that needs a provisioned service to be listening - reports whether that tier is
     /// up. When it is `false`, a corpus cell is SKIPPED (the skip notice has already reached stderr
     /// through `sutura_dev::provisioned`); the skip-or-fail direction is
-    /// `SUTURA_DEV_REQUIRE_DOCKER`, read once by the provisioner. In CI the tier can be brought up
-    /// and the cells then run rather than skip, which is the point of the flag.
+    /// `SUTURA_DEV_REQUIRE_TIER`, read once by the provisioner. A provisioned tier makes the cells
+    /// run rather than skip, which is the point of the flag; in the sandbox that tier is the nix one
+    /// (`nix/postgres-tier.nix`), elsewhere docker, and both write the same discovery file.
     fn available() -> bool {
         true
     }
@@ -342,8 +343,8 @@ fn schema_counter() -> usize {
 ///
 /// Resolved once and cached: `sutura_dev::provisioned::here` prints its skip-or-fail notice on the
 /// skip path, and a corpus run reaches it from several cells - one notice is enough. The skip-or-fail
-/// direction is read by `here` from `SUTURA_DEV_REQUIRE_DOCKER`, so a CI job that provisions the tier
-/// sets that and the cells RUN rather than skip.
+/// direction is read by `here` from `SUTURA_DEV_REQUIRE_TIER`, so the nix sandbox (which provisions
+/// the tier itself) and a docker tier both make the cells RUN rather than skip.
 ///
 /// The directory the walk starts from is this crate's manifest dir, which is inside the worktree and
 /// so resolves to the worktree root - the same discovery file `just dev-up` writes per worktree.

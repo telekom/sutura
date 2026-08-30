@@ -555,54 +555,6 @@ jobs:
   # a branch or read a secret - `contents` and `secrets` are not granted here. That is the blast
   # radius the four properties above hold to nothing, and it is what the `zizmor` gate reads this
   # block for.
-  # The one source that proves acceptance over the wire only when a server is up - so this is the CI
-  # home for the postgres corpus and differential, and the nix sandbox is not. The review that the
-  # adapter's PR invited said a cell that is green in CI by returning early reads as coverage; this
-  # job is the fix. It provisions a `postgres` service container, reveals it to the harness the same
-  # way `just dev-up` does (the `.sutura-dev/endpoints.json` file `provisioned::here` reads), and
-  # runs the suite FAIL-CLOSED - `SUTURA_DEV_REQUIRE_DOCKER=1` makes an absent tier a failure, so a
-  # misconfigured job goes red here rather than a corpus that runs green without a server. The nix
-  # `ci` job, with no tier, still skips the postgres cells loudly.
-  tier-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: read
-    services:
-      postgres:
-        # The exact image the local tier ships (`compose.services.yaml` uses `postgres:18-alpine`),
-        # so CI answers the same server 18 does - the only version with the OAuth features row 18
-        # depends on. Not `postgres:16`, which a first draft used and which 18 answers differently.
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: sutura
-          POSTGRES_PASSWORD: sutura
-          POSTGRES_DB: sutura
-        options: >-
-          --health-cmd "pg_isready -U sutura"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
-      - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
-      - name: Reveal the postgres service to the harness
-        run: |
-          mkdir -p .sutura-dev
-          printf '%s\n' \
-            '{"project":"ci-postgres","services":{"postgres":{"host":"127.0.0.1","port":5432}}}' \
-            > .sutura-dev/endpoints.json
-      - name: postgres corpus and differential against a real server
-        run: |
-          nix develop --command bash -lc \
-            'SUTURA_DEV_REQUIRE_DOCKER=1 cargo nextest run -p sutura-app'
-
   crap-comment:
     needs: [ci]
     # `!cancelled()` and not `success()`: the comment is MOST useful when the delta failed.
