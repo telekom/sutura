@@ -107,6 +107,33 @@ Three consequences:
    GoogleSQL - `SELECT "amount"` selects the text `amount`. That one happens to be caught in CI, on a
    qualified column, and it is caught by luck about the shape we generate rather than by a guarantee.
 
+## The second thing measurement found, and it is a wrong number rather than a rejection
+
+The bucket's *shape* is above. Its *semantics* hid a second defect, on a grain **no golden covers**,
+and it is worth its own section because the corpus could not have found it.
+
+`BigQuery`'s `WEEK` **begins on Sunday** - its own reference says `WEEK` is equivalent to
+`WEEK(SUNDAY)`. A real DuckDB 1.5.5, asked directly, answers
+`DATE_TRUNC('week', DATE '2026-08-30')` - a Sunday - with **2026-08-24, a Monday**, putting that
+Sunday in the previous week. So the obvious keyword mapping, `Week => "WEEK"`, would bucket a
+Sunday's rows under a different period on BigQuery than on the data system that vouches for
+acceptance. **No error anywhere; a different number under a certified name.**
+
+`BigQuery`'s Monday-based part is `ISOWEEK`, and that is what the generator asks for. The other four
+grains need no such care: `DAY`, `MONTH`, `QUARTER` and `YEAR` mean the same thing in every dialect
+this repository renders for.
+
+**Why the corpus could not catch it, and what holds it instead.** The example questions ask only `day`
+and `month`, so no snapshot renders a week bucket at all - which is precisely the kind of gap a golden
+suite cannot report, because a missing case looks exactly like a passing one. What holds it is a test
+pinning the keyword by value, plus the reasoning written at the match arm.
+
+**The limit, because this claim is narrower than it sounds:** what was compared is BigQuery's
+documented behaviour against a *measured* DuckDB. Whether `ClickHouse`'s week agrees with DuckDB's is a
+**pre-existing** question that this arm does not touch and that no test in this repository answers.
+Flagging it rather than fixing it, because the three-dialect renderings are unchanged here and a
+silent change to one of them belongs in its own diff.
+
 ## The acceptance leg, when somebody runs it
 
 It is **not built in this change**, and the reason is the same decision applied to itself: the adapter

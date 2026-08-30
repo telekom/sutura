@@ -179,10 +179,32 @@ const fn unit(grain: Grain) -> &'static str {
 ///
 /// Uppercase because that is how the target's own documentation writes a date part, and because a
 /// bare lowercase `month` beside a column called `month` is needlessly hard to read in a golden.
+///
+/// # `Week` maps to `ISOWEEK`, and this is the arm that would otherwise be a wrong number
+///
+/// **Not a translation of the word, a translation of the SEMANTICS**, and the difference was measured
+/// rather than reasoned about. `BigQuery`'s `WEEK` begins on **Sunday** - its own reference says
+/// `WEEK` is equivalent to `WEEK(SUNDAY)` - while a real `DuckDB` 1.5.5 answers
+/// `DATE_TRUNC('week', DATE '2026-08-30')` (a Sunday) with **2026-08-24, a Monday**, putting that
+/// Sunday in the PREVIOUS week. So the obvious mapping, `Week => "WEEK"`, buckets a Sunday's rows
+/// under a different period on `BigQuery` than on the data system that vouches for acceptance - a
+/// wrong number under a certified name, with nothing anywhere raising an error.
+///
+/// `ISOWEEK` is `BigQuery`'s Monday-based part, which is what agrees. **No golden covers this**: the
+/// example corpus asks only `day` and `month`, so this arm is held by the test beside it and by this
+/// comment rather than by a snapshot - which is exactly why it is written down at the arm.
+///
+/// The other four need no such care: `DAY`, `MONTH`, `QUARTER` and `YEAR` mean the same thing in every
+/// dialect this crate renders for.
+///
+/// **The limit, stated because it is the honest shape of this claim:** what is compared is `BigQuery`
+/// against `DuckDB`. Whether `ClickHouse`'s own week agrees with `DuckDB`'s is a pre-existing question
+/// this arm does not touch and no test in this repository answers.
 const fn grain_keyword(grain: Grain) -> &'static str {
     match grain {
         Grain::Day => "DAY",
-        Grain::Week => "WEEK",
+        // See the header: `WEEK` here would be Sunday-based and disagree with every other dialect.
+        Grain::Week => "ISOWEEK",
         Grain::Month => "MONTH",
         Grain::Quarter => "QUARTER",
         Grain::Year => "YEAR",
@@ -604,6 +626,44 @@ mod tests {
                  AGENTS.md rather than weakening this assertion: {:?}\n{sql}",
                 parsed.err()
             );
+        }
+    }
+
+    #[test]
+    fn a_week_bucket_asks_bigquery_for_the_monday_based_part() {
+        // **The arm no golden covers, and the one where the obvious mapping is a wrong number.** The
+        // example corpus asks only `day` and `month`, so nothing in `tests/snapshots` would notice if
+        // this changed - which is why it is pinned here by value.
+        //
+        // BigQuery's `WEEK` begins on SUNDAY. A real DuckDB 1.5.5 answers
+        // `DATE_TRUNC('week', DATE '2026-08-30')` - a Sunday - with 2026-08-24, a Monday, so it puts
+        // that Sunday in the previous week. `ISOWEEK` is BigQuery's Monday-based part, and asking for
+        // it is what makes the two agree about which period a row belongs to.
+        let sql = render(
+            &bucket_expression(&bucket(Grain::Week), Dialect::BigQuery).into_inner(),
+            Dialect::BigQuery,
+        )
+        .expect("a week bucket renders");
+        assert!(sql.contains("ISOWEEK"), "{sql}");
+        assert!(
+            !sql.contains(", WEEK)"),
+            "a bare WEEK is Sunday-based on this target and disagrees with every other dialect: {sql}"
+        );
+
+        // And the other four are unambiguous, so they are spelled plainly. Asserted together so a
+        // future edit cannot quietly give one of them the ISO treatment it does not need.
+        for (grain, expected) in [
+            (Grain::Day, "DAY"),
+            (Grain::Month, "MONTH"),
+            (Grain::Quarter, "QUARTER"),
+            (Grain::Year, "YEAR"),
+        ] {
+            let rendered = render(
+                &bucket_expression(&bucket(grain), Dialect::BigQuery).into_inner(),
+                Dialect::BigQuery,
+            )
+            .expect("a bucket renders");
+            assert!(rendered.contains(expected), "{grain:?}: {rendered}");
         }
     }
 
