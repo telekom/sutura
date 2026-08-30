@@ -51,7 +51,8 @@ A refusal is a variant here rather than an `Err`, which is the same choice
 
 ### Variants
 
-- `Planned` - The question resolved, and this is what we decided to execute.
+- `Planned` - The question resolved to one data system, and this is what we decided to execute.
+- `Federated` - The question resolved to two data systems, split into a fact leg and a lookup leg.
 - `Refused` - The question was refused, and this is why.
 
 ### Methods
@@ -60,7 +61,7 @@ A refusal is a variant here rather than an `Err`, which is the same choice
 pub const fn plan(&self) -> Option<&DomainPlan>
 ```
 
-The plan, if the question resolved.
+The plan, if the question resolved to one data system.
 
 ```rust
 pub const fn refusal(&self) -> Option<&RefusalReason>
@@ -92,6 +93,8 @@ linking this crate no longer links a SQL generator.
 
 The error type is `BundleInconsistent` rather than an enum, because after the split that is the
 only way this can fail. A refused question is not a failure and comes back as `Compiled`.
+
+## `use None`
 
 ## `use None`
 
