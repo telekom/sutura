@@ -1,8 +1,10 @@
-//! Plan: the resolved question becomes a [`QueryPlan`], and three things are settled here and
-//! nowhere else.
+//! Plan: the resolved question becomes a [`QueryPlan`] or a [`FederatedPlan`], and three things are
+//! settled here and nowhere else.
 //!
-//! **The plan names exactly one data system.** A question whose join would reach a second one is
-//! refused before anything runs, because a second data system is a second identity to satisfy.
+//! **The plan names its data systems.** A question whose joins reach a data system other than the
+//! metric's own is refused unless there is exactly one such system - two sources are served by
+//! splitting the question into a fact leg and a lookup leg and combining them above; three or more
+//! are refused before anything runs, because each source is a separate identity to satisfy.
 //!
 //! **Every value becomes a bind parameter, in the order the statement will refer to them.** That
 //! order is this module's contract with whatever executes the plan: for a dialect that writes `?`,
@@ -14,48 +16,79 @@
 //! `status = 'active'`. They are marked [`PredicateOrigin::Definition`], which is what lets a golden
 //! assert they are always present and a reader tell them from what was requested.
 //!
-//! The plan type itself lives in `sutura-domain`, because the execution port speaks it. This module
-//! only decides what goes into one.
+//! The plan types live in `sutura-domain`, because the execution port speaks them. This module only
+//! decides what goes into one.
+//!
+//! **The splitter lives here because it reads a [`Resolution`].** It turns a two-source question
+//! into the fact and lookup [`LegPlan`]s the combiner in `sutura_domain::plan::federated` joins, and
+//! refuses a measure that cannot decompose. The labelling of each leg's terms is `sutura_domain`'s
+//! one function, [`labels`](sutura_domain::plan::labels) - named by the splitter and read back by the
+//! combiner, so the two can never disagree.
 
 use std::collections::BTreeSet;
 
 use sutura_domain::catalog::TIME_BUCKET_LABEL;
+use sutura_domain::federation::{Carried, Federation};
 use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
-    PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PredicateOrigin, QueryPlan, plan_measure,
-    plan_required_filter,
+    FederatedPlan, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    labels, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
 
-use crate::resolve::{Resolution, ResolvedDimension};
+use crate::resolve::{Resolution, ResolvedDimension, ResolvedFilter};
+
+/// What the plan stage decided to execute.
+///
+/// The plans are held behind pointers on purpose: both are large values, and this enum is handed
+/// around (matched, returned, stashed in a `Compiled`) far more often than it is reconstructed. An
+/// enum sized to the larger of the two would copy a whole plan every time it moved.
+pub(crate) enum Plan {
+    /// One whole answer from one data system.
+    Mono(Box<QueryPlan>),
+    /// Two legs from two data systems, combined above.
+    Federated(Box<FederatedPlan>),
+}
 
 /// Turns a resolution into a plan, or refuses it.
-///
-/// The only refusal this stage can produce is the one about data systems: everything a caller could
-/// have got wrong was already checked when their names were looked up.
-pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
+pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
+    // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
+    // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
+    // drop a source here.
+    let remote: BTreeSet<&SourceName> = every_remote_dimension(resolution)
+        .filter_map(|dim| dim.join.as_ref().map(|join| join.model.source()))
+        .collect();
+
+    match remote.len() {
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)))),
+        1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
+        // Two are served; three or more refused, because each source is a separate identity.
+        _ => Err(RefusalReason::PlanSpansTooManySources {
+            sources: 1 + remote.len(),
+            limit: 2,
+        }),
+    }
+}
+
+/// Every dimension that sits on a data system other than the metric's own.
+fn every_remote_dimension<'a, 'r>(resolution: &'r Resolution<'a>) -> impl Iterator<Item = &'r ResolvedDimension<'a>> {
+    let own = resolution.model.source();
+    every_dimension(resolution).filter(move |dim| is_remote(dim, own))
+}
+
+/// Whether a dimension sits on a data system other than `own`.
+fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
+    dimension.join.as_ref().is_some_and(|join| join.model.source() != own)
+}
+
+/// A question confined to one data system: exactly the plan this module already built.
+fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
     let metric = resolution.metric;
     let model = resolution.model;
     let own_table = model.table();
 
-    // Every table the statement will read, which is the definition of "one data system" a join
-    // cannot get around.
-    let mut sources: BTreeSet<&SourceName> = BTreeSet::new();
-    sources.insert(model.source());
-    for resolved in every_dimension(resolution) {
-        if let Some(ref join) = resolved.join {
-            sources.insert(join.model.source());
-        }
-    }
-    if sources.len() != 1 {
-        return Err(RefusalReason::PlanSpansTwoSources { sources: sources.len() });
-    }
-
-    // Deduplicated by relationship and then sorted, so two dimensions reached through one
-    // relationship produce one join, and the join order is a function of the plan rather than of the
-    // order the caller happened to list their dimensions in. A statement whose text depends on
-    // argument order has no stable golden.
     let mut joins: Vec<PlanJoin> = Vec::new();
     for resolved in every_dimension(resolution) {
         if let Some(ref join) = resolved.join {
@@ -76,8 +109,8 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
 
     let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
 
-    // Predicates and their parameters, built together: see `predicates_and_params`.
-    let (filters, params) = predicates_and_params(resolution, own_table, &time_column);
+    let requested: Vec<&ResolvedFilter> = resolution.filters.iter().collect();
+    let (filters, params) = predicates_and_params(resolution, &requested, own_table, &time_column);
 
     let keys: Vec<PlanKey> = resolution
         .keys
@@ -85,12 +118,9 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
         .map(|key| PlanKey::new(String::from(key.dimension.name().as_str()), column_of(key, own_table)))
         .collect();
 
-    // Every column a measure reads is on the metric's own model. A measure may not reach through a
-    // relationship, because a joined measure is the row-duplication problem the catalog already
-    // refuses a dimension for - so resolving them needs no lookup.
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
 
-    Ok(QueryPlan::new(
+    QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
         own_table.clone(),
@@ -102,7 +132,208 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
         filters,
         params,
         resolution.range,
-    ))
+    )
+}
+
+/// Splits a two-source question into a fact leg and a lookup leg.
+///
+/// The metric's own rows (and any same-source dimension) form the fact leg; everything on the one
+/// remote data system forms the lookup leg. The link between them is the relationship's join column,
+/// grouped into the fact leg and projected from the lookup leg under the same label - so the combiner
+/// can find it. A measure that cannot decompose is refused rather than pulled up.
+// The splitter builds both legs, their keys, their filters and the link in one pass over the
+// resolution; it is a single act of splitting a resolved question, and it returns Err from several
+// places that far apart to make a reviewer see the splitter's refusals together.
+#[expect(
+    clippy::too_many_lines,
+    reason = "the splitter builds both legs and all their parts in one pass over the resolution"
+)]
+fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalReason> {
+    let metric = resolution.metric;
+    let model = resolution.model;
+    let own_table = model.table();
+
+    let federation = Federation::of(metric.measure());
+    // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
+    if let Some(keys) = federation.carried().iter().find_map(|leaf| match **leaf {
+        Carried::Keys { pulled, .. } => Some(pulled.above()),
+        _ => None,
+    }) {
+        return Err(RefusalReason::MeasureDoesNotFederate {
+            metric: metric.name().clone(),
+            aggregate: keys,
+        });
+    }
+
+    // One remote data system (more are refused upstream); its dimensions must all join through one
+    // relationship, because the combiner links the legs on a single column. The two guards below are
+    // unreachable - `plan` calls this only for exactly one remote source, and a remote dimension has
+    // a join by construction - but a panic here would be reachable from a catalog plus a question, so
+    // they refuse instead.
+    let Some(first_remote) = every_remote_dimension(resolution).next() else {
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
+    };
+    let Some(first_join) = first_remote.join.as_ref() else {
+        return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
+    };
+    let relationship = first_join.relationship;
+    let remote_table = first_join.model.table();
+    let remote_source = first_join.model.source();
+    for dim in every_remote_dimension(resolution) {
+        let Some(join) = dim.join.as_ref() else {
+            continue;
+        };
+        if join.relationship.name() != relationship.name() {
+            return Err(RefusalReason::FederationLinkAmbiguous {
+                source: remote_source.clone(),
+            });
+        }
+    }
+
+    let link_label = String::from(relationship.target_column().as_str());
+
+    // The fact leg groups by its local dimension keys plus the join origin, so the lookup leg can be
+    // joined to it above.
+    let mut fact_keys: Vec<PlanKey> = Vec::new();
+    for key in resolution.keys.iter().filter(|key| !is_remote(key, model.source())) {
+        fact_keys.push(PlanKey::new(
+            String::from(key.dimension.name().as_str()),
+            column_of(key, own_table),
+        ));
+    }
+    fact_keys.push(PlanKey::new(
+        link_label.clone(),
+        PlanColumn::new(own_table.clone(), relationship.origin_column().clone()),
+    ));
+
+    // The lookup leg projects the join target plus the remote dimension keys.
+    let mut lookup_keys: Vec<PlanKey> = Vec::new();
+    lookup_keys.push(PlanKey::new(
+        link_label.clone(),
+        PlanColumn::new(remote_table.clone(), relationship.target_column().clone()),
+    ));
+    for key in resolution.keys.iter().filter(|key| is_remote(key, model.source())) {
+        lookup_keys.push(PlanKey::new(
+            String::from(key.dimension.name().as_str()),
+            PlanColumn::new(remote_table.clone(), key.dimension.column().clone()),
+        ));
+    }
+
+    // Filters split by which leg owns the column they constrain.
+    let local_filters: Vec<&ResolvedFilter> = resolution
+        .filters
+        .iter()
+        .filter(|filter| !is_remote(&filter.dimension, model.source()))
+        .collect();
+    let remote_filters: Vec<&ResolvedFilter> = resolution
+        .filters
+        .iter()
+        .filter(|filter| is_remote(&filter.dimension, model.source()))
+        .collect();
+
+    let time_column = PlanColumn::new(own_table.clone(), metric.time_column().clone());
+    let (fact_filters, fact_params) = predicates_and_params(resolution, &local_filters, own_table, &time_column);
+    let (lookup_filters, lookup_params) = requested_for(&remote_filters, remote_table);
+
+    // The fact leg's terms, projected under the one labelling rule the combiner reads back.
+    let leaf_labels = labels(&federation, metric.name());
+    let mut terms: Vec<LegTerm> = Vec::with_capacity(leaf_labels.len());
+    for (leaf, label) in federation.carried().iter().zip(leaf_labels.iter()) {
+        let plan_term = match **leaf {
+            Carried::Aggregated { pushed, ref column } => PlanTerm::Aggregate {
+                aggregate: pushed.push(),
+                column: PlanColumn::new(own_table.clone(), column.clone()),
+            },
+            Carried::CountIf { ref column } => PlanTerm::CountIf {
+                column: PlanColumn::new(own_table.clone(), column.clone()),
+            },
+            // Unreachable: the refusal above returned for any Keys leaf.
+            Carried::Keys { .. } => {
+                return Err(RefusalReason::MeasureDoesNotFederate {
+                    metric: metric.name().clone(),
+                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
+                });
+            }
+        };
+        terms.push(LegTerm::new(plan_term, label.clone()));
+    }
+
+    // Same-source hops (dimensions on the metric's own system) stay joins on the fact leg.
+    let mut joins: Vec<PlanJoin> = Vec::new();
+    for resolved in every_dimension(resolution) {
+        if let Some(ref join) = resolved.join {
+            if join.model.source() != model.source() {
+                continue;
+            }
+            let name = join.relationship.name().clone();
+            if joins.iter().any(|existing| *existing.relationship() == name) {
+                continue;
+            }
+            joins.push(PlanJoin::new(
+                name,
+                join.model.table().clone(),
+                join.relationship.join_type(),
+                PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
+                PlanColumn::new(join.model.table().clone(), join.relationship.target_column().clone()),
+            ));
+        }
+    }
+    joins.sort_by(|a, b| a.relationship().cmp(b.relationship()));
+
+    let bucket = PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column);
+
+    let fact = sutura_domain::plan::LegPlan::Fact {
+        source: model.source().clone(),
+        metric: metric.name().clone(),
+        table: own_table.clone(),
+        joins,
+        bucket: bucket.clone(),
+        keys: fact_keys,
+        terms,
+        filters: fact_filters,
+        params: fact_params,
+        range: resolution.range,
+    };
+
+    let lookup = sutura_domain::plan::LegPlan::Lookup {
+        source: remote_source.clone(),
+        table: remote_table.clone(),
+        keys: lookup_keys,
+        filters: lookup_filters,
+        params: lookup_params,
+    };
+
+    // The answer's group-by keys in question order, each naming which leg's result it is read from.
+    // Question order is the mono path's column order too, so a federated answer aligns with a
+    // single-source one (and with a future federated differential that reads rows by position).
+    let answer_keys: Vec<sutura_domain::plan::AnswerKey> = resolution
+        .keys
+        .iter()
+        .map(|key| {
+            let label = String::from(key.dimension.name().as_str());
+            if is_remote(key, model.source()) {
+                sutura_domain::plan::AnswerKey::lookup(label)
+            } else {
+                sutura_domain::plan::AnswerKey::fact(label)
+            }
+        })
+        .collect();
+
+    FederatedPlan::new(
+        metric.name().clone(),
+        String::from(metric.name().as_str()),
+        bucket,
+        fact,
+        lookup,
+        link_label.clone(),
+        link_label,
+        // LEFT when the lookup carries no filter (an unmatched fact row survives), INNER when it
+        // does. `docs/adr/0009` decides the direction.
+        remote_filters.is_empty(),
+        federation,
+        answer_keys,
+    )
+    .map_err(|_never| RefusalReason::FederationNotExecutable)
 }
 
 /// The predicates a statement carries, paired with the parameters they bind.
@@ -111,21 +342,23 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReas
 /// says what the pairing means: neither half is usable without the other.
 type PredicatesAndParams = (Vec<PlanFilter>, Vec<ParamValue>);
 
-/// Every predicate the statement will carry, and the parameters they bind, built together.
+/// Every predicate a fact leg will carry, and the parameters they bind, built together.
 ///
-/// One function because the two lists are one decision: for a dialect that writes `?`, a
-/// parameter's position in the statement is its identity, so a predicate appended without its
-/// value - or in a different order - is a statement that reads the wrong parameter and still runs.
-/// Returning them as a pair is what makes it impossible to build one without the other.
-///
-/// Order: the two range bounds, then the metric's required filters, then the caller's. The
-/// definitional ones come first so that reading a generated statement shows what the metric always
-/// does before what this caller asked for.
-fn predicates_and_params(resolution: &Resolution<'_>, own_table: &TableName, time_column: &PlanColumn) -> PredicatesAndParams {
+/// The range bounds, then the metric's required filters, then `requested` - the caller's own filters
+/// that constrain this leg's columns. `requested` is passed in (rather than read off the resolution)
+/// so the splitter can hand the local half here and the remote half to the lookup leg.
+fn predicates_and_params(
+    resolution: &Resolution<'_>,
+    requested: &[&ResolvedFilter<'_>],
+    own_table: &TableName,
+    time_column: &PlanColumn,
+) -> PredicatesAndParams {
     let metric = resolution.metric;
     let mut params: Vec<ParamValue> = Vec::new();
     let mut filters: Vec<PlanFilter> = Vec::new();
 
+    // A function-shaped closure, so it never borrows `params` for its own lifetime: each call takes
+    // the list as an argument and borrows it only for the statement.
     let bind = |params: &mut Vec<ParamValue>, value: ParamValue| {
         params.push(value);
         params.len().saturating_sub(1)
@@ -157,7 +390,7 @@ fn predicates_and_params(resolution: &Resolution<'_>, own_table: &TableName, tim
         filters.push(PlanFilter::new(PredicateOrigin::Definition, predicate));
     }
 
-    for filter in &resolution.filters {
+    for filter in requested {
         let param = bind(&mut params, ParamValue::Text(filter.value.clone()));
         filters.push(PlanFilter::new(
             PredicateOrigin::Requested,
@@ -168,6 +401,25 @@ fn predicates_and_params(resolution: &Resolution<'_>, own_table: &TableName, tim
         ));
     }
 
+    (filters, params)
+}
+
+/// The predicates a lookup leg carries: only the caller's own remote filters, bound on the remote
+/// table.
+fn requested_for(requested: &[&ResolvedFilter<'_>], remote_table: &TableName) -> PredicatesAndParams {
+    let mut params: Vec<ParamValue> = Vec::new();
+    let mut filters: Vec<PlanFilter> = Vec::new();
+    for filter in requested {
+        let bind = params.len();
+        params.push(ParamValue::Text(filter.value.clone()));
+        filters.push(PlanFilter::new(
+            PredicateOrigin::Requested,
+            PlanPredicate::Equals {
+                column: PlanColumn::new(remote_table.clone(), filter.dimension.dimension.column().clone()),
+                param: bind,
+            },
+        ));
+    }
     (filters, params)
 }
 

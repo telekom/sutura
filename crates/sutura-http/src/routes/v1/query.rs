@@ -144,9 +144,10 @@ const TAG: &str = "query";
         (status = 408, description = "The request exceeded this service's time bound.", body = crate::problem::ProblemBody),
         (
             status = 409,
-            description = "REFUSED - `outcome: refusal`, `code: plan_spans_two_sources`. The \
-                           question is answerable in principle and this deployment will not span \
-                           two data systems: a second one is a second identity to satisfy.",
+            description = "REFUSED - `outcome: refusal`, `code: federation_not_executable`. The \
+                           question is answerable in principle and this build has no adapter that \
+                           can execute one half of a question spanning two data systems, so it is \
+                           refused rather than run partly.",
             body = OutcomeBody
         ),
         (

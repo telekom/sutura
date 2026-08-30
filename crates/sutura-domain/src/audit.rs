@@ -60,8 +60,10 @@
 //! was minted for this call, which is the honest answer for a question refused before the broker was
 //! asked.
 //!
-//! A plan reads exactly one source today - [`crate::query::RefusalReason::PlanSpansTwoSources`] is
-//! what makes that true - so the source set is one name a reader already has from the bundle.
+//! A plan reads from the sources a `Compiled::Federated` answer spans, or from a single source for a
+//! `Compiled::Planned` one (a question spanning three or more is refused at plan time by
+//! [`crate::query::RefusalReason::PlanSpansTooManySources`]), so the source set is a name a reader
+//! already has from the bundle.
 
 use crate::identity::{Expiry, PrincipalChain};
 use crate::pinned::Provenance;
