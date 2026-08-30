@@ -563,6 +563,48 @@ fn a_request_timeout_that_leaves_no_job_budget_does_not_start() {
 }
 
 #[test]
+fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
+    // **The anchor check reads a DECLARATION and not a kind, so registering a second adapter must not
+    // have moved it - and this is what says so rather than leaving it to be assumed.** It runs before
+    // anything is opened, so it fires on a `bigquery` source exactly as it fires on a `files` one: a
+    // metric that certifies a number, on a source declared `impersonation-at-source` with nobody named
+    // to re-run it as, is a bundle this deployment cannot verify.
+    let error = refusal(
+        open_engine(
+            &bundle_with_an_anchor("warehouse"),
+            &registry(&bigquery_entry("warehouse", "impersonation-at-source", "")),
+            one_worker(),
+            default_timeout(),
+        ),
+        "an anchor on an impersonating source with no verification identity must not start",
+    );
+    assert!(
+        error.contains("verification_identity"),
+        "the refusal must name the key that would declare one: {error}"
+    );
+    assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
+
+    // And a SHARED `bigquery` source's anchor is a complete claim, so this is not a check that fires
+    // on every anchored bundle: the verification identity IS the shared identity, one service account
+    // reaching the dataset for everybody, so the number the anchor certifies is the number every
+    // caller gets. It still does not START - the credential file is not there on this machine, and on
+    // a build with no adapter the feature is missing - but whatever stops it is not this check.
+    let later = refusal(
+        open_engine(
+            &bundle_with_an_anchor("warehouse"),
+            &registry(&bigquery_entry("warehouse", "shared-service-user", "")),
+            one_worker(),
+            default_timeout(),
+        ),
+        "the credential is still not there, so the deployment still does not start",
+    );
+    assert!(
+        !later.contains("verification_identity"),
+        "a shared source's anchors run as the shared identity: {later}"
+    );
+}
+
+#[test]
 fn a_catalog_reading_two_kinds_of_source_does_not_start() {
     // **The limit `sutura_app::Warehouses` documents, made a startup refusal instead of a surprise.**
     // That registry is generic in one adapter type, so this process holds two file sources or two
