@@ -89,7 +89,15 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
         ),
         RefusalReason::PlanSpansTwoSources { sources } => (
             "plan_spans_two_sources",
-            format!("this question would read from {sources} data systems, and one answer reads from one"),
+            format!("this question would read from {sources} data systems, and one answer reads from two at most"),
+        ),
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
+            "measure_does_not_federate",
+            format!(
+                "`{metric}` cannot be computed across two data systems because its {aggregate} \
+                 aggregate is not additive; ask it without the dimension that sits on the second \
+                 data system"
+            ),
         ),
         RefusalReason::SourceUnavailable { ref source } => (
             "source_unavailable",
@@ -122,7 +130,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName};
+    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName};
     use sutura_domain::query::RefusalReason;
 
     use super::refused;
@@ -163,7 +171,11 @@ mod tests {
                 ceiling_bytes: 1024 * 1024 * 1024,
             },
             RefusalReason::TimeRangeTooLong { days: 9000, limit: 3653 },
-            RefusalReason::PlanSpansTwoSources { sources: 2 },
+            RefusalReason::PlanSpansTwoSources { sources: 3 },
+            RefusalReason::MeasureDoesNotFederate {
+                metric: metric(),
+                aggregate: Aggregate::CountDistinct,
+            },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
             },

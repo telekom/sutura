@@ -330,11 +330,19 @@ const RESOURCES_EXHAUSTED: Guide = Guide {
 
 const PLAN_SPANS_TWO_SOURCES: Guide = Guide {
     reason: "PlanSpansTwoSources",
-    meaning: "answering would need to read from two data systems, and a question is answered from \
-              one",
+    meaning: "answering would need to read from more than two data systems, and this deployment serves \
+              two at most",
     remedy: "Nothing you can change. Report it to a person: it is a fact about how the metric is \
              defined, not about how you asked. Do not retry and do not try a different dimension \
              in the hope of avoiding it.",
+};
+
+const MEASURE_DOES_NOT_FEDERATE: Guide = Guide {
+    reason: "MeasureDoesNotFederate",
+    meaning: "across two data systems this measure cannot be computed and recombined - its aggregate \
+              (a distinct count) is not additive the way a sum or an average is",
+    remedy: "Nothing you can change about the question. Ask the same metric without the dimension that \
+             sits on the second data system, or report it to a person.",
 };
 
 const SOURCE_UNAVAILABLE: Guide = Guide {
@@ -379,6 +387,7 @@ const GUIDES: &[&Guide] = &[
     // `ResultTooLarge` asks for, and an agent reaching this one has already read that.
     &RESOURCES_EXHAUSTED,
     &PLAN_SPANS_TWO_SOURCES,
+    &MEASURE_DOES_NOT_FEDERATE,
     &SOURCE_UNAVAILABLE,
     &CREDENTIAL_UNAVAILABLE,
 ];
@@ -407,6 +416,7 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
+        RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
     }

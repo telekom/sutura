@@ -34,8 +34,9 @@ use sutura_domain::identity::{
 };
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure, FederatedPlan, MAX_ROWS};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
+use sutura_domain::source::{ExecutedAs, LegAlreadyRecorded};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
@@ -263,6 +264,25 @@ pub enum ServiceError<E, M> {
         #[source]
         cause: CredentialsDoNotFitTheRequest,
     },
+    /// The execution record for a federated answer could not be built.
+    ///
+    /// A wiring defect: two legs of one answer landed on the same source, which [`ExecutedAs::and`]
+    /// refuses. A question spans a source once, so this is never a caller's fault.
+    #[error("the execution record for this answer could not be assembled")]
+    Provenance {
+        #[source]
+        cause: LegAlreadyRecorded,
+    },
+    /// The two legs of a federated answer could not be combined.
+    ///
+    /// A fault in this workspace's wiring - a leg result missing the column the labelling rule named,
+    /// or a `fails` guard meeting a zero denominator - and an `Err` rather than a refusal, because
+    /// none of it is something a caller could do differently.
+    #[error("the two sources' answers could not be combined")]
+    Federated {
+        #[source]
+        cause: FederatedFailure,
+    },
 }
 
 /// Now, in whole seconds since the Unix epoch, for the one comparison this crate makes.
@@ -419,6 +439,9 @@ where
     // the plan itself, for its own dialect.
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
+        Compiled::Federated { plan } => {
+            return answer_federated(definitions, &plan, context, broker, warehouses);
+        }
         Compiled::Planned { plan } => plan,
     };
     let (Some(warehouse), Some(executed_as)) = (warehouses.get(plan.source()), warehouses.executed_on(plan.source())) else {
@@ -562,6 +585,125 @@ where
     ))
 }
 
+/// Answers a question that spans two data systems.
+///
+/// [`answer`] branches here for a [`Compiled::Federated`](sutura_semantic::Compiled::Federated).
+/// Each leg is executed against its own warehouse, under a credential minted for both sources at
+/// once, and the two result sets are joined and re-aggregated above by [`FederatedPlan::combine`].
+///
+/// **One asker, one deadline, two legs.** The credential is minted once for the whole set of sources,
+/// which is the shape the mono path documents as the one a federated answer needs - not two mintings
+/// that could disagree.
+fn answer_federated<W, B>(
+    definitions: &Validated<PinnedDefinitions>,
+    plan: &FederatedPlan,
+    context: &RequestContext,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+) -> Answering<W, B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    let pinned = definitions.get();
+    let sources: Vec<SourceName> = plan.sources().cloned().collect();
+
+    // The set of every source the answer reads, minted for at once - the same guard the mono path
+    // makes, over the whole set rather than one source.
+    let mut requested = SourceSet::of(sources[0].clone());
+    for source in &sources[1..] {
+        requested = requested.and(source.clone());
+    }
+    let minted = broker
+        .mint(context, &requested)
+        .map_err(|cause| ServiceError::Broker { cause })?;
+    let credentials = match minted
+        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?
+    {
+        Agreed::Refused { source } => {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::CredentialUnavailable { source },
+            }));
+        }
+        Agreed::Granted { credentials } => credentials,
+    };
+
+    // Every leg, executed against the warehouse its own source selects, under that source's
+    // credential. The execution record gains one entry per leg, so the answer says which identity
+    // each ran as - including the case where they differ.
+    let mut leg_results: Vec<RowSet> = Vec::with_capacity(sources.len());
+    let mut executed_as: Option<ExecutedAs> = None;
+    for leg in plan.legs() {
+        let source = leg.source().clone();
+        let Some(warehouse) = warehouses.get(&source) else {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::SourceUnavailable { source },
+            }));
+        };
+        let presented = credentials
+            .presented_for(&source)
+            .map_err(|cause| ServiceError::Credentials { cause })?;
+        presented
+            .agrees_with(warehouse.posture(), &source)
+            .map_err(|cause| ServiceError::Posture { cause })?;
+        warehouse
+            .dry_run(Executable::Leg(leg), presented)
+            .map_err(|cause| ServiceError::Warehouse { cause })?;
+        executed_as = Some(match executed_as {
+            None => ExecutedAs::of(source.clone(), warehouse.posture().clone()),
+            Some(record) => record
+                .and(source.clone(), warehouse.posture().clone())
+                .map_err(|cause| ServiceError::Provenance { cause })?,
+        });
+        let rows = match warehouse.execute(Executable::Leg(leg), presented) {
+            Ok(rows) => rows,
+            Err(cause) => {
+                if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
+                    return Ok(Answered::under(
+                        &credentials,
+                        ToolOutcome::Refusal {
+                            reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                        },
+                    ));
+                }
+                return Err(ServiceError::Warehouse { cause });
+            }
+        };
+        leg_results.push(rows);
+    }
+
+    let combined = plan
+        .combine(&leg_results)
+        .map_err(|cause| ServiceError::Federated { cause })?;
+    // The combine is the answer's single result, so the one row cap in the repository applies to it -
+    // a leg is not an answer and carries no cap of its own.
+    if exceeds_row_cap(combined.rows().len(), MAX_ROWS) {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge { limit: MAX_ROWS },
+            },
+        ));
+    }
+    let executed_as = match executed_as {
+        Some(record) => record,
+        None => {
+            return Err(ServiceError::Federated {
+                cause: FederatedFailure::LegCount { legs: 0 },
+            });
+        }
+    };
+
+    Ok(Answered::under(
+        &credentials,
+        ToolOutcome::Answer {
+            provenance: pinned.provenance(executed_as),
+            rows: combined,
+        },
+    ))
+}
+
 /// Whether a result set came back with more rows than its plan capped it at.
 ///
 /// **A governance control, so the direction it fails in is the whole of what this function is for.**
@@ -654,6 +796,14 @@ where
     let plan = match compiled {
         Compiled::Refused { reason } => {
             return not_executed(NotExecutedReason::Refused { reason });
+        }
+        // An anchor is asked with no dimensions, so it can only ever be one source. Reaching this
+        // arm is a defect here rather than anything about the data.
+        Compiled::Federated { .. } => {
+            return not_executed(NotExecutedReason::NotCompiled {
+                message: String::from("an anchor's question resolved to two data systems"),
+                chain: Vec::new(),
+            });
         }
         Compiled::Planned { plan } => plan,
     };

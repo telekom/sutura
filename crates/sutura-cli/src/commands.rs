@@ -288,6 +288,17 @@ pub(crate) fn compile(args: &[String]) -> ExitCode {
                 let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
                 print!("{rendered}");
             }
+            Compiled::Federated { plan } => {
+                println!("-- federated, one statement per leg for {dialect}");
+                for leg in plan.legs() {
+                    let query = sutura_sql::generate_leg(leg, dialect).map_err(|e| render(&e))?;
+                    println!("{}", query.sql());
+                    println!();
+                }
+                println!("-- plan");
+                let rendered = serde_norway::to_string(&*plan).map_err(|e| format!("the plan could not be rendered: {e}"))?;
+                print!("{rendered}");
+            }
         }
         Ok(())
     })())

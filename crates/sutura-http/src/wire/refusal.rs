@@ -187,15 +187,24 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
                  again. Retrying it unchanged returns this same refusal"
             ),
         ),
-        // 409. The question is answerable in principle and this deployment will not answer it: a
-        // second data system is a second identity to satisfy, and a plan that runs partly as
-        // somebody else is the failure the whole design is arranged against. That is a conflict
-        // between what was asked and how this deployment is arranged, which is what 409 says and
-        // what no status about the request's own content would.
+        // 409. A question spanning more than two data systems is answerable in principle and this
+        // deployment will not answer it: each source is a separate identity to satisfy, and a plan
+        // that runs partly as somebody else is the failure the whole design is arranged against.
+        // Two are served - that is what the status does NOT say.
         RefusalReason::PlanSpansTwoSources { sources } => (
             StatusCode::CONFLICT,
             "plan_spans_two_sources",
-            format!("answering this would read from {sources} data systems, and a plan runs against one"),
+            format!("answering this would read from {sources} data systems, and a plan runs against two at most"),
+        ),
+        // The same 409 - a question this deployment will not answer - for a measure that would have
+        // to be recombined into a number it cannot make.
+        RefusalReason::MeasureDoesNotFederate { ref metric, aggregate } => (
+            StatusCode::CONFLICT,
+            "measure_does_not_federate",
+            format!(
+                "`{metric}` cannot be combined across two data systems: its {aggregate} aggregate is \
+                 not additive"
+            ),
         ),
         // 503, and the only refusal where retrying is a reasonable thing for a caller to do. It is
         // the variant an identity failure will use, and today it is raised by a name comparison -
@@ -339,9 +348,17 @@ mod tests {
                 "resources_exhausted",
             ),
             (
-                RefusalReason::PlanSpansTwoSources { sources: 2 },
+                RefusalReason::PlanSpansTwoSources { sources: 3 },
                 StatusCode::CONFLICT,
                 "plan_spans_two_sources",
+            ),
+            (
+                RefusalReason::MeasureDoesNotFederate {
+                    metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
+                    aggregate: sutura_domain::model::Aggregate::CountDistinct,
+                },
+                StatusCode::CONFLICT,
+                "measure_does_not_federate",
             ),
             (
                 RefusalReason::SourceUnavailable {

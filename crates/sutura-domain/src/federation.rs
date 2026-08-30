@@ -57,7 +57,7 @@ use crate::model::{Aggregate, ColumnName};
 /// `Pushed` anywhere, so no caller can write one. **The limit, stated with the claim:** the
 /// guarantee is module-scoped, since code in this file can write the struct literal - which is
 /// exactly where the classification lives, and nowhere else.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Pushed {
     push: Aggregate,
     combine: Aggregate,
@@ -82,7 +82,7 @@ impl Pushed {
 /// Private field and no public constructor, for [`Pushed`]'s reason: a [`Carried::Keys`] can only
 /// name an aggregate [`Descent::of`] classified as non-descending, and it carries *which* one rather
 /// than assuming `CountDistinct` is the only one it will ever be.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub struct Pulled {
     above: Aggregate,
 }
@@ -102,7 +102,7 @@ impl Pulled {
 /// itself, descends as two columns, does not descend and travels as a grouping key. The compile
 /// error a seventh aggregate produces is therefore *you have not said which of the three you are*
 /// rather than *you have not said whether you can*.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
 pub enum Descent {
     /// Pushable as written: one column in the leg, one function above it.
     AsWritten(Pushed),
@@ -219,7 +219,7 @@ impl Descent {
 ///     }
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Carried {
     /// One aggregate the leg computes and hands up as one column.
     Aggregated { pushed: Pushed, column: ColumnName },
@@ -277,7 +277,7 @@ impl Carried {
 ///
 /// Every division in this workspace's federated path is one of these nodes. That is the property:
 /// the numbers a leg produces are re-aggregated, and only then divided.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub enum Above {
     /// One column the legs carried, re-aggregated by [`Carried::combine`].
     Total(Carried),
@@ -294,7 +294,7 @@ pub enum Above {
 ///
 /// Produced by [`Federation::of`], which is total: every measure the closed vocabulary can express
 /// federates, and the ones that cannot descend pull rows up instead of being declined.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct Federation {
     above: Above,
 }

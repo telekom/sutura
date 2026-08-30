@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{DimensionName, Grain, MetricName, SourceName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -258,12 +258,23 @@ pub enum RefusalReason {
     /// log: a day count is derived from parsed dates, so there is no caller-controlled string to
     /// reflect into a message that reaches a log, a UI and an agent's context.
     TimeRangeTooLong { days: i32, limit: i32 },
-    /// The plan would need to read from more than one data system.
+    /// The plan would need to read from more than two data systems.
     ///
-    /// Refused rather than run in parts, because a second data system is a second identity to
-    /// satisfy, and a plan that runs partly as somebody else is the failure this design exists to
-    /// prevent.
+    /// Refused rather than run in parts, because each data system is a separate identity to satisfy,
+    /// and a plan that runs partly as somebody else is the failure this design exists to prevent.
+    /// **Two is now served** - a question that spans exactly two sources is split into two legs and
+    /// combined above them - so this is the bound on an unbounded fan-out rather than the old blanket
+    /// refusal. The number two is a choice somebody made, and `docs/adr/0009` records it.
     PlanSpansTwoSources { sources: usize },
+    /// The question's measure cannot be decomposed into one leg per source.
+    ///
+    /// A measure federates only when its aggregate can be recomputed above the legs. A distinct count
+    /// cannot: two exact distinct counts added together over-count every key the two legs share, and
+    /// no re-aggregating function repairs it. The honest answer is to refuse rather than to pull the
+    /// rows up through a combiner that would have to guess.
+    ///
+    /// Carries the metric and the aggregate that cannot descend, so a caller sees why.
+    MeasureDoesNotFederate { metric: MetricName, aggregate: Aggregate },
     /// The plan named a data system this process did not open.
     ///
     /// **What raises it today is a name comparison, not an identity check**, and the doc comment
