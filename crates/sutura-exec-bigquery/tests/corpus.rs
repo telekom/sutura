@@ -490,7 +490,7 @@ mod tests {
     /// requires at least one to exist. A divergence for any other reason fails, and so does this one
     /// on the day the generator states the placement.
     ///
-    /// `docs/adr/0017`'s second amendment records it as this leg's first finding.
+    /// `docs/adr/0017`'s third amendment records it as this leg's first finding.
     const NULL_PLACEMENT: &str = "DataFusion orders nulls last; GoogleSQL orders them first";
 
     #[test]
@@ -529,6 +529,13 @@ mod tests {
                     continue;
                 }
                 sutura_semantic::Compiled::Planned { plan } => plan,
+                // The example corpus reads one data system, so no question in it federates - and a
+                // leg could not be put to the endpoint in any case: this adapter answers
+                // `Executable::Leg` with `LegWithoutCombiner`. A question that started federating
+                // here would mean the fixtures no longer load into one source.
+                sutura_semantic::Compiled::Federated { .. } => {
+                    panic!("{name}: the example corpus spans one data system; no question federates")
+                }
             };
             let verdict = warehouse
                 .dry_run(Executable::Query(&plan), &presented())

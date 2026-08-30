@@ -2775,6 +2775,7 @@ convenience, and nothing needs to clone a startup refusal.
 - `DuplicateAlias` - Two entries name one source.
 - `NoDataDirectory` - The entry names no file location.
 - `RelativeDataDirectory` - The path is relative, so it resolves against the process working directory.
+- `RelativePath` - A path a kind requires is relative, so it resolves against the process working directory.
 - `Posture` - The `posture:` word is not one of the two.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 - `Text` - A piece of operator-written text on this entry is not usable.

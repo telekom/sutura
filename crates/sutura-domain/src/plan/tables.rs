@@ -31,20 +31,36 @@
 //!
 //! So the decision is the other one, and it is made where the plan is built rather than where it is
 //! rendered: **a statement whose tables cannot be told apart is unrepresentable.** There is no
-//! [`QueryPlan`](crate::plan::QueryPlan) holding such a set, because [`StatementTables`] is the only
-//! way to construct one and its canonical constructor refuses the pair. `sutura_semantic::plan` turns
+//! [`QueryPlan`](crate::plan::QueryPlan) and no [`LegPlan::Fact`](crate::plan::LegPlan::Fact) holding
+//! such a set, because [`StatementTables`] is the only way to construct either and its canonical
+//! constructor refuses the pair. `sutura_semantic::plan` turns
 //! that refusal into
 //! [`PlanTablesShareAnIdentifier`](crate::query::RefusalReason::PlanTablesShareAnIdentifier), so the
 //! question is declined and the metric stays authorable: a question that does NOT reach the colliding
 //! table is still answered. The alternative - refusing the metric at load - would make the estate
 //! shape unauthorable, and unlike a label a physical table is not something an author can rename.
 //!
-//! # The limit
+//! # The limit, and what it used to be
 //!
-//! [`LegPlan::Fact`](crate::plan::LegPlan::Fact) carries a `joins` field of its own and is constructed
-//! by struct literal, so this guard does not reach it. Nothing outside a test constructs a leg -
-//! `AGENTS.md`'s *Built And Not Wired* says so - and the change that gives a leg a producer is the
-//! change that should route it through here.
+//! **It used to be the fact leg, and that was not theoretical: the change that gave a leg a producer
+//! shipped the bypass this section predicted.** `LegPlan::Fact` carried a `table` and a `joins` field
+//! and was built by struct literal, so a federated question over a fact table at
+//! `analytics_prod.sales.orders` with a same-source dimension table at `reference_data.crm.orders`
+//! compiled, and its fact leg rendered
+//! `FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id`. Worse
+//! than the whole-answer case rather than equal to it, because a leg's rows are combined above it and
+//! nothing downstream sees the statement. That variant now takes a [`StatementTables`] as its field
+//! instead, pinned by a `compile_fail` doctest with a compiling twin, so a second leg producer cannot
+//! reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
+//! keeping from this.**
+//!
+//! What remains is narrow and stated so it is not mistaken for the above. A
+//! [`Lookup`](crate::plan::LegPlan::Lookup) leg reads ONE table and declares no joins, so it has no
+//! pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
+//! each leg is its own statement on its own data system, so nothing binds one identifier to two
+//! tables; what the combiner joins on is a label, and a label that shadowed a table is
+//! [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
+//! load.
 
 use crate::model::{IdentifierCase, QualifiedTable, TableName};
 use crate::plan::PlanJoin;
@@ -100,7 +116,7 @@ impl AmbiguousTables {
 /// [`QueryPlan::new`](crate::plan::QueryPlan::new) stay infallible while the plan it builds cannot be
 /// the ambiguous one. See this module's header for what the ambiguity does and why it is refused
 /// rather than aliased around.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct StatementTables {
     table: QualifiedTable,
     joins: Vec<PlanJoin>,

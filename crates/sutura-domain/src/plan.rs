@@ -27,12 +27,14 @@ use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, Qualified
 use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
+pub mod federated;
 pub mod leg;
 pub mod tables;
 
 #[cfg(test)]
 mod anchor_tests;
 
+pub use crate::plan::federated::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, LegSide, labels};
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
@@ -103,7 +105,8 @@ impl PlanJoin {
     /// than completeness:** a fact table in one dataset joined to a dimension table in another is
     /// what a multi-project estate looks like, and it is one statement, one job and one credential -
     /// a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
-    /// so where `PlanSpansTwoSources` is decided.
+    /// so where a source count decides between one statement, a split and
+    /// `PlanSpansTooManySources`.
     ///
     /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
     #[inline]

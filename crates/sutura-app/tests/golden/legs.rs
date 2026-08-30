@@ -33,6 +33,7 @@ use sutura_domain::catalog::TIME_BUCKET_LABEL;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use sutura_domain::plan::{
     LegPlan, LegTerm, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin,
+    StatementTables,
 };
 use sutura_domain::warehouse::ParamValue;
 use sutura_sql::{Dialect, generate_leg};
@@ -143,14 +144,21 @@ fn fact_sum_over_a_local_join() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("recurring_revenue"),
-        table: table(FACT_TABLE).into(),
-        joins: vec![PlanJoin::new(
-            RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
-            table(LOCAL_DIMENSION_TABLE),
-            JoinType::ManyToOne,
-            column(FACT_TABLE, "product_key"),
-            column(LOCAL_DIMENSION_TABLE, "product_key"),
-        )],
+        // Through the guard rather than around it: a fact leg's tables arrive as a checked set, so
+        // this fixture cannot state a pair one statement could not tell apart. `plan::tables` is
+        // where that is argued, and `golden/service.rs` is where the refusal is provoked through a
+        // catalog and a question.
+        tables: StatementTables::parse(
+            table(FACT_TABLE),
+            vec![PlanJoin::new(
+                RelationshipName::parse("subscription_product").expect("a fixture relationship is a relationship"),
+                table(LOCAL_DIMENSION_TABLE),
+                JoinType::ManyToOne,
+                column(FACT_TABLE, "product_key"),
+                column(LOCAL_DIMENSION_TABLE, "product_key"),
+            )],
+        )
+        .expect("two differently named fixture tables are distinguishable"),
         bucket: month_bucket(),
         keys: vec![
             key("product_family", LOCAL_DIMENSION_TABLE, "product_family"),
@@ -173,8 +181,7 @@ fn fact_decomposed_average() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("mean_subscription_mrr"),
-        table: table(FACT_TABLE).into(),
-        joins: Vec::new(),
+        tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
         keys: vec![key("customer_key", FACT_TABLE, "customer_key")],
         terms: vec![
@@ -198,8 +205,7 @@ fn fact_distinct_keys() -> LegPlan {
     LegPlan::Fact {
         source: source("local"),
         metric: metric("active_subscriptions"),
-        table: table(FACT_TABLE).into(),
-        joins: Vec::new(),
+        tables: StatementTables::only(table(FACT_TABLE)),
         bucket: month_bucket(),
         keys: vec![
             key("customer_key", FACT_TABLE, "customer_key"),

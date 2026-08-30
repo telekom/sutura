@@ -5,8 +5,11 @@ description: The blocking decision the BigQuery adapter step was gated on - thre
 
 # What a BigQuery test runs against
 
-Status: **accepted.** The rendering half is built and green; the acceptance leg is opt-in and is not
-in CI, because there is nothing in CI for it to run against.
+Status: **accepted, and amended twice.** The rendering half is built and green. The acceptance leg is
+no longer opt-in-only and no longer absent from CI - see *Amendment, 2026-08-30* - and the adapter is
+no longer unwired: a composition root links it, behind a default-off feature, which is *Amendment,
+2026-08-30 (second)* at the foot of this page. **Read the amendments before citing anything above
+them**; the reasoning stands, two of its conclusions do not.
 
 `docs/implementation-plan-bigquery.md` gates its first BigQuery step on one decision, to be made
 before the adapter is written: **what does a test run against?** There is no BigQuery in a container.
@@ -304,16 +307,101 @@ is #78's importer shape pointed at a dataset - load the fixtures, run the 21 que
 with the engine - and it is not built.** `docs/adr/0018` records that gap, and the smoke leg's own
 header opens with it.
 
-**Everything else on this page still holds, including the part that matters most.** This record said
-the change adding the wire would be the change that could first run it against a project. **It was
-not.** The machine it was written on has no `gcloud`, no application-default credential and no
-project, so nothing has been executed against a real dataset, the acceptance leg has never run, and
-the `data_systems:` axis still gains no entry. The summary sentence therefore survives with one word
+**This record said the change adding the wire would be the change that could first run it against a
+project. It was not** - the machine it was written on had no `gcloud`, no application-default
+credential and no project, so the diff that wrote the wire executed nothing. **A LATER diff did, and
+the two sentences that followed this one here have been deleted rather than hedged:** they read
+*"nothing has been executed against a real dataset, the acceptance leg has never run"*, and
+*Amendment, 2026-08-30* above records the run that made both false. What survives unchanged is the
+narrowness: the `data_systems:` axis still gains no entry, because one live statement is not a
+registered data system. The summary sentence therefore survives with one word
 changed - *five* mechanisms rather than four, the fifth being the wire's own suite over response
 documents that are not the service's - and 0018's *What is still not claimed* section is where that
 is spelled out.
 
-## Second amendment, 2026-08-30: the corpus leg is built, and two of the four bullets are answered
+## Second amendment, 2026-08-30: the adapter is registered, so the last *not wired* is spent
+
+**Status of the amendment: accepted.** Nothing above is contradicted by this section - it closes the
+one thing every version of this page, and `AGENTS.md`'s *Built And Not Wired*, kept naming as absent:
+*no composition root links the crate, and `sutura-serve` refuses `kind: bigquery` by name.* Both
+sentences are now false, and this records what replaced them so a reader does not have to infer it
+from a diff.
+
+### What is wired
+
+`sutura-serve` opens a `kind: bigquery` source. `open_engine` holds the exhaustive match over
+`sutura_config::SourceKind` - it MOVED there from `build_engine`, because a kind whose answer is a
+different registry can only be dispatched by the function that chooses one - and `build_bigquery`
+composes the three layers the acceptance leg composes, in the same order and through the same
+constructors: a `WireAgent::pinned` carrying `JobBounds`, a `Credential` read off a declared file, a
+`BigQueryWire` over both, and a `BigQueryWarehouse` over that.
+
+Two values the source entry did not carry before, both required for that kind and both refused on a
+`files` one:
+
+- **`credential_file`**, absolute. Required rather than falling back to `CredentialFile::well_known`,
+  which is what the acceptance leg uses: a test may resolve a credential from whichever of three
+  Google variables happened to be exported, and a *service* may not - that is an identity nobody
+  declared. It is read at BOOT, for the reason the inbound key set is read before the listener opens.
+- **`max_bytes_billed`**, with no default. It is the only bound on bytes SCANNED anywhere in this
+  repository and the only number in the settings tree that spends money, so both safe defaults are
+  wrong in opposite directions: a small one refuses ordinary questions on a large table and a large one
+  is indistinguishable from no bound. Its RANGE stays the adapter's - `BytesBilledCeiling::parse` - so
+  there is one parse of it and a value outside the range is a startup refusal naming the key.
+
+The **query deadline** is not a new key: it is filled from `server.request_timeout_seconds`, which is
+what `wire::QueryDeadline`'s own documentation asks a composition root for by name. A job that outlives
+the request it is answering is billed for a result nobody is waiting for.
+
+### Which binaries link it, and the one that deliberately does not
+
+**`sutura-serve`, behind a default-off `bigquery` feature. `sutura-cli`, not at all.** The reason is
+the four cross builds and it is measured rather than assumed:
+
+- the release derivations pass `--package sutura-cli`, so they never compile `sutura-serve` itself;
+- but `crane.buildDepsOnly` is deliberately **unscoped** - the flake says so, because the checks share
+  that derivation - so a non-optional dependency in `sutura-serve` would compile `ureq`, rustls and
+  `ring` for all four cross dependency derivations, two of which are musl, for a binary that links none
+  of it.
+
+So the feature is the honest shape, and the refusal that used to name the KIND now names the FEATURE:
+`open_bigquery` has two definitions of one signature, and the `cfg(not(feature = "bigquery"))` one
+tells an operator to build with `--features bigquery` rather than to change the `kind:`. Every gate
+here passes `--all-features`, so the registration is compiled, linted and tested on every run; a bare
+`cargo build` and the four cross builds are unchanged.
+
+**What that means for a shipped artifact, stated plainly because a feature is easy to read as
+availability:** no published binary opens a `BigQuery` dataset today. The image holds `sutura-cli`,
+which links the engine only; `sutura-serve` is not a `nix` package at all and is built from source.
+
+### Two limits this registration introduces, both refusals rather than silences
+
+1. **A catalog reading two KINDS of source does not start.** `sutura_app::Warehouses<W>` is generic in
+   one adapter type, so this process holds two file sources or two datasets and cannot hold one of
+   each; the closed enum over adapter types is an architecture decision that module already defers.
+   `one_kind` makes the limit a startup refusal naming both entries and both kinds, because the
+   alternative is a source nothing opened answering `SourceUnavailable` - a refusal that reads as
+   *nobody configured that* about a source the operator configured.
+2. **`refuse_unattached` is files-only now.** It compares the served bundle's tables against what the
+   engine holds, and the engine holds them because `attach` put them there. A `BigQuery` source has no
+   attach step, so a bundle naming a table the dataset does not hold STARTS, where a `files` deployment
+   in the same state does not. An anchor closes it for a metric that matters, because an anchor
+   re-executes at boot; closing it for the rest is a per-model pre-flight, which is a network call per
+   model rather than a check on a set.
+
+### What is still not claimed
+
+Everything the amendment above narrows stays narrow. The `data_systems:` axis of the golden matrix
+gains no entry: the registration is a composition, and that registry's rule is that a cell which
+cannot execute in the suite reads as coverage. `IMPERSONATION` still reads `NoPlaceForASubject`, so a
+`BigQuery` source serves every caller as one service account and an `impersonation-at-source`
+declaration against it is a boot refusal - which is the posture cross-check working, not per-subject
+execution arriving. And the corpus-wide leg this page specifies - #78's importer shape
+pointed at a dataset - was still not built when this amendment was written. **It is now**, and the
+third amendment below is its record; this sentence is left as the pointer rather than deleted,
+because a reader arriving at an amendment wants to know which of its limits a later one spent.
+
+## Third amendment, 2026-08-31: the corpus leg is built, and two of the four bullets are answered
 
 **Status of the amendment: accepted.** The first amendment above ended with a sentence that has stopped
 being true, and it named itself as the thing to watch:
@@ -487,7 +575,12 @@ rather than anything this repository can carry.
   the *Consequences* below still hold on that point: a cell in that registry runs inside `just test`,
   and this cannot, because the nix sandbox has no network. The corpus leg is a second `#[ignore]`d
   integration target in the adapter's own crate, reached by the same app.
-- **No composition root links the crate**, and `sutura-serve` refuses `kind: bigquery` by name.
+- **A composition root now links the crate** - the second amendment above - so the sentence that used to
+  stand here, *no composition root links the crate and `sutura-serve` refuses `kind: bigquery` by name*,
+  is false. What this leg still does not reach is a SHIPPED one: the registration is behind a default-off
+  `bigquery` feature on a binary `nix` does not package, and the image and all four cross binaries are
+  `sutura-cli`, which links the engine only. So no published artifact opens a dataset, and a green here
+  says nothing about one that does.
 - **NEW: this leg WRITES, and two runs against one dataset will race.** Four tables named after the
   example models - `dim_customer`, `dim_product`, `fct_subscription_monthly` and `fct_usage_daily` -
   are replaced on every run. The names are fixed rather than suffixed because the generator renders a

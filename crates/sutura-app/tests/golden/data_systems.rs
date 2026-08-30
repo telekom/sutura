@@ -24,6 +24,11 @@ fn reproduces_every_declared_anchor<W>()
 where
     W: DataSystemUnderTest,
 {
+    // A network adapter with no provisioned tier to run against is SKIPPED (the notice is already
+    // on stderr) rather than failed; the skip-or-fail direction is `SUTURA_DEV_REQUIRE_TIER`.
+    if !W::available() {
+        return;
+    }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let report = verify_anchors(&pinned, &warehouse);
@@ -57,6 +62,9 @@ fn runs_the_corpus_and_pins_the_rows<W>()
 where
     W: DataSystemUnderTest,
 {
+    if !W::available() {
+        return;
+    }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
@@ -105,6 +113,9 @@ fn accepts_every_plan_before_running_it<W>()
 where
     W: DataSystemUnderTest,
 {
+    if !W::available() {
+        return;
+    }
     let pinned = load::<ReferenceCatalog>();
     // The ADAPTER and not a registry, deliberately: `dry_run` is a port method and this test is about
     // the port. A registry is a lookup, so routing through it here would be asserting the lookup twice
@@ -168,6 +179,9 @@ fn partitions_the_measure_rather_than_filtering_it<W>()
 where
     W: DataSystemUnderTest,
 {
+    if !W::available() {
+        return;
+    }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
@@ -225,10 +239,25 @@ where
 /// distinction is the governance one this crate's own error type makes: a refusal is something
 /// a caller asked for and may not have, and this caller asked a question the definition
 /// permits. What went wrong is downstream of the plan.
+///
+/// ## Postgres refuses differently, and that is the point rather than the exception
+///
+/// The adapter set now splits on HOW `fails` is honored. `DuckDB` and the engine divide with IEEE
+/// semantics and so receive `inf`/`NaN`, which the adapter refuses as a non-finite cell -
+/// "column X is not a finite number". Postgres, asked the same statement, RAISES `division by
+/// zero` at the server (measured: `1.0::float8 / 0.0` is an ERROR there, not `inf`). Both honor
+/// the metric's contract - neither answers a number - and the assertion below is deliberately
+/// per-adapter rather than one shape for all: the IEEE adapters still have to name the column and
+/// the non-finite cell, and Postgres has to carry the server's typed `division by zero`. The
+/// alternative - translating Postgres's server error into a non-finite refusal - would fabricate a
+/// cause the server never sent.
 fn fails_a_zero_denominator_that_declares_it_fails<W>()
 where
     W: DataSystemUnderTest,
 {
+    if !W::available() {
+        return;
+    }
     let pinned = load::<ReferenceCatalog>();
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
@@ -245,16 +274,27 @@ where
     )
     .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
-    assert!(
-        rendered.contains("column revenue_per_churned_subscription"),
-        "{} does not say which column it could not carry:\n{rendered}",
-        W::NAME
-    );
-    assert!(
-        rendered.contains("is not a finite number"),
-        "{} failed for some other reason:\n{rendered}",
-        W::NAME
-    );
+    // Per-adapter, on how this one HONORS `fails` - a type switch rather than a weakening of the
+    // shared assertion, so the ones that can name what they refused still have to.
+    match W::NAME {
+        // Postgres RAISES `division by zero` at the server where the IEEE adapters hand back a
+        // non-finite cell, and a server error names no column; its contract is the server's own
+        // refusal, which the adapter carries as the typed DivisionByZero variant.
+        "postgres" => assert!(
+            rendered.contains("division by zero"),
+            "postgres neither refused a non-finite cell nor reported the server's division-by-zero:\n{rendered}"
+        ),
+        // The engine and DuckDB divide with IEEE semantics and receive a non-finite value, which
+        // the adapter refuses NAMING THE COLUMN - the strong assertion kept for the adapters that
+        // can make it.
+        adapter => {
+            let expected = format!("column {}", january.metric());
+            assert!(
+                rendered.contains(&expected) && rendered.contains("is not a finite number"),
+                "{adapter} neither named the column it could not carry nor refused it as non-finite:\n{rendered}"
+            );
+        }
+    }
 
     // And June, where three subscriptions terminated, still answers a figure - so this is not a
     // test that would pass with the metric refused outright.

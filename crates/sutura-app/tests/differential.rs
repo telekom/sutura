@@ -92,6 +92,57 @@ mod tests {
         out
     }
 
+    /// Both sides of `zero_denominator: fails` failed, and this asserts they failed HONESTLY, per
+    /// adapter.
+    ///
+    /// The measure is projected under the metric's own name, so that is the column both sides have to
+    /// name where they can. Compared through the chain because the outermost message is "the data
+    /// system did not answer", which is true of every failure.
+    ///
+    /// The ENGINE side must name the column and the non-finite cell, as it always does. The OTHER side
+    /// has to fail too, but the HOW is that data system's own business: an IEEE one (`DuckDB`) refuses a
+    /// non-finite cell and names the column, while a raising one (`Postgres`) gets the server's typed
+    /// `division by zero`. Both honor `zero_denominator: fails`, and the assertion is a type switch on
+    /// the adapter rather than one weakened shape for both.
+    fn refused_together<W>(
+        engine_error: &dyn core::error::Error,
+        other_error: &dyn core::error::Error,
+        name: &str,
+        metric: &dyn core::fmt::Display,
+    ) where
+        W: DataSystemUnderTest,
+    {
+        let expected = format!("column {metric}");
+        let rendered_engine = chain(engine_error);
+        assert!(
+            rendered_engine.contains(&expected),
+            "{name}: {} did not name the column it could not carry:\n{rendered_engine}",
+            <Engine as DataSystemUnderTest>::NAME
+        );
+        assert!(
+            rendered_engine.contains("is not a finite number"),
+            "{name}: {} failed for some other reason:\n{rendered_engine}",
+            <Engine as DataSystemUnderTest>::NAME
+        );
+        let rendered_other = chain(other_error);
+        match W::NAME {
+            "postgres" => {
+                assert!(
+                    rendered_other.contains("division by zero"),
+                    "{name}: postgres neither refused a non-finite cell nor reported the server's \
+                 division-by-zero:\n{rendered_other}"
+                );
+            }
+            adapter => {
+                assert!(
+                    rendered_other.contains(&expected) && rendered_other.contains("is not a finite number"),
+                    "{name}: {adapter} neither named the column it could not carry nor refused it as \
+                 non-finite:\n{rendered_other}"
+                );
+            }
+        }
+    }
+
     /// Whether this entry is the reference itself, for a message that says which comparison was made.
     ///
     /// A `&str` comparison rather than a type-id one: the registry's whole currency is the name, and an
@@ -116,6 +167,9 @@ mod tests {
     where
         W: DataSystemUnderTest,
     {
+        if !W::available() {
+            return;
+        }
         let pinned = load::<ReferenceCatalog>();
         // Two registries, each holding one adapter under the SAME source name - which is the whole
         // instrument: one plan, run through two data systems that both answer to `local`, rows
@@ -160,24 +214,7 @@ mod tests {
             let (from_engine, from_other) = match (from_engine, from_other) {
                 (Ok(engine_outcome), Ok(other_outcome)) => (engine_outcome.into_outcome(), other_outcome.into_outcome()),
                 (Err(ref engine_error), Err(ref other_error)) => {
-                    // The measure is projected under the metric's own name, so that is the column both
-                    // sides have to name. Compared through the chain because the outermost message is
-                    // "the data system did not answer", which is true of every failure.
-                    let expected = format!("column {}", question.metric());
-                    for (side, error) in [
-                        (<Engine as DataSystemUnderTest>::NAME, engine_error as &dyn core::error::Error),
-                        (W::NAME, other_error),
-                    ] {
-                        let rendered = chain(error);
-                        assert!(
-                            rendered.contains(&expected),
-                            "{name}: {side} did not name the column it could not carry:\n{rendered}"
-                        );
-                        assert!(
-                            rendered.contains("is not a finite number"),
-                            "{name}: {side} failed for some other reason:\n{rendered}"
-                        );
-                    }
+                    refused_together::<W>(engine_error, other_error, &name, &question.metric());
                     refused = refused.saturating_add(1);
                     continue;
                 }
@@ -249,6 +286,9 @@ mod tests {
     where
         W: DataSystemUnderTest,
     {
+        if !W::available() {
+            return;
+        }
         let pinned = load::<ReferenceCatalog>();
         let engine = sutura_app::Warehouses::of(open::<Engine>(&pinned));
         let other = sutura_app::Warehouses::of(open::<W>(&pinned));

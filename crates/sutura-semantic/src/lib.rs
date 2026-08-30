@@ -33,8 +33,8 @@ mod resolve;
 pub use crate::resolve::BundleInconsistent;
 use crate::resolve::ResolveError;
 use sutura_domain::pinned::PinnedDefinitions;
-pub use sutura_domain::plan::QueryPlan;
 use sutura_domain::plan::QueryPlan as DomainPlan;
+pub use sutura_domain::plan::{FederatedPlan, QueryPlan};
 pub use sutura_domain::plan::{PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin};
 use sutura_domain::query::{Query, RefusalReason};
 /// What compiling a question produced.
@@ -43,11 +43,16 @@ use sutura_domain::query::{Query, RefusalReason};
 /// [`sutura_domain::query::ToolOutcome`] makes and for the same reason.
 #[derive(Debug)]
 pub enum Compiled {
-    /// The question resolved, and this is what we decided to execute.
+    /// The question resolved to one data system, and this is what we decided to execute.
     ///
-    /// The plan is boxed because it is by far the larger of the two payloads, and an enum whose
-    /// size is set by its rarest variant makes every refusal carry the cost of an answer.
+    /// The plan is boxed because it is by far the larger of the payloads, and an enum whose size is
+    /// set by its rarest variant makes every refusal carry the cost of an answer.
     Planned { plan: Box<DomainPlan> },
+    /// The question resolved to two data systems, split into a fact leg and a lookup leg.
+    ///
+    /// The two legs execute against their own sources and [`FederatedPlan::combine`] turns the rows
+    /// back into one answer above them.
+    Federated { plan: Box<FederatedPlan> },
     /// The question was refused, and this is why.
     Refused { reason: RefusalReason },
 }
@@ -57,15 +62,15 @@ impl Compiled {
     pub const fn refusal(&self) -> Option<&RefusalReason> {
         match *self {
             Self::Refused { ref reason } => Some(reason),
-            Self::Planned { .. } => None,
+            Self::Planned { .. } | Self::Federated { .. } => None,
         }
     }
-    /// The plan, if the question resolved.
+    /// The plan, if the question resolved to one data system.
     #[inline]
     pub const fn plan(&self) -> Option<&DomainPlan> {
         match *self {
             Self::Planned { ref plan } => Some(plan),
-            Self::Refused { .. } => None,
+            Self::Federated { .. } | Self::Refused { .. } => None,
         }
     }
 }
@@ -90,7 +95,8 @@ pub fn compile(query: &Query, pinned: &PinnedDefinitions) -> Result<Compiled, Bu
         Err(ResolveError::Bundle(cause)) => return Err(cause),
     };
     match plan::plan(&resolution) {
-        Ok(plan) => Ok(Compiled::Planned { plan: Box::new(plan) }),
+        Ok(plan::Plan::Mono(query)) => Ok(Compiled::Planned { plan: query }),
+        Ok(plan::Plan::Federated(federated)) => Ok(Compiled::Federated { plan: federated }),
         Err(reason) => Ok(Compiled::Refused { reason }),
     }
 }

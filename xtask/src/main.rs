@@ -281,10 +281,12 @@ const TASKS: &[Task] = &[
         run: run_hygiene,
     },
     Task {
-        // The compose tier. `Kind::Standalone`, and not for the usual reason: these are not
-        // expensive, they are ACTIONS - they start and remove containers on the host. The hygiene
-        // sweep runs on every commit and inside the Nix sandbox, which has no network and no docker
-        // socket, so a tier collected into it could not run and must not try.
+        // The compose (docker) tier. `Kind::Standalone`, and not for the usual reason: these are
+        // not expensive, they are ACTIONS - they start and remove containers on the host. The
+        // hygiene sweep runs on every commit and inside the Nix sandbox, which has neither a
+        // network nor a docker socket, so a DOCKER tier collected into it could not run and must
+        // not try. (A service needing neither, like the sandbox's Unix-socket Postgres, can be a
+        // check - see `nix/postgres-tier.nix`.)
         name: "dev-up",
         description: "this worktree's services, on ephemeral ports, with a discovery file (needs docker)",
         kind: Kind::Standalone,

@@ -149,6 +149,15 @@ pub fn project(&self) -> &str
 The compose project these endpoints came from.
 
 ```rust
+pub fn provisioner(&self) -> Option<&str>
+```
+
+What provisioned this tier, where the file says.
+
+`docker` for `xtask dev-up`, `nix` for `nix/postgres-tier.nix`. `None` when an older file (or
+a hand-written one) carried no marker - a reader must not assume docker from the absence.
+
+```rust
 pub fn services(&self) -> impl Iterator<Item>
 ```
 
@@ -194,6 +203,7 @@ that has to match on prose has no contract.
 - `NoProject` - No `project` string.
 - `NoServices` - No `services` object.
 - `ServiceEntry` - A service entry without a readable `host` and `port`.
+- `HostNeitherLoopbackNorSocket` - A service host that is neither loopback nor a `/`-prefixed socket directory.
 
 #### Implements
 
@@ -436,17 +446,19 @@ the failure the whole tier exists to prevent.
 
 **So the signal is "somebody provisioned a tier here", and it is NOT the `CI` variable.** That
 distinction was learned rather than designed: this module first read `CI`, on the reasoning that
-CI is where a silent skip costs most. The reasoning was right and the signal was wrong. No CI job
-provisions this tier - the nix sandbox has neither a network nor a docker socket, and the workflow
-job that runs the suite never brings the services up - so `CI=true` made a missing tier fatal in
-the one place its absence is expected, and it failed on the first push of the branch that added
-it, in a step that had tested nothing needing docker.
+CI is where a silent skip costs most. The reasoning was right and the signal was wrong, and the
+event that proved it happened IN CI: the branch that added this module provisioned no tier, so
+`CI=true` made a missing tier fatal right where its absence was expected - on its first push, in
+a step that had provisioned nothing. And nothing has changed that shape: no CI job sets `CI`
+only when it has provisioned a tier. What DOES opt in is the nix `checks.nextest` derivation,
+which provisions its own Postgres over a unix socket (`nix/postgres-tier.nix`) and sets the
+variable below; a docker tier needs docker on the host and opts in the same way.
 
-Only the job that provisions the tier knows that it did. So that job opts in by setting the
+Only the thing that provisions the tier knows that it did. So that thing opts in by setting the
 variable below and gets the fail-closed direction; everything else skips loudly and names what did
-not run. **The limit, stated with the claim:** nothing here verifies that a job setting the
-variable really did provision anything - it is a declaration, and a job that lies about it gets
-the failure it asked for.
+not run. **The limit, stated with the claim:** nothing here verifies that a process setting the
+variable really did provision anything - it is a declaration, and a process that lies about it
+gets the failure it asked for.
 
 ### `enum Requirement`
 
@@ -503,9 +515,14 @@ differently is a fix that does not work and looks like it should.
 Per-worktree isolation: the part that has to be right.
 
 Several worktrees of this repo are open at once - that is the point of stacked branches -
-and each needs its own Postgres, `ClickHouse` and an identity provider. Two worktrees sharing a
+and each needs its own services. Two worktrees sharing a
 container is the worst outcome available: a test passes because the *other* branch's
 migration ran, and the failure appears in whichever branch is unlucky.
+
+Every containerised service in the compose tier is scoped to a worktree (Postgres is not here:
+it is nix-native, provisioned by `nix/postgres-tier.nix` and run by `checks.nextest` and by
+`just test`, over a unix socket in a short per-worktree directory under `$TMPDIR` - see that
+module).
 
 So everything NAMED is scoped to a worktree, and it all derives from one value: a short digest
 of the worktree's CANONICAL path.

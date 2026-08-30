@@ -47,7 +47,7 @@
 //! Every sentence in this repository that promised *the corpus* over THIS file was narrowed to what it
 //! does - `docs/adr/0017`'s amendment, `docs/adr/0018`, `AGENTS.md`, `docs/architecture.md` and both
 //! plan pages - because a record that says "the corpus" over a test that submits one statement is the
-//! overstated-claim defect this repository treats as a defect. `docs/adr/0017`'s second amendment is
+//! overstated-claim defect this repository treats as a defect. `docs/adr/0017`'s third amendment is
 //! where the corpus leg's own claim is stated, with its own limits.
 //!
 //! # Why it is not in any gate, and what a green `just validate` therefore does not mean
