@@ -27,10 +27,20 @@ asking subject: no adapter in this build can carry a per-subject credential. Aga
 property is trivially true and worth nothing, because a file has no login. Against a warehouse it is
 still a target - what changed is that no QUESTION has a code path for a warehouse to be read as this
 process through. The boot path does, by design: it re-executes every anchor before a listener is
-bound, there is no caller then, and `Warehouse::verify_anchor` takes no credential. What bounds that
-path is its input - it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and
-refuses a grouped one, a filtered one, another metric's or another range's - so the method with no
-credential cannot be handed a question.
+bound, there is no caller then, and `Warehouse::verify_anchor` takes no credential.
+
+**What bounds that path is placement made checkable, and not its input type - which is a correction a
+second review forced.** `verify_anchor` takes an `AnchorPlan`, which parses a plan as one the pinned
+bundle itself agrees is a declared anchor's own: the metric has to be defined and anchored, the range
+has to be the one the bundle certifies, the grain has to be the coarsest that metric declares, and
+there may be no group-by key and no predicate a question asked for. Every one of those facts is read
+off the bundle, so the check catches a boot path that compiled the wrong question. It does **not** stop
+code that wants to reach the method: the constructor is public, every value it reads is publicly
+constructible, and Rust has no cross-crate friend visibility. So the mechanism that makes the
+credential-free path boot-only is a lint - `clippy.toml` bans the method and the boot path holds the
+single expectation, so a second call site is a build error until somebody writes a second one a
+reviewer sees. A lint reaches this workspace and not a crate outside it; that is the limit, and it is
+stated on the type as well.
 
 ## Why is a refusal not an error?
 
@@ -39,11 +49,15 @@ caller cannot mistake "you may not ask this" for a transport hiccup and loop unt
 answers. That part is enforced today, and the golden suite provokes every variant a question can
 reach.
 
-Recording each refusal with the whole principal chain, so that a refused call is as attributable as
-an answered one, is a **design target**. There is no audit sink in the workspace, so a refusal today
-is a value handed to the caller and written down as nothing that could attribute it. `sutura-runtime`
-does install a tracing subscriber, so a refusal can be *logged* - but a log line is not an audit
-record, because nothing correlates it to a caller and there is no caller identity to correlate it to.
+Recording each refusal with the whole principal chain is **built**: an `AuditSink` takes every
+outcome, refusal and answer alike, before it is returned, and `sutura-runtime` ships the structured
+writer a deployment that attaches nothing else gets. Two limits, both deliberate. sutura **retains
+nothing** - what a record is worth is what the deployment's sink is worth. And the subject in the chain
+is only as strong as what established it: behind the shared bearer token alone the record names the
+*deployment*, because that is who asked as far as anything can tell; a deployment that declares
+`security.inbound` names the caller, from a signature. What is still a design target is a refusal
+attributable to a subject whose own **access** decided it - the record can say which identity each leg
+ran under, and on this build that is never the asking subject.
 
 ## Why does the tool surface take no table name?
 
@@ -96,10 +110,13 @@ an attacker can make the agent emit is a different certified question over the s
 definitions - that much is enforced today by the shape of `Query`. The blast radius of a fully
 manipulated agent is the set of questions its caller could already ask.
 
-The clause "asked as the same caller, against the same authorization" is the **design target**. It
-needs the credential broker, which is not built, so today the bound is the tool surface alone: an
-attacker cannot make sutura run SQL it did not generate, and nothing today makes a statement about
-whose rows come back.
+The clause "asked as the same caller, against the same authorization" is **half built.** The credential
+broker exists and `Warehouse::execute` has no signature that runs without what it minted, so there is
+no code path a question reaches a data system through as an unnamed identity. What is still absent is
+an adapter that can carry a per-subject credential, so nothing today makes a statement about **whose
+rows** come back: the bound on a manipulated agent is the tool surface plus, where a deployment
+declares `security.inbound`, the scopes that caller was granted - which decide which operations it may
+invoke and not which rows an answer contains.
 
 ## Why do the musl builds swap the allocator?
 
@@ -116,12 +133,17 @@ a directory you name. That is the honest description: **a governed single-player
 and executor over local files**, served either from the command line or
 [over HTTP](serving.md).
 
-Not as the identity-aware runtime this site describes. There is no request context, no credential
-broker, no audit sink, no Arrow result envelope and no MCP server; the HTTP surface exists, and its
-bearer token authenticates the deployment rather than the caller. The one data system the shipped
-binary opens is the in-process engine over those files - `sutura-exec-duckdb` renders and pushes
-down, and is a development dependency rather than something the binary links. So the governance the
-design rests on is the narrow tool surface and the pinned bundle, not identity.
+Not yet as the identity-aware runtime this site describes, and the gap is narrower and more specific
+than it used to be. There **is** a request context, a credential broker port with a static-credential
+implementor, an audit sink, an MCP surface, and - where a deployment declares `security.inbound` - a
+verified caller identity from a signature, with OAuth scopes deciding which operations that caller may
+invoke. What there is **not** is leg 2: no adapter in this build has anywhere for a per-subject
+credential to arrive, both declare so, and the broker that ships mints what an operator configured. So
+a deployment can know exactly who is asking, record it, refuse a subject it holds no credential for -
+and still read every row as one identity. There is no Arrow result envelope. The one data system the
+shipped binary opens is the in-process engine over those files - `sutura-exec-duckdb` renders and
+pushes down, and is a development dependency rather than something the binary links. So the governance
+that decides **which rows** is still the narrow tool surface and the pinned bundle, not identity.
 [What exists today](architecture.md#what-exists-today) is the inventory.
 
 The environment, the gates and the release pipeline do work, because a mechanism is cheaper to build

@@ -235,12 +235,25 @@ own declaration.
 
 *The one path that runs with no credential, said here because the sentence above is only true with
 it:* the boot path re-executes every anchor before a listener is bound, and there is no caller then, so
-`Warehouse::verify_anchor` takes no credential at all. What bounds it is its INPUT rather than its
-identity: it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and refuses a
-grouped plan, a plan carrying a predicate a question asked for, a plan for another metric and a plan
-over another range. **Its constructor is `pub`, so that narrows the door rather than closing it** - a
-caller holding the bundle can still construct the plan of an anchor the catalog publishes, and what
-that returns is the number the catalog already certifies. What it cannot be handed is a question.
+`Warehouse::verify_anchor` takes no credential at all.
+
+**What bounds it is a lint, and its input type is a self-check rather than a barrier - a correction a
+second review forced on this page.** This paragraph used to say the method "cannot be handed a
+question" because it takes an `AnchorPlan`; a reviewer disproved that in one function by fabricating
+the tuple the constructor took. The constructor is public, every value it reads is publicly
+constructible, and Rust has no cross-crate friend visibility, so no arrangement of guards there can
+be an authority. Two mechanisms now, stated apart:
+
+- `clippy.toml` bans `Warehouse::verify_anchor`. `sutura_app::verify_anchors` holds the single
+  `#[expect]`, so a second call site anywhere in the workspace is a build error until somebody writes
+  a second expectation a reviewer sees in the diff. **That is what makes the path boot-only.** Its
+  limit: a lint is not a type - it reaches this workspace, and an `#[allow]` walks past it.
+- `AnchorPlan::of` checks that the boot path compiled the question it meant to, reading everything it
+  compares off the pinned bundle rather than taking it as an argument: the metric has to be defined
+  and anchored, the range has to be the one that bundle certifies, the grain has to be the coarsest
+  that metric declares, and there may be no group-by key and no predicate a question asked for. The
+  grain check closed a real gap - a `Day`-grain plan over the anchor's range used to pass and come
+  back as a series rather than the one certified number.
 
 *Not built:* an adapter that can carry a per-subject credential. Both in this build declare that they
 have nowhere for one to arrive, and the broker that ships mints from configuration. So the identity a

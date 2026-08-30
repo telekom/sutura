@@ -666,14 +666,17 @@ where
             plan: plan.source().clone(),
         });
     };
-    // The plan, parsed as this anchor's before anything with no credential is allowed to execute it.
-    // `AnchorPlan::of` refuses a grouped plan, a plan carrying a predicate a question asked for, a
-    // plan for another metric and a plan over another range - which is what makes `verify_anchor`
-    // unable to take a caller's question. Reaching the `Err` arm means this function compiled
-    // something other than the anchor's own question, so it is a defect here rather than a governance
-    // outcome, and it is reported as one: `NotExecutedReason::NotAnAnchor` names the metric's report
-    // entry rather than failing the boot for every other anchor in the bundle.
-    let anchor_plan = match AnchorPlan::of(&plan, metric, anchor) {
+    // The plan, checked against the bundle as this anchor's own before anything executes it. Every
+    // fact `AnchorPlan::of` compares - that the metric is defined, that it declares an anchor, the
+    // range that anchor certifies, and the coarsest grain it is asked at - is read off `pinned` rather
+    // than handed in, which is what makes the check a check on THIS function rather than on its
+    // arguments. It is a self-check and not an authority: `AnchorPlan`'s own documentation says so,
+    // and what keeps the credential-free method to this one call site is the `clippy.toml` ban below.
+    // Reaching the `Err` arm means this function compiled something other than the anchor's own
+    // question, so it is a defect here rather than a governance outcome, and it is reported as one:
+    // `NotExecutedReason::NotAnAnchor` names the metric's report entry rather than failing the boot
+    // for every other anchor in the bundle.
+    let anchor_plan = match AnchorPlan::of(&plan, pinned, metric) {
         Ok(anchor_plan) => anchor_plan,
         Err(cause) => {
             let (message, chain) = flatten(&cause);
@@ -686,6 +689,17 @@ where
     // comes back through. What it runs as is whatever the deployment configured this adapter with,
     // and `docs/adr/0008` part 1 is why that is the only honest answer available: under row-level
     // security a per-subject anchor is a function rather than a number.
+    //
+    // THE SINGLE EXPECTATION for the `clippy.toml` ban on this method, and it is the mechanism that
+    // makes the credential-free path boot-only: a second call site anywhere in the workspace is an
+    // error under `-D warnings` until somebody writes a second `#[expect]` a reviewer sees in the
+    // diff. `AnchorPlan` cannot carry that on its own - every value its constructor reads is publicly
+    // constructible, and Rust has no cross-crate friend visibility.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "the boot path is the one caller of the method that executes with no credential; the \
+                  ban exists so that this is the only place it is called from"
+    )]
     let rows = match warehouse.verify_anchor(anchor_plan) {
         Ok(rows) => rows,
         Err(cause) => {

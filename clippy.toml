@@ -38,6 +38,16 @@ disallowed-methods = [
   # findable together. `sutura_runtime::spawn_carrying_span` is the same call with the span carried
   # across, and it holds the single `#[expect]` for this entry.
   { path = "tokio::task::spawn_blocking", reason = "the pool thread has no current span, so the request's context is lost; use sutura_runtime::spawn_carrying_span" },
+  # The ONE method on the `Warehouse` port that reaches a data system with no credential. It runs
+  # under whatever identity the deployment configured that adapter with, so a second call site is a
+  # second thing executing as the deployment - and `AnchorPlan` cannot stop that on its own, because
+  # every value its constructor reads is publicly constructible and Rust has no cross-crate friend
+  # visibility. What makes the path boot-only is therefore this entry: the single caller is
+  # `sutura_app::verify_anchors`, which holds the single `#[expect]`, and any other call is an error
+  # under `-D warnings` until somebody writes a second one a reviewer can see. Verified to resolve by
+  # writing the call and watching clippy reject it; the limit is that a lint is not a type, so it
+  # reaches this workspace and not a crate outside it.
+  { path = "sutura_domain::warehouse::Warehouse::verify_anchor", reason = "the only port method that executes with no credential; it belongs to the boot path alone, whose one call site holds the single #[expect]" },
 ]
 
 disallowed-types = [

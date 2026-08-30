@@ -17,13 +17,23 @@ is worth more as a check than as a sentence in a design document. The allowlist 
 digest needs, and nothing else - which is why there is a hand-written calendar in `calendar`
 and no SQL parser anywhere in this crate, `expression` included.
 
-**Three ports live here now, and each arrived with the adapter that implements it.** A port exists
+**Four ports live here now, and each arrived with the adapter that implements it.** A port exists
 to invert a dependency on something outside the hexagon, so a trait with no implementor is a
 guess at a signature that only the first real adapter can settle, and in a library crate `pub`
 hides such a guess from `dead_code`. `pinned::SemanticCatalog` arrived with the local catalog
-adapter, `warehouse::Warehouse` with the `DuckDB` one, and `audit::AuditSink` with the
-structured writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets.
-`CredentialBroker` is still absent for the same reason it always was: nothing implements it yet.
+adapter, `warehouse::Warehouse` with the `DuckDB` one, `audit::AuditSink` with the structured
+writer in `sutura-runtime` - the sink a deployment that attaches nothing else gets - and
+`identity::CredentialBroker` with `sutura_config::StaticCredentialBroker`, which is in the
+settings crate because the identity provider it reads *is* the settings tree.
+
+**What the credential port did and did not buy, said here because the count above invites the
+wrong reading.** There is no longer a signature that reaches a data system with a question and no
+credential, and a subject with no credential at a source is refused rather than answered as the
+process. What is absent is the other end: no adapter in this build has anywhere for a per-subject
+credential to arrive, so a leg runs under the identity an operator declared for that source and
+`pinned::Provenance` records which. The one method that still executes with no credential is
+`warehouse::Warehouse::verify_anchor`, the boot path's; `clippy.toml` bans it everywhere else and
+`plan::AnchorPlan` says plainly that it is a self-check on that path rather than a barrier.
 
 The modules are grouped by concept rather than named after traits, so a port sits next to the
 types it speaks in:
@@ -56,8 +66,9 @@ types it speaks in:
   per-leg execution record `pinned::Provenance` carries, which is read off what the adapter was
   handed rather than off a settings tree.
 - `definitions` and `identity` hold the digest and the credential-shaped newtypes. The
-  principal chain a call is attributed to lives in `identity` as well, beside the redaction,
-  because both are properties of who is asking rather than of what was asked.
+  principal chain a call is attributed to lives in `identity` as well, beside the redaction and
+  the credential port, because all three are properties of who is asking rather than of what was
+  asked.
 - `audit` is the record one call is written to, and the port it goes through. It is not a
   store: sutura writes a record before the outcome returns and retains nothing, so what the
   sink does with it is the deployment's.
@@ -3638,7 +3649,7 @@ available at that boundary.
 - `NotOneNumber` - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.
 - `NoMeasureColumn` - The result carries no column named after the metric, so there is nothing to compare.
 - `ResultShapeMismatch` - The result set was not the shape it reported.
-- `NotAnAnchor` - The plan the boot path compiled is not this anchor's own, so nothing was allowed to execute it with no credential.
+- `NotAnAnchor` - The plan the boot path compiled is not this anchor's own, so nothing executed it.
 - `Failed` - The data system failed the statement. `message` is the adapter's own, `chain` is every cause beneath it - the driver error included, which is the part that names a table, a column or a file and the part a single string used to throw away.
 
 #### Implements
@@ -4223,50 +4234,67 @@ pub struct AnchorPlan<'bundle>
 ```
 
 The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
-a declared anchor's own plan.
+a plan the pinned bundle itself agrees is one of its anchors' own.
 
-**This type exists because the sentence "no signature in this workspace can execute a question as
-this process" was false by one method, and a review caught it.**
-[`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
-[`Presented`](crate::identity::Presented). `verify_anchor` deliberately takes no credential -
-there is no caller at boot - and while it took a bare `QueryPlan` it would execute *any* plan
-under whatever identity the deployment configured that adapter with, including a plan compiled
-from a caller's question. Placement kept the request path off it; placement is not a mechanism.
+# What this type is, and what it is not
 
-So the boot path gets an input a question's plan cannot be: `Self::of` refuses a plan that is
-grouped, a plan carrying a predicate the question asked for, a plan for a different metric, and a
-plan whose range is not the anchor's. An anchor is asked with no dimensions and no filters over
-the range its author certified, so those four checks accept exactly what the boot path builds and
-reject every shape a caller can reach.
+**It is a self-check on the boot path, and it is NOT an authority.** That distinction is the whole
+of what a second review corrected, and getting it wrong once put a false sentence in ten places
+across seven files - `docs/adr/0008`'s second amendment to its correction 2 lists them. [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
+[`Presented`](crate::identity::Presented); `verify_anchor` deliberately takes no credential,
+because there is no caller at boot, and it therefore runs under whatever identity the deployment
+configured that adapter with. So the question is what bounds its INPUT.
 
-# The limit, stated with the claim
+`Self::of` answers "did the boot path compile the question it meant to" and nothing stronger.
+The plan has to compute a metric **this bundle** defines, that metric has to declare an anchor,
+and the plan has to be that anchor's own question: the metric's coarsest declared grain, exactly
+the range the anchor certifies, no group-by keys, and no predicate a question asked for. Every one
+of those facts is read off the `PinnedDefinitions` rather than accepted as an argument, which is
+what makes the check worth making - a caller no longer supplies the anchor it will be compared
+against.
 
-`Self::of` is `pub`, because the boot path lives in `sutura-app` and this type lives here - the
-same reason [`LegCredentials::minted`](crate::identity::LegCredentials::minted) is. So this is a
-**narrowing and not a closure**: a caller that already holds the bundle can still ask for a metric
-at its coarsest grain, with no dimensions and no filters, over exactly the range that metric's
-anchor declares, and construct one. What that plan returns is the number the bundle certifies in
-its own catalog document and that provenance already publishes, so nothing reaches a caller
-through this door that the definitions did not already state. What is no longer reachable is a
-*question* - a grouped plan, a filtered one, a different range, a different metric - which is what
-the claim is about.
+**What it cannot do is stop code that wants to.** Every value it reads is publicly constructible -
+`QueryPlan::new`, `PinnedDefinitions::pin`, the metric and range types - and Rust has no
+cross-crate friend visibility, so a constructor `sutura-app` can call is a constructor anything in
+the workspace can call. A reviewer defeated the previous version of this type in one function by
+fabricating the tuple it took, and the fix for that class is not a fifth guard: a shape check over
+caller-constructible values can only ever be a shape check.
 
-A genuinely closed constructor would need the domain to compile the plan itself, and compilation
-is `sutura-semantic`'s: the domain may not depend on it. `docs/adr/0008`'s own correction 2 is the
-precedent for saying this rather than implying more - a `pub` constructor asserted as unreachable
-is exactly what that correction found wrong with the record's first attempt at this method.
+# So what makes the credential-free path boot-only
+
+A lint, and it is named here rather than implied: `clippy.toml` bans
+`sutura_domain::warehouse::Warehouse::verify_anchor`, verified to resolve by writing the call and
+watching clippy reject it. `sutura_app::verify_anchors` holds the single `#[expect]`, so a second
+call site is an error under `-D warnings` until somebody writes a second expectation a reviewer
+sees in the diff. That is the same mechanism the ban on the panicking fragment API and the ban on a
+bare `spawn_blocking` already rest on. **Its limit is that a lint is not a type:** it reaches this
+workspace and not a crate outside it, and an `#[allow]` walks past it.
+
+A genuinely closed constructor is not available. The domain cannot compile a plan - compilation is
+`sutura-semantic`'s and dependencies point inward - and a token only `sutura-app`'s private `proof`
+module could mint would have to be constructible from `sutura-domain`, which is the same public
+door one level down. `docs/adr/0008`'s own corrections are the precedent for saying this rather
+than implying more.
 
 #### Methods
 
 ```rust
-pub fn of(plan: &'bundle QueryPlan, metric: &MetricName, anchor: &Anchor) -> Result<Self, NotAnAnchorsPlan>
+pub fn of(plan: &'bundle QueryPlan, pinned: &PinnedDefinitions, metric: &MetricName) -> Result<Self, NotAnAnchorsPlan>
 ```
 
-Parses a plan as one anchor's, refusing every shape a question could be.
+Parses a plan as one of `pinned`'s own anchors', reading every fact it compares off the bundle.
 
-Takes the metric's name as well as the `Anchor`, because an anchor carries a range and a
-value and does not know which metric declared it - so without the name the metric check would
-have nothing to compare against.
+Takes the metric's name as well as the bundle, because the bundle holds many anchors and the
+caller is asserting *which* one this plan is of - so the first check is that the plan agrees.
+Everything after that is the bundle's own statement about that metric.
+
+**It does not take a `sutura_app::Validated` bundle, and it cannot:** validating a bundle is
+what this call is part of, so the proof does not exist yet. That is one more reason the type is
+a self-check rather than an authority.
+
+The order of the checks is chosen for the diagnostic rather than for cost - every input is
+already bounded and in memory. Which metric, then what the bundle says about that metric, then
+the two shapes only a question has, then the two values an anchor's own question pins.
 
 ```rust
 pub const fn plan(&self) -> &QueryPlan
@@ -4284,7 +4312,7 @@ The plan, for the adapter that has to execute it.
 pub enum NotAnAnchorsPlan
 ```
 
-A plan that is not a declared anchor's own, so nothing may execute it with no credential.
+A plan that is not a declared anchor's own, so the boot path did not compile what it meant to.
 
 **An error and not a refusal**: reaching it means the boot path compiled something other than the
 anchor's question, which is a defect here rather than anything about a caller.
@@ -4292,8 +4320,11 @@ anchor's question, which is a defect here rather than anything about a caller.
 #### Variants
 
 - `NotThatMetric` - The plan computes a different metric from the one whose anchor it would be checked against.
+- `MetricNotDefined` - The bundle this plan is checked against does not define the metric at all.
+- `DeclaresNoAnchor` - The metric is defined and declares no certified number, so there is no anchor to be a plan of.
 - `Grouped` - The plan groups by something. An anchor is a metric's own number, not a slice of it.
 - `Requested` - The plan carries a predicate a question asked for, which an anchor's plan never does.
+- `NotTheCoarsestGrain` - The plan buckets at a finer grain than the metric's coarsest, so it returns a series.
 - `NotTheAnchorsRange` - The plan's range is not the range the anchor's author certified.
 
 #### Implements
@@ -5749,13 +5780,26 @@ could not have held: `crate::source::VerificationIdentity::parse` is `pub`, so a
 construct one. A method that takes NO credential has no parameter to pass one to, which is the
 property the record wanted, reached by removing the argument instead of by typing it.
 
-**And a method with no credential still has an INPUT, which is where this was wrong by one
-method until a review said so.** While `verify_anchor` took a bare [`QueryPlan`](crate::plan::QueryPlan)
-it would execute anything - a caller's question included - under whatever identity the deployment
-configured the adapter with, and what kept the request path off it was where the call sites
-happen to be. It takes an `AnchorPlan` now, which refuses a grouped plan, a plan carrying a
-requested predicate, a plan for another metric and a plan over another range. That type states
-its own limit: its constructor is `pub`, so it narrows the door rather than closing it.
+**What bounds a method with no credential is WHERE it is called from, and that is a lint here
+rather than a type - which is a second review's correction to a claim this comment used to make.**
+The first correction gave `Self::verify_anchor` an `AnchorPlan` instead of a bare
+[`QueryPlan`](crate::plan::QueryPlan) and said the method could no longer be handed a question. A
+reviewer disproved that in one function: the constructor is `pub`, every value it read was
+publicly constructible, and a fabricated tuple passed all four guards. That is not a hole a fifth
+guard closes - a shape check over caller-constructible values can only ever be a shape check, and
+Rust has no cross-crate friend visibility to hide the constructor behind.
+
+So the two mechanisms are named separately, because they do different jobs:
+
+- `clippy.toml` bans `sutura_domain::warehouse::Warehouse::verify_anchor`, verified to resolve by
+  writing the call and watching clippy reject it. `sutura_app::verify_anchors` holds the single
+  `#[expect]`, so a second call site is an error under `-D warnings` until somebody writes a
+  second expectation a reviewer sees in the diff. **That is what makes the path boot-only**, and
+  its limit is that a lint reaches this workspace and an `#[allow]` walks past it.
+- `AnchorPlan` checks that the boot path compiled the question it meant to, reading the metric's
+  definition, its anchor's range and its coarsest grain off the pinned bundle rather than taking
+  them as arguments. It is a **self-check on that one caller and not an authority**, and the type
+  says so at length.
 
 # The two identity declarations, and why they are two
 

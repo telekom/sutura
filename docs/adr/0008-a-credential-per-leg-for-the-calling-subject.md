@@ -5,29 +5,32 @@ description: What end-to-end impersonation concretely requires of BigQuery, Post
 
 # A credential per leg, for the calling subject
 
-Status: **accepted, and the port is built - along with five corrections to this record's own signature
-and, after two reviews of the code that landed, five `> **Amended.**` blocks inside them.** *What is built, and the five
-places this record was wrong about its own signature*, at the foot, is the authority on the state:
-every "not built" above it is older than the code, and each `> **Amended.**` block inside it is newer
-still. The line that used to be here - *"nothing in it is built"* - was true when it was written.
-**Both numbers in that line are countable against this document** - five numbered corrections, five
-`> **Amended.**` blocks - and the line was wrong once, claiming four amendments where the record held
-three. That is the drift a hand-counted number invites, so count it against the document rather than
-against this sentence.
+Status: **accepted, and the port is built - along with numbered corrections to this record's own
+signature and, after two reviews of the code that landed, `> **Amended.**` blocks inside them.**
+*What is built, and the places this record was wrong about its own signature*, at the foot, is the
+authority on the state: every "not built" above it is older than the code, and each
+`> **Amended.**` block inside it is newer still. The line that used to be here - *"nothing in it is
+built"* - was true when it was written. **The counts are deliberately not written out here**, because
+this line has already carried a wrong one: count the numbered items and the amendment blocks against
+the document rather than against this sentence.
 
-**What the first review changed:** the boot path's method takes an `AnchorPlan` rather than a bare
-plan, so the one signature with no credential cannot be handed a question (correction 2); each adapter
-compares the leg against its DECLARED posture and not only against its own capability, which is a hole
-this record's own *not built* list described as already closed (not-built item 4); and `Expiry` lost a
-derived ordering that made "the earliest" answer "nothing expires" (correction 4).
+**What the first review changed, in one place so it can be found:** the boot path's method took an
+`AnchorPlan` rather than a bare plan (correction 2); each adapter compares the leg against its DECLARED
+posture and not only against its own capability, which is a hole this record's own *not built* list
+described as already closed (not-built item 4); and `Expiry` lost a derived ordering that made "the
+earliest" answer "nothing expires" (correction 4).
 
-**What the second review changed, and all four of these were reproduced with a diagnostic broker
-rather than argued:** the broker's answer is now compared with the request it was made for - subject,
-source set, deadline, and the source a refusal names - as one guard whose result is the only way to a
-`Presented` (correction 5); the deadline is enforced at both boundaries a credential crosses and
-recorded in the audit record (correction 4's second amendment); and the leg-against-posture comparison
-moved into `sutura_app::answer`, because `Warehouse` is a trait and an adapter can omit its own copy
-(not-built item 4's second amendment).
+**What the second review changed, in the boot path - and it is a retraction rather than a refinement.**
+*A second branch corrects the same review's findings in the credential path; when both have landed these
+two paragraphs sit side by side and neither replaces the other.* Correction 2's own
+amendment claimed that "the one signature with no credential cannot be handed a question", and that was
+false. A reviewer fabricated the tuple `AnchorPlan::of` took - the constructor and every value it read
+are `pub` - and reached `verify_anchor` without a credential; the same review found that nothing read
+the plan's GRAIN, so a `Day`-grain plan over the anchor's range passed and returned a series rather than
+the certified number. Correction 2 now carries a second amendment which retracts the claim and names
+what replaced it: a `clippy.toml` ban that keeps the method to one call site, and an `AnchorPlan` that
+reads the anchor and the grain off the pinned bundle and is a **self-check on the boot path rather than
+an authority**.
 
 It decides the shape of the identity path before the first adapter that needs one, because both
 halves of that path are cheap to decide now and expensive to retrofit: the transport has to learn a
@@ -1862,7 +1865,7 @@ below and still true for the rest.
 | Decision | Where | The mechanism, not the intent |
 | --- | --- | --- |
 | The port | `sutura_domain::identity::CredentialBroker` | One method, `mint`, taking the whole source set in one call, synchronous, with a per-adapter error type. `Minted` is two outcomes so a refusal comes back in the `Ok` |
-| No signature runs a QUESTION as the process | `sutura_domain::warehouse::Warehouse::execute`, and `Warehouse::verify_anchor`'s input | `execute` takes a `&Presented` and has **no default**, so there is no code path into a data system that answers a question as whatever the process is. A `compile_fail` doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included. **The word QUESTION is a review's correction to this row, and the mechanism arrived with it:** `verify_anchor` deliberately takes no credential, so while its input was a bare `QueryPlan` it would execute anything - a caller's plan included - under the identity the deployment configured the adapter with, and the row was false by one method. It takes an `AnchorPlan` now, which parses a plan as a declared anchor's own: no keys, no predicate a question asked for, the anchor's metric, the anchor's range. `AnchorPlan::of` is `pub`, so it narrows the door rather than closing it - the type says so, and what a conforming plan returns is the number the bundle already certifies |
+| No signature runs a QUESTION as the process | `sutura_domain::warehouse::Warehouse::execute`, and `Warehouse::verify_anchor`'s input | `execute` takes a `&Presented` and has **no default**, so there is no code path into a data system that answers a question as whatever the process is. A `compile_fail` doctest with a compiling twin, differing by that one argument. Every adapter had to be recompiled against it, the engine included. **The word QUESTION is a review's correction to this row, and the mechanism arrived with it:** `verify_anchor` deliberately takes no credential, so while its input was a bare `QueryPlan` it would execute anything - a caller's plan included - under the identity the deployment configured the adapter with, and the row was false by one method. It takes an `AnchorPlan` now. **A SECOND review then showed that this row's fix was not the mechanism it read as, so the row states the two things separately.** `AnchorPlan::of` is `pub` and every value it reads is `pub`, so a fabricated tuple reached `verify_anchor` in one function - which is why the type is now a **self-check on the boot path**: it takes the `PinnedDefinitions` and reads the metric's anchor, that anchor's range and the metric's coarsest grain off the bundle, so a boot path that compiled the wrong question is caught, the grain gap the same review found is closed, and a caller no longer supplies the anchor it will be compared against. **What makes the method boot-only is a lint**: `clippy.toml` bans `Warehouse::verify_anchor`, verified to resolve by writing the call and watching clippy reject it, and `sutura_app::verify_anchors` holds the single `#[expect]`. Its limit is that a lint is not a type - it reaches this workspace, and an `#[allow]` walks past it |
 | A leg is checked against the DECLARED posture, not only against the adapter's capability | `sutura_domain::identity::Presented::agrees_with`, called by both adapters | One exhaustive match over the pair (`Presented`, `SourcePosture`) with no wildcard arm. **Also a review's correction, and it is the one that closed a real hole:** each adapter matched the variant it was handed against `Warehouse::IMPERSONATION` - "can this code carry a subject at all" - and read `posture` not at all, so a `SharedServiceUser` leg carrying a *different* operator acknowledgement was accepted and then reported under the adapter's own declaration, because provenance is read off `posture`. The two values compared are independent: a broker reads the settings tree and an adapter holds what the composition root handed it. **The limit:** the witness is prose, so equality is the comparison available and a fabricated witness identical to this source's is indistinguishable from it |
 | A pre-flight cannot claim what it did not ask | `PreFlight` | Two variants, `NotAsked` and `Accepted`, and the DEFAULT is `NotAsked`. `dry_run` takes the credential too, because a pre-flight asked as the wrong identity answers a different question |
 | Three postures, and the third carries no credential material | `Presented` | Three variants. A test asserts the shared one's `Debug` carries the operator's acknowledgement and no `Secret` at all, and that the other two do carry material - so the assertion is not passing because nothing anywhere holds any |
@@ -1912,6 +1915,46 @@ below and still true for the rest.
    > what a conforming plan returns is the number the bundle certifies in its own catalog document.
    > A genuinely closed constructor would need the domain to compile the plan itself, which is
    > `sutura-semantic`'s job and not a dependency the domain may take.
+
+   > **Amended a second time, and this one RETRACTS a claim rather than narrowing it.** The block above
+   > said "the one signature with no credential cannot be handed a question" and then, one sentence
+   > later, that the constructor is `pub` and this is a narrowing. Both cannot be true, and a second
+   > review showed which one was not: it compiled the ordinary ungrouped, unfiltered `revenue`
+   > question, built `Anchor::new` with that plan's own range and a value nobody certified, passed the
+   > three public values to `AnchorPlan::of`, and `verify_anchor` returned rows with no credential -
+   > `AnchorRows::verified_at_boot` exposing them. **The four guards authenticated no provenance.** The
+   > same review found a fifth gap in the same type: nothing read the plan's GRAIN, so a `Day`-grain
+   > plan over the anchor's range passed and came back as one row per day - a series where the anchor
+   > certifies one number.
+   >
+   > **A fifth guard was not the fix, and the reason is structural rather than a judgement about
+   > effort.** Rust has no cross-crate friend visibility, so a constructor `sutura-app` can call is one
+   > anything in the workspace can call; the domain cannot compile a plan, because compilation is
+   > `sutura-semantic`'s; and a token only `sutura-app`'s private `proof` module could mint would itself
+   > have to be constructible from `sutura-domain`, which is the same public door one level down. So no
+   > arrangement of types in this layering makes a credential-free `pub` port method unforgeable, and
+   > the claim is narrowed to what is actually held:
+   >
+   > - **`AnchorPlan` is a self-check on the boot path.** `of` now takes the `PinnedDefinitions` and the
+   >   metric name instead of a caller-supplied `(metric, anchor)` pair, and reads off the bundle
+   >   everything it compares: that the metric is defined, that it declares an anchor, the range that
+   >   anchor certifies, and the coarsest grain the metric declares. What it catches is a boot path that
+   >   compiled the wrong question - including the grain gap above. What it does not do is stop
+   >   in-process code that wants to construct one, and the type's own documentation says so first.
+   > - **What makes the credential-free path boot-only is a lint.** `clippy.toml` bans
+   >   `sutura_domain::warehouse::Warehouse::verify_anchor` - verified to resolve by writing the call
+   >   and watching clippy reject it, on a call through a concrete type's own impl - and
+   >   `sutura_app::verify_anchors` holds the single `#[expect]`, so a second call site is an error
+   >   under `-D warnings` until somebody writes a second expectation a reviewer sees in the diff. It is
+   >   the same class of mechanism as the ban on the panicking fragment API. **Its limit:** a lint is
+   >   not a type - it reaches this workspace and not a crate outside it, and an `#[allow]` walks past
+   >   it.
+   >
+   > The claim was narrowed in every place it appeared - TEN of them, across seven files - because an
+   > overstated claim is this repository's own definition of a defect: this record's status line, its
+   > *Built* table row and this correction; `AGENTS.md`'s unvalidated-bundle row, its credential row and
+   > its least-authority principle; `docs/architecture.md`; `docs/qa.md`; `Warehouse`'s own header and
+   > its `verify_anchor` doc comment; `NotExecutedReason::NotAnAnchor`; and the type itself.
 
    **What that costs, stated plainly:** an anchor runs under whatever identity the deployment
    configured that adapter with, and nothing passes the declared `verification_identity` to the port.

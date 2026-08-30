@@ -364,13 +364,26 @@ impl AnchorRows {
 /// construct one. A method that takes NO credential has no parameter to pass one to, which is the
 /// property the record wanted, reached by removing the argument instead of by typing it.
 ///
-/// **And a method with no credential still has an INPUT, which is where this was wrong by one
-/// method until a review said so.** While `verify_anchor` took a bare [`QueryPlan`](crate::plan::QueryPlan)
-/// it would execute anything - a caller's question included - under whatever identity the deployment
-/// configured the adapter with, and what kept the request path off it was where the call sites
-/// happen to be. It takes an [`AnchorPlan`] now, which refuses a grouped plan, a plan carrying a
-/// requested predicate, a plan for another metric and a plan over another range. That type states
-/// its own limit: its constructor is `pub`, so it narrows the door rather than closing it.
+/// **What bounds a method with no credential is WHERE it is called from, and that is a lint here
+/// rather than a type - which is a second review's correction to a claim this comment used to make.**
+/// The first correction gave [`Self::verify_anchor`] an [`AnchorPlan`] instead of a bare
+/// [`QueryPlan`](crate::plan::QueryPlan) and said the method could no longer be handed a question. A
+/// reviewer disproved that in one function: the constructor is `pub`, every value it read was
+/// publicly constructible, and a fabricated tuple passed all four guards. That is not a hole a fifth
+/// guard closes - a shape check over caller-constructible values can only ever be a shape check, and
+/// Rust has no cross-crate friend visibility to hide the constructor behind.
+///
+/// So the two mechanisms are named separately, because they do different jobs:
+///
+/// - `clippy.toml` bans `sutura_domain::warehouse::Warehouse::verify_anchor`, verified to resolve by
+///   writing the call and watching clippy reject it. `sutura_app::verify_anchors` holds the single
+///   `#[expect]`, so a second call site is an error under `-D warnings` until somebody writes a
+///   second expectation a reviewer sees in the diff. **That is what makes the path boot-only**, and
+///   its limit is that a lint reaches this workspace and an `#[allow]` walks past it.
+/// - [`AnchorPlan`] checks that the boot path compiled the question it meant to, reading the metric's
+///   definition, its anchor's range and its coarsest grain off the pinned bundle rather than taking
+///   them as arguments. It is a **self-check on that one caller and not an authority**, and the type
+///   says so at length.
 ///
 /// # The two identity declarations, and why they are two
 ///
@@ -603,9 +616,11 @@ pub trait Warehouse {
     ///
     /// It takes an [`AnchorPlan`] rather than an [`Executable`]: an anchor is asked with no dimensions
     /// and resolves to one model on one source, so there is no leg for it to be - and the plan is
-    /// PARSED as an anchor's rather than taken on trust, so the one method here that needs no
-    /// credential cannot be handed a question. Returns [`AnchorRows`], which is what stops a boot
-    /// result being handed back as an answer.
+    /// checked against the pinned bundle as a declared anchor's own rather than taken on trust, which
+    /// catches a boot path that compiled a question where an anchor was meant. **It does not make the
+    /// method unreachable, and the trait header says why**: what keeps this method to the boot path is
+    /// the `clippy.toml` ban on it. Returns [`AnchorRows`], which is what stops a boot result being
+    /// handed back as an answer.
     ///
     /// **What an executed anchor proves, precisely:** that these statements reproduced the numbers
     /// their author certified *for the identity this adapter holds*. Under row-level security that is

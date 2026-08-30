@@ -20,10 +20,15 @@ say whether "revenue" means what finance means by it. And the rows are the ones 
 may read rather than the ones the *caller* may read, which is how a row-level security policy
 becomes decorative.
 
-**What is here today is the first half: a governed single-player semantic compiler and executor
-over local files.** The identity half is designed and not built - there is no request context, no
-credential broker, no audit sink and no Arrow result envelope - so read the diagram below as the
-target and [Status](#status) as the inventory. Each claim under *What is different* says which it is.
+**What is here today is the first half plus part of the second: a governed semantic compiler and
+executor over local files, with an identity path that knows who is asking and cannot yet run as
+them.** There *is* a request context, a credential broker port with a static-credential implementor,
+an audit sink, an MCP surface, and - where a deployment declares `security.inbound` - a caller
+identity verified from a signature. What is missing is **leg 2**: no adapter in this build has
+anywhere for a per-subject credential to arrive, both declare so, and the broker mints what an
+operator configured. So a deployment can know exactly who is asking, record it, and still read every
+row as one identity. There is no Arrow result envelope. Read the diagram below as the target and
+[Status](#status) as the inventory; each claim under *What is different* says which it is.
 
 sutura sits in between (the target shape; the middle branch and the Arrow envelope are unbuilt):
 
@@ -57,8 +62,11 @@ buys nothing, because a file has no login.
 
 **A refusal is an answer, not a failure. Enforced today.** It is a variant of the result type
 carrying a reason, so a caller cannot mistake it for a hiccup and retry until something works, and
-the golden suite provokes every variant a question can reach. Recording a refusal against the
-principal chain is a design target: there is no audit sink.
+the golden suite provokes every variant a question can reach. **Recording it is built too:** every
+outcome, refusal and answer alike, goes through an `AuditSink` with the principal chain before it is
+returned. Two limits - sutura retains nothing, so what a record is worth is what the deployment's sink
+is worth; and behind the shared bearer token alone the subject recorded is the *deployment*, because
+that is who asked as far as anything can tell.
 
 **You cannot ask it to run SQL. Enforced today.** There is no field for a query, a table or a
 filter. An uncertified question is unsayable rather than refused, and a question carrying `sql:` is
