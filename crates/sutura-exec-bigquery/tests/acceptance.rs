@@ -114,6 +114,7 @@ mod tests {
     };
     use sutura_domain::plan::{
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+        StatementTables,
     };
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
@@ -304,8 +305,7 @@ mod tests {
         QueryPlan::new(
             source(),
             MetricName::parse("total_amount").expect("a metric name parses"),
-            table.clone(),
-            Vec::new(),
+            StatementTables::only(table.clone()),
             PlanBucket::new(String::from("period"), Grain::Month, column("day")),
             Vec::new(),
             PlanMeasure::Simple {

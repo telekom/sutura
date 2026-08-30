@@ -3026,6 +3026,83 @@ never the string `a.x = b.y`. `docs/adr/0001-first-party-semantic-models.md` arg
 field is an escape hatch, and an escape hatch on the query path is the thing being defended
 against.
 
+### `enum IdentifierCase`
+
+```rust
+pub enum IdentifierCase
+```
+
+Whether a data system tells two identifiers in one statement apart by case.
+
+**The vocabulary lives here and the declaration lives on `sutura_sql::Dialect`**, which is the
+shape `Qualification` already has and for the same reason: the domain names what the difference
+IS, a target answers for itself, and a comparison decides. One type rather than two so the two can
+be compared.
+
+# What it covers, and it is more than the word "alias" suggests
+
+Three resolutions in a generated statement read an identifier back, and a target that folds case
+folds all three:
+
+- the identifier a column is qualified by - `orders` in `orders.amount_cents`, which is the
+  IMPLICIT alias `FROM a.b.orders` gives the table;
+- the alias a projected column is labelled with, which `GoogleSQL` resolves ahead of a table of
+  the same spelling - the wrong-answer report behind
+  [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable);
+- the name of a result column, which is what makes two labels one column rather than two.
+
+# Why the catalog and the plan both compare under `Self::COARSEST`
+
+A bundle is dialect-agnostic: the same definitions are served against whichever target a
+deployment opened, and nothing at load knows which. So the identity two identifiers are compared
+under has to be the coarsest any target uses, and refusing a pair that one target would have told
+apart costs a catalog author a rename - while accepting a pair the *serving* target folds is a
+wrong number under a certified name. That asymmetry is the whole argument, and it is the same one
+`check_labels_against_table` already makes for refusing the whole cross product.
+
+# The mechanism, and what it is not
+
+`sutura_sql::Dialect::identifier_case` is an exhaustive match, so a fifth target cannot compile
+without answering; and a test there asserts every declared value is no coarser than
+`Self::COARSEST`, so a variant added below that folds MORE than ASCII case - Unicode folding,
+say - fails that assertion instead of silently invalidating the comparison the catalog makes.
+
+**A declaration in the `Sensitive` direction cannot make a bundle unsafe**, and that is worth
+stating because two of the four are not measured here: the catalog and the plan compare under
+`COARSEST` whatever a dialect declares, so the declaration's only consumer is that assertion.
+What it buys is that the assumption is written down per target rather than asserted once in prose.
+
+**The variant order is load-bearing and is asserted rather than assumed.** The derived `Ord` on
+an enum is declaration order, so `Sensitive < InsensitiveAscii` is what makes
+`dialect.identifier_case() <= IdentifierCase::COARSEST` mean *folds at most as much as*.
+
+#### Variants
+
+- `Sensitive` - Two identifiers differing only in case name two different things.
+- `InsensitiveAscii` - Two identifiers differing only in ASCII case name one thing.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+```rust
+pub fn names_one_thing(self, left: &str, right: &str) -> bool
+```
+
+Do these two identifiers name one thing under this rule?
+
+ASCII rather than Unicode folding, deliberately and for the reason `Phrase::parse` gives for
+the same choice: there is no NFC/NFD anywhere in this workspace, so a decomposed spelling and
+a homoglyph are each a second identifier - and `parse_identifier` admits neither, because it
+accepts `[A-Za-z0-9_]` and nothing else. So on the values this type is ever handed, ASCII
+folding IS full folding.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
 ### `enum InvalidIdentifier`
 
 ```rust
@@ -4259,8 +4336,16 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub fn new(source: SourceName, metric: MetricName, table: impl Into<QualifiedTable>, joins: Vec<PlanJoin>, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
+
+One statement's worth of decisions.
+
+**The tables arrive as a `StatementTables` and not as a table plus a vector of joins**, and
+that argument is the whole of what keeps this constructor infallible: the check that two of
+them do not answer to one identifier happens where that set is parsed, so a plan holding the
+ambiguous pair does not exist to be rendered. `crate::plan::tables` is where the defect, the
+measurement and the choice of a refusal over an alias are argued.
 
 ```rust
 pub fn params(&self) -> &[ParamValue]
@@ -4444,6 +4529,10 @@ A required filter as a plan predicate, binding a parameter when it needs one.
 `bind` is called only for the operators that compare against a value, and returns the index it
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 
@@ -4793,6 +4882,142 @@ The one data system this runs against, whichever shape it is.
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
+### Module `tables`
+
+Every table one statement reads, and the guarantee that the statement can tell them apart.
+
+# The defect this type exists for
+
+A column in a plan is qualified by a table's BARE name - `PlanColumn` holds a `TableName` - and
+the reason is that `FROM a.b.orders` gives the reference an implicit alias of `orders` in every
+target this workspace renders for. `crate::model::qualified` argues that at length and it is
+right; what it does not do is say what happens when TWO of the tables in one statement end their
+paths with the same name.
+
+What happened was this, and it was reproduced rather than reasoned about: a fact table at
+`analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
+a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
+table with itself - and every projected column was qualified by an identifier that named two
+tables. On a real `DuckDB` 1.5.5 that statement is
+`Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
+returns a number under a certified metric name, which is the failure class this repository is
+arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
+for** - dev/prod splits, per-tenant datasets, staging copies - so this is reachable rather than
+exotic.
+
+# Why a refusal, and not distinct explicit aliases
+
+Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
+through the SQL builder this workspace renders with**, which was measured rather than assumed
+against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
+`join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
+expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header
+for a reason. An alias on one side of a join and not the other is not a fix.
+
+So the decision is the other one, and it is made where the plan is built rather than where it is
+rendered: **a statement whose tables cannot be told apart is unrepresentable.** There is no
+[`QueryPlan`](crate::plan::QueryPlan) holding such a set, because `StatementTables` is the only
+way to construct one and its canonical constructor refuses the pair. `sutura_semantic::plan` turns
+that refusal into
+[`PlanTablesShareAnIdentifier`](crate::query::RefusalReason::PlanTablesShareAnIdentifier), so the
+question is declined and the metric stays authorable: a question that does NOT reach the colliding
+table is still answered. The alternative - refusing the metric at load - would make the estate
+shape unauthorable, and unlike a label a physical table is not something an author can rename.
+
+# The limit
+
+[`LegPlan::Fact`](crate::plan::LegPlan::Fact) carries a `joins` field of its own and is constructed
+by struct literal, so this guard does not reach it. Nothing outside a test constructs a leg -
+`AGENTS.md`'s *Built And Not Wired* says so - and the change that gives a leg a producer is the
+change that should route it through here.
+
+#### `enum AmbiguousTables`
+
+```rust
+pub enum AmbiguousTables
+```
+
+Why the tables one statement reads could not be told apart inside it.
+
+One variant today, and an enum rather than a struct because a second way for a statement's tables
+to be indistinguishable - a target that folds more than ASCII case, an alias this workspace starts
+emitting - is a variant a caller can branch on rather than a change to a message.
+
+##### Variants
+
+- `OneIdentifierTwoTables` - Two of the statement's tables answer to one identifier.
+
+##### Methods
+
+```rust
+pub const fn alias(&self) -> &TableName
+```
+
+The identifier two tables collapsed to.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct StatementTables`
+
+```rust
+pub struct StatementTables
+```
+
+The tables one statement reads: the `FROM` table, and one per join.
+
+**If an instance of this type exists, every table in it is distinguishable from every other one
+inside the statement** - which is the whole return on the newtype, and what lets
+[`QueryPlan::new`](crate::plan::QueryPlan::new) stay infallible while the plan it builds cannot be
+the ambiguous one. See this module's header for what the ambiguity does and why it is refused
+rather than aliased around.
+
+##### Methods
+
+```rust
+pub fn joins(&self) -> &[PlanJoin]
+```
+
+Every join, in the order the statement will make them.
+
+```rust
+pub fn only(table: impl Into<QualifiedTable>) -> Self
+```
+
+One table and no joins.
+
+Infallible by construction rather than by a skipped check: a set of one has no pair to compare.
+
+```rust
+pub fn parse(table: impl Into<QualifiedTable>, joins: Vec<PlanJoin>) -> Result<Self, AmbiguousTables>
+```
+
+The `FROM` table and its joins, or a refusal if two of them answer to one identifier.
+
+**The canonical constructor.** `Self::only` is the no-join spelling of it and repeats no
+check, because one table cannot collide with itself.
+
+Compared under `IdentifierCase::COARSEST` rather than by equality, because `GoogleSQL`
+resolves an alias case-insensitively and a real `DuckDB` binds `"orders".id` against a table
+declared `"Orders"` - so `Orders` beside `orders` is the same defect spelled to look like two
+names. That type's own note is where the argument for comparing under the coarsest rule lives.
+
+The comparison is over POSITIONS and not over distinct paths, so the same table joined twice
+through two relationships is refused too: two occurrences under one identifier is a duplicate
+alias whether or not they name the same rows.
+
+```rust
+pub const fn table(&self) -> &QualifiedTable
+```
+
+Where the statement's own table lives: the whole path, which is what the `FROM` names.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
 ## Module `query`
 
 The tool surface: what a caller may ask, and what comes back.
@@ -4954,6 +5179,7 @@ somebody else's input.
 - `ResultTooLarge` - The result would carry more rows than `plan::MAX_ROWS`.
 - `TimeRangeTooLong` - A span of history longer than `MAX_RANGE_DAYS`.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
+- `PlanTablesShareAnIdentifier` - Two tables the plan would read answer to one identifier inside one statement.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.

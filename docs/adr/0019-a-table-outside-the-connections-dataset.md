@@ -161,6 +161,79 @@ Refusing the cross product costs a catalog author one rename and cannot be wrong
 returns a number. The check reads the table's **bare** name, because that is what a qualifier binds
 to: a metric named after the *dataset* collides with nothing.
 
+**Amended, because the first version of this check compared for equality and a review reproduced the
+gap.** GoogleSQL's lexical reference lists *aliases within a query*, *column names* and *field names*
+as NOT case-sensitive - checked 2026-08-30 - while its **table** names are case-sensitive by default.
+So a table named `Orders` is a distinct table, the qualifier `Orders` still resolves to a select-list
+alias spelled `orders`, and an equality check let every such pair through to collide exactly as the
+same-case one did.
+
+The comparison now folds ASCII case, and it folds it for the two older checks too - a dimension named
+after the time bucket, and a dimension named after its metric - because GoogleSQL documents a result
+column's *name* as case-insensitive as well, so `Period` beside `period` is one column there. Neither
+needed a new variant; what changed is the comparison.
+
+**Which rule to compare under is a decision rather than an implementation detail, and it is made where
+the vocabulary is.** `sutura_domain::model::IdentifierCase` is the vocabulary and
+`sutura_sql::Dialect::identifier_case` is the per-dialect declaration, on the `Qualification` and
+`DateTruncShape` precedent from Decision 3: the domain names what the difference is, a target answers
+for itself, and a comparison decides. `BigQuery` is `InsensitiveAscii` from the reference above, and
+`DuckDb` is too - **measured** on the pinned DuckDB 1.5.5, where a table created as a quoted `Orders`
+is bound by a quoted `orders` qualifier and returns a result.
+
+A bundle is dialect-agnostic, so both this check and Decision 5's compare under
+`IdentifierCase::COARSEST` whatever a dialect declares. **That makes the declaration a self-check and
+not a barrier, and saying which is the point:** a value declared `Sensitive` cannot make a bundle
+unsafe, which is why `Postgres` and `ClickHouse` are declared from documented behaviour and not
+measured - neither has a server in this repository to ask. What the declaration buys is
+`every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes`, so a variant folding *more* than
+ASCII case fails a test instead of quietly making both comparisons too fine.
+
+## Decision 5 - two tables whose paths end in one name are refused, not aliased around
+
+Decision 1 says a column is qualified by the **last** part of a path, because `FROM a.b.orders` gives
+the reference an implicit alias of `orders` in all four targets. What Decision 1 did not say is what
+happens when two of the tables in one statement end their paths the same way, and a review reproduced
+it by changing one fixture: a fact table at `analytics-prod.sales.orders` joined to a dimension table
+at `reference-data.crm.orders` rendered an `ON` clause reading `orders.customer_id = orders.id` - one
+table compared with itself - with every projected column qualified by an identifier naming two tables.
+A real DuckDB 1.5.5 answers that statement `Binder Error: Ambiguous reference to table "orders"`; a
+target that binds it to one side instead returns a number under a certified metric name. Same-name
+tables across datasets are the estate shape this record exists for, so it is reachable rather than
+exotic.
+
+**Distinct explicit aliases are the fix that keeps the question answerable, and they are not reachable
+through the builder this workspace renders with.** Measured against `polyglot-sql` 0.9.2:
+`SelectBuilder::from_expr` takes an expression, so the `FROM` side could carry an `AS`, but
+`left_join` and every other join method take a `&str` table name and `join_with_kind` is private - so
+the joined side cannot be aliased without hand-building a select expression with upwards of thirty
+fields, which `sutura_sql::generate`'s own header rules out. An alias on one side of a join and not
+the other is not a fix.
+
+So the decision is the other one, and it is made **unrepresentable rather than checked at render
+time**: `sutura_domain::plan::StatementTables` is the only way to a `QueryPlan` - `QueryPlan::new`
+takes it instead of a table plus a vector of joins - and its `parse` refuses two occurrences answering
+to one identifier under `IdentifierCase::COARSEST`. There is therefore no ambiguous plan for any
+dialect to render. `sutura_semantic::plan` turns that refusal into
+`RefusalReason::PlanTablesShareAnIdentifier`, beside `PlanSpansTwoSources`, which is the other refusal
+that stage produces about the shape of a statement rather than about anything a caller wrote.
+
+**A QUERY-time refusal and not a load-time one, which is the opposite of Decision 4 and deliberately
+so.** A colliding *label* costs its author a rename; a colliding *table* is a physical name nobody
+here can change, and refusing the metric at load would make this record's own estate shape
+unauthorable. So the metric stays authorable and only a question that actually puts both tables in one
+statement is declined - a dimension on the fact table's own model is still answered, which
+`golden/service.rs` asserts as the second half of the same test.
+
+The comparison is over **positions** rather than over distinct paths, so the same table joined twice
+through two relationships is refused too: two occurrences under one identifier is a duplicate alias
+whether or not they name the same rows.
+
+**One limit, stated because the shape is now in two places.** `LegPlan::Fact` carries a `joins` field
+of its own and is built by struct literal, so this guard does not reach a leg. Nothing outside a test
+constructs a leg - `AGENTS.md`'s *Built And Not Wired* says so - and the change that gives a leg a
+producer is the change that should route it through `StatementTables`.
+
 ## What the goldens pin, and where
 
 `crates/sutura-app/tests/golden/qualified.rs`, a third file on the dialect axis for the reason

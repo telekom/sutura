@@ -36,7 +36,9 @@
 //!
 //! [`TwoSourceCatalog`] provokes one refusal and is here for the same reason: it is built in code
 //! rather than as a catalog directory, because a corpus spanning two data systems would make every
-//! other test in the suite span two.
+//! other test in the suite span two. [`SameNameTablesCatalog`] is the second of those, and the same
+//! sentence applies to it: qualifying the shipped corpus would move every existing golden and break
+//! the executed axis to demonstrate a refusal.
 
 // The other half of the same statement: what the catalog says ABOUT what it defines. Its own file for
 // the reason this one is its own file - a hand-written catalog is a list of literals and
@@ -51,7 +53,8 @@ use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, Dimens
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName, SourceName,
+    TableName,
 };
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
 
@@ -784,6 +787,107 @@ impl SemanticCatalog for TwoSourceCatalog {
         );
         let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
             .expect("a two-source catalog is still internally consistent");
+        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
+    }
+}
+
+// ------------------------------------------------- a catalog whose two tables share a name ---
+
+/// Two models in two datasets whose tables are both called `orders`.
+///
+/// It exists to provoke one refusal, and that refusal is the one a review reproduced: a column in a
+/// plan is qualified by the LAST part of a table path, so two paths ending the same way render under
+/// one implicit alias and the `ON` clause compares one table with itself. A real `DuckDB` answers such a
+/// statement with `Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one
+/// side instead returns a number under a certified metric name.
+///
+/// **The catalog LOADS, and that is the design decision rather than an oversight.** Unlike a colliding
+/// label, a physical table name is not something an author can rename, and same-name tables across
+/// datasets are the normal shape of the estate qualified paths exist for - so the metric stays
+/// authorable and only a question that actually puts both tables in one statement is declined.
+/// `sutura_domain::plan::tables` is where that is argued and where the guard lives.
+///
+/// **Two models, one relationship and one metric, for the reason [`TwoSourceCatalog`] gives:** nothing
+/// here executes and nothing compares it against a document, so what it carries is the shape the
+/// refusal needs and nothing else. The metric has TWO dimensions rather than one, and that is the
+/// exception: one is reached through the colliding join and one is not, so a test can show the refusal
+/// is about the QUESTION rather than about the metric. Both models are on ONE source, which is the
+/// half that makes this about aliasing rather than about federation.
+pub(crate) fn same_name_tables_catalog() -> SameNameTablesCatalog {
+    SameNameTablesCatalog
+}
+
+/// See [`same_name_tables_catalog`].
+pub(crate) struct SameNameTablesCatalog;
+
+impl SemanticCatalog for SameNameTablesCatalog {
+    type Error = Never;
+
+    /// The same five declared absences [`TwoSourceCatalog`] declares, and for the same reason: the
+    /// refusal this fake provokes happens before prose, a definitional filter, an allowlist or an
+    /// anchor would matter.
+    fn capabilities() -> MetadataCapabilities {
+        MetadataCapabilities::of(
+            DefinitionCapabilities::of([
+                DefinitionKind::Structure,
+                DefinitionKind::Relationships,
+                DefinitionKind::Cardinality,
+                DefinitionKind::Metrics,
+                DefinitionKind::Grains,
+            ]),
+            sutura_domain::knowledge::KnowledgeCapabilities::none(),
+        )
+    }
+
+    #[expect(
+        clippy::unwrap_in_result,
+        reason = "every value here is a literal in this file, so a parse failure is a broken test \
+                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \
+                  not this one, which fires on position rather than on being test code"
+    )]
+    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
+        let fact = Model::new(
+            ModelName::parse("sales_orders").expect("a name"),
+            source(),
+            QualifiedTable::parse("analytics_prod.sales.orders").expect("a path"),
+            BTreeSet::from([column("order_date"), column("customer_id"), column("amount_cents")]),
+            Description::default(),
+        );
+        // The SAME table name, in another dataset of another project, reached by the same credential.
+        // One source, two paths, one implicit alias.
+        let lookup = Model::new(
+            ModelName::parse("crm_orders").expect("a name"),
+            source(),
+            QualifiedTable::parse("reference_data.crm.orders").expect("a path"),
+            BTreeSet::from([column("customer_id"), column("region")]),
+            Description::default(),
+        );
+        let joins = vec![Relationship::new(
+            RelationshipName::parse("order_crm").expect("a name"),
+            ModelName::parse("sales_orders").expect("a name"),
+            column("customer_id"),
+            ModelName::parse("crm_orders").expect("a name"),
+            column("customer_id"),
+            JoinType::ManyToOne,
+        )];
+        let revenue = Metric::new(
+            MetricName::parse("revenue").expect("a name"),
+            ModelName::parse("sales_orders").expect("a name"),
+            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
+            Vec::new(),
+            column("order_date"),
+            BTreeSet::from([Grain::Month]),
+            // Two dimensions on purpose: one needs the colliding join and one does not, so the test
+            // can show that the refusal is about the QUESTION rather than about the metric.
+            BTreeMap::from([
+                dimension("region", "region", Some("order_crm"), None),
+                dimension("customer", "customer_id", None, None),
+            ]),
+            None,
+            Description::default(),
+        );
+        let definitions = Definitions::assemble(vec![fact, lookup], joins, vec![revenue])
+            .expect("two tables of one name are still internally consistent - the QUESTION is what is refused");
         Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
     }
 }

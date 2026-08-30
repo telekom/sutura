@@ -337,6 +337,16 @@ const PLAN_SPANS_TWO_SOURCES: Guide = Guide {
              in the hope of avoiding it.",
 };
 
+const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
+    reason: "PlanTablesShareAnIdentifier",
+    meaning: "answering would read two different tables that carry the same name, and one statement \
+              cannot tell them apart",
+    remedy: "Try a dimension that does not need that join - it is the join that puts both tables in \
+             one statement, so a question without it is still answered. If every dimension you need \
+             goes through it, report it to a person: it is a fact about where the tables live, not \
+             about how you asked.",
+};
+
 const SOURCE_UNAVAILABLE: Guide = Guide {
     reason: "SourceUnavailable",
     meaning: "the data system that metric lives in is not one this deployment opened",
@@ -379,6 +389,10 @@ const GUIDES: &[&Guide] = &[
     // `ResultTooLarge` asks for, and an agent reaching this one has already read that.
     &RESOURCES_EXHAUSTED,
     &PLAN_SPANS_TWO_SOURCES,
+    // Actionable, and the reason it sits after the two-source refusal rather than with the narrowing
+    // ones: the move is to drop a JOIN rather than to narrow anything, and an agent reaching it has
+    // already read that a refusal about the plan's shape is not one to retry unchanged.
+    &PLAN_TABLES_SHARE_AN_IDENTIFIER,
     &SOURCE_UNAVAILABLE,
     &CREDENTIAL_UNAVAILABLE,
 ];
@@ -407,6 +421,7 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::TimeRangeTooLong { .. } => &TIME_RANGE_TOO_LONG,
         RefusalReason::ResourcesExhausted { .. } => &RESOURCES_EXHAUSTED,
         RefusalReason::PlanSpansTwoSources { .. } => &PLAN_SPANS_TWO_SOURCES,
+        RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
     }

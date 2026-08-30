@@ -19,6 +19,7 @@ use sutura_domain::identity::Presented;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    StatementTables,
 };
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{ParamValue, PreFlight, Value, Warehouse};
@@ -187,8 +188,7 @@ fn plan() -> QueryPlan {
     QueryPlan::new(
         source(),
         MetricName::parse("mrr").expect("a test metric is a metric"),
-        table.clone(),
-        Vec::new(),
+        StatementTables::only(table.clone()),
         PlanBucket::new(String::from("period"), Grain::Month, column("month")),
         Vec::new(),
         PlanMeasure::Simple {

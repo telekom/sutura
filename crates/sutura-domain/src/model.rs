@@ -16,6 +16,95 @@ mod qualified;
 
 pub use qualified::{DatasetName, InvalidQualifiedTable, ProjectName, Qualification, QualifiedTable, TableQualifier};
 
+/// Whether a data system tells two identifiers in one statement apart by case.
+///
+/// **The vocabulary lives here and the declaration lives on `sutura_sql::Dialect`**, which is the
+/// shape [`Qualification`] already has and for the same reason: the domain names what the difference
+/// IS, a target answers for itself, and a comparison decides. One type rather than two so the two can
+/// be compared.
+///
+/// # What it covers, and it is more than the word "alias" suggests
+///
+/// Three resolutions in a generated statement read an identifier back, and a target that folds case
+/// folds all three:
+///
+/// - the identifier a column is qualified by - `orders` in `orders.amount_cents`, which is the
+///   IMPLICIT alias `FROM a.b.orders` gives the table;
+/// - the alias a projected column is labelled with, which `GoogleSQL` resolves ahead of a table of
+///   the same spelling - the wrong-answer report behind
+///   [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable);
+/// - the name of a result column, which is what makes two labels one column rather than two.
+///
+/// # Why the catalog and the plan both compare under [`Self::COARSEST`]
+///
+/// A bundle is dialect-agnostic: the same definitions are served against whichever target a
+/// deployment opened, and nothing at load knows which. So the identity two identifiers are compared
+/// under has to be the coarsest any target uses, and refusing a pair that one target would have told
+/// apart costs a catalog author a rename - while accepting a pair the *serving* target folds is a
+/// wrong number under a certified name. That asymmetry is the whole argument, and it is the same one
+/// `check_labels_against_table` already makes for refusing the whole cross product.
+///
+/// # The mechanism, and what it is not
+///
+/// `sutura_sql::Dialect::identifier_case` is an exhaustive match, so a fifth target cannot compile
+/// without answering; and a test there asserts every declared value is no coarser than
+/// [`Self::COARSEST`], so a variant added below that folds MORE than ASCII case - Unicode folding,
+/// say - fails that assertion instead of silently invalidating the comparison the catalog makes.
+///
+/// **A declaration in the `Sensitive` direction cannot make a bundle unsafe**, and that is worth
+/// stating because two of the four are not measured here: the catalog and the plan compare under
+/// `COARSEST` whatever a dialect declares, so the declaration's only consumer is that assertion.
+/// What it buys is that the assumption is written down per target rather than asserted once in prose.
+///
+/// **The variant order is load-bearing and is asserted rather than assumed.** The derived [`Ord`] on
+/// an enum is declaration order, so `Sensitive < InsensitiveAscii` is what makes
+/// `dialect.identifier_case() <= IdentifierCase::COARSEST` mean *folds at most as much as*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentifierCase {
+    /// Two identifiers differing only in case name two different things.
+    Sensitive,
+    /// Two identifiers differing only in ASCII case name one thing.
+    InsensitiveAscii,
+}
+
+impl IdentifierCase {
+    /// The coarsest rule any target this workspace renders for applies, and therefore the identity a
+    /// catalog and a plan are checked under. See the type's own note for the argument.
+    pub const COARSEST: Self = Self::InsensitiveAscii;
+
+    /// Do these two identifiers name one thing under this rule?
+    ///
+    /// ASCII rather than Unicode folding, deliberately and for the reason `Phrase::parse` gives for
+    /// the same choice: there is no NFC/NFD anywhere in this workspace, so a decomposed spelling and
+    /// a homoglyph are each a second identifier - and `parse_identifier` admits neither, because it
+    /// accepts `[A-Za-z0-9_]` and nothing else. So on the values this type is ever handed, ASCII
+    /// folding IS full folding.
+    #[inline]
+    #[must_use]
+    pub fn names_one_thing(self, left: &str, right: &str) -> bool {
+        match self {
+            Self::Sensitive => left == right,
+            Self::InsensitiveAscii => left.eq_ignore_ascii_case(right),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sensitive => "sensitive",
+            Self::InsensitiveAscii => "insensitive_ascii",
+        }
+    }
+}
+
+impl core::fmt::Display for IdentifierCase {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The longest identifier we accept.
 ///
 /// 63 is the tightest limit among the data systems we target, and it is a *silent* limit there:
