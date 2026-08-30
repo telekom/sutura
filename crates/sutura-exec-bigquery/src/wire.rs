@@ -677,4 +677,36 @@ where
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error> {
         self.validate_job(request)
     }
+
+    /// One arm, and it is the wire's own reading of the endpoint's page contract.
+    ///
+    /// `MoreThanOnePage` is raised by `complete` when the answer carries a `pageToken`, which is the
+    /// endpoint saying *there is more of this than fits one reply*. That is a governance outcome above
+    /// the domain port - `ResultTooLarge` carrying `ResultBound::Volume` - and it used to reach a
+    /// caller as `503`.
+    ///
+    /// Every other variant is `false`, exhaustively rather than through a wildcard, and each of them
+    /// really is a failure: an unreachable host, an unreadable body, a refused status, a job that did
+    /// not finish, an absent or unparsable total, a missing schema, a non-scalar cell. **`NotComplete`
+    /// is the one worth naming as deliberately `false`:** a job that did not finish inside
+    /// `jobTimeoutMs` may well finish on a retry, so telling a caller not to retry it would be the
+    /// mistake this predicate's documentation warns about, pointed the other way.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        match *error {
+            WireError::MoreThanOnePage => true,
+            WireError::Credential { .. }
+            | WireError::Expired { .. }
+            | WireError::NoClock { .. }
+            | WireError::RequestNotSerializable { .. }
+            | WireError::Unreachable { .. }
+            | WireError::Unreadable { .. }
+            | WireError::Refused { .. }
+            | WireError::NotADocument { .. }
+            | WireError::NotComplete { .. }
+            | WireError::NoTotal { .. }
+            | WireError::NotATotal { .. }
+            | WireError::NoSchema { .. }
+            | WireError::NotAScalar { .. } => false,
+        }
+    }
 }

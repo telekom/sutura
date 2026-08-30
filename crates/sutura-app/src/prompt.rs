@@ -303,13 +303,21 @@ const TOO_MANY_DIMENSIONS: Guide = Guide {
     remedy: "Ask a narrower question, or ask two questions. Do not resend the same list.",
 };
 
+// ONE guide for two bounds, and the prose says both rather than the row cap alone. The refusal
+// carries a `ResultBound` naming which one fired, and a caller reads that in the sentence the
+// transport rendered; what the prompt lists is what a refusal MEANS and what to do about it, and
+// those are the same for both - too much data, ask a narrower question. A second guide would put a
+// second entry under one variant name and give an agent two paragraphs saying one thing.
 const RESULT_TOO_LARGE: Guide = Guide {
     reason: "ResultTooLarge",
-    meaning: "the answer had more rows than can be certified, and it was refused rather than cut \
-              short",
+    meaning: "the answer was too much data to certify - more rows than the cap, or more than the \
+              data system would return at once - and it was refused rather than cut short",
     remedy: "Narrow the period, drop a dimension, or add a filter, and ask again. Nothing partial \
              is returned and nothing will be: a total over some of the groups is a different number \
-             wearing the same name. Retrying the same question returns the same refusal.",
+             wearing the same name. Retrying the same question returns the same refusal. The \
+             refusal names the row cap where the cap is what fired; where the data system's own \
+             bound is, there is no number to read, so narrow by a visible step rather than \
+             computing one.",
 };
 
 const TIME_RANGE_TOO_LONG: Guide = Guide {

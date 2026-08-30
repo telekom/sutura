@@ -375,6 +375,30 @@ pub trait JobTransport {
     /// Returns nothing on success: what a caller may conclude is *the endpoint accepted this*, and a
     /// dry run's byte estimate is not something any decision above here reads.
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
+
+    /// Was this failure the endpoint declining to return the whole result at once?
+    ///
+    /// **The `Warehouse::result_did_not_fit` question, one port further down, and it has to be asked
+    /// here for the same reason it is asked there.** `Self::Error` is the implementor's own type, so
+    /// `BigQueryWarehouse` - which holds the failure as `BigQueryError::Endpoint` - cannot read it.
+    /// The domain port names what it needs of an adapter; this names what the adapter needs of its
+    /// transport.
+    ///
+    /// `true` becomes `RefusalReason::ResultTooLarge` carrying `ResultBound::Volume` above the domain
+    /// port, so the answer a caller gets is *too much data, ask a narrower question* and not the
+    /// `503` a dead endpoint produces. `jobs.query` returns one page - as many rows as fit the maximum
+    /// permitted reply size - so a result INSIDE the row cap can still be over that, and a retry
+    /// returns the same page.
+    ///
+    /// **A predicate rather than a conversion, and a `bool` rather than a byte count**, both for the
+    /// reasons the domain port states: the refusal vocabulary is the domain's, and the reply-size cap
+    /// is the service's own number, reported in neither the answer nor the refusal - so there is
+    /// nothing honest to put in a numeric field.
+    ///
+    /// Defaulted to `false`, which is the answer a fake gives unless a test is about this bound.
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        false
+    }
 }
 
 #[cfg(test)]

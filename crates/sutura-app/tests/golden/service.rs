@@ -5,7 +5,7 @@
 //! that implements it, and a test asserting on the text of an HTTP request would prove something
 //! about the test.
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ToolOutcome};
+use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_semantic::compile;
 
 use crate::shared::{PROVOKED, question, settings};
@@ -181,7 +181,9 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     .into_outcome();
     assert_eq!(
         outcome.refusal(),
-        Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
+        Some(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: MAX_ROWS }
+        }),
         "a result past the row cap must be refused, and refused for being too large"
     );
 
