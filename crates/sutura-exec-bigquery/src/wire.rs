@@ -597,7 +597,7 @@ where
         }
         let document = serde_json::to_vec(&body(request, dry_run, self.agent.bounds()))
             .map_err(|cause| WireError::RequestNotSerializable { cause })?;
-        // `Secret::expose` is the one greppable call that lets the token out, and it lets it out into
+        // `Secret::expose_secret` is the one greppable call that lets the token out, and it lets it out into
         // a header value the client parses rather than into a string it concatenates - so a token
         // carrying a newline is a refused request at `send` rather than a second header. That is the
         // library's guarantee and not ours, which is why it is a comment here and not a row in
@@ -606,7 +606,7 @@ where
             .agent
             .agent()
             .post(url(request))
-            .header("authorization", format!("Bearer {}", bearer.token().expose()))
+            .header("authorization", format!("Bearer {}", bearer.token().expose_secret()))
             .header("content-type", "application/json");
         // **The quota project, and whether to send it AT ALL is the credential's answer rather than
         // this function's** - which is the correction that made `AccessTokens::quota_project` a

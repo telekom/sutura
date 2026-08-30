@@ -39,7 +39,7 @@
 //! roots. Handed a baseline whose roots do not match, `cargo crap` did NOT fail - it reported
 //! 181 unchanged, 4 new and 4 removed for a tree with no changes at all, because its fallback
 //! matching gets most of the way and then silently loses the functions that share a name inside
-//! one file (`Secret::fmt` and `Real::fmt` each appear twice in `sutura-domain`). A gate that
+//! one file (`Real::fmt` appears twice in `sutura-domain`, as `Display` and `LowerExp`). A gate that
 //! invents four new functions is worse than one that fails. So the baseline this repo writes is
 //! PORTABLE: every `file` is repo-relative, and the file says so in a `paths` key that
 //! [`read_portable`] refuses to compare without. A stale absolute baseline is then a message
@@ -268,8 +268,9 @@ pub(crate) struct Comparison {
 /// Keyed on `(file, function)` and NOT on the line, because a line number changes when anything
 /// above it does and pairing on it would report an untouched function as one `new` plus one
 /// `removed` on every edit. The line is used to disambiguate INSIDE a key, which is needed:
-/// `Secret::fmt` and `Real::fmt` each appear twice in one file in `sutura-domain` today, being
-/// separate trait impls for the same type.
+/// `Real::fmt` appears twice in one file in `sutura-domain` today - `Display` and `LowerExp` on the
+/// same type. `Secret::fmt` was the second example until `docs/adr/0020` deleted both of that type's
+/// hand-written formatters; the case is down to one instance, not gone, so the disambiguation stays.
 pub(crate) fn compare(baseline: &[Entry], head: &[Entry], epsilon: f64) -> Comparison {
     let mut base_groups = grouped(baseline);
     let mut changes: Vec<Change> = Vec::with_capacity(head.len());
@@ -670,15 +671,17 @@ mod tests {
 
     #[test]
     fn two_functions_of_the_same_name_in_one_file_pair_with_their_own_counterparts() {
-        // MEASURED, not hypothetical: `Secret::fmt` and `Real::fmt` each appear twice in
-        // `sutura-domain` today, being separate trait impls on one type. cargo-crap's own
-        // fallback matching lost exactly these when the paths did not line up.
-        let before = [entry("i.rs", "Secret::fmt", 10, 2.0), entry("i.rs", "Secret::fmt", 90, 8.0)];
-        let after = [entry("i.rs", "Secret::fmt", 90, 8.0), entry("i.rs", "Secret::fmt", 10, 2.0)];
+        // MEASURED, not hypothetical: `Real::fmt` appears twice in `sutura-domain` today, as
+        // `Display` and `LowerExp` on one type. cargo-crap's own fallback matching lost exactly
+        // this when the paths did not line up. `Secret::fmt` was the second measured instance
+        // until `docs/adr/0020` removed that type's two hand-written formatters, which is why the
+        // fixture is named after the one that is still there rather than after the one that was.
+        let before = [entry("i.rs", "Real::fmt", 10, 2.0), entry("i.rs", "Real::fmt", 90, 8.0)];
+        let after = [entry("i.rs", "Real::fmt", 90, 8.0), entry("i.rs", "Real::fmt", 10, 2.0)];
         let comparison = compare(&before, &after, DEFAULT_EPSILON);
         assert_eq!(
             statuses(&comparison),
-            vec![("Secret::fmt", Status::Unchanged), ("Secret::fmt", Status::Unchanged)]
+            vec![("Real::fmt", Status::Unchanged), ("Real::fmt", Status::Unchanged)]
         );
         assert!(comparison.removed.is_empty());
     }

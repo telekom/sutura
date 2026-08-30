@@ -548,7 +548,7 @@ fn a_bearer_never_shows_its_token() {
     // is what the transport holds, and a derived `Debug` on it would print the token.
     let bearer = Bearer::of(Secret::new("ya29-do-not-log-me"), Expiry::NothingExpires);
     assert!(!format!("{bearer:?}").contains("ya29"), "{bearer:?}");
-    assert_eq!(bearer.token().expose(), "ya29-do-not-log-me");
+    assert_eq!(bearer.token().expose_secret(), "ya29-do-not-log-me");
 }
 
 #[test]

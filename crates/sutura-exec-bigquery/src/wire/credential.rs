@@ -109,7 +109,7 @@ impl Bearer {
         Self { token, not_after }
     }
 
-    /// The token, still opaque. A caller has to reach `Secret::expose` to write it into a header, and
+    /// The token, still opaque. A caller has to reach `Secret::expose_secret` to write it into a header, and
     /// that call is greppable.
     #[inline]
     #[must_use]
@@ -246,7 +246,16 @@ impl CredentialFile {
 /// document; [`Credential`] is the parsed value, and its two variants each carry only what their own
 /// flow needs - so a document with a refresh token AND a private key cannot become a credential that
 /// has both.
-#[derive(Debug, serde::Deserialize)]
+///
+/// **No `Debug`, and the omission is the mechanism.** Three of these fields are credential
+/// material - `client_secret`, `refresh_token`, `private_key` - and they are raw `Option<String>`
+/// because `sutura_domain::identity::Secret` has no `Deserialize`, deliberately, so
+/// deserialize-then-wrap is the only shape available and this document is the layer where the value
+/// is still bare. A derive here would make `{document:?}` a working line that prints a private key.
+/// Nothing prints one today; the point of not deriving it is that nothing CAN, and that adding the
+/// derive back is a diff a reviewer sees. `docs/adr/0020` decides the same thing one layer up, where
+/// the type has no `Display` to reach.
+#[derive(serde::Deserialize)]
 struct Document {
     /// Which credential shape this is. Required: every other field's meaning depends on it.
     #[serde(rename = "type")]
@@ -384,7 +393,11 @@ pub enum TokenUnavailable {
 }
 
 /// The token endpoint's answer.
-#[derive(Debug, serde::Deserialize)]
+///
+/// **No `Debug`, for the reason [`Document`] has none:** `access_token` is a bearer token in the
+/// clear until `Credential::token` wraps it, and a derive here would put it one `{response:?}` away
+/// from a log line. It is parsed and consumed in the same function; nothing needs to render it.
+#[derive(serde::Deserialize)]
 struct TokenResponse {
     #[serde(default)]
     access_token: Option<String>,
@@ -623,7 +636,7 @@ impl Credential {
         signing_input.push_str(&url.encode(claims.to_string().as_bytes()));
 
         let der = base64::engine::general_purpose::STANDARD
-            .decode(private_key.expose().as_bytes())
+            .decode(private_key.expose_secret().as_bytes())
             .map_err(|_ignored| TokenUnavailable::NotSigned)?;
         let key = ring::signature::RsaKeyPair::from_pkcs8(&der).map_err(|cause| TokenUnavailable::Unsigned { cause })?;
         let mut signature = vec![0_u8; key.public().modulus_len()];
@@ -718,8 +731,8 @@ impl AccessTokens for Credential {
                 [
                     ("grant_type", "refresh_token"),
                     ("client_id", client_id.as_str()),
-                    ("client_secret", client_secret.expose()),
-                    ("refresh_token", refresh_token.expose()),
+                    ("client_secret", client_secret.expose_secret()),
+                    ("refresh_token", refresh_token.expose_secret()),
                 ],
                 now_unix_seconds,
             ),

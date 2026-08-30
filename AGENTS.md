@@ -33,7 +33,7 @@ adapter. A port trait arrives with its first implementor.
 
 | Crate | Role |
 | --- | --- |
-| `sutura-domain` | Domain types and port traits. Deps: `serde`, `serde_json`, `sha2`, `thiserror`. No framework - no tokio, axum, rmcp, datafusion, arrow |
+| `sutura-domain` | Domain types and port traits. Deps: `serde`, `serde_json`, `sha2`, `secrecy`, `thiserror`. No framework - no tokio, axum, rmcp, datafusion, arrow. **`secrecy` is the newest and the only one taken for a COMPILE ERROR rather than for a value the domain computes** - `docs/adr/0020` - and it brings `zeroize`, which was already in `Cargo.lock` under `rustls`. Three names in `ALLOWED_IN_DOMAIN`: those two plus `zeroize_derive`, which nothing compiles and which that gate names anyway because it walks the resolve graph rather than the feature resolution |
 | `sutura-semantic` | `Query` → `QueryPlan`. Renders nothing and names no dialect; there is no SQL generator in its tree |
 | `sutura-sql` | `QueryPlan` → one statement in one dialect, and `LegPlan` → one leg's statement through `generate_leg`. The only crate that names `polyglot-sql` |
 | `sutura-app` | The service, generic over the ports. Holds the `Surface` driving port and `LocalService`, its one implementor, plus `Warehouses` - the data systems this process opened, keyed by the name a plan selects them with. **Every entry is the same adapter type**, so a heterogeneous set is an architecture decision rather than a change to that file |
@@ -304,8 +304,8 @@ decision. A row that loses its mechanism gets deleted, not demoted to advice.
 | A plan cannot silently span two sources | The plan stage collects sources into a `BTreeSet` and refuses `PlanSpansTwoSources` unless exactly one is in it. **A CATALOG spanning two sources is no longer refused at boot, and that is a deliberate narrowing:** `sutura-serve` opens one adapter per source the catalog names, so two declared sources are a servable deployment and only a QUESTION that would span both is refused. `sutura-cli` still refuses a multi-source catalog, because it takes one data directory on the command line and reads no source registry |
 | No result cache | There is none to key. Adding any cache of rows is an architecture decision, keyed on subject first or not at all |
 | No panic path reachable from input | `unwrap_used`, `expect_used`, `panic`, `indexing_slicing`, integer overflow lints denied; `panic = "abort"` |
-| A credential cannot be logged by accident | `Secret`'s hand-written `Debug` and `Display` redact; a test asserts it at depth inside a nested struct |
-| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` does not compile. A real comparison arrives constant-time and named |
+| A credential cannot be logged by accident | **A COMPILE ERROR now, where this row used to claim a redaction, and the row is what changed rather than the risk.** `Secret` is a newtype over `secrecy::SecretString`, which has no `Display` - so `format!("{token}")` and a `%` tracing field do not build, where a hand-written `Display` printing `REDACTED` left both *representable* and produced a placeholder at a call site whose author believed a value was logged. Two `compile_fail` doctests with compiling twins in `sutura_domain::identity`, verified non-vacuous by unmarking them: `E0277 ... doesn't implement std::fmt::Display` in both. The real macro is pinned where a crate has `tracing` AND token material, in `sutura_http::inbound`, because `check-boundaries` walks the domain's whole resolve graph and a `tracing` dev-dependency there would fail it - so the domain pins the BOUND `%` desugars to and the transport pins the macro. `Debug` survives, is `secrecy`'s rather than ours, and a test asserts it at depth inside a nested struct. **Three limits.** `{secret:?}` still compiles and is safe only because that formatter cannot reach the value; nothing stops a call site writing `expose_secret()` into a log, which is why the method is named to be greppable rather than relied on to be absent; and `sutura-exec-bigquery`'s two private credential-wire documents got their `Debug` derives DROPPED, which is review and not a mechanism - a private type has no doctest to write. `docs/adr/0020` is the decision |
+| A credential cannot be compared by accident | `Secret` implements no `PartialEq`, so `==` does not compile - `E0369: binary operation == cannot be applied to type Secret`, pinned by a `compile_fail` doctest with a compiling twin and verified non-vacuous by unmarking it. **Inherited rather than merely omitted since `docs/adr/0020`:** `secrecy::SecretBox` has no `PartialEq` either, so a `#[derive]` added to the wrapper cannot produce one from the inner value. The one real comparison is `sutura_config::AccessToken::matches_in_constant_time`, named for what it is |
 | The domain acquires no framework dependency | `cargo xtask check-boundaries` walks the whole transitive tree against `ALLOWED_IN_DOMAIN` |
 | The SQL generator is not in the compiler's closure | `FORBIDDEN_EDGES` forbids `sutura-semantic → polyglot-sql` **and** `sutura-semantic → sutura-sql`; the second is what stops the first returning transitively |
 | A driving port is not owned by one of its callers | `Surface`, `SurfaceFailure` and `LocalService` live in `sutura-app`. Not gated: `check-boundaries` reads dependency direction, not which crate declares a trait |
@@ -742,7 +742,11 @@ is a habit rather than a gate.
 - **A credential does not travel through a log, an error or a `Debug`.** `Secret` is the mechanism,
   and it is two rows rather than one because there are two silent accidents - a redaction that only
   holds at the top level, and a derived comparison that becomes a timing oracle at whatever call site
-  adds it later.
+  adds it later. **`docs/adr/0020` turned the first of those from a redaction into a missing impl**,
+  and it is the worked example for *prefer unrepresentable to checked* on this page: nothing had ever
+  leaked, and the defect was that `tracing::info!(%token)` compiled and printed `REDACTED` where its
+  author believed a value had been logged. A check can be skipped; a shape that cannot hold the value
+  cannot. The price was one lockfile entry, and the *Layout* table names it.
 - **Least authority on the execution leg.** End-to-end impersonation is the point of the product: a
   query executes as the subject who asked it. Where that is not true yet, this file says so - and it
   is worth being precise about which half exists now. **Leg 1 is built**: a deployment that declares

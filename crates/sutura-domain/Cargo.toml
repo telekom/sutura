@@ -25,6 +25,21 @@ serde = { workspace = true }
 # compiled into the shipped binary through `sutura-catalog-local`, and no lockfile entry is new: this
 # moves an edge, not a dependency. `xtask/src/boundaries.rs` holds the same note beside the allowlist.
 serde_json = { workspace = true }
+# What `identity::Secret` wraps. **Taken for a compile error, not for a runtime behaviour:**
+# `secrecy::SecretString` has no `Display` and no `PartialEq`, so a `{}` interpolation, a `%` tracing
+# field and `==` all stop compiling against a credential - and the hand-written `Display` that used
+# to print `REDACTED` left every one of those representable. Zeroize-on-drop comes with it and is the
+# part nothing here had at all.
+#
+# `default-features = false`, and the omitted feature is the point rather than a size decision: the
+# `serde` feature is what gives `SecretBox` a `Deserialize`, which is the one impl the identity
+# module's "a caller cannot state its own identity" invariant needs absent. `docs/adr/0020` decides
+# this and records what the alternative would have cost.
+#
+# Two crates transitively, `secrecy` and `zeroize`, both `Apache-2.0 OR MIT` - no new licence, and no
+# framework. The root manifest carries the count; `xtask/src/boundaries.rs` is where the allowlist
+# entry makes it arguable in a diff.
+secrecy = { workspace = true }
 sha2 = { workspace = true }
 thiserror = { workspace = true }
 
