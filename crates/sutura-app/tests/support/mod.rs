@@ -450,6 +450,63 @@ impl Warehouse for BrokenEngine {
     // says it has none.
 }
 
+// ------------------------------------------- the result-would-not-fit fake ---
+
+/// Why a data system would not hand back a result this large.
+///
+/// Its own type rather than [`Exhausted`], because the two are different bounds and a shared error
+/// type would let one fake's predicate answer for the other's failure.
+#[derive(Debug, thiserror::Error)]
+#[error("the data system would not return the whole result at once")]
+pub(crate) struct WouldNotFit;
+
+/// A data system that will not return the whole result at once.
+///
+/// **The instrument for the second bound, and it has to be a fake for the same reason
+/// [`ExhaustedEngine`] does.** What is asserted is the branch `sutura_app::answer` takes on the way
+/// out - a `ToolOutcome::Refusal` carrying `ResultBound::Volume` rather than a `ServiceError` the
+/// transport answers `503` - and that decision lives above the port. The real bound belongs to a
+/// networked endpoint: `sutura-exec-bigquery`'s own suite asserts that `jobs.query` answering with a
+/// page token, and a delivered count under the reported total, are what make its predicate `true`.
+///
+/// Note what this fake CANNOT be: an adapter registered in `tests/adapters`. Every adapter there
+/// executes, and this one exists to fail.
+pub(crate) struct WideForTheWire {
+    source: SourceName,
+}
+
+impl WideForTheWire {
+    pub(crate) fn new() -> Self {
+        Self { source: source() }
+    }
+}
+
+impl Warehouse for WideForTheWire {
+    type Error = WouldNotFit;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn posture(&self) -> &SourcePosture {
+        fake_posture()
+    }
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(WouldNotFit)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(WouldNotFit)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+}
+
 /// The corpus bundle, validated the only way there is: by running its anchors.
 ///
 /// For the tests that need a servable bundle and are about something else - a refusal, a source
