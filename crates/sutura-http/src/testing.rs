@@ -15,15 +15,18 @@ use std::time::{Duration, Instant};
 
 use sutura_domain::calendar::{Date, TimeRange};
 use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, DimensionValue, Metric, Model, Relationship};
+use sutura_domain::identity::{
+    CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, RequestContext, SourceSet,
+};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
 use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
-use sutura_domain::warehouse::{RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
 
 /// The number the anchor certifies, and the number the answering fake reproduces.
 pub(crate) const ANCHORED_VALUE: &str = "197122";
@@ -259,13 +262,19 @@ impl Warehouse for FailingWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(StatementRejected {
+            cause: ConnectionRefused,
+        })
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(StatementRejected {
             cause: ConnectionRefused,
         })
@@ -296,11 +305,19 @@ impl Warehouse for FakeWarehouse {
         &self.posture
     }
 
-    fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
-        Ok(())
+    fn dry_run(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<PreFlight, Self::Error> {
+        Ok(PreFlight::NotAsked)
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    /// The anchor path, which is deliberately NOT held.
+    ///
+    /// `Held` is armed only after `start`, and this is the method `start` goes through: a held anchor
+    /// would hold startup rather than the request the test is about.
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Ok(AnchorRows::of(self.result.clone()))
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
         // Held rather than slept, and that is about the test suite rather than about realism. A
         // `spawn_blocking` task that sleeps keeps running after the assertion, and dropping a
         // `tokio` runtime waits for the blocking pool - so a fixed sleep long enough to outrun the
@@ -347,11 +364,68 @@ impl Held {
 /// a convenient one, and the reason says so.
 fn shared_posture() -> SourcePosture {
     SourcePosture::SharedServiceUser {
-        declared: SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
-                .expect("a fixture reason is a reason"),
-        ),
+        declared: declared_shared(),
     }
+}
+
+/// A credential broker that grants the shared posture for whatever it is asked about.
+///
+/// **A fake of the broker port, and the honest one for these fixtures.** Every warehouse here is a
+/// fake over no data system, so the only shape any of them can be handed is the deployment's own
+/// identity for that source - which is what [`shared_posture`] declares and what this grants. A fake
+/// that handed out subject material would provoke the adapter's wiring-defect error on every request
+/// and prove nothing about the transport.
+///
+/// **Its own error type, and a review is why it is not a refusal.** The one thing minting can fail on
+/// here is `LegCredentials::minted` refusing a set that does not cover the sources it was asked about,
+/// and the map is built from those sources - so it is unreachable. It used to be answered as
+/// `Minted::Refused`, which is the ONE outcome the transport tests here assert on: a fixture that
+/// silently produced it would have made `403 credential_unavailable` pass for the wrong reason. It
+/// leaves as the broker's own failure instead, which is a `503` with a different code.
+pub(crate) struct GrantsTheSharedIdentity;
+
+/// The fixture broker's own defect, which nothing in this suite can provoke.
+#[derive(Debug, thiserror::Error)]
+#[error("the fixture broker minted a set that does not cover the plan")]
+pub(crate) struct FixtureBrokerDefect {
+    #[source]
+    cause: CredentialsDoNotCoverThePlan,
+}
+
+impl CredentialBroker for GrantsTheSharedIdentity {
+    type Error = FixtureBrokerDefect;
+
+    fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error> {
+        let mut presented = BTreeMap::new();
+        for name in sources.iter() {
+            drop(presented.insert(
+                name.clone(),
+                Presented::SharedServiceUser {
+                    declared: declared_shared(),
+                },
+            ));
+        }
+        // The `Err` arm is unreachable - the map above is built from `sources` - and it leaves as
+        // this fixture's OWN failure rather than as `Minted::Refused`. That matters: the refusal is
+        // the one outcome the tests here assert on, so a fixture that could fabricate it would let
+        // those assertions pass without the code under test ever deciding anything.
+        LegCredentials::minted(context.chain().subject().clone(), Expiry::NothingExpires, sources, presented)
+            .map(|credentials| Minted::Granted { credentials })
+            .map_err(|cause| FixtureBrokerDefect { cause })
+    }
+}
+
+/// The broker every fixture here starts a service with.
+pub(crate) const fn broker() -> GrantsTheSharedIdentity {
+    GrantsTheSharedIdentity
+}
+
+/// The acknowledgement witness the fakes' posture and the fake broker's legs both carry.
+fn declared_shared() -> SharedIdentityDeclared {
+    SharedIdentityDeclared::of(
+        AcknowledgementReason::parse("a transport-layer fake over no data system, in this process")
+            .expect("a fixture reason is a reason"),
+    )
 }
 
 /// The execution record an answer from these fixtures carries.

@@ -37,7 +37,7 @@ use std::sync::Arc;
 
 use sutura_app::surface::Surface as _;
 use sutura_catalog_local::LocalCatalog;
-use sutura_config::{Environment, Settings, Sources, TlsMaterial};
+use sutura_config::{Environment, Settings, Sources, StaticCredentialBroker, TlsMaterial};
 use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog as _};
 use sutura_exec_datafusion::DataFusionWarehouse;
@@ -140,7 +140,15 @@ fn run() -> Result<(), String> {
     // nothing gets the structured writer over the subscriber installed at step 4, which is the sink
     // this crate can promise exists. What that log pipeline retains is the deployment's - sutura
     // writes a record per outcome and keeps nothing.
-    let service = LocalService::start(&catalog, opened.engines, TracingAuditSink::new()).map_err(flatten)?;
+    // The credential broker, which is the fourth port and the one that decides what a question
+    // executes as. `StaticCredentialBroker` reads the `sources:` tree this root already parsed:
+    // every source declared `shared-service-user` is served under the identity this process holds,
+    // and a source declared `impersonation-at-source` gets no credential from it - so a question
+    // against one is refused as `credential_unavailable` rather than answered as this process. That
+    // is the shipping single-user shape, and the deployment that needs the other one is the
+    // deployment that needs a broker which can perform a token exchange.
+    let broker = StaticCredentialBroker::from_registry(settings.sources());
+    let service = LocalService::start(&catalog, opened.engines, TracingAuditSink::new(), broker).map_err(flatten)?;
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
     // calls is therefore served with no table registered behind it, and `answer` cannot see that -

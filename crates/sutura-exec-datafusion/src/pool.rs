@@ -154,7 +154,13 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         | DataFusionError::NoPredicate
         // A leg handed to an adapter with nothing above it is a composition fault, not a ceiling
         // refusing a reservation: no operator ran, so no reservation was made.
-        | DataFusionError::LegWithoutCombiner { .. } => false,
+        | DataFusionError::LegWithoutCombiner { .. }
+        // The same shape one step earlier: credential material this adapter cannot use is refused
+        // before anything is planned, so nothing reserved anything.
+        | DataFusionError::NoPlaceForASubject { .. }
+        // And the same for a leg that disagrees with the declared posture: refused in the same place,
+        // before a session is built, so there is no reservation for a ceiling to have refused.
+        | DataFusionError::PresentedDisagreesWithPosture { .. } => false,
     }
 }
 

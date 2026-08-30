@@ -262,9 +262,10 @@ fn announce_identity(settings: &Settings) {
             per_caller_identity = security.describes_identity(),
             inbound_mode = security.inbound_mode(),
             "NO PER-CALLER IDENTITY: an access token authenticates the DEPLOYMENT, not the caller. \
-             There is no verified caller, no per-request credential and no row-level scoping - every \
-             question is answered with whatever access this process already had, whoever asked it. \
-             `security.inbound` is the key that changes it"
+             There is no verified caller and no row-level scoping - every question is answered with \
+             whatever access this process already had, whoever asked it. A credential IS minted per \
+             question, and on this deployment it is the identity this process holds for that source \
+             rather than anybody's own. `security.inbound` is the key that changes who is asking"
         ),
         Some(inbound) => {
             tracing::warn!(

@@ -104,6 +104,19 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
                  for fewer dimensions, or add a filter."
             ),
         ),
+        // Written for an agent, which is a different reader from the HTTP surface's: what an agent
+        // needs is to stop, not to adapt. There is no narrower question that helps and no retry that
+        // succeeds, so the sentence says both and tells it what to do instead - report it to the
+        // person it is acting for, who can ask for access.
+        RefusalReason::CredentialUnavailable { ref source } => (
+            "credential_unavailable",
+            format!(
+                "the person you are acting for has no access to the data system `{source}`, and \
+                 this deployment will not read it under its own identity instead. Nothing you can \
+                 change in the question helps and retrying will not either. Say so, and say that \
+                 access to `{source}` is what would be needed."
+            ),
+        ),
     }
 }
 
@@ -153,6 +166,9 @@ mod tests {
             RefusalReason::PlanSpansTwoSources { sources: 2 },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),
+            },
+            RefusalReason::CredentialUnavailable {
+                source: SourceName::parse("warehouse").expect("a test source is a source"),
             },
         ]
     }

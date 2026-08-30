@@ -479,9 +479,13 @@ has watched fail, and it is worth a test whichever route eventually lands.
 And what replaces the rule when it does move: the plan stage's set stops holding source names and
 starts holding the identity each source resolves to, refusing unless exactly one is in it. Two sources
 that resolve to one subject are then allowed and two subjects are refused, which is the property that
-was always meant. **That check cannot be written today, and the reason is a missing type rather than a
-missing test:** `sutura_domain::identity` holds `Secret` and nothing else - no principal, no request
-context, no credential broker - and nothing reaches `Warehouse::execute` that could say who is asking.
+was always meant. **That check cannot be written today, and the reason has narrowed since this was
+written:** the types now exist - `sutura_domain::identity` holds the principal chain, the request context and the
+`CredentialBroker` port, and `Warehouse::execute` takes a credential minted for the source it reads.
+What is still missing is a second identity for two sources to resolve to: no adapter in this build can
+carry a per-subject credential, so every leg presents the identity this deployment holds for that
+source and a set keyed on identity would hold one element for a reason that has nothing to do with the
+asker.
 
 ### The shape refused in advance
 

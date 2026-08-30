@@ -409,6 +409,33 @@ mod tests {
         sutura_app::Warehouses::of(warehouse)
     }
 
+    /// The credential the example is answered with: the static broker, over the one source this build
+    /// opens, under the same declaration the engine above was opened with.
+    ///
+    /// The REAL implementor rather than a fake, which is what `commands::query` uses too - so this
+    /// test exercises the broker a person running `sutura` actually gets.
+    fn single_user_broker() -> sutura_config::StaticCredentialBroker {
+        sutura_config::StaticCredentialBroker::for_one_shared_source(
+            sutura_domain::model::SourceName::parse("local").expect("the example source name is a name"),
+            sutura_domain::source::SharedIdentityDeclared::of(
+                sutura_domain::source::AcknowledgementReason::parse(
+                    "the example is read by one person, as that person's own operating-system identity",
+                )
+                .expect("the fixture reason is a reason"),
+            ),
+        )
+    }
+
+    /// Who the example's questions are asked by: nobody, truthfully.
+    ///
+    /// This command has no transport, so nothing establishes a caller identity, and
+    /// `Subject::TheDeploymentItself` is the honest value rather than an invented one.
+    fn a_caller() -> sutura_domain::identity::RequestContext {
+        sutura_domain::identity::RequestContext::of(sutura_domain::identity::PrincipalChain::of(
+            sutura_domain::identity::Subject::TheDeploymentItself,
+        ))
+    }
+
     #[test]
     fn every_declared_anchor_in_the_example_reproduces_its_number() {
         // The bug this prevents: an example whose numbers are aspirational. An anchor is a figure
@@ -466,7 +493,7 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let answered = sutura_app::answer(&validated, &question, &warehouse);
+            let answered = sutura_app::answer(&validated, &question, &a_caller(), &single_user_broker(), &warehouse);
             let expected_refusal = name.starts_with(REFUSED_PREFIX);
             settings().bind(|| match answered {
                 Ok(sutura_domain::query::ToolOutcome::Refusal { ref reason }) => {

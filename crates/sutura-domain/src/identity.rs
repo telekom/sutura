@@ -5,9 +5,11 @@
 //! the principal chain, the request context or the `CredentialBroker` port that belong beside
 //! it, and every one of those would have arrived somewhere else.
 //!
-//! Two of those three are here now, in [`principal`]: the chain a call is attributed to, and the
-//! request context that carries it. `CredentialBroker` is still absent for the reason it always was
-//! - nothing implements it yet, and a port trait arrives with its first implementor.
+//! All three are here now. `principal` holds the chain a call is attributed to and the request
+//! context that carries it; `credential` holds what one answer executes with and the
+//! [`CredentialBroker`] port that mints it. The port arrived with its first implementor, which is
+//! `sutura_config::StaticCredentialBroker` - the static-credential broker a single-user deployment
+//! already needs, rather than a fake standing in for one.
 //!
 //! **Nothing in [`principal`] is `Serialize` or `Deserialize`, and [`Secret`] is neither either.**
 //! That is one property rather than two coincidences: an identity is derived from what a transport
@@ -25,8 +27,13 @@ use std::fmt;
 // `pub mod` would have given two - `identity::principal::PrincipalChain` and
 // `identity::PrincipalChain` - and a second path to a type is a second name for it in every doc
 // comment that mentions it.
+mod credential;
 mod principal;
 
+pub use crate::identity::credential::{
+    CredentialBroker, CredentialsDoNotCoverThePlan, Expiry, LegCredentials, Minted, Presented, PresentedDisagreesWithPosture,
+    PrincipalName, SourceSet,
+};
 pub use crate::identity::principal::{
     Actor, ActorChain, ActorsInOrder, Attribution, InvalidPrincipalId, PrincipalChain, RequestContext, Subject, SubjectId, TaskId,
 };

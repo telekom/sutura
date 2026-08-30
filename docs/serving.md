@@ -22,10 +22,19 @@ verifies itself - signature against a pinned asymmetric algorithm, issuer, expir
 matching this deployment's own resource identifier - and the request runs under a verified subject
 that every audit record then names. See [who is asking](#who-is-asking) for the two modes and the keys.
 
-**Neither shape makes a data system execute as the asking subject.** That is leg 2: it needs a
-credential per leg and a source that declares it can impersonate, and none of it is built. So a
-deployment with leg 1 knows who asked and still reads every row as one identity. Believing otherwise -
-that authentication implies per-user access - is precisely the confusion the records warn about.
+**Neither shape makes a data system execute as the asking subject.** That is leg 2, and the part of
+it that is built is worth stating precisely, because the gap left is the one that matters. Built: a
+question cannot execute at all without a credential a broker minted for the source it reads - there is
+no signature that runs as this process - and a subject with no credential at a source is refused as
+`credential_unavailable` rather than answered under the deployment's identity. Not built: **any adapter
+that can carry a per-subject credential.** The engine that ships is one process reading local files
+under one operating-system identity, so what a broker can mint for it is the deployment's own identity,
+acknowledged by an operator; the shipped broker mints from configuration and performs no token
+exchange.
+
+So a deployment with leg 1 knows who asked, records the posture each leg ran under, and still reads
+every row as one identity. Believing otherwise - that authentication implies per-user access - is
+precisely the confusion the records warn about.
 
 Both sentences are printed at `WARN` on every boot, read out of the configuration types rather than
 written into the log by hand, so an operator meets them without reading this page.
@@ -192,9 +201,9 @@ token minted for other resources too is fine.
 
 **What it does not grant, and this is the sentence to keep.** A scope decides which *operations* a
 caller may invoke. It decides nothing about which rows an answer contains. Both operations read the
-same pinned bundle and every question executes with whatever access the service process already had -
-leg 2 does not exist, so no source executes as the asking subject. A caller granted
-`sutura:metrics.ask` gets exactly the numbers any other caller would.
+same pinned bundle and every question executes with whatever access the service process already had:
+no adapter in this build can carry a per-subject credential, so no source executes as the asking
+subject. A caller granted `sutura:metrics.ask` gets exactly the numbers any other caller would.
 
 The agent surface offers the same two capabilities under the names `describe_catalog` and `ask_metric`,
 from the same declaration, so the two transports cannot describe different tool sets. It speaks over
@@ -277,16 +286,30 @@ depends on why:
 | `result_too_large` | `413` | Narrow the period or group by fewer dimensions. Nothing was truncated to fit |
 | `resources_exhausted` | `422` | Narrow the period, group by fewer dimensions or add a filter. The ceiling is a configured number and the sentence names it |
 | `source_unavailable` | `503` | The one refusal worth retrying |
+| `credential_unavailable` | `403` | Nothing you can send. You have no access to that data system, and this deployment will not read it as itself instead - the missing grant is at the data system |
 
 **The refusal `403`s are not about your credential.** No token and no scope widens a metric's
 dimension set; a refusal `403` is the catalog's answer to "may this be asked of this metric", and the
 sentence names the metric and the dimension so it cannot be mistaken for the other thing. A verified
 caller is a caller whose identity is known, not a caller with more permissions.
 
-**There is now one `403` that IS about your credential, and `code` is what tells them apart.**
-`insufficient_scope` means the credential is valid and does not carry the scope the *operation*
-requires; it carries no `outcome` field, because it is a failure rather than a refusal, and its detail
-names the scope to grant. It still says nothing about any metric - see *What a scope grants*.
+**There are now TWO `403`s that ARE about a credential, and `code` is what tells all three apart.**
+`insufficient_scope` means the credential you presented to THIS service is valid and does not carry
+the scope the *operation* requires; it carries no `outcome` field, because it is a failure rather than
+a refusal, and its detail names the scope to grant. It still says nothing about any metric - see *What
+a scope grants*.
+
+`credential_unavailable` is the other one, and it is about a credential **at the data system** rather
+than at this service: the asking subject has no access there, and this deployment will not read that
+source under its own identity instead. It IS a refusal, so it carries `outcome`, and re-authenticating
+here changes nothing - what is missing is a grant somewhere else. It arrives with the credential port;
+what can produce it today is a deployment that declares a source `impersonation-at-source`, because
+the broker that ships mints from configuration and holds no per-subject credential.
+
+**And one `503` code is new on the failure side:** `identity_unavailable`, for the credential broker
+not answering. It shares its status with `unavailable` and not its code, because an identity provider
+that is down and a data system that is down clear at different times and are diagnosed in different
+places.
 
 **Two statuses are shared with something that is not a refusal**, and `code` is what separates them -
 as is the body shape, because only a refusal carries `outcome`:
@@ -783,7 +806,9 @@ Named rather than implied, because an absence that reads as an oversight gets as
   assertion bound to the request (a hash of the method, path and body the component computes) or a
   store of what has been seen, and neither exists. That is why this page calls it an assertion rather
   than a proof of transit, and why the hop from the component is a trusted boundary.
-- **No leg 2.** Leg 1 establishes who is asking; nothing makes a data system execute as that person.
+- **No source that executes as the asking subject.** Leg 1 establishes who is asking and the
+  credential port makes a question unable to execute without a credential minted for its source - but
+  no adapter in this build can carry a per-subject one, so every question still reads as one identity.
   See the first section - this is the single most important absence on this page.
 - **No request identifier.** It belongs in the failure body and there is nothing to put in it, and a
   field that is always absent is worse than no field.

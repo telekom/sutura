@@ -386,9 +386,11 @@ impl InboundIdentity {
     #[must_use]
     pub const fn what_it_does_not_do() -> &'static str {
         "this establishes WHO is asking. It does not make a data source execute as that person: \
-         that is leg 2, it needs a credential per leg and a source that declares it can \
-         impersonate, and none of it is built - so every question is still answered with whatever \
-         access this process already had"
+         that is leg 2, and the half of it that is built is the credential port - a question cannot \
+         execute without a credential minted for the source it reads, and a subject with no \
+         credential there is refused rather than answered as this process. What no adapter in this \
+         build can do is CARRY a per-subject credential, so every question is still answered with \
+         whatever access this process already had"
     }
 
     /// The one validation this deployment performs, whichever mode it is in.

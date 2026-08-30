@@ -80,6 +80,8 @@ map" send a reader to three different places.
 - `MissingParam` - A predicate named a parameter index the plan does not have.
 - `NoPredicate` - A plan with no predicate at all.
 - `LegWithoutCombiner` - One leg of a federated answer, which this adapter has nothing to assemble above.
+- `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+- `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
 
 ### Implements
 

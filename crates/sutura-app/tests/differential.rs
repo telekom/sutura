@@ -136,8 +136,20 @@ mod tests {
             let question = read_question(&path);
             let name = stem(&path);
 
-            let from_engine = answer(&validated, &question, &engine);
-            let from_other = answer(&validated, &question, &other);
+            let from_engine = answer(
+                &validated,
+                &question,
+                &crate::adapters::a_caller(),
+                &crate::adapters::shared_credential(),
+                &engine,
+            );
+            let from_other = answer(
+                &validated,
+                &question,
+                &crate::adapters::a_caller(),
+                &crate::adapters::shared_credential(),
+                &other,
+            );
 
             // A third outcome, and it is the one that used to be missing.
             // `revenue_per_churned_subscription` declares `zero_denominator: fails`, and its January

@@ -259,7 +259,9 @@ fn a_grouped_sum_comes_back_labelled_and_ordered_the_way_the_plan_says() {
         ],
     ));
     let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
-    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
+    let result = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect("the plan runs");
     assert_eq!(result.columns(), query.result_labels().as_slice());
     assert_eq!(
         result.rows(),
@@ -306,7 +308,9 @@ fn a_ratio_whose_zero_denominator_yields_null_answers_null_rather_than_failing()
         "hit_rate",
         region_key(),
     );
-    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
+    let result = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(3.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Null));
 }
@@ -335,7 +339,9 @@ fn a_count_if_answers_zero_for_a_group_with_no_matches_rather_than_nothing() {
         "paid_orders",
         region_key(),
     );
-    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
+    let result = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Integer(0)));
     assert_eq!(result.cell(1, 2), Some(&Value::Integer(1)));
 }
@@ -370,7 +376,9 @@ fn a_conditional_count_is_usable_as_a_ratio_numerator() {
         "paid_share",
         region_key(),
     );
-    let result = adapter.execute(Executable::Query(&query)).expect("the plan runs");
+    let result = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect("the plan runs");
     assert_eq!(result.cell(0, 2), Some(&Value::Real(real(0.5))));
     assert_eq!(result.cell(1, 2), Some(&Value::Real(real(0.0))));
 }
@@ -436,13 +444,105 @@ fn a_plan_naming_a_table_that_was_never_attached_is_an_error_and_never_an_empty_
     // twice. Asserted rather than assumed, because "the engine does not pre-check" is exactly
     // the kind of claim that stops being true when somebody adds an override back.
     assert!(
-        adapter.dry_run(Executable::Query(&query)).is_ok(),
+        adapter.dry_run(Executable::Query(&query), &crate::test_leg()).is_ok(),
         "the engine answers `would this work` by not asking, so a plan it cannot run still dry-runs clean"
     );
 
     let error = adapter
-        .execute(Executable::Query(&query))
+        .execute(Executable::Query(&query), &crate::test_leg())
         .expect_err("an unattached table does not resolve");
     assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
     assert_eq!(adapter.source().as_str(), "local");
+}
+
+#[test]
+fn credential_material_this_engine_cannot_use_is_refused_before_the_plan_is_built() {
+    // The wiring defect between a credential broker and a source declaration, at the engine. This is
+    // one process reading local files under one operating-system identity - which is what
+    // `IMPERSONATION` declares - so there is nowhere for a subject's own credential to arrive, and
+    // accepting one would report a leg as impersonated that ran as this process.
+    //
+    // **An `Err` and never a refusal**: nothing about the question was wrong. It is also refused
+    // BEFORE the plan is built, which is what the assertion on the error variant shows - a plan
+    // naming an unattached table would otherwise fail as `Analyze` first and hide this.
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
+    let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+    for handed in [
+        sutura_domain::identity::Presented::SubjectToken {
+            material: sutura_domain::identity::Secret::new("an-exchanged-token"),
+        },
+        sutura_domain::identity::Presented::SubjectPrincipal {
+            name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
+        },
+    ] {
+        let expected = handed.as_str();
+        let error = adapter
+            .execute(Executable::Query(&query), &handed)
+            .expect_err("this engine cannot carry a subject");
+        let DataFusionError::NoPlaceForASubject { ref at, presented } = error else {
+            panic!("the adapter names what it was handed, before it plans anything: {error:?}");
+        };
+        assert_eq!(at, "local");
+        assert_eq!(presented, expected);
+    }
+    // And the shape it CAN execute with reaches the engine, so the assertions above are not passing
+    // against an adapter that refuses everything: the same plan then fails at resolution instead.
+    let error = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect_err("the table is not attached");
+    assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
+}
+
+#[test]
+fn a_shared_leg_carrying_another_acknowledgement_is_refused_rather_than_executed() {
+    // THE CHECK THE SHAPE MATCH DOES NOT MAKE, and a review is what found it missing. The match on
+    // `Presented` above compares what arrived against what this CODE can carry, and never reads the
+    // posture the composition root handed this adapter - so a leg whose variant is right and whose
+    // operator acknowledgement is somebody else's got past it and executed. Provenance is read off
+    // `posture`, so the answer would then have recorded this adapter's own declaration rather than
+    // the acknowledgement the broker presented: the record would describe a leg that did not happen.
+    //
+    // Both values are real and independent. The broker reads the settings tree; the adapter holds what
+    // the root handed it. Comparing them is a comparison; reading one of them twice is not.
+    let adapter = DataFusionWarehouse::new(
+        SourceName::parse("local").expect("a test source is a source"),
+        crate::test_posture(),
+        roomy(),
+    )
+    .expect("a current-thread runtime builds");
+    let query = plan(simple(Aggregate::Sum, "amount"), "revenue", region_key());
+
+    let fabricated = sutura_domain::identity::Presented::SharedServiceUser {
+        declared: sutura_domain::source::SharedIdentityDeclared::of(
+            sutura_domain::source::AcknowledgementReason::parse("a witness no operator wrote for this source")
+                .expect("a test reason is a reason"),
+        ),
+    };
+    // It matches the variant this adapter accepts, which is exactly why the shape check cannot see it.
+    assert_eq!(fabricated.as_str(), crate::test_leg().as_str());
+
+    let error = adapter
+        .execute(Executable::Query(&query), &fabricated)
+        .expect_err("a witness that is not this source's is not this source's");
+    let DataFusionError::PresentedDisagreesWithPosture { ref cause } = error else {
+        panic!("the adapter names the disagreement rather than executing: {error:?}");
+    };
+    assert_eq!(
+        *cause,
+        sutura_domain::identity::PresentedDisagreesWithPosture::WitnessIsNotThisSources {
+            at: SourceName::parse("local").expect("a test source is a source"),
+        }
+    );
+
+    // And the source's OWN witness still reaches the engine, so the assertion above is not passing
+    // against an adapter that refuses every shared leg: the same plan then fails at resolution.
+    let error = adapter
+        .execute(Executable::Query(&query), &crate::test_leg())
+        .expect_err("the table is not attached");
+    assert!(matches!(error, DataFusionError::Analyze { .. }), "{error:?}");
 }

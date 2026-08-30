@@ -18,10 +18,19 @@ sutura fixes the first by construction, today: definitions arrive certified and 
 surface has no field an invented query could arrive in, and every value a question carries binds as
 a parameter rather than reaching the statement as text.
 
-The second is the design and is **not built**. "Every query runs as the caller" needs a credential
-minted per request, and there is no request context and no credential broker in the workspace, so no
-caller identity reaches the query path at all. Against a local file the property is trivially true
-and worth nothing, because a file has no login. Against a warehouse it is a target.
+The second is **half built, and the missing half is the one that matters.** "Every query runs as the
+caller" needs a credential minted per request, and that now exists: a request context reaches the
+query path, a credential broker mints once per answer for every source a plan reads, and the execution
+port has no signature that runs without the result - so a subject with no credential at a source is
+refused rather than answered as this process. What is absent is a data system that evaluates the
+asking subject: no adapter in this build can carry a per-subject credential. Against a local file the
+property is trivially true and worth nothing, because a file has no login. Against a warehouse it is
+still a target - what changed is that no QUESTION has a code path for a warehouse to be read as this
+process through. The boot path does, by design: it re-executes every anchor before a listener is
+bound, there is no caller then, and `Warehouse::verify_anchor` takes no credential. What bounds that
+path is its input - it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and
+refuses a grouped one, a filtered one, another metric's or another range's - so the method with no
+credential cannot be handed a question.
 
 ## Why is a refusal not an error?
 

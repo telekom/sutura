@@ -112,20 +112,26 @@ const TAG: &str = "query";
         (status = 401, description = "No valid bearer token was presented.", body = crate::problem::ProblemBody),
         (
             status = 403,
-            description = "TWO THINGS, and the body shape tells them apart - `outcome: refusal` for \
-                           the first, `code` with no `outcome` for the second.\n\n\
-                           REFUSED (`outcome: refusal`): the catalog does not permit this of this \
-                           metric. `code` says which: `dimension_not_permitted` (the metric \
-                           declares no such dimension), `dimension_not_filterable` (it can be \
-                           grouped by and not filtered on), `dimension_value_not_allowed` (the \
-                           value is outside the declared allowlist - the value itself is never \
-                           echoed back). Still NOT a statement about your credential: no token \
-                           widens a metric's dimension set.\n\n\
+            description = "THREE THINGS, and the body shape tells the first from the others - \
+                           `outcome: refusal` for the first two, `code` with no `outcome` for the \
+                           third.\n\n\
+                           REFUSED ABOUT THE METRIC (`outcome: refusal`): the catalog does not \
+                           permit this of this metric. `code` says which: \
+                           `dimension_not_permitted` (the metric declares no such dimension), \
+                           `dimension_not_filterable` (it can be grouped by and not filtered on), \
+                           `dimension_value_not_allowed` (the value is outside the declared \
+                           allowlist - the value itself is never echoed back). NOT a statement \
+                           about your credential: no token widens a metric's dimension set.\n\n\
+                           REFUSED ABOUT A CREDENTIAL AT THE DATA SYSTEM (`outcome: refusal`, \
+                           `code: credential_unavailable`): the asking subject has no access at the \
+                           data system this metric reads, and this deployment will not read it \
+                           under its own identity instead. The missing grant is THERE and not here, \
+                           so re-authenticating with this service changes nothing and neither does \
+                           a narrower question.\n\n\
                            FAILED (`code: insufficient_scope`): your credential IS valid and does \
-                           not carry the scope this operation requires; the detail names it. This is \
-                           the one 403 that is about your credential, and it says nothing about any \
-                           metric - a caller who is granted the scope gets exactly the same rows \
-                           anybody else would.",
+                           not carry the scope this operation requires; the detail names it. It \
+                           says nothing about any metric - a caller who is granted the scope gets \
+                           exactly the same rows anybody else would.",
             body = OutcomeBody
         ),
         (
@@ -169,15 +175,18 @@ const TAG: &str = "query";
         (status = 500, description = "Something on our side went wrong. The body carries no detail.", body = crate::problem::ProblemBody),
         (
             status = 503,
-            description = "Worth retrying, and `code` says which of three things happened. \
-                           `unavailable`: the data system did not answer. `at_capacity`: every \
+            description = "Worth retrying, and `code` says which of four things happened. \
+                           `unavailable`: the data system did not answer. `identity_unavailable`: \
+                           the credential broker this deployment depends on did not answer, which \
+                           is a different dependency being unwell and is diagnosed elsewhere. \
+                           `at_capacity`: every \
                            execution slot was taken for the whole admission window, so this \
                            question was shed rather than queued - that response carries a \
                            `Retry-After` in seconds. `source_unavailable`: REFUSED - \
                            `outcome: refusal` - the data system the plan names could not be \
-                           reached as the calling subject. No `Retry-After` on the other two: \
-                           nothing here knows when a data system comes back, and a guessed number \
-                           would be a promise.",
+                           reached as the calling subject. No `Retry-After` on the other three: \
+                           nothing here knows when a data system or an identity provider comes \
+                           back, and a guessed number would be a promise.",
             body = crate::problem::ProblemBody
         ),
     )
@@ -355,6 +364,19 @@ fn failed(failure: &SurfaceFailure) -> Failure {
             tracing::error!(error = %cause, chain = ?chain, "the pinned bundle did not compile this question");
             Failure::Internal
         }
+        // A different code from `Unavailable`, and `docs/adr/0014` asks for exactly that: a caller
+        // told "the data system did not answer" against an authorization-server outage retries
+        // successfully and learns the wrong thing about which dependency is unwell. Same status,
+        // because both are worth retrying; different code, because they are diagnosed differently.
+        SurfaceFailure::Broker { ref cause } => {
+            tracing::error!(error = %cause, chain = ?chain, "the credential broker did not answer");
+            Failure::IdentityUnavailable
+        }
+        // Our own wiring, so it carries nothing outward. An operator finds it in this line.
+        SurfaceFailure::Miswired { ref cause } => {
+            tracing::error!(error = %cause, chain = ?chain, "the credentials that came back do not cover this plan");
+            Failure::Internal
+        }
     }
 }
 
@@ -403,7 +425,8 @@ mod tests {
         let settings =
             Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load");
         let (engine, held) = warehouse_that_can_be_held();
-        let service = LocalService::start(&catalog_of(bundle()), engine, sink()).expect("the test bundle validates");
+        let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker())
+            .expect("the test bundle validates");
         let router = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
         (router, held)
     }

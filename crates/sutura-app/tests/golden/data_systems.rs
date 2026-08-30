@@ -63,7 +63,13 @@ where
     for path in questions() {
         let asked = read_question(&path);
         let name = stem(&path);
-        let answered = answer(&validated, &asked, &warehouse);
+        let answered = answer(
+            &validated,
+            &asked,
+            &crate::adapters::a_caller(),
+            &crate::adapters::shared_credential(),
+            &warehouse,
+        );
         settings(W::NAME).bind(|| match answered {
             Ok(ToolOutcome::Refusal { ref reason }) => {
                 insta::assert_yaml_snapshot!(format!("{name}__refused"), reason);
@@ -111,7 +117,7 @@ where
             continue;
         };
         warehouse
-            .dry_run(Executable::Query(plan))
+            .dry_run(Executable::Query(plan), &crate::adapters::presented())
             .unwrap_or_else(|e| panic!("{} was rejected by {}: {e}", stem(&path), W::NAME));
     }
 }
@@ -166,8 +172,14 @@ where
     let warehouse = sutura_app::Warehouses::of(open::<W>(&pinned));
     let validated = sutura_app::verify_and_validate(pinned, &warehouse).expect("the anchors hold");
     let total_of = |file: &str| -> f64 {
-        let outcome =
-            answer(&validated, &question(file), &warehouse).unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME));
+        let outcome = answer(
+            &validated,
+            &question(file),
+            &crate::adapters::a_caller(),
+            &crate::adapters::shared_credential(),
+            &warehouse,
+        )
+        .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME));
         let ToolOutcome::Answer { ref rows, .. } = outcome else {
             panic!("{file} was refused: {outcome:?}");
         };
@@ -223,7 +235,14 @@ where
     // January has seventy subscription-months and none of them terminated, so there is a group to
     // answer for and the denominator is nevertheless zero.
     let january = question("revenue-per-churned-subscription-january.yaml");
-    let error = answer(&validated, &january, &warehouse).expect_err("a zero denominator under `fails` must not answer");
+    let error = answer(
+        &validated,
+        &january,
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &warehouse,
+    )
+    .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
     assert!(
         rendered.contains("column revenue_per_churned_subscription"),
@@ -241,6 +260,8 @@ where
     let outcome = answer(
         &validated,
         &question("revenue-per-churned-subscription-june.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
         &warehouse,
     )
     .expect("a non-zero denominator answers");

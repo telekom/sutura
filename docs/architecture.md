@@ -12,10 +12,12 @@ page says why they look the way they do.
 
 !!! warning "Read every section here as a design, not as a control"
 
-    Most of this page describes a system that is not built. The one thing that exists is a governed
-    single-player semantic compiler and executor over local files: no request context, no credential
-    broker, no audit sink, no Arrow result envelope and no MCP surface - served over HTTP behind a token
-    that authenticates the DEPLOYMENT and not the caller. Sections
+    Most of this page describes a system that is not built. What exists is a governed single-player
+    semantic compiler and executor over local files, served over HTTP - behind a token that
+    authenticates the DEPLOYMENT, unless the deployment declares `security.inbound` and verifies a
+    caller's own token. A request context, a credential broker, an audit sink and an MCP surface all
+    exist now; what does not is an adapter that can carry a per-subject credential, so every question
+    still reads as one identity. No Arrow result envelope. Sections
     that describe something enforced today say so in the section itself, and
     [What exists today](#what-exists-today) is the inventory. **Do not deep-link a section of this
     page as evidence that a control is in place.**
@@ -197,21 +199,43 @@ checking has not quietly stopped being true.
 The three sections above are not features arranged around a core. They are what falls out of one
 requirement: an agent may be handed a database only if the database can still tell who is asking.
 
-Two of the four properties below are enforced today and two are not. Each says which, because a
-reader who lands on this section from a search result gets no other warning.
+Of the four properties below, two are enforced today, one is half built and one is not built. Each
+says which, because a reader who lands on this section from a search result gets no other warning.
 
-**The caller's identity reaches the data system. Design target, not built.** Not a service account
-holding the union of everyone's access. A credential is minted per request, and a request that
+**The caller's identity reaches the data system. Half built, and the missing half is the point.** Not
+a service account holding the union of everyone's access. A credential is minted per request, and a request that
 cannot run as the subject is refused rather than downgraded to the service's own identity: that
 downgrade turns "you may not see these rows" into "here are the rows". A row-level security policy
 that holds only for human callers is decorative.
 
-None of that mechanism exists. There is no request context type and no credential broker port, so no
-caller identity reaches the query path at all, and there is nothing that would refuse a downgrade
-because there is no second identity in the process to downgrade to. What *is* enforced is narrower
-and worth stating as such: nothing on the query path can **choose** an identity, because
-`SemanticCatalog::load` takes no request context and a plan resolves to exactly one named source.
-Against a local file the property is trivially satisfied and buys nothing, since a file has no login.
+*Built:* the mechanism that removes the downgrade. A request context reaches the query path, a
+credential broker mints once per answer for every source the plan reads, and `Warehouse::execute` has
+no signature that omits the result - so **no question executes as this process**, and a subject with
+no credential at a source is refused as `credential_unavailable`. Each adapter matches exhaustively on
+what it was handed, refuses credential material it cannot use as an error rather than ignoring it, and
+compares the leg against the posture it was opened with - so a shared leg carrying somebody else's
+operator acknowledgement is refused too, rather than executed and then recorded under the adapter's
+own declaration.
+
+*The one path that runs with no credential, said here because the sentence above is only true with
+it:* the boot path re-executes every anchor before a listener is bound, and there is no caller then, so
+`Warehouse::verify_anchor` takes no credential at all. What bounds it is its INPUT rather than its
+identity: it takes an `AnchorPlan`, which parses a plan as a declared anchor's own and refuses a
+grouped plan, a plan carrying a predicate a question asked for, a plan for another metric and a plan
+over another range. **Its constructor is `pub`, so that narrows the door rather than closing it** - a
+caller holding the bundle can still construct the plan of an anchor the catalog publishes, and what
+that returns is the number the catalog already certifies. What it cannot be handed is a question.
+
+*Not built:* an adapter that can carry a per-subject credential. Both in this build declare that they
+have nowhere for one to arrive, and the broker that ships mints from configuration. So the identity a
+leg presents is *the one this deployment holds for that source*, acknowledged by an operator and
+recorded on the answer - which is honest and is not impersonation. Against a local file the property
+is trivially satisfied and buys nothing, since a file has no login. What the port bought is that the
+day a source with grants arrives, there is no path for it to be read as this process through.
+
+What is enforced beside that, and worth stating as such: nothing on the query path can **choose** an
+identity, because `SemanticCatalog::load` takes no request context and a plan resolves to exactly one
+named source.
 
 **Authorization stays in the data system. Enforced by absence, today.** sutura keeps no copy of who
 may see what, because a copy can disagree with the original. Grants, row-level policies and masking
@@ -583,11 +607,19 @@ it is answered under. Every metric that declares a certified number re-executes 
 before the bundle can be served, and a bundle whose anchors were not checked cannot reach the query
 path because there is no constructor that produces one.
 
-**`CredentialBroker` is still absent, and it is the one that matters most.** A CSV is a file with no
-login, so "every query runs as the calling principal" is satisfied here by there being nobody else to
-be. That is a true statement about a laptop and not about a warehouse: per-request identity arrives
-with the first data system that has grants to run under, and until then this is a compiler with a
-governed front door rather than the identity-aware runtime the rest of this page describes.
+**`CredentialBroker` is here now, and what it changed is narrower than the name suggests.** The port
+mints once per answer for every source a plan reads, `Warehouse::execute` takes the result and has no
+signature that omits it, and a subject with no credential at a source is refused rather than answered
+under this process's identity. So the *fallback* is gone: not forbidden by a rule, absent from every
+signature.
+
+**What has not arrived is a data system with grants to run under.** A CSV is a file with no login, so
+"every query runs as the calling principal" is still satisfied here by there being nobody else to be -
+and both adapters in this build declare that they have nowhere for a subject's own credential to
+arrive. The broker that ships mints from configuration and performs no token exchange. That is a true
+statement about a laptop and not about a warehouse, so this remains a compiler with a governed front
+door: what the port bought is that the day a real source arrives, there is no code path for it to be
+read as the process through.
 
 **The HTTP transport is here now**, and this sentence used to say it was not: an axum surface with a
 versioned `v1` tree, a liveness probe, a generated interface description, rate limiting, a bearer

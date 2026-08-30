@@ -109,11 +109,13 @@ provider or a data system yet, which is why "pluggable" describes the ports and 
 options. [What can be plugged in today](https://telekom.github.io/sutura/latest/architecture/#what-can-be-plugged-in-today-and-what-the-shipped-binary-actually-uses)
 is the table.
 
-The part that makes the first line of this README true of a *warehouse* is not built. There is no
-request context type, so no caller identity reaches the query path at all, and no credential broker,
-so "as the person or agent asking" holds here only because a file has nobody else to be. There is no
-audit sink, so a refusal is a value the caller receives and is recorded nowhere. The MCP surface,
-Arrow results with provenance, and federation are ahead of it too. The HTTP surface is not: it
+The part that makes the first line of this README true of a *warehouse* is still not built, and it is
+now one thing rather than several. A request context, a credential broker port and an audit sink all
+exist: a question cannot execute without a credential minted for the source it reads, and every
+outcome is recorded before it is returned. What is absent is **a data system that evaluates the asking
+subject** - no adapter in this build can carry a per-subject credential, so "as the person or agent
+asking" holds here only because a file has nobody else to be. Arrow results with provenance and
+federation are ahead of it too. The HTTP surface is not: it
 ships, and its bearer token authenticates the *deployment* rather than the caller - so it mounts
 the tool surface over a network without making any of the per-caller claims above true.
 See [what exists today](https://telekom.github.io/sutura/latest/architecture/#what-exists-today).

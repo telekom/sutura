@@ -28,9 +28,10 @@
 //! a framework type, so this crate still holds none.
 
 use sutura_domain::catalog::Anchor;
+use sutura_domain::identity::{CredentialBroker, Minted, RequestContext, SourceSet};
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
@@ -198,7 +199,7 @@ mod proof {
 /// typed error all the way out. A `Box<dyn Error>` here would be the same loss of information the
 /// boundary gate bans `anyhow` for, arrived at by a different route.
 #[derive(Debug, thiserror::Error)]
-pub enum ServiceError<E> {
+pub enum ServiceError<E, M> {
     #[error("the question could not be compiled")]
     Compile {
         #[source]
@@ -209,13 +210,71 @@ pub enum ServiceError<E> {
         #[source]
         cause: E,
     },
+    /// The credential broker could not mint. Nothing about the question was wrong.
+    ///
+    /// **Its own variant rather than a refusal, and its own variant rather than sharing the one
+    /// above.** A refusal would let a client library retry a governance decision until something
+    /// works, which is what `sutura_domain::query::ToolOutcome` exists to prevent. And sharing
+    /// `Warehouse` would collapse two causes a caller has to act on differently: `docs/adr/0014`
+    /// makes the point that a caller told "unavailable, retry" against an authorization-server
+    /// outage will retry successfully, while one told the same against a bound that fires again
+    /// retries forever.
+    #[error("the credential broker did not answer")]
+    Broker {
+        #[source]
+        cause: M,
+    },
+    /// The broker granted credentials that do not cover the source this plan reads.
+    ///
+    /// **A wiring defect between the broker and the plan, so an `Err` and not a refusal** - the
+    /// question was fine. `sutura_domain::identity::LegCredentials` refuses a set that does not
+    /// cover the sources it was minted FOR, so this is the case where a broker was asked about one
+    /// set and answered about another: the two disagree about what is being answered, and either
+    /// half may be the wrong one.
+    ///
+    /// Executing anyway is the alternative this variant exists to remove, and it is the one that
+    /// would have run the leg as the process.
+    #[error("the credentials that came back do not cover this plan")]
+    Credentials {
+        #[source]
+        cause: NoCredentialForThePlan,
+    },
+}
+
+/// A broker granted credentials that say nothing about a source the plan reads.
+///
+/// Its own type rather than a variant carrying a bare name, so the cause survives `#[source]` when
+/// the service's generic parameters are erased at the driving port - the same reason every other
+/// failure that crosses that boundary is a typed error rather than a sentence.
+///
+/// The field is `at` rather than `source`, and that is not a naming preference: `thiserror` reads a
+/// field called `source` as the `Error::source` chain, and a `SourceName` there does not compile.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "nothing was granted for source `{at}`, which this plan reads - the broker and the plan disagree about what is being answered"
+)]
+pub struct NoCredentialForThePlan {
+    at: SourceName,
+}
+
+impl NoCredentialForThePlan {
+    /// Which source had no credential.
+    ///
+    /// Named `at` rather than `source` for the reason above: `clippy::same_name_method` is denied, and
+    /// an inherent `source` beside the trait's own is a call site whose meaning depends on which
+    /// traits are in scope.
+    #[inline]
+    #[must_use]
+    pub const fn at(&self) -> &SourceName {
+        &self.at
+    }
 }
 
 /// What answering produced, or why it could not.
 ///
 /// A named alias because the inline form is over the complexity threshold in `clippy.toml`, and
 /// naming it is the better half of that trade: the generic parameter is a warehouse, not a result.
-pub type Answered<W> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Error>>;
+pub type Answered<W, B> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
 
 /// Answers one question, or says why it will not.
 ///
@@ -228,9 +287,29 @@ pub type Answered<W> = Result<ToolOutcome, ServiceError<<W as Warehouse>::Error>
 /// **The registry is what made that refusal honest.** Under one warehouse the check compared the
 /// plan's source against the single adapter's own, so "nobody configured this data system" and "this
 /// is the other one of the two we opened" were the same refusal.
-pub fn answer<W>(definitions: &Validated<PinnedDefinitions>, query: &Query, warehouses: &Warehouses<W>) -> Answered<W>
+///
+/// # Nothing here executes without a credential somebody minted
+///
+/// `context` says who is asking - established by the transport, never stated by the caller - and
+/// `broker` is what turns that into what each leg presents. The credential is minted **once, for
+/// every source the plan reads**, which is one source today and is the shape a federated answer
+/// needs: one asker and one deadline for N legs, rather than N mintings that could disagree.
+/// `docs/adr/0008` is the decision and `sutura_domain::identity::LegCredentials` is where the
+/// argument lives.
+///
+/// The order is deliberate: mint **before** the pre-flight and before execution. A pre-flight asked
+/// as the wrong identity answers a different question, and a subject with no credential at that
+/// source is refused before this deployment has asked the data system anything on their behalf.
+pub fn answer<W, B>(
+    definitions: &Validated<PinnedDefinitions>,
+    query: &Query,
+    context: &RequestContext,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+) -> Answered<W, B>
 where
     W: Warehouse,
+    B: CredentialBroker,
 {
     let pinned = definitions.get();
     let compiled = compile(query, pinned).map_err(|cause| ServiceError::Compile { cause })?;
@@ -248,6 +327,31 @@ where
             },
         });
     };
+    // The credential, minted once for every source this answer reads. A refusal comes back in the
+    // `Ok` and leaves as one: "this subject has no credential at that source" is a governance
+    // outcome, and a broker that could not be reached is an `Err` - see `ServiceError::Broker`.
+    let credentials = match broker
+        .mint(context, &SourceSet::of(plan.source().clone()))
+        .map_err(|cause| ServiceError::Broker { cause })?
+    {
+        Minted::Refused { source } => {
+            return Ok(ToolOutcome::Refusal {
+                reason: RefusalReason::CredentialUnavailable { source },
+            });
+        }
+        Minted::Granted { credentials } => credentials,
+    };
+    // Unreachable for a broker that answered about the set it was asked about - `LegCredentials`
+    // refuses one that does not cover its own source set - so this arm is the broker and the plan
+    // disagreeing about what is being answered. An `Err`, because executing anyway is what would
+    // run the leg as this process.
+    let Some(presented) = credentials.presented_for(plan.source()) else {
+        return Err(ServiceError::Credentials {
+            cause: NoCredentialForThePlan {
+                at: plan.source().clone(),
+            },
+        });
+    };
     // Prepared before it is run, WHERE THAT IS CHEAPER THAN RUNNING IT. For an adapter across a
     // network it is: a statement that would be rejected is rejected before any data is read, which
     // is the difference between a failed query and a partial one. For the in-process engine it is
@@ -255,8 +359,13 @@ where
     // execution does all of it again, so the guarantee was bought at the price of two full planning
     // passes per question. `Warehouse::dry_run` is defaulted for that reason: an adapter that cannot
     // make checking cheaper answers this by doing nothing, and says so by not implementing it.
+    //
+    // The pre-flight's own answer is deliberately not read here. `PreFlight::Accepted` is the data
+    // system's opinion at pre-flight time, not an authorization decision, and skipping a check
+    // downstream on the strength of it is exactly what that type's documentation warns against.
+    // What this call is for is the error it can return.
     warehouse
-        .dry_run(Executable::Query(&plan))
+        .dry_run(Executable::Query(&plan), presented)
         .map_err(|cause| ServiceError::Warehouse { cause })?;
     // The working-set ceiling, on its way out as a refusal rather than as an error. Exhaustion is a
     // governance outcome - the question is well formed and this deployment will not spend more than
@@ -270,7 +379,7 @@ where
     //
     // `dry_run` above is deliberately not given the same treatment: the port's contract is that a
     // check reads no data, so there is no reservation for a ceiling to refuse.
-    let rows = match warehouse.execute(Executable::Query(&plan)) {
+    let rows = match warehouse.execute(Executable::Query(&plan), presented) {
         Ok(rows) => rows,
         Err(cause) => {
             if let Some(ceiling_bytes) = warehouse.working_set_exhausted(&cause) {
@@ -406,14 +515,34 @@ where
             plan: plan.source().clone(),
         });
     };
-    let rows = match warehouse.execute(Executable::Query(&plan)) {
+    // The plan, parsed as this anchor's before anything with no credential is allowed to execute it.
+    // `AnchorPlan::of` refuses a grouped plan, a plan carrying a predicate a question asked for, a
+    // plan for another metric and a plan over another range - which is what makes `verify_anchor`
+    // unable to take a caller's question. Reaching the `Err` arm means this function compiled
+    // something other than the anchor's own question, so it is a defect here rather than a governance
+    // outcome, and it is reported as one: `NotExecutedReason::NotAnAnchor` names the metric's report
+    // entry rather than failing the boot for every other anchor in the bundle.
+    let anchor_plan = match AnchorPlan::of(&plan, metric, anchor) {
+        Ok(anchor_plan) => anchor_plan,
+        Err(cause) => {
+            let (message, chain) = flatten(&cause);
+            return not_executed(NotExecutedReason::NotAnAnchor { message, chain });
+        }
+    };
+    // `verify_anchor` and not `execute`, and the difference is the identity rather than the method
+    // name. There is no caller at boot, so there is no credential in scope and nothing here could
+    // pass one - which is what stops this path from being the door the service-identity fallback
+    // comes back through. What it runs as is whatever the deployment configured this adapter with,
+    // and `docs/adr/0008` part 1 is why that is the only honest answer available: under row-level
+    // security a per-subject anchor is a function rather than a number.
+    let rows = match warehouse.verify_anchor(anchor_plan) {
         Ok(rows) => rows,
         Err(cause) => {
             let (message, chain) = flatten(&cause);
             return not_executed(NotExecutedReason::Failed { message, chain });
         }
     };
-    match measure_of(&rows, metric) {
+    match measure_of(rows.verified_at_boot(), metric) {
         Ok(actual) if actual == anchor.value() => AnchorCheck::Matched,
         Ok(actual) => AnchorCheck::Mismatch {
             expected: String::from(anchor.value()),
@@ -494,349 +623,18 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
         .unwrap_or_default()
 }
 
-/// The fakes this crate's own unit tests share.
+/// The fakes this crate's own unit tests share, in their own file.
 ///
-/// A module rather than a copy per test module, because [`warehouses`] and [`tests`] both need a
-/// `Warehouse` that declares a posture and executes nothing interesting, and two copies of one fake
-/// is two things to keep in step with the port.
+/// One module rather than a copy per test module, because [`warehouses`] and the suite below both need
+/// a `Warehouse` that declares a posture and executes nothing interesting, and two copies of one fake
+/// is two things to keep in step with the port. It holds the credential brokers too, one per
+/// behaviour, so a test reads as a case rather than as a configuration.
 #[cfg(test)]
-mod tests_support {
-    use sutura_domain::model::SourceName;
-    use sutura_domain::plan::Executable;
-    use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-    use sutura_domain::warehouse::{RowSet, Warehouse};
+mod tests_support;
 
-    /// The driver's own complaint, one level below the adapter's.
-    #[derive(Debug, thiserror::Error)]
-    #[error("no such file: orders.csv")]
-    pub(crate) struct DriverFailure;
-
-    /// What an adapter returns: its own message, with the driver's underneath it.
-    #[derive(Debug, thiserror::Error)]
-    #[error("the data system rejected the statement")]
-    pub(crate) struct AdapterFailure {
-        #[source]
-        pub(crate) cause: DriverFailure,
-    }
-
-    /// A data system with a declared source and posture, which either answers one fixed result or
-    /// fails every statement.
-    ///
-    /// The posture is a constructor argument and not a default, which is the port's own rule: an
-    /// adapter is *handed* the posture the deployment declared, and a fake that invented one would be
-    /// asserting this file's opinion back to the test.
-    pub(crate) struct FixedWarehouse {
-        source: SourceName,
-        posture: SourcePosture,
-        result: Option<RowSet>,
-    }
-
-    impl FixedWarehouse {
-        /// One that fails every statement, with a cause worth reading.
-        pub(crate) const fn new(source: SourceName, posture: SourcePosture) -> Self {
-            Self {
-                source,
-                posture,
-                result: None,
-            }
-        }
-
-        /// One that answers every statement with `result`.
-        pub(crate) const fn answering(source: SourceName, posture: SourcePosture, result: RowSet) -> Self {
-            Self {
-                source,
-                posture,
-                result: Some(result),
-            }
-        }
-    }
-
-    impl Warehouse for FixedWarehouse {
-        type Error = AdapterFailure;
-
-        // A fake over no data system at all, so there is nowhere for a subject credential to arrive -
-        // the same answer the in-process engine gives, for the same reason.
-        const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
-
-        fn source(&self) -> &SourceName {
-            &self.source
-        }
-
-        fn posture(&self) -> &SourcePosture {
-            &self.posture
-        }
-
-        fn dry_run(&self, _executable: Executable<'_>) -> Result<(), Self::Error> {
-            match self.result {
-                Some(_) => Ok(()),
-                None => Err(AdapterFailure { cause: DriverFailure }),
-            }
-        }
-
-        fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
-            self.result.clone().ok_or(AdapterFailure { cause: DriverFailure })
-        }
-    }
-}
-
+/// This crate's own unit suite, in its own file.
+///
+/// Moved out of this one when it reached the 1000-line gate. `cargo xtask max-lines` cannot exempt
+/// anything under `crates/`, which is what makes a split the only answer.
 #[cfg(test)]
-mod tests {
-    use std::collections::{BTreeMap, BTreeSet};
-
-    use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::catalog::{Anchor, Definitions, Description, Metric, Model};
-    use sutura_domain::knowledge::Knowledge;
-    use sutura_domain::measure::{AggregatedColumn, Measure, Term};
-    use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
-    use sutura_domain::pinned::{DefinitionVersion, NotValidated};
-    use sutura_domain::plan::MAX_ROWS;
-    use sutura_domain::query::{Query, ToolOutcome};
-    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
-    use sutura_domain::warehouse::Value;
-
-    use super::tests_support::FixedWarehouse;
-    use super::{
-        AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, Warehouses, answer, exceeds_row_cap,
-        verify_anchors, verify_and_validate,
-    };
-
-    fn metric() -> MetricName {
-        MetricName::parse("revenue").expect("a test metric name is a name")
-    }
-
-    fn source() -> SourceName {
-        SourceName::parse("local").expect("a test source is a source")
-    }
-
-    fn shared(text: &str) -> SourcePosture {
-        SourcePosture::SharedServiceUser {
-            declared: SharedIdentityDeclared::of(AcknowledgementReason::parse(text).expect("a test reason is a reason")),
-        }
-    }
-
-    /// The June range the test bundle's anchor declares, which is also the only range a question
-    /// against it can ask for and get one row back.
-    fn june() -> TimeRange {
-        TimeRange::new(
-            Date::parse("2026-06-01").expect("a test date is a date"),
-            Date::parse("2026-07-01").expect("a test date is a date"),
-        )
-        .expect("June is a range")
-    }
-
-    /// The certified number, in the shape the anchor check and a question both read it.
-    fn certified() -> RowSet {
-        RowSet::new(vec![String::from("revenue")], vec![vec![Value::Integer(197_122)]])
-            .expect("one column and one cell is rectangular")
-    }
-
-    /// A one-metric bundle whose metric declares an anchor, so there is exactly one check to make.
-    fn bundle() -> PinnedDefinitions {
-        let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
-        let model = Model::new(
-            ModelName::parse("orders").expect("a test model is a model"),
-            source(),
-            TableName::parse("orders").expect("a test table is a table"),
-            BTreeSet::from([column("amount_cents"), column("order_date")]),
-            Description::default(),
-        );
-        let range = june();
-        let revenue = Metric::new(
-            metric(),
-            ModelName::parse("orders").expect("a test model is a model"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("amount_cents")))),
-            Vec::new(),
-            column("order_date"),
-            BTreeSet::from([Grain::Month]),
-            BTreeMap::new(),
-            Some(Anchor::new(range, String::from("197122"))),
-            Description::default(),
-        );
-        let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
-        // The real hasher, from the catalog adapter that owns the canonical form. `pin` applies it to
-        // the definitions being pinned, so there is no digest here for the bundle not to describe.
-        PinnedDefinitions::pin(
-            DefinitionVersion::parse("test-1").expect("a test version is a version"),
-            definitions,
-            Knowledge::none(),
-        )
-        .expect("the test definitions hash")
-    }
-
-    #[test]
-    fn a_failed_anchor_check_keeps_the_adapters_own_cause() {
-        // THE BUG THIS EXISTS FOR. The failure used to be recorded as one formatted sentence, and
-        // `Display` on a `thiserror` enum prints only the outermost message - so the driver's own
-        // complaint, the half that names a table, a column or a file, was gone before the report was
-        // built. Anchor verification is the readiness gate, so that sentence was the whole of what an
-        // operator got when a deployment refused to serve.
-        //
-        // Asserted over the chain rather than over the message alone: the message was never the part
-        // that went missing.
-        let pinned = bundle();
-        let report = verify_anchors(
-            &pinned,
-            &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
-        );
-        let check = report.checks().get(&metric()).expect("the anchored metric was checked");
-        let AnchorCheck::NotExecuted {
-            reason: NotExecutedReason::Failed { ref message, ref chain },
-        } = *check
-        else {
-            panic!("a data system that fails every statement is a failed check, not {check:?}");
-        };
-        assert_eq!(message, "the data system rejected the statement");
-        assert_eq!(chain, &vec![String::from("no such file: orders.csv")]);
-    }
-
-    #[test]
-    fn a_check_for_a_source_nobody_configured_says_so_rather_than_looking_like_an_outage() {
-        // It was prose in a report field, and it is a governance condition: the plan names a data
-        // system this process did not open. Typed, an operator can tell it apart from an outage
-        // without reading a sentence, which is the difference that decides who gets paged.
-        //
-        // The registry is what sharpened it. The check used to COMPARE the plan's source against the
-        // one warehouse it was handed, so this arm also fired for a bundle whose second source was
-        // configured and open - the plan now SELECTS, so the only failure left is an unconfigured
-        // name.
-        let pinned = bundle();
-        let elsewhere = Warehouses::of(FixedWarehouse::new(
-            SourceName::parse("somewhere_else").expect("a test source is a source"),
-            shared("a directory of CSVs"),
-        ));
-        let report = verify_anchors(&pinned, &elsewhere);
-        let check = report.checks().get(&metric()).expect("the anchored metric was checked");
-        let AnchorCheck::NotExecuted {
-            reason: NotExecutedReason::SourceNotConfigured { ref plan },
-        } = *check
-        else {
-            panic!("a plan for a source nobody opened is not configured, not {check:?}");
-        };
-        assert_eq!(plan.as_str(), "local");
-    }
-
-    #[test]
-    fn an_anchor_runs_against_the_data_system_its_own_metric_names() {
-        // What the registry buys the anchor pass, and it is not cosmetic: under one warehouse every
-        // anchor on a second configured source came back as a source mismatch, so a two-source bundle
-        // could not be validated for a reason that has nothing to do with its numbers.
-        let pinned = bundle();
-        let registry = Warehouses::of(FixedWarehouse::new(
-            SourceName::parse("somewhere_else").expect("a test source is a source"),
-            SourcePosture::ImpersonationAtSource,
-        ))
-        .and(FixedWarehouse::answering(
-            source(),
-            shared("a directory of CSVs"),
-            certified(),
-        ))
-        .expect("two sources");
-        let report = verify_anchors(&pinned, &registry);
-        let check = report.checks().get(&metric()).expect("the anchored metric was checked");
-        assert_eq!(
-            *check,
-            AnchorCheck::Matched,
-            "the metric reads `local`, so the anchor runs on the `local` adapter and not on whichever \
-             one happens to be first"
-        );
-    }
-
-    #[test]
-    fn a_posture_is_recorded_in_provenance_per_leg() {
-        // The Done-when of the source registry: an answer says which mode produced it. Asserted for
-        // BOTH postures against the same bundle, the same question and the same rows, so the only
-        // thing that moves is what the adapter was handed - which is the whole claim. Nothing in this
-        // test holds a settings tree, so the value cannot have come from configuration.
-        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
-        for posture in [
-            shared("a directory of CSVs this deployment owns"),
-            SourcePosture::ImpersonationAtSource,
-        ] {
-            let expected = posture.as_str();
-            let registry = Warehouses::of(FixedWarehouse::answering(source(), posture, certified()));
-            let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
-            let outcome = answer(&validated, &question, &registry).expect("the fake answers");
-            let ToolOutcome::Answer { ref provenance, .. } = outcome else {
-                panic!("a certified question is answered, not {outcome:?}");
-            };
-            assert_eq!(
-                provenance.executed_as().posture(&source()).map(SourcePosture::as_str),
-                Some(expected),
-                "the answer records the posture the adapter that executed it was holding"
-            );
-            assert_eq!(provenance.executed_as().legs().count(), 1, "a mono-source answer has one leg");
-            // And the two halves of provenance stay separable: the digest is over authored content, so
-            // it does not move when the posture does.
-            assert_eq!(provenance.digest(), bundle().digest());
-        }
-    }
-
-    #[test]
-    fn a_question_for_a_source_nobody_configured_is_refused_rather_than_run_elsewhere() {
-        // The query-path half of the same lookup. `SourceUnavailable` now means what its name says.
-        let registry = Warehouses::of(FixedWarehouse::answering(source(), shared("csv"), certified()));
-        let validated = verify_and_validate(bundle(), &registry).expect("the anchor reproduces its number");
-        let elsewhere = Warehouses::of(FixedWarehouse::answering(
-            SourceName::parse("somewhere_else").expect("a test source is a source"),
-            shared("csv"),
-            certified(),
-        ));
-        let question = Query::new(metric(), Grain::Month, june(), Vec::new(), Vec::new());
-        let outcome = answer(&validated, &question, &elsewhere).expect("a refusal is an Ok");
-        let ToolOutcome::Refusal {
-            reason: sutura_domain::query::RefusalReason::SourceUnavailable { ref source },
-        } = outcome
-        else {
-            panic!("a plan for a source nobody opened is refused, not {outcome:?}");
-        };
-        assert_eq!(source.as_str(), "local");
-    }
-
-    #[test]
-    fn a_bundle_whose_anchor_could_not_run_does_not_come_back_validated() {
-        // The other half of the invariant, and the half a report could not carry: the ONLY way to a
-        // `Validated` bundle runs the anchors, so a data system that answers nothing yields no
-        // bundle at all. Before this operation existed, the same situation was a report a caller was
-        // free to ignore - and `Validated::new` was happy to be handed a different one.
-        let error = verify_and_validate(
-            bundle(),
-            &Warehouses::of(FixedWarehouse::new(source(), shared("a directory of CSVs"))),
-        )
-        .expect_err("a data system that fails every statement cannot validate a bundle");
-        let NotValidated::AnchorNotExecuted { ref metric, .. } = error else {
-            panic!("a failed anchor check is a not-executed verdict, not {error:?}");
-        };
-        assert_eq!(metric, &self::metric());
-    }
-
-    #[test]
-    fn the_row_cap_refuses_at_one_row_over_and_cannot_be_lifted_by_a_failed_conversion() {
-        // The plan asks a data system for one row MORE than it will certify, so a result carrying
-        // more than the cap is a result that was cut short - a wrong total under a certified name.
-        // The boundary is the whole control: exactly the cap answers, one row over refuses.
-        assert_eq!(MAX_ROWS, 10_000, "the boundary below is written in terms of the cap");
-        assert!(!exceeds_row_cap(0, MAX_ROWS), "an empty result is not a truncated one");
-        assert!(!exceeds_row_cap(9_999, MAX_ROWS), "under the cap answers");
-        assert!(!exceeds_row_cap(10_000, MAX_ROWS), "exactly the cap answers");
-        assert!(exceeds_row_cap(10_001, MAX_ROWS), "one row over the cap is a truncated total");
-        // THE DIRECTION THIS FUNCTION EXISTS FOR. The comparison used to narrow the CAP to a
-        // `usize` with `unwrap_or(usize::MAX)`, so a conversion that failed meant no cap at all and
-        // the largest result set there is would have been certified as complete. A count that
-        // cannot be carried is a count over every cap, and this asserts it refuses.
-        assert!(
-            exceeds_row_cap(usize::MAX, MAX_ROWS),
-            "the largest count there is exceeds any cap"
-        );
-        assert!(
-            exceeds_row_cap(usize::MAX, u32::MAX),
-            "including against the widest cap a plan could carry"
-        );
-        // And a zero cap is a cap, not an absence: `QueryPlan::new` always sets `MAX_ROWS`, and this
-        // function is not allowed to read a small number as permission.
-        assert!(exceeds_row_cap(1, 0), "one row over a cap of zero is over the cap");
-        assert!(!exceeds_row_cap(0, 0), "no rows is not over a cap of none");
-        // The other end, so the comparison is not narrowing by accident: a cap no result could reach
-        // admits an ordinary result.
-        assert!(!exceeds_row_cap(1, u32::MAX), "one row is not over four billion");
-    }
-}
+mod tests;

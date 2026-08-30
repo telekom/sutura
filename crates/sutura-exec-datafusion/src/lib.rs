@@ -49,10 +49,11 @@ use datafusion::common::JoinType as EngineJoin;
 use datafusion::execution::memory_pool::MemoryPool;
 use datafusion::logical_expr::{Expr, LogicalPlan, LogicalPlanBuilder};
 use datafusion::prelude::{CsvReadOptions, ParquetReadOptions, SessionConfig, SessionContext};
+use sutura_domain::identity::{Presented, PresentedDisagreesWithPosture};
 use sutura_domain::model::{JoinType, SourceName, TableName};
-use sutura_domain::plan::{Executable, QueryPlan};
+use sutura_domain::plan::{AnchorPlan, Executable, QueryPlan};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::{MalformedRowSet, RowSet, Value, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, MalformedRowSet, RowSet, Value, Warehouse};
 
 /// Why this data system could not answer.
 ///
@@ -183,6 +184,44 @@ pub enum DataFusionError {
     /// this needs and the message may be reworded.
     #[error("this adapter executes a whole plan, and the leg against {table} needs a combiner above it")]
     LegWithoutCombiner { table: String },
+    /// The credential broker handed this adapter subject material it has nowhere to put.
+    ///
+    /// **An `Err` and never a refusal, and the direction is the point.** Nothing about the question
+    /// was wrong: it is a wiring defect between the broker and the source declaration, and offering
+    /// it as a refusal would invite a client to retry a deployment bug until something works.
+    /// `docs/adr/0008` part 4 states both directions and says which one is silent - an adapter that
+    /// quietly *accepted* material it cannot use would report a leg as impersonated that ran shared.
+    ///
+    /// This adapter is one process reading local files under one operating-system identity, which is
+    /// what [`Warehouse::IMPERSONATION`] declares, so the only shape it can be handed is the
+    /// deployment's own identity for that source. A configuration that asked for anything else does
+    /// not boot - `SourcePosture::deliverable_by` refuses it in the composition root - so reaching
+    /// this arm in production means the broker ignored the declaration it reads.
+    #[error(
+        "source `{at}` was handed {presented}, and this adapter has nowhere for a subject's own \
+         credential to arrive: it is one process reading local files under one identity. This is a \
+         wiring defect between the credential broker and the source declaration"
+    )]
+    NoPlaceForASubject { at: String, presented: &'static str },
+    /// The broker presented a leg that does not agree with how this source was DECLARED.
+    ///
+    /// **The check above answers a different question, and a review found the gap.**
+    /// `NoPlaceForASubject` compares what arrived against what this CODE can carry - the
+    /// [`Warehouse::IMPERSONATION`] constant - and says nothing about the posture the composition
+    /// root handed this adapter. So a shared leg carrying a *different* operator acknowledgement
+    /// matched the variant and was accepted, and provenance - which is read off `posture` - then
+    /// reported this adapter's own declaration rather than the acknowledgement the broker actually
+    /// presented.
+    ///
+    /// The comparison is a real one rather than a value against itself: the broker reads the settings
+    /// tree and this adapter holds what the root handed it. An `Err` for the reason the variant above
+    /// is one - a wiring defect between the broker and the source declaration, which no caller may
+    /// retry into an answer. The typed cause carries which disagreement it was.
+    #[error("the credential broker presented a leg that disagrees with how this source is declared")]
+    PresentedDisagreesWithPosture {
+        #[source]
+        cause: PresentedDisagreesWithPosture,
+    },
 }
 
 /// A plan becomes expressions here. The half of this adapter that never reads a result.
@@ -566,7 +605,28 @@ impl Warehouse for DataFusionWarehouse {
     // during analysis, so a plan naming a table that was never attached is an error out of
     // `execute` before a single row comes back - which is what the pre-flight was for.
 
-    fn execute(&self, executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, executable: Executable<'_>, presented: &Presented) -> Result<RowSet, Self::Error> {
+        // What this leg runs as, matched exhaustively before anything is executed. There is exactly
+        // one shape this adapter can honour, and the other two are a wiring defect rather than a
+        // question anybody may retry - see `DataFusionError::NoPlaceForASubject`.
+        match *presented {
+            Presented::SharedServiceUser { .. } => {}
+            Presented::SubjectToken { .. } | Presented::SubjectPrincipal { .. } => {
+                return Err(DataFusionError::NoPlaceForASubject {
+                    at: String::from(self.source.as_str()),
+                    presented: presented.as_str(),
+                });
+            }
+        }
+        // And the second check, which is a different one: does the leg AGREE with the posture this
+        // adapter was handed? The match above compares what arrived against what this code can carry
+        // and reads `self.posture` not at all - so a shared leg carrying another source's
+        // acknowledgement got past it. The capability check runs first deliberately: it is the one
+        // whose message names what a broker did wrong, and after it the only shape left is the shared
+        // one, so this call reduces to comparing the two witnesses.
+        presented
+            .agrees_with(&self.posture, &self.source)
+            .map_err(|cause| DataFusionError::PresentedDisagreesWithPosture { cause })?;
         match executable {
             Executable::Query(plan) => self.runtime.block_on(self.rows(plan)),
             // Stated rather than defaulted. This adapter is the engine and it belongs ABOVE the
@@ -577,6 +637,16 @@ impl Warehouse for DataFusionWarehouse {
                 table: String::from(leg.table().as_str()),
             }),
         }
+    }
+
+    /// Re-runs an anchor's plan, under this process's own identity.
+    ///
+    /// The same execution path `execute` takes for a whole plan, and it takes no credential because
+    /// there is none at boot - which for this adapter is not a limitation but the only truth
+    /// available: one process, one operating-system identity, nowhere for a subject to arrive.
+    /// [`AnchorRows`] is what keeps the result from being handed back to a caller as an answer.
+    fn verify_anchor(&self, plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        self.runtime.block_on(self.rows(plan.plan())).map(AnchorRows::of)
     }
 
     /// The one question the domain asks about this adapter's error, answered from the one variant
@@ -614,6 +684,20 @@ pub(crate) fn test_posture() -> SourcePosture {
             sutura_domain::source::AcknowledgementReason::parse("one process reading local files as one identity")
                 .expect("a fixture reason is a reason"),
         ),
+    }
+}
+
+/// What this crate's own tests execute a leg as.
+///
+/// The deployment's own identity for the source, carrying the same acknowledgement
+/// [`test_posture`] declares - because that is the one shape this adapter can honour, and a fixture
+/// that presented anything else would be testing the refusal rather than the execution. The refusal
+/// has its own test.
+#[cfg(test)]
+pub(crate) fn test_leg() -> Presented {
+    match test_posture() {
+        SourcePosture::SharedServiceUser { declared } => Presented::SharedServiceUser { declared },
+        SourcePosture::ImpersonationAtSource => panic!("the fixture posture is shared, one function above"),
     }
 }
 

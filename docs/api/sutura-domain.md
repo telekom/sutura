@@ -99,15 +99,30 @@ and sutura cannot vouch for a sink it does not retain. A deployment whose sink d
 no audit trail on this side and nothing here can tell it so - which is why the sources' own logs,
 written under the asking subject, carry the part of the obligation that matters.
 
-# What the record does NOT carry yet, said here rather than implied
+# The incident question, and which half of it this record can answer
 
 `docs/adr/0008` fixes the full content as the chain, the outcome, **the sources the plan read and
-the posture each leg ran under, and the expiry the credentials carried.** The last two are absent
-from `CallRecord`, and not by oversight: there is no credential broker, no per-leg posture and
-no expiry type in this workspace, so a field for either would be a field nothing could fill. A
-plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
-what makes that true - so the source set is one name a reader already has from the bundle. Each
-is a field this record gains when the type it would carry exists.
+the posture each leg ran under, and the expiry the credentials carried.**
+
+**The posture is reachable, and it was not named until a review asked the question it exists for.**
+A verified subject's question can be answered under the *deployment's* own identity on a source
+declared `shared-service-user` - that is honest, acknowledged and not impersonation - and the
+incident question is then "whose access filtered these rows". The answer is
+`crate::source::ExecutedAs`, which rides on the `Provenance` an answer carries, and
+`CallRecord::executed_as` is the accessor: a sink writing an audit line does not have to know
+that provenance transitively holds it. It answers `None` for a refusal, because nothing executed.
+
+**`asked_by` is the chain, and it is deliberately not a second field.** `LegCredentials::asked_by`
+is the broker's copy of who asked and the chain is the transport's; they agree by construction,
+because `mint` reads the request context. A record carrying both would be a second place for them
+to disagree, which is the argument this whole port is built on - so who asked is
+`CallRecord::chain`, once.
+
+**Still absent: the expiry.** `crate::identity::Expiry` is carried on the credentials and is not
+in the `ToolOutcome`, so reaching it here is a change to what a record is made of rather than an
+accessor. Nothing that ships has a credential that expires, so there is no number to record yet.
+A plan reads exactly one source today - `crate::query::RefusalReason::PlanSpansTwoSources` is
+what makes that true - so the source set is one name a reader already has from the bundle.
 
 ### `trait AuditSink`
 
@@ -156,6 +171,23 @@ pub const fn chain(&self) -> &PrincipalChain
 ```
 
 Who the call is attributable to.
+
+```rust
+pub const fn executed_as(&self) -> Option<&ExecutedAs>
+```
+
+Which identity produced each leg, where anything executed.
+
+**The incident question's own accessor**, and it is derived rather than stored: the value is
+the `Provenance`'s, which the `ToolOutcome` already carried, so there is one place it lives
+and nothing here can describe a leg as impersonated that ran shared. `None` on a refusal, and
+that is a case a reader names rather than an absence to interpret - a refused question reached
+no data system, so there is no identity it ran as.
+
+**Recording is not a control**, the way `Provenance`'s own documentation says: this reaches a
+sink after the rows were read. What it is for is being able to answer, afterwards, whether a
+verified subject's question was filtered by that subject's own access or by the identity this
+deployment holds for the source.
 
 ```rust
 pub fn of(chain: &'a PrincipalChain, outcome: &'a ToolOutcome) -> Self
@@ -1646,9 +1678,11 @@ earlier name, and it described one property of one type - so the module could no
 the principal chain, the request context or the `CredentialBroker` port that belong beside
 it, and every one of those would have arrived somewhere else.
 
-Two of those three are here now, in `principal`: the chain a call is attributed to, and the
-request context that carries it. `CredentialBroker` is still absent for the reason it always was
-- nothing implements it yet, and a port trait arrives with its first implementor.
+All three are here now. `principal` holds the chain a call is attributed to and the request
+context that carries it; `credential` holds what one answer executes with and the
+`CredentialBroker` port that mints it. The port arrived with its first implementor, which is
+`sutura_config::StaticCredentialBroker` - the static-credential broker a single-user deployment
+already needs, rather than a fake standing in for one.
 
 **Nothing in `principal` is `Serialize` or `Deserialize`, and `Secret` is neither either.**
 That is one property rather than two coincidences: an identity is derived from what a transport
@@ -1694,6 +1728,24 @@ beyond opacity, and a constructor that returned `Result` would be inventing one.
 #### Implements
 
 `Clone`, `Debug`, `Display`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 
@@ -3212,6 +3264,7 @@ available at that boundary.
 - `NotOneNumber` - The declared range covers more than one period at the metric's coarsest grain, so the result is several numbers and an anchor is one.
 - `NoMeasureColumn` - The result carries no column named after the metric, so there is nothing to compare.
 - `ResultShapeMismatch` - The result set was not the shape it reported.
+- `NotAnAnchor` - The plan the boot path compiled is not this anchor's own, so nothing was allowed to execute it with no credential.
 - `Failed` - The data system failed the statement. `message` is the adapter's own, `chain` is every cause beneath it - the driver error included, which is the part that names a table, a column or a file and the part a single string used to throw away.
 
 #### Implements
@@ -3717,6 +3770,90 @@ pub const fn table(&self) -> &TableName
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
+
+### `struct AnchorPlan`
+
+```rust
+pub struct AnchorPlan<'bundle>
+```
+
+The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
+a declared anchor's own plan.
+
+**This type exists because the sentence "no signature in this workspace can execute a question as
+this process" was false by one method, and a review caught it.**
+[`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
+[`Presented`](crate::identity::Presented). `verify_anchor` deliberately takes no credential -
+there is no caller at boot - and while it took a bare `QueryPlan` it would execute *any* plan
+under whatever identity the deployment configured that adapter with, including a plan compiled
+from a caller's question. Placement kept the request path off it; placement is not a mechanism.
+
+So the boot path gets an input a question's plan cannot be: `Self::of` refuses a plan that is
+grouped, a plan carrying a predicate the question asked for, a plan for a different metric, and a
+plan whose range is not the anchor's. An anchor is asked with no dimensions and no filters over
+the range its author certified, so those four checks accept exactly what the boot path builds and
+reject every shape a caller can reach.
+
+# The limit, stated with the claim
+
+`Self::of` is `pub`, because the boot path lives in `sutura-app` and this type lives here - the
+same reason [`LegCredentials::minted`](crate::identity::LegCredentials::minted) is. So this is a
+**narrowing and not a closure**: a caller that already holds the bundle can still ask for a metric
+at its coarsest grain, with no dimensions and no filters, over exactly the range that metric's
+anchor declares, and construct one. What that plan returns is the number the bundle certifies in
+its own catalog document and that provenance already publishes, so nothing reaches a caller
+through this door that the definitions did not already state. What is no longer reachable is a
+*question* - a grouped plan, a filtered one, a different range, a different metric - which is what
+the claim is about.
+
+A genuinely closed constructor would need the domain to compile the plan itself, and compilation
+is `sutura-semantic`'s: the domain may not depend on it. `docs/adr/0008`'s own correction 2 is the
+precedent for saying this rather than implying more - a `pub` constructor asserted as unreachable
+is exactly what that correction found wrong with the record's first attempt at this method.
+
+#### Methods
+
+```rust
+pub fn of(plan: &'bundle QueryPlan, metric: &MetricName, anchor: &Anchor) -> Result<Self, NotAnAnchorsPlan>
+```
+
+Parses a plan as one anchor's, refusing every shape a question could be.
+
+Takes the metric's name as well as the `Anchor`, because an anchor carries a range and a
+value and does not know which metric declared it - so without the name the metric check would
+have nothing to compare against.
+
+```rust
+pub const fn plan(&self) -> &QueryPlan
+```
+
+The plan, for the adapter that has to execute it.
+
+#### Implements
+
+`Debug`
+
+### `enum NotAnAnchorsPlan`
+
+```rust
+pub enum NotAnAnchorsPlan
+```
+
+A plan that is not a declared anchor's own, so nothing may execute it with no credential.
+
+**An error and not a refusal**: reaching it means the boot path compiled something other than the
+anchor's question, which is a defect here rather than anything about a caller.
+
+#### Variants
+
+- `NotThatMetric` - The plan computes a different metric from the one whose anchor it would be checked against.
+- `Grouped` - The plan groups by something. An anchor is a metric's own number, not a slice of it.
+- `Requested` - The plan carries a predicate a question asked for, which an anchor's plan never does.
+- `NotTheAnchorsRange` - The plan's range is not the range the anchor's author certified.
+
+#### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ### `fn plan_measure`
 
@@ -4243,6 +4380,7 @@ somebody else's input.
 - `PlanSpansTwoSources` - The plan would need to read from more than one data system.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
+- `CredentialUnavailable` - The asking subject has no credential at that data system.
 
 #### Implements
 
@@ -5061,6 +5199,75 @@ Why a result set could not be built.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum PreFlight`
+
+```rust
+pub enum PreFlight
+```
+
+What a pre-flight established.
+
+**`Self::NotAsked` is not `Self::Accepted`, and no caller can read it as one.** Before
+`dry_run` took a credential, a default of `Ok(())` was defensible: with nothing to be wrong
+about, "nothing went wrong" is honest. With a subject in the signature it stops being honest,
+because `Ok(())` from an adapter that did not look is indistinguishable from `Ok(())` from an
+adapter that asked the data system as that subject and was told yes - so a defaulted pre-flight
+would read as "this subject may run this plan" for every adapter that declined to implement one.
+
+The shape is the one the row cap already uses, where `row_limit()` is `max_rows + 1` so a result
+*at* the cap is distinguishable from one cut off *by* it. `docs/adr/0008` part 1 is the decision.
+
+**The limit, stated with the claim:** `Self::Accepted` is the data system's opinion at
+pre-flight time and not a guarantee about `execute`, so it is worth a round trip and is not an
+authorization decision. Nothing in the plan path may treat it as one, and there is no mechanism
+that would stop it - skipping a check on the strength of `Accepted` is a review question.
+
+#### Variants
+
+- `NotAsked` - The adapter did not ask. The default, and the honest answer for an adapter where checking costs what running costs.
+- `Accepted` - The data system was asked, as this subject, and accepted the plan.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `struct AnchorRows`
+
+```rust
+pub struct AnchorRows
+```
+
+The rows one anchor's plan produced at boot.
+
+**A wrapper with a private field, so a boot result cannot be handed back to a caller as an
+answer without a named conversion somebody wrote.** The anchor path and the request path are two
+ways into a data system and they run as different identities: `execute` takes the asking
+subject's credential and cannot be called without one, and `Warehouse::verify_anchor` takes no
+credential at all - it runs as whatever identity the deployment configured that adapter with,
+which is what `docs/adr/0008` part 1 decides for a path that has no caller.
+
+Two types rather than one so the separation is visible at a call site rather than in a comment.
+`Self::verified_at_boot` is named to be conspicuous in review and in a grep, the way
+`crate::identity::Secret::expose` is.
+
+#### Methods
+
+```rust
+pub const fn of(rows: RowSet) -> Self
+```
+
+What an adapter returns from a verification run.
+
+```rust
+pub const fn verified_at_boot(&self) -> &RowSet
+```
+
+The rows, for the boot path that compares them against what an author certified.
+
+#### Implements
+
+`Clone`, `Debug`, `PartialEq`
+
 ### `trait Warehouse`
 
 ```rust
@@ -5080,6 +5287,31 @@ It is defaulted rather than required for exactly that reason: an adapter for whi
 cheaper has no way to say so if the port demands an implementation, and the honest thing for it to
 do is nothing.
 
+# Nothing here executes without saying whose credential it holds
+
+`Self::execute` takes a `Presented` and has no default, so there is no code path into a data
+system that runs as whatever the process happens to be. **Today's signature IS the fallback:** an
+adapter with no credential parameter runs as the process, and nothing anywhere had to decide
+that. `docs/adr/0008` part 1 is the decision, and the mechanism is the absence of a signature
+rather than a rule somebody follows.
+
+The boot path is the other caller of this port and it has no subject, so it gets its own method:
+`Self::verify_anchor` takes no credential and returns `AnchorRows` rather than a `RowSet`.
+**Which is narrower than the record asked for, deliberately.** `docs/adr/0008` gave that method a
+`VerificationIdentity` parameter so the two credentials could not be confused at a call site, and
+then named a `compile_fail` test asserting that answering a question cannot pass one. That test
+could not have held: `crate::source::VerificationIdentity::parse` is `pub`, so any crate can
+construct one. A method that takes NO credential has no parameter to pass one to, which is the
+property the record wanted, reached by removing the argument instead of by typing it.
+
+**And a method with no credential still has an INPUT, which is where this was wrong by one
+method until a review said so.** While `verify_anchor` took a bare [`QueryPlan`](crate::plan::QueryPlan)
+it would execute anything - a caller's question included - under whatever identity the deployment
+configured the adapter with, and what kept the request path off it was where the call sites
+happen to be. It takes an `AnchorPlan` now, which refuses a grouped plan, a plan carrying a
+requested predicate, a plan for another metric and a plan over another range. That type states
+its own limit: its constructor is `pub`, so it narrows the door rather than closing it.
+
 # The two identity declarations, and why they are two
 
 `Self::IMPERSONATION` is a property of the **code**: whether this adapter has anywhere for a
@@ -5098,10 +5330,11 @@ is being asked for.
 **An adapter that declares no impersonation capability does not compile:**
 
 ```compile_fail
+use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::SourcePosture;
-use sutura_domain::warehouse::{RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Undeclared {
     source: SourceName,
@@ -5120,7 +5353,11 @@ impl Warehouse for Undeclared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(core::fmt::Error)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(core::fmt::Error)
     }
 }
@@ -5130,10 +5367,11 @@ The compiling twin, so the block above cannot be passing on a typo - the only di
 the two is the one line that declares the capability:
 
 ```
+use sutura_domain::identity::Presented;
 use sutura_domain::model::SourceName;
-use sutura_domain::plan::Executable;
+use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{ImpersonationCapability, SourcePosture};
-use sutura_domain::warehouse::{RowSet, Warehouse};
+use sutura_domain::warehouse::{AnchorRows, RowSet, Warehouse};
 
 struct Declared {
     source: SourceName,
@@ -5153,7 +5391,11 @@ impl Warehouse for Declared {
         &self.posture
     }
 
-    fn execute(&self, _executable: Executable<'_>) -> Result<RowSet, Self::Error> {
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(core::fmt::Error)
+    }
+
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
         Err(core::fmt::Error)
     }
 }

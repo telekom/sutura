@@ -47,8 +47,14 @@ fn a_plan_for_a_data_system_this_process_did_not_open_is_refused() {
     // registered adapter can be asked to lie about its own name, and none should be able to.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     let elsewhere = sutura_app::Warehouses::of(crate::support::RecordingWarehouse::pretending_to_be("somewhere_else"));
-    let outcome =
-        sutura_app::answer(&validated, &question("recurring-revenue-june.yaml"), &elsewhere).expect("a refusal is not an error");
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-june.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &elsewhere,
+    )
+    .expect("a refusal is not an error");
     assert!(
         matches!(outcome.refusal(), Some(&RefusalReason::SourceUnavailable { .. })),
         "expected a source refusal, got {outcome:?}"
@@ -77,8 +83,14 @@ fn a_refused_question_never_reaches_the_data_system() {
     // fake, and what this asserts is that nothing reaches THIS one.
     let fake = sutura_app::Warehouses::of(crate::support::RecordingWarehouse::new());
     for &(fixture, _) in PROVOKED {
-        let outcome =
-            sutura_app::answer(&validated, &question(&format!("{fixture}.yaml")), &fake).expect("a refusal is not an error");
+        let outcome = sutura_app::answer(
+            &validated,
+            &question(&format!("{fixture}.yaml")),
+            &crate::adapters::a_caller(),
+            &crate::adapters::shared_credential(),
+            &fake,
+        )
+        .expect("a refusal is not an error");
         assert!(outcome.is_refusal(), "{fixture} was answered");
     }
     let recorded = fake
@@ -103,8 +115,14 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
     // `sutura_exec_datafusion::pool::ceiling_tests`.
     let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
     let exhausted = sutura_app::Warehouses::of(crate::support::ExhaustedEngine::at(1024 * 1024 * 1024));
-    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &exhausted)
-        .expect("exhaustion is a refusal, not an error");
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &exhausted,
+    )
+    .expect("exhaustion is a refusal, not an error");
     assert_eq!(
         outcome.refusal(),
         Some(&RefusalReason::ResourcesExhausted {
@@ -118,8 +136,14 @@ fn an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure() {
     // has been told the wrong thing, and the port's default answer of `None` is what keeps that true
     // for every adapter with no pool to bound.
     let broken = sutura_app::Warehouses::of(crate::support::BrokenEngine::new());
-    let failure = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &broken)
-        .expect_err("a failure that is not the ceiling is not a refusal");
+    let failure = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &broken,
+    )
+    .expect_err("a failure that is not the ceiling is not a refusal");
     assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
 }
 
@@ -143,8 +167,14 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
 
     // One row past the cap. That row exists only because the plan asked for it: see below.
     let too_wide = sutura_app::Warehouses::of(crate::support::WideResult::of(cap.saturating_add(1)));
-    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &too_wide)
-        .expect("a refusal is not an error");
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &too_wide,
+    )
+    .expect("a refusal is not an error");
     assert_eq!(
         outcome.refusal(),
         Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
@@ -167,8 +197,14 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     // And exactly the cap still answers, so this is not a test that would pass with every wide
     // question refused.
     let at_the_cap = sutura_app::Warehouses::of(crate::support::WideResult::of(cap));
-    let outcome = sutura_app::answer(&validated, &question("recurring-revenue-by-region.yaml"), &at_the_cap)
-        .expect("a refusal is not an error");
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &at_the_cap,
+    )
+    .expect("a refusal is not an error");
     let ToolOutcome::Answer { ref rows, .. } = outcome else {
         panic!("a result of exactly the cap is answerable, not {outcome:?}");
     };

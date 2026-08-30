@@ -21,11 +21,15 @@
 //! exhaustive.
 
 use crate::calendar::TimeRange;
+use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
 use crate::warehouse::ParamValue;
 
 pub mod leg;
+
+#[cfg(test)]
+mod anchor_tests;
 
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
 
@@ -479,6 +483,104 @@ impl QueryPlan {
             .filter_map(|f| f.predicate().param())
             .filter_map(|index| self.params.get(index))
             .collect()
+    }
+}
+
+/// The one thing [`Warehouse::verify_anchor`](crate::warehouse::Warehouse::verify_anchor) accepts:
+/// a declared anchor's own plan.
+///
+/// **This type exists because the sentence "no signature in this workspace can execute a question as
+/// this process" was false by one method, and a review caught it.**
+/// [`Warehouse::execute`](crate::warehouse::Warehouse::execute) cannot be called without a
+/// [`Presented`](crate::identity::Presented). `verify_anchor` deliberately takes no credential -
+/// there is no caller at boot - and while it took a bare [`QueryPlan`] it would execute *any* plan
+/// under whatever identity the deployment configured that adapter with, including a plan compiled
+/// from a caller's question. Placement kept the request path off it; placement is not a mechanism.
+///
+/// So the boot path gets an input a question's plan cannot be: [`Self::of`] refuses a plan that is
+/// grouped, a plan carrying a predicate the question asked for, a plan for a different metric, and a
+/// plan whose range is not the anchor's. An anchor is asked with no dimensions and no filters over
+/// the range its author certified, so those four checks accept exactly what the boot path builds and
+/// reject every shape a caller can reach.
+///
+/// # The limit, stated with the claim
+///
+/// [`Self::of`] is `pub`, because the boot path lives in `sutura-app` and this type lives here - the
+/// same reason [`LegCredentials::minted`](crate::identity::LegCredentials::minted) is. So this is a
+/// **narrowing and not a closure**: a caller that already holds the bundle can still ask for a metric
+/// at its coarsest grain, with no dimensions and no filters, over exactly the range that metric's
+/// anchor declares, and construct one. What that plan returns is the number the bundle certifies in
+/// its own catalog document and that provenance already publishes, so nothing reaches a caller
+/// through this door that the definitions did not already state. What is no longer reachable is a
+/// *question* - a grouped plan, a filtered one, a different range, a different metric - which is what
+/// the claim is about.
+///
+/// A genuinely closed constructor would need the domain to compile the plan itself, and compilation
+/// is `sutura-semantic`'s: the domain may not depend on it. `docs/adr/0008`'s own correction 2 is the
+/// precedent for saying this rather than implying more - a `pub` constructor asserted as unreachable
+/// is exactly what that correction found wrong with the record's first attempt at this method.
+#[derive(Debug)]
+pub struct AnchorPlan<'bundle> {
+    plan: &'bundle QueryPlan,
+}
+
+/// A plan that is not a declared anchor's own, so nothing may execute it with no credential.
+///
+/// **An error and not a refusal**: reaching it means the boot path compiled something other than the
+/// anchor's question, which is a defect here rather than anything about a caller.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum NotAnAnchorsPlan {
+    /// The plan computes a different metric from the one whose anchor it would be checked against.
+    #[error("this plan computes `{plan}` and the anchor certifies `{anchor}`")]
+    NotThatMetric { plan: MetricName, anchor: MetricName },
+    /// The plan groups by something. An anchor is a metric's own number, not a slice of it.
+    #[error("an anchor's plan groups by nothing, and this one groups by {keys}")]
+    Grouped { keys: usize },
+    /// The plan carries a predicate a question asked for, which an anchor's plan never does.
+    #[error("an anchor's plan carries only the metric's own predicates, and this one carries a requested one")]
+    Requested,
+    /// The plan's range is not the range the anchor's author certified.
+    #[error("the anchor certifies {anchor} and this plan covers {plan}")]
+    NotTheAnchorsRange { plan: TimeRange, anchor: TimeRange },
+}
+
+impl<'bundle> AnchorPlan<'bundle> {
+    /// Parses a plan as one anchor's, refusing every shape a question could be.
+    ///
+    /// Takes the metric's name as well as the [`Anchor`], because an anchor carries a range and a
+    /// value and does not know which metric declared it - so without the name the metric check would
+    /// have nothing to compare against.
+    pub fn of(plan: &'bundle QueryPlan, metric: &MetricName, anchor: &Anchor) -> Result<Self, NotAnAnchorsPlan> {
+        if plan.metric() != metric {
+            return Err(NotAnAnchorsPlan::NotThatMetric {
+                plan: plan.metric().clone(),
+                anchor: metric.clone(),
+            });
+        }
+        if !plan.keys().is_empty() {
+            return Err(NotAnAnchorsPlan::Grouped { keys: plan.keys().len() });
+        }
+        if plan
+            .filters()
+            .iter()
+            .any(|filter| matches!(filter.origin(), PredicateOrigin::Requested))
+        {
+            return Err(NotAnAnchorsPlan::Requested);
+        }
+        if plan.range() != anchor.range() {
+            return Err(NotAnAnchorsPlan::NotTheAnchorsRange {
+                plan: plan.range(),
+                anchor: anchor.range(),
+            });
+        }
+        Ok(Self { plan })
+    }
+
+    /// The plan, for the adapter that has to execute it.
+    #[inline]
+    #[must_use]
+    pub const fn plan(&self) -> &QueryPlan {
+        self.plan
     }
 }
 

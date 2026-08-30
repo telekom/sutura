@@ -146,7 +146,7 @@ fn an_operator_reservation_over_the_ceiling_is_refused_rather_than_aborting_the_
     // is part of what it asserts.
     let bounded = engine(TINY);
     let failure = bounded
-        .execute(Executable::Query(&question()))
+        .execute(Executable::Query(&question()), &crate::test_leg())
         .expect_err("a grouped aggregate cannot run inside one byte");
 
     // It arrives as `Execute`, which is the running stage: the plan built and resolved, and the
@@ -166,7 +166,7 @@ fn the_same_question_under_a_roomy_ceiling_is_answered() {
     // asserting a broken fixture rather than a bound.
     let roomy = engine(ROOMY);
     let rows = roomy
-        .execute(Executable::Query(&question()))
+        .execute(Executable::Query(&question()), &crate::test_leg())
         .expect("a thousand groups fit in 64 mebibytes");
     // A thousand distinct keys in one month: three columns - the bucket, the key and the measure.
     assert_eq!((rows.columns().len(), rows.rows().len()), (3, 1000));
@@ -183,7 +183,7 @@ fn a_failure_that_is_not_the_ceiling_is_not_reported_as_one() {
     // failure from the same adapter carrying the same engine error type.
     let bare = DataFusionWarehouse::new(source(), crate::test_posture(), ceiling(ROOMY)).expect("a bounded engine builds");
     let failure = bare
-        .execute(Executable::Query(&question()))
+        .execute(Executable::Query(&question()), &crate::test_leg())
         .expect_err("a plan naming an unattached table does not run");
     assert!(matches!(failure, DataFusionError::Analyze { .. }), "{failure:?}");
     assert_eq!(bare.working_set_exhausted(&failure), None);
