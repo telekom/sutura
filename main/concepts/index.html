@@ -2376,10 +2376,12 @@ Postgres and ClickHouse are rendered for and parse-checked without either being 
 problem, it is a second identity to satisfy, and a plan whose legs cannot all run as one subject
 is refused rather than run partly as somebody else.</p>
 <p><strong>Enforced today.</strong> The plan stage collects the source of the metric's own model and of every model
-reached through a join into a set, and refuses <code>PlanSpansTwoSources</code> unless exactly one name is in
-it. The count is computed from the plan rather than asserted about it afterwards, and a golden
-builds a two-source catalogue to provoke the refusal. <strong>The identity half of that reasoning is a
-design target:</strong> there is no per-leg credential, so nothing tests that two subjects get different
+reached through a join into a set. Three or more sources refuse as <code>PlanSpansTooManySources</code>; exactly
+two are split into a fact leg and a lookup leg - and <code>answer</code> refuses them as <code>FederationNotExecutable</code>
+while no adapter executes a leg - so no leg answers partly as somebody else. The count is computed
+from the plan rather than asserted about it afterwards, and a golden builds a two-source catalogue to
+provoke the split. <strong>The identity half of that reasoning is a design target:</strong> there is no per-leg
+credential, so nothing tests that two subjects get different
 rows, and nothing can until one exists.</p>
 <h2 id="provenance-and-why-results-are-meant-to-be-arrow">Provenance, and why results are meant to be Arrow<a class="headerlink" href="#provenance-and-why-results-are-meant-to-be-arrow" title="Permanent link">&para;</a></h2>
 <p>Rows, column descriptions and glossary text are authored by somebody else, and any of it can contain

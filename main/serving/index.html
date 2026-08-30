@@ -2994,9 +2994,24 @@ depends on why:</p>
 <td>Use a value the catalog declares. The rejected value is never echoed back</td>
 </tr>
 <tr>
-<td><code>plan_spans_two_sources</code></td>
+<td><code>plan_spans_too_many_sources</code></td>
 <td><code>409</code></td>
-<td>Nothing. This deployment will not span two data systems</td>
+<td>Nothing. This deployment will not read from more data systems than it serves</td>
+</tr>
+<tr>
+<td><code>federation_not_executable</code></td>
+<td><code>409</code></td>
+<td>Nothing. This build has no adapter that can execute one half of a two-source question yet</td>
+</tr>
+<tr>
+<td><code>federation_link_ambiguous</code></td>
+<td><code>409</code></td>
+<td>Nothing. The question's remote dimensions join through more than one relationship</td>
+</tr>
+<tr>
+<td><code>measure_does_not_federate</code></td>
+<td><code>409</code></td>
+<td>Nothing. The measure's aggregate cannot be recombined above two legs</td>
 </tr>
 <tr>
 <td><code>result_too_large</code></td>
@@ -3504,9 +3519,10 @@ it reaches a caller <em>after</em> the rows did, so it cannot prevent a disclosu
 and it makes a misconfiguration visible to whoever reads an answer; the startup refusals above are the
 gate.</p>
 <p><strong>A catalog whose models sit on two declared sources is now servable</strong>, and an engine is opened per
-source the catalog names. A <em>question</em> whose plan would span two is still refused, as
-<code>plan_spans_two_sources</code>, at plan time. There is no federation: nothing combines results from two
-sources, and the refusal is what says so rather than a partial answer.</p>
+source the catalog names. A <em>question</em> whose plan spans exactly two is split by the plan stage into a
+fact leg and a lookup leg, and <code>answer</code> either executes it or refuses it as <code>federation_not_executable</code>
+while no adapter can execute a leg - so the split is never served as a partial or a half-executed
+answer. Three or more sources refuse at plan time as <code>plan_spans_too_many_sources</code>.</p>
 <p><em>The limit, because it decides what is worth configuring today:</em> the only adapter this build links is
 the in-process engine, so two configured sources are two engines over two directories. A data system
 across a network arrives with its own adapter.</p>

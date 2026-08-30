@@ -2251,8 +2251,8 @@ happens the first time one arrives that we cannot parse.</p>
 <td><code>Query</code> has no field for one. This decision changes what a <em>catalog</em> may say, and nothing about what a <em>caller</em> may say</td>
 </tr>
 <tr>
-<td>A plan resolves to exactly one data system</td>
-<td>The plan stage gathers the source of every model the statement would read - the metric's own, and each one reached through a join - into a set, and refuses <code>PlanSpansTwoSources</code> unless exactly one name is in it</td>
+<td>A mono answer resolves to one data system</td>
+<td>The plan stage gathers the source of every model the statement would read - the metric's own, and each one reached through a join - into a set. One is a mono plan; exactly two are split into a fact leg and a lookup leg; three or more refuse as <code>PlanSpansTooManySources</code></td>
 </tr>
 <tr>
 <td>No result cache</td>

@@ -1783,6 +1783,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#use-none_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2278,6 +2289,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#use-none_7" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        use None
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2339,13 +2361,14 @@ call.</p>
 <code>sutura_domain::query::ToolOutcome</code> makes and for the same reason.</p>
 <h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
 <ul>
-<li><code>Planned</code> - The question resolved, and this is what we decided to execute.</li>
+<li><code>Planned</code> - The question resolved to one data system, and this is what we decided to execute.</li>
+<li><code>Federated</code> - The question resolved to two data systems, split into a fact leg and a lookup leg.</li>
 <li><code>Refused</code> - The question was refused, and this is why.</li>
 </ul>
 <h3 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">plan</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">DomainPlan</span><span class="o">&gt;</span>
 </span></code></pre></div>
-<p>The plan, if the question resolved.</p>
+<p>The plan, if the question resolved to one data system.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">refusal</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">RefusalReason</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The refusal, if there was one.</p>
@@ -2372,6 +2395,7 @@ only way this can fail. A refused question is not a failure and comes back as <c
 <h2 id="use-none_4"><code>use None</code><a class="headerlink" href="#use-none_4" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_5"><code>use None</code><a class="headerlink" href="#use-none_5" title="Permanent link">&para;</a></h2>
 <h2 id="use-none_6"><code>use None</code><a class="headerlink" href="#use-none_6" title="Permanent link">&para;</a></h2>
+<h2 id="use-none_7"><code>use None</code><a class="headerlink" href="#use-none_7" title="Permanent link">&para;</a></h2>
 
 
 

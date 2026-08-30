@@ -2334,9 +2334,24 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td>The value is outside the declared allowlist. The value itself is never echoed back</td>
 </tr>
 <tr>
-<td><code>PlanSpansTwoSources</code></td>
+<td><code>PlanSpansTooManySources</code></td>
 <td><code>409</code></td>
-<td>Answerable in principle, and this deployment will not span two data systems: a second one is a second identity to satisfy. A conflict between what was asked and how the deployment is arranged, which is what no status about the request's own content would say</td>
+<td>Answerable in principle, and this deployment will not read from more data systems than it was arranged to combine. A conflict between what was asked and how the deployment is arranged, which is what no status about the request's own content would say</td>
+</tr>
+<tr>
+<td><code>FederationNotExecutable</code></td>
+<td><code>409</code></td>
+<td>Exactly two data systems are served, but this build has no adapter that can execute one leg of a two-source question, so it cannot be answered yet. The author of <a href="../0009-the-plan-from-one-source-to-many/">0009</a> wanted it refused here rather than surfaced as a retryable <code>503</code>: it is not a data system being down, and a caller must not retry it</td>
+</tr>
+<tr>
+<td><code>FederationLinkAmbiguous</code></td>
+<td><code>409</code></td>
+<td>The question's remote dimensions join the metric's own through more than one relationship, and the combiner links its two legs on a single column</td>
+</tr>
+<tr>
+<td><code>MeasureDoesNotFederate</code></td>
+<td><code>409</code></td>
+<td>A measure a single data system computes (a distinct count) cannot be recombined above two legs, so the splitter refuses it rather than pull its rows up through a combiner that would have to re-count</td>
 </tr>
 <tr>
 <td><code>ResultTooLarge</code></td>
