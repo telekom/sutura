@@ -119,6 +119,11 @@ test:
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
     source nix/stable-env.sh
+    # Bring up the SAME nixpkgs Postgres `checks.nextest` runs in the sandbox and tear it down
+    # afterwards, so the postgres corpus and differential cells RUN here rather than skip. `start`
+    # writes `.sutura-dev/endpoints.json`; a start failure aborts the recipe before any test runs.
+    trap 'sutura-postgres-tier stop' EXIT
+    sutura-postgres-tier start
     cargo nextest run --workspace --all-features
     cargo test --doc --workspace --all-features
 

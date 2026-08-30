@@ -535,7 +535,7 @@
             # the postgres corpus and differential cells run HERE (in the single stable test pass)
             # rather than in a separate `nix develop` job. `ciArtifacts` - the expensive dependent
             # closure - is untouched, so its cache key does not move; only this cheap derivation
-            # gains the server. The same `nix/postgres-tier.nix` script `just dev-up` runs starts
+            # gains the server. The same `nix/postgres-tier.nix` script `just test` runs starts
             # and stops it, so the two places cannot drift. `SUTURA_DEV_REQUIRE_TIER` makes a tier
             # that quietly failed to provision a RED run rather than a loud skip.
             nativeCheckInputs = [ postgresTier.tier ];
