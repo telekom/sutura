@@ -546,13 +546,11 @@ fn parse_placement(
             // operator who left it out is told the same thing about the same kind rather than being
             // handed a range error about a zero nobody wrote. The RANGE is the adapter's, checked
             // where the source is opened; see `SourcePlacement::BigQuery::max_bytes_billed`.
-            let max_bytes_billed = entry
-                .max_bytes_billed
-                .ok_or_else(|| InvalidSourceRegistry::MissingForKind {
-                    alias: alias.clone(),
-                    kind,
-                    key: "max_bytes_billed",
-                })?;
+            let max_bytes_billed = entry.max_bytes_billed.ok_or_else(|| InvalidSourceRegistry::MissingForKind {
+                alias: alias.clone(),
+                kind,
+                key: "max_bytes_billed",
+            })?;
             Ok(SourcePlacement::BigQuery {
                 billing_project,
                 dataset,

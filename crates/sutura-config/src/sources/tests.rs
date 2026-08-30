@@ -533,8 +533,8 @@ fn the_two_keys_that_open_a_bigquery_source_mean_nothing_on_a_files_source() {
         ),
     ] {
         let entries = [entry];
-        let error = SourceRegistry::parse(&entries, Some(&single_user()))
-            .expect_err("a bigquery-only key on a files source is refused");
+        let error =
+            SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a bigquery-only key on a files source is refused");
         match error {
             InvalidSourceRegistry::KeyNotForKind { kind, key: named, .. } => {
                 assert_eq!(kind, super::SourceKind::Files);

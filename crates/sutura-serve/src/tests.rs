@@ -403,19 +403,15 @@ fn a_bigquery_source_missing_a_key_that_kind_is_opened_with_does_not_load() {
         "  warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    dataset: \
          \"warehouse\"\n    max_bytes_billed: 1073741824\n    posture: \"shared-service-user\"\n"
     );
-    let error = sutura_config::Settings::load(
-        &sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay),
-    )
-    .expect_err("a bigquery source with no credential file is not a source this deployment can open");
+    let error =
+        sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
+            .expect_err("a bigquery source with no credential file is not a source this deployment can open");
     let rendered = crate::flatten(error);
     assert!(
         rendered.contains("credential_file"),
         "the refusal must name the key: {rendered}"
     );
-    assert!(
-        rendered.contains("warehouse"),
-        "the refusal must name the entry: {rendered}"
-    );
+    assert!(rendered.contains("warehouse"), "the refusal must name the entry: {rendered}");
 }
 
 #[test]
@@ -501,7 +497,10 @@ fn a_bigquery_source_configured_to_impersonate_refuses_before_the_credential_is_
         error.contains("per-subject credential"),
         "the refusal must say what the adapter cannot do: {error}"
     );
-    assert!(error.contains("no fallback"), "the refusal must say there is no fallback: {error}");
+    assert!(
+        error.contains("no fallback"),
+        "the refusal must say there is no fallback: {error}"
+    );
     assert!(
         !error.contains("credential_file"),
         "the posture is refused before the credential file is read: {error}"
@@ -523,10 +522,7 @@ fn a_bigquery_ceiling_the_adapter_will_not_send_is_a_startup_refusal_naming_the_
         opened_bigquery(&entry),
         "a ceiling of zero would refuse every question rather than bounding one",
     );
-    assert!(
-        error.contains("max_bytes_billed"),
-        "the refusal must name the key: {error}"
-    );
+    assert!(error.contains("max_bytes_billed"), "the refusal must name the key: {error}");
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
         !error.contains("credential_file"),
@@ -690,7 +686,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             one_worker(),
             default_timeout(),
         )
-            .expect("a shared source's anchors run as the shared identity"),
+        .expect("a shared source's anchors run as the shared identity"),
     );
 }
 

@@ -572,10 +572,7 @@ fn open_engine(
 ///
 /// It names BOTH entries and both kinds, because the fix is a choice between two deployments rather
 /// than an edit to one line.
-fn one_kind(
-    declared: &[&SourceName],
-    registry: &sutura_config::SourceRegistry,
-) -> Result<sutura_config::SourceKind, String> {
+fn one_kind(declared: &[&SourceName], registry: &sutura_config::SourceRegistry) -> Result<sutura_config::SourceKind, String> {
     // The first source decides, and every other one is compared against it - so the refusal names the
     // pair that disagreed rather than reporting a set. `declared` is non-empty at every call site;
     // written as a fallback rather than an index because the workspace denies both.
@@ -704,10 +701,7 @@ fn build_bigquery(
     // not a leg that runs shared and is reported as impersonated.
     identity
         .posture()
-        .deliverable_by(
-            <BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION,
-            source,
-        )
+        .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(flatten)?;
     let deadline = QueryDeadline::parse(request_timeout.seconds())
         .map_err(|cause| format!("`server.request_timeout_seconds` is not a usable BigQuery job deadline: {cause}"))?;
