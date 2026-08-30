@@ -46,7 +46,7 @@
 //! # Two things this adapter deliberately does not offer
 //!
 //! **No arbitrary SQL entry point.** [`BigQueryWarehouse::execute`] takes an [`Executable`] and
-//! renders the statement itself; [`transport::JobRequest::new`] is `pub(crate)`, so there is no way to
+//! renders the statement itself; `transport::JobRequest::new` is `pub(crate)`, so there is no way to
 //! hand a statement to a transport from outside this crate.
 //!
 //! **No result caching.** Under row-level security a query-keyed cache is a cross-user leak, and this

@@ -16,7 +16,7 @@
 //!
 //! And two things the layer DOES decide that this module has to state anyway, because something
 //! outside the renderer reads them. Both are declarations of what we expect the layer to do, and
-//! both are MEASURED against it - the tests live in [`crate::generate`], which is the module allowed
+//! both are MEASURED against it - the tests live in [`mod@crate::generate`], which is the module allowed
 //! to name the layer:
 //!
 //! **Which character the quotes are.** We force quoting; the layer picks the character, and it is not
@@ -192,7 +192,7 @@ impl Dialect {
 
     /// Which character this data system wraps an identifier in.
     ///
-    /// Declared here and measured in [`crate::generate`] against what the layer actually emits, so
+    /// Declared here and measured in [`mod@crate::generate`] against what the layer actually emits, so
     /// this cannot become a claim about a rendering nobody checked.
     #[inline]
     #[must_use]

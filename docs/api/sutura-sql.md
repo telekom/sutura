@@ -147,6 +147,23 @@ is a reserved word, or the config says always. Our identifiers were never in any
 without forcing it a column called `order` would be emitted bare. We force it, and we force it
 for aliases too, which the config's own flag does not cover.
 
+And two things the layer DOES decide that this module has to state anyway, because something
+outside the renderer reads them. Both are declarations of what we expect the layer to do, and
+both are MEASURED against it - the tests live in `mod@crate::generate`, which is the module allowed
+to name the layer:
+
+**Which character the quotes are.** We force quoting; the layer picks the character, and it is not
+the same one everywhere. `BigQuery` uses a backtick, and in `GoogleSQL` a double quote is a STRING
+LITERAL rather than an identifier quote - so the difference is not cosmetic in the direction that
+matters: a statement quoted the wrong way is not a syntax error there, it is a statement about
+different values. The golden suite's *no identifier reaches the statement unquoted* claim searches
+for quoted spans, so it has to know which character to look for, and a hard-coded `"` silently
+stopped asserting anything the moment a fourth dialect arrived.
+
+**How the date bucket is spelled.** `DateTruncShape` carries the argument order and whether the
+grain is a string literal or a bare keyword, and it exists because the parse check cannot catch
+getting it wrong - see that type.
+
 ### `enum Dialect`
 
 ```rust
@@ -164,6 +181,7 @@ a feature flag, a match arm and a snapshot.
 - `DuckDb`
 - `Postgres`
 - `ClickHouse`
+- `BigQuery`
 
 #### Methods
 
@@ -172,6 +190,24 @@ pub const fn as_str(self) -> &'static str
 ```
 
 The name used on a command line and in a snapshot suffix.
+
+```rust
+pub const fn date_trunc_shape(self) -> DateTruncShape
+```
+
+How this data system spells truncating a date to a grain.
+
+See `DateTruncShape` for why this is a declaration rather than something the parse check
+would have caught.
+
+```rust
+pub const fn identifier_quote(self) -> IdentifierQuote
+```
+
+Which character this data system wraps an identifier in.
+
+Declared here and measured in `mod@crate::generate` against what the layer actually emits, so
+this cannot become a claim about a rendering nobody checked.
 
 ```rust
 pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownDialect>
@@ -184,6 +220,16 @@ pub const fn placeholder_style(self) -> PlaceholderStyle
 ```
 
 How this data system writes a bind parameter.
+
+**`BigQuery` is `Question`, and the decision was taken against the client's request shape
+rather than against the rendering.** Its job API takes either positional parameters, written
+`?` in the statement with `parameterMode: POSITIONAL` and an ORDERED array carrying no names,
+or named ones written `@name` with `parameterMode: NAMED`. A `crate::GeneratedQuery` carries
+an ordered `Vec` of values and no names at all - the plan has none to give, because a
+parameter's identity there IS its position - so positional is the shape that already matches
+end to end. Choosing named would mean inventing a name per parameter in the generator, a third
+`PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new things, none
+of which the domain has anything to put in them.
 
 #### Implements
 
@@ -199,8 +245,77 @@ How a bind parameter is written.
 
 #### Variants
 
-- `Question` - `?`, positional by order of appearance. `DuckDB` and `ClickHouse`.
+- `Question` - `?`, positional by order of appearance. `DuckDB`, `ClickHouse` and `BigQuery`.
 - `Numbered` - `$1`, `$2`, numbered from one. Postgres.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum IdentifierQuote`
+
+```rust
+pub enum IdentifierQuote
+```
+
+Which character a dialect wraps an identifier in.
+
+Two variants and no `Other(char)`, for this workspace's usual reason: a variant is a claim that we
+render and pin a dialect using it, and a `char` field would let a caller invent one nothing was
+tested against.
+
+#### Variants
+
+- `Double` - `"name"`. `DuckDB`, Postgres and `ClickHouse`.
+- `Backtick` - `` `name` ``. `BigQuery`.
+
+#### Methods
+
+```rust
+pub const fn character(self) -> char
+```
+
+The character itself, for building or searching for a quoted span.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum DateTruncShape`
+
+```rust
+pub enum DateTruncShape
+```
+
+How a dialect spells truncating a date to a grain.
+
+**This type exists because the parse check cannot catch getting it wrong, and that was measured
+rather than assumed.** Within one target, `polyglot_sql::parse` accepts `DATE_TRUNC('month', col)`
+and `DATE_TRUNC(col, MONTH)` alike - a generic function call is a generic function call to a
+parser, whatever the argument order means to the data system. So the golden suite's *every
+generated statement parses under its target dialect* row is blind to this class by construction,
+and the only things standing behind the bucket are this exhaustive match, the golden diff a
+reviewer reads, and an execution against a real instance.
+
+**What getting it wrong costs, stated precisely, because the two failures here are not the same
+severity.** Sending `BigQuery` the grain-first shape produces a statement it **rejects**: the
+first argument is the value to truncate, a string literal only coerces there if it is a canonical
+date, and `'month'` is not one - while the column lands in the granularity slot, which takes a
+keyword. So the defect is a deployment whose corpus is green and which fails on its first real
+question, not one that returns a wrong number. The wrong-number risk on this dialect belongs to
+`IdentifierQuote` instead, and that asymmetry is why the two are separate types.
+
+A fifth dialect therefore cannot be added without stating its spelling, which is the one
+mechanism available here.
+
+Verified against the target's own function reference rather than inferred: the documented syntax
+is `DATE_TRUNC(date_value, date_granularity)`, every granularity in the list is a bare keyword,
+and one of them - `WEEK(<WEEKDAY>)` - is not expressible as a string at all.
+
+#### Variants
+
+- `GrainFirstAsLiteral` - `DATE_TRUNC('month', <date>)` - the grain first, as a single-quoted string literal.
+- `DateFirstAsKeyword` - `DATE_TRUNC(<date>, MONTH)` - the date first, the grain a bare keyword.
 
 #### Implements
 
@@ -547,7 +662,7 @@ jobs share no code: this file builds an AST from a plan, that one takes an AST a
 most of it. A pre-1.0 API change upstream therefore touches two files in this crate, both of them
 here rather than anywhere else.
 
-Five things about how the dialect layer is used, every one of them measured rather than assumed,
+Six things about how the dialect layer is used, every one of them measured rather than assumed,
 and every one of them looking right until it was rendered:
 
 **The fluent builder, not the AST structs.** `Expression::Select` has upwards of thirty fields
@@ -564,8 +679,23 @@ called `order` would be emitted bare. `always_quote_identifiers` covers identifi
 which no target accepts.
 
 **The time bucket is cast to a date.** `DATE_TRUNC` over a date returns a TIMESTAMP in two of the
-three targets, so without the cast the type of the `period` column is whatever each dialect chose
+four targets, so without the cast the type of the `period` column is whatever each dialect chose
 and every adapter would need to know which.
+
+**The time bucket's SPELLING is per dialect, and it is the one difference here the layer does not
+absorb.** Three targets take `DATE_TRUNC('month', <date>)`; `BigQuery` takes
+`DATE_TRUNC(<date>, MONTH)` - the arguments the other way round and the grain a bare keyword
+rather than a string. `crate::dialect::DateTruncShape` holds the declaration and the reason it
+has to be one: **within one target, the parse check cannot tell the two apart.** Both shapes
+rendered for `BigQuery` parse as `BigQuery`, so the corpus would be green on the wrong one.
+`the_parse_check_cannot_tell_the_two_bucket_shapes_apart` is that measurement.
+
+**The limit on that claim, because the first version of it was too broad and a test caught it:**
+the check does catch a statement rendered for the WRONG target, on the quoting rather than on the
+bucket - double quotes are string delimiters in `GoogleSQL`, so a DuckDB-rendered statement fails to
+parse as `BigQuery` at the first qualified column. `the_parse_check_does_catch_the_wrong_quote_character`
+pins that, and the two tests together say precisely which half is covered by a mechanism and which
+half rests on a declaration and a reviewed golden.
 
 **Placeholders are ours.** The dialect layer renders every placeholder as `?` whatever the target,
 and carries a per-dialect `parameter_token` it never reads - so Postgres would be sent `?` and

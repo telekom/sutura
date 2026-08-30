@@ -171,6 +171,7 @@ nav:
       - How a caller proves who it is: adr/0014-how-a-caller-proves-who-it-is.md
       - An authenticated metrics endpoint: adr/0015-an-authenticated-metrics-endpoint.md
       - What DataHub can carry: adr/0016-what-datahub-can-carry.md
+      - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
@@ -179,6 +180,7 @@ nav:
       - sutura-sql: api/sutura-sql.md
       - sutura-exec-datafusion: api/sutura-exec-datafusion.md
       - sutura-exec-duckdb: api/sutura-exec-duckdb.md
+      - sutura-exec-bigquery: api/sutura-exec-bigquery.md
       - sutura-app: api/sutura-app.md
       - sutura-config: api/sutura-config.md
       - sutura-runtime: api/sutura-runtime.md

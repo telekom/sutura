@@ -106,8 +106,11 @@ generator arm and a full dialect of goldens rather than a registration. `polyglo
 `dialect-bigquery` feature - checked in the pinned 0.9.2's own manifest, alongside 32 others - so
 nothing has to be written from scratch, and the cost is the corpus:
 
-- **63 snapshots become 84**, being 21 questions times four dialects. Verified by counting: 63 files
-  under `crates/sutura-app/tests/snapshots/` contain `10001` today.
+- **63 snapshots become 84**, being 21 questions times four dialects. **Landed, and the prediction
+  held exactly:** 84 files under `crates/sutura-app/tests/snapshots/` now contain `LIMIT 10001`, and
+  52 snapshot files were added in total - 42 for the question corpus and 10 for the five leg fixtures,
+  which carry no row cap and so do not move the counted number. No EXISTING snapshot changed, which is
+  what makes the fourth dialect additive.
 - **`cargo xtask check-guidance` fails until AGENTS.md says 84.** Not incidentally - the check reads
   the number written before the marker `SQL goldens read` and compares it to what it counts, which is
   the mechanism that caught `39` after the corpus had grown. So the invariant row is part of the
@@ -117,15 +120,37 @@ nothing has to be written from scratch, and the cost is the corpus:
   it against the client's actual request shape, not against the dialect layer's rendering, because the
   two are separately capable of being right.
 
-**Blocked on one decision, to make FIRST: what a test runs against.** There is no BigQuery in a
-container. Three options and they are not equivalent - an emulator that speaks the API but not the
-SQL semantics would give us a green corpus that proves nothing, which is the failure mode
-`differential.rs` exists to prevent. The honest choices are a real project in CI with a
-service-account secret, a real project reachable only from a developer's machine with the corpus
-marked as not-in-CI, or the Storage Read API against a fixture table. Pick before writing the
-adapter, because the choice decides whether this step can claim acceptance at all or only rendering -
-and `parse-checked` is already
-[explicitly narrower](adr/0007-federating-across-different-data-systems.md) than accepted.
+    **Decided: `Question`, and no third variant.** Verified against the REST reference rather than
+    inferred - the request body carries `parameterMode`, positional parameters are written `?` and
+    supplied as an ORDERED array whose entries omit `name`, and a query may use one form or the other
+    and not both. A `GeneratedQuery` already carries an ordered list of values and no names, because a
+    parameter's identity in a plan IS its position, so positional matches end to end. Named would need
+    a name invented per parameter, a third `PlaceholderStyle` and a map on `GeneratedQuery` - three new
+    things with nothing in the domain to fill them. `transport::JobRequest::PARAMETER_MODE` is where
+    the adapter states it.
+
+- **The generated statement needs no dataset qualifying, and that was the other thing to check.** The
+  job request carries a `defaultDataset`, so a bare backticked table name resolves there - confirmed
+  on both `jobs.query` and `JobConfigurationQuery`, along with a single backtick-quoted unqualified
+  table name being a documented table path. So the generator emits the same shape it emits for every
+  other dialect, and the dataset is a declared field on the source rather than something rendering has
+  to know about.
+
+**The blocking decision is MADE, and it is [0017](adr/0017-what-a-bigquery-test-runs-against.md).** A
+real project reachable from a developer's own machine, with the acceptance leg marked not-in-CI. An
+emulator is refused on principle rather than on cost - it is the option that produces the most
+confident-looking green - a secret in CI is refused because this repository is public and a
+fork's pull request cannot see one, and the Storage Read API is the wrong instrument because it never
+submits the statement. **So the corpus for this dialect claims rendering and parse-checking and never
+acceptance**, and DuckDB remains the only data system that vouches for acceptance in CI.
+
+**Writing it turned that hedge into a measured number, and the finding is worth reading before the
+next dialect.** Within one target the parse check cannot see a function's ARGUMENT ORDER: both bucket
+spellings, rendered for BigQuery, parse as BigQuery. `sutura_sql::dialect::DateTruncShape` is therefore
+an exhaustive declaration rather than a check, and a test keeps the measurement so the claim cannot
+quietly stop being true. 0017 carries the severity split - the bucket getting it wrong is a rejection
+at the service, while the QUOTE CHARACTER is the wrong-number risk, because a double quote opens a
+string in GoogleSQL.
 
 **Touches.** A new adapter crate; `crates/sutura-sql` for the fourth dialect; `Cargo.toml` for the
 feature; `crates/sutura-config` for the source declaration; the `tests/adapters` registry; AGENTS.md
@@ -143,6 +168,19 @@ acceptance leg runs in CI is the decision above.
 **Done when** the corpus renders and is green, the fourth dialect's 21 statement goldens have been
 reviewed as a diff rather than typed, and the fixture decision is recorded rather than implied by
 whatever the first test happened to do.
+
+**Where this stands.** All three are done: the corpus is green over four dialects, the goldens were
+regenerated and reviewed as a diff, and the decision is
+[0017](adr/0017-what-a-bigquery-test-runs-against.md). The adapter, the source declaration and the
+registry entry landed with them.
+
+**What did NOT land, deliberately: the wire.** `sutura-exec-bigquery` implements `Warehouse` and is
+tested against a fake transport; `transport::JobTransport` has no implementor that speaks to the
+endpoint, and no composition root links the crate. 0017 decides that the change adding one is the
+change that can first verify it against a real project - which is also where the dependency decision
+belongs, because an outbound HTTP stack and a credential library reach the musl release builds and the
+licence gate. So the honest summary today is: **the statement is right as far as four mechanisms can
+tell, and nobody has run one.** That sentence is what the per-subject step below inherits.
 
 ## BigQuery, per subject
 
