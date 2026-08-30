@@ -58,6 +58,10 @@ pub(crate) enum Plan {
 /// rather than about anything a caller wrote:** a plan that would read from more data systems than
 /// the deployment serves, and a statement whose tables could not be told apart inside it. Everything
 /// a caller could have got wrong was already checked when their names were looked up.
+///
+/// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
+/// function's discipline: a whole-answer plan and a fact leg each take their tables as a
+/// [`StatementTables`], so neither can be built without the answer.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
     // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
@@ -315,11 +319,23 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
 
     let bucket = PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column);
 
+    // **Where the fact leg's tables stop being a list and become a checked set - the same guard the
+    // whole-answer path goes through, reached from the other plan shape.** A leg keeps every
+    // same-source hop as a `JOIN` of its own, so two paths ending in one name render under one
+    // implicit alias inside ONE leg's statement: reproduced, and worse there than on the whole-answer
+    // path, because a leg's rows are combined above it and nothing downstream sees the statement.
+    // `sutura_domain::plan::tables` holds the measurement and the argument for refusing rather than
+    // aliasing; `LegPlan::Fact` takes the checked set as a field, so this call is not something a
+    // future leg producer can forget.
+    let fact_tables =
+        StatementTables::parse(own_path.clone(), joins).map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
+            table: ambiguous.alias().clone(),
+        })?;
+
     let fact = sutura_domain::plan::LegPlan::Fact {
         source: model.source().clone(),
         metric: metric.name().clone(),
-        table: own_path.clone(),
-        joins,
+        tables: fact_tables,
         bucket: bucket.clone(),
         keys: fact_keys,
         terms,

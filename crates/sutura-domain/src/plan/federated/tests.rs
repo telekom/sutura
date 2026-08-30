@@ -4,7 +4,9 @@ use crate::federation::Federation;
 use crate::measure::{AggregatedColumn, Measure, Term, ZeroDenominator};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use crate::plan::leg::LegPlan;
-use crate::plan::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, PlanBucket, PlanColumn, PlanKey};
+use crate::plan::{
+    AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, PlanBucket, PlanColumn, PlanKey, StatementTables,
+};
 use crate::warehouse::{Real, RowSet, Value};
 
 const FACT: &str = "fct_subscription_monthly";
@@ -58,8 +60,7 @@ fn fact_leg() -> LegPlan {
     LegPlan::Fact {
         source: source(FACT_SOURCE),
         metric: metric("revenue"),
-        table: table(FACT).into(),
-        joins: Vec::new(),
+        tables: StatementTables::only(table(FACT)),
         bucket: bucket(),
         keys: vec![key("product_family", FACT), key("customer_key", FACT)],
         terms: Vec::new(),

@@ -567,7 +567,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
         LegPlan::Fact {
             ref bucket,
             ref terms,
-            ref joins,
+            ref tables,
             ..
         } => {
             let bucket_expr = bucket_expression(bucket, dialect);
@@ -578,7 +578,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             for term in terms {
                 projection.push(aliased(term_expression(term.term(), dialect), term.label())?);
             }
-            joins
+            tables.joins()
         }
         // No bucket, no terms, no joins. It projects its keys and groups by them, which is the
         // distinct set of dimension rows surviving its own filters.
