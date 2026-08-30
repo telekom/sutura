@@ -70,9 +70,23 @@ pub(crate) struct RawSource {
     /// composition root - see `crate::sources::SourceKind` for why that comparison was right while the
     /// catalog was the only signal and stops being right once the deployment declares each source.
     pub(crate) kind: String,
-    /// Where the files behind this source's models live. Required, and absolute.
+    /// Where the files behind this source's models live. Required for `kind: files`, and absolute.
+    ///
+    /// Optional HERE and required by the KIND, which is the shape a per-kind field has to have in one
+    /// flat deserialization target: `crate::sources::parse_placement` is what turns "absent" into a
+    /// refusal for the kinds that need it, and what refuses it for the kinds that do not.
     #[serde(default)]
     pub(crate) data_dir: Option<String>,
+    /// The project a `bigquery` source's jobs are billed to. Required for `kind: bigquery`.
+    ///
+    /// **Declared and never inferred**, for the reason `crate::sources::placement::BillingProject`
+    /// gives: the project is a path segment of the request that submits a job, so there is nothing to
+    /// infer it from - and a federated identity has none of its own.
+    #[serde(default)]
+    pub(crate) billing_project: Option<String>,
+    /// The dataset an unqualified table name resolves in. Required for `kind: bigquery`.
+    #[serde(default)]
+    pub(crate) dataset: Option<String>,
     /// `shared-service-user` or `impersonation-at-source`. No default.
     pub(crate) posture: String,
     /// The operator's reason for serving this source under one identity for everybody.

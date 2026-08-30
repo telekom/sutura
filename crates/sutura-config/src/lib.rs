@@ -143,6 +143,7 @@ pub use crate::settings::{
     ConfigLayers, ENVIRONMENT_VARIABLE, NotFitToServe, Settings, SettingsError, Sources, VARIABLE_PREFIX, VARIABLE_SEPARATOR,
     environment_from_process,
 };
+pub use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
 pub use crate::sources::{
     ConfiguredSource, InvalidSourceRegistry, SourceKind, SourceRegistry, UnknownPosture, UnknownSourceKind,
 };

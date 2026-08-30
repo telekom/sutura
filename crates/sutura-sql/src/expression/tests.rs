@@ -61,11 +61,22 @@ fn refusal(sql: &str) -> Construct {
     }
 }
 
+/// `<table>.<column>`, quoted the way this dialect quotes an identifier.
+///
+/// **Read off [`Dialect::identifier_quote`] rather than written as `"` in a literal**, which is what
+/// these tests used to do. `BigQuery` quotes with a backtick, so a hard-coded double quote made the
+/// assertions below fail the moment a fourth dialect was added - the good direction, and the reason
+/// they are expressed as a function of the dialect now instead of being given a fourth copy.
+fn qualified(dialect: Dialect, column: &str) -> String {
+    let quote = dialect.identifier_quote().character();
+    format!("{quote}fact_subscription{quote}.{quote}{column}{quote}")
+}
+
 #[test]
 fn a_valid_fragment_compiles_for_every_dialect_this_build_renders_for() {
     // The whole feature in one assertion: the expression the repo owner asked for twice, the way a
-    // wren cube carries it, rendered for all three targets with every identifier quoted and the
-    // model's table put on every column.
+    // wren cube carries it, rendered for every target with every identifier quoted - in that
+    // target's own quote character - and the model's table put on every column.
     let compiled = portable("SUM(CASE WHEN status = 'active' THEN mrr_eur END)").expect("a conditional sum compiles");
     assert_eq!(compiled.renderings().len(), ALL.len());
     for dialect in ALL.iter().copied() {
@@ -73,7 +84,11 @@ fn a_valid_fragment_compiles_for_every_dialect_this_build_renders_for() {
         assert_eq!(rendering.authored_for().as_str(), "portable");
         assert_eq!(
             rendering.sql(),
-            "SUM(CASE WHEN \"fact_subscription\".\"status\" = 'active' THEN \"fact_subscription\".\"mrr_eur\" END)",
+            format!(
+                "SUM(CASE WHEN {} = 'active' THEN {} END)",
+                qualified(dialect, "status"),
+                qualified(dialect, "mrr_eur")
+            ),
             "{dialect}"
         );
     }
@@ -99,9 +114,15 @@ fn a_cast_retargets_and_a_guarded_ratio_does_not_move() {
         "{}",
         sql(Dialect::ClickHouse)
     );
+    // The fourth spelling, and it is a fourth rather than a repeat: BigQuery's double is `FLOAT64`.
+    // Measured by rendering it, which is how the other three arms were arrived at too.
+    assert!(sql(Dialect::BigQuery).contains("AS FLOAT64)"), "{}", sql(Dialect::BigQuery));
     for dialect in ALL.iter().copied() {
         assert!(
-            sql(dialect).ends_with("/ NULLIF(COUNT(DISTINCT \"fact_subscription\".\"customer_key\"), 0)"),
+            sql(dialect).ends_with(&format!(
+                "/ NULLIF(COUNT(DISTINCT {}), 0)",
+                qualified(dialect, "customer_key")
+            )),
             "{dialect}: {}",
             sql(dialect)
         );

@@ -37,7 +37,7 @@
 //! *file* is refused where it is discovered, at boot, by the composition root that tries to attach it.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::source::{
@@ -46,13 +46,17 @@ use sutura_domain::source::{
 };
 
 use crate::security::DeploymentIdentity;
+use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
+
+/// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
+pub mod placement;
 
 /// What kind of data system a source is.
 ///
 /// **A closed set of typed declarations rather than something discovered**, which is the whole of
 /// *pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
-/// compile error in every place that has to decide about it. One variant today, because one adapter
-/// ships.
+/// compile error in every place that has to decide about it. Two variants today, and only one of them
+/// can be OPENED by a shipped binary - [`Self::BigQuery`] says which and why.
 ///
 /// **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
 /// rather than the enum. The composition root used to refuse any source not called `local`, on the
@@ -67,6 +71,19 @@ use crate::security::DeploymentIdentity;
 pub enum SourceKind {
     /// A directory of CSV or Parquet files, read by the in-process engine.
     Files,
+    /// A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
+    ///
+    /// **A declarable kind that no shipped binary can open yet, and that is deliberate rather than an
+    /// oversight.** The vocabulary of kinds is the vocabulary of adapters *this repository has*, and
+    /// `sutura-exec-bigquery` exists; what does not exist is a composition root that links it, so
+    /// `sutura-serve` refuses this kind by name. The alternative was to leave the word out, which
+    /// would refuse the same deployment with `kind` does not name a data system this build can open -
+    /// a message that sends an operator looking for a typo instead of telling them the truth.
+    ///
+    /// It is here now rather than with the impersonation step because the billing project has to be
+    /// declared somewhere, and putting the declaration one step early is what keeps the per-subject
+    /// step to one change: how a connection is authenticated.
+    BigQuery,
 }
 
 /// The configured word did not name a kind of data system.
@@ -78,12 +95,13 @@ pub struct UnknownSourceKind {
 
 impl SourceKind {
     /// Every accepted spelling, so a message and the parser cannot disagree.
-    pub const NAMES: &'static [&'static str] = &["files"];
+    pub const NAMES: &'static [&'static str] = &["files", "bigquery"];
 
     /// Reads the configured word.
     pub fn parse(raw: impl AsRef<str>) -> Result<Self, UnknownSourceKind> {
         match raw.as_ref().trim() {
             "files" => Ok(Self::Files),
+            "bigquery" => Ok(Self::BigQuery),
             other => Err(UnknownSourceKind {
                 found: String::from(other),
             }),
@@ -96,6 +114,7 @@ impl SourceKind {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Files => "files",
+            Self::BigQuery => "bigquery",
         }
     }
 }
@@ -110,23 +129,31 @@ impl SourceKind {
 /// `Settings::parse` is reachable from this crate's own tests without the refusal having run.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConfiguredSource {
-    kind: SourceKind,
-    data_dir: PathBuf,
+    placement: SourcePlacement,
     identity: Option<SourceIdentity>,
 }
 
 impl ConfiguredSource {
     /// What kind of data system this is, which is what decides which adapter opens it.
+    ///
+    /// Read off the placement rather than stored beside it - see [`SourcePlacement::kind`].
     #[inline]
     #[must_use]
     pub const fn kind(&self) -> SourceKind {
-        self.kind
+        self.placement.kind()
     }
 
-    /// Where the files behind this source's models live.
+    /// Where this source's data is, in the terms its own kind uses.
+    ///
+    /// **This replaced a `data_dir()` that every kind had to have.** A `BigQuery` source has no
+    /// directory, so a path accessor on the shared shape would have had to return something - an
+    /// empty path, or an `Option` whose `None` every caller re-interprets. Matching on the placement
+    /// makes the composition root say which kind it is opening, which is the same thing the kind's
+    /// exhaustive match there already asks of it.
     #[inline]
-    pub fn data_dir(&self) -> &Path {
-        &self.data_dir
+    #[must_use]
+    pub const fn placement(&self) -> &SourcePlacement {
+        &self.placement
     }
 
     /// How this source establishes identity, once the deployment-level refusal has passed.
@@ -236,6 +263,35 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: ConflictingSourceIdentity,
     },
+    /// A key this kind requires was not written.
+    #[error("`sources.{alias}` is `kind: {}` and declares no `{key}`, which that kind cannot be opened without", kind.as_str())]
+    MissingForKind {
+        alias: SourceName,
+        kind: SourceKind,
+        key: &'static str,
+    },
+    /// A key was written that means nothing for this kind.
+    ///
+    /// **Refused rather than ignored**, because a key an operator wrote and a deployment reads past is
+    /// a configuration nobody can see - see `parse_placement` for the argument in full.
+    #[error(
+        "`sources.{alias}` is `kind: {}` and declares a `{key}`, which that kind has no use for - \
+         remove it, or write the kind you meant",
+        kind.as_str()
+    )]
+    KeyNotForKind {
+        alias: SourceName,
+        kind: SourceKind,
+        key: &'static str,
+    },
+    /// A declared cloud resource name is not usable.
+    #[error("`sources.{alias}.{key}` is not a usable name")]
+    ResourceName {
+        alias: SourceName,
+        key: &'static str,
+        #[source]
+        cause: InvalidResourceName,
+    },
 }
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
@@ -268,6 +324,8 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) written: &'raw str,
     pub(crate) kind: &'raw str,
     pub(crate) data_dir: Option<&'raw str>,
+    pub(crate) billing_project: Option<&'raw str>,
+    pub(crate) dataset: Option<&'raw str>,
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,
     pub(crate) verification_identity: Option<&'raw str>,
@@ -346,7 +404,7 @@ fn parse_entry(
         alias: alias.clone(),
         cause,
     })?;
-    let data_dir = parse_data_dir(alias, entry.data_dir)?;
+    let placement = parse_placement(alias, kind, entry)?;
     let acknowledgement = match entry.acknowledged_because {
         None | Some("") => None,
         Some(text) => Some(
@@ -400,11 +458,94 @@ fn parse_entry(
             )
         }
     };
-    Ok(ConfiguredSource {
-        kind,
-        data_dir,
-        identity,
-    })
+    Ok(ConfiguredSource { placement, identity })
+}
+
+/// Reads the fields that belong to this entry's kind, and refuses the ones that do not.
+///
+/// **Both directions are refused, and the second one is the reason this is a function rather than two
+/// lines at the call site.** A `bigquery` entry with no `billing_project` cannot be served, so it is
+/// refused - that direction is obvious. A `files` entry that also carries a `billing_project` is
+/// refused too, because the key would otherwise sit in the file doing nothing: an operator who wrote
+/// it believes it is in effect, and a deployment that reads past it has a configuration nobody can
+/// see. Fail-closed on a key that means nothing is the same argument `deny_unknown_fields` makes one
+/// level up, applied to a key that IS known and is known to the wrong kind.
+fn parse_placement(
+    alias: &SourceName,
+    kind: SourceKind,
+    entry: &RawSourceEntry<'_>,
+) -> Result<SourcePlacement, InvalidSourceRegistry> {
+    // Read as "was anything meaningful written", so an empty string is the same as an absent key -
+    // which is what the rest of this module already does with operator-written text.
+    let written = |value: Option<&str>| value.is_some_and(|text| !text.trim().is_empty());
+    match kind {
+        SourceKind::Files => {
+            for (key, present) in [
+                ("billing_project", written(entry.billing_project)),
+                ("dataset", written(entry.dataset)),
+            ] {
+                if present {
+                    return Err(InvalidSourceRegistry::KeyNotForKind {
+                        alias: alias.clone(),
+                        kind,
+                        key,
+                    });
+                }
+            }
+            Ok(SourcePlacement::Files {
+                data_dir: parse_data_dir(alias, entry.data_dir)?,
+            })
+        }
+        SourceKind::BigQuery => {
+            if written(entry.data_dir) {
+                return Err(InvalidSourceRegistry::KeyNotForKind {
+                    alias: alias.clone(),
+                    kind,
+                    key: "data_dir",
+                });
+            }
+            let billing_project = BillingProject::parse(required(alias, kind, "billing_project", entry.billing_project)?)
+                .map_err(|cause| InvalidSourceRegistry::ResourceName {
+                    alias: alias.clone(),
+                    key: "billing_project",
+                    cause,
+                })?;
+            let dataset = DatasetId::parse(required(alias, kind, "dataset", entry.dataset)?).map_err(|cause| {
+                InvalidSourceRegistry::ResourceName {
+                    alias: alias.clone(),
+                    key: "dataset",
+                    cause,
+                }
+            })?;
+            Ok(SourcePlacement::BigQuery {
+                billing_project,
+                dataset,
+            })
+        }
+    }
+}
+
+/// One kind-specific key that has to be there, trimmed, or the refusal that says it is not.
+///
+/// It returns the TEXT rather than taking the newtype's `parse` as an argument, and that is a
+/// deliberate retreat from a tidier shape: the `parse` functions here are generic over
+/// `impl AsRef<str>`, so passing one as a `FnOnce(&str)` needs a higher-ranked bound the fn item does
+/// not satisfy. Two steps at the call site read better than a `for<'a>` bound whose only job is to
+/// make a one-line helper accept a generic function.
+fn required<'raw>(
+    alias: &SourceName,
+    kind: SourceKind,
+    key: &'static str,
+    written: Option<&'raw str>,
+) -> Result<&'raw str, InvalidSourceRegistry> {
+    written
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .ok_or_else(|| InvalidSourceRegistry::MissingForKind {
+            alias: alias.clone(),
+            kind,
+            key,
+        })
 }
 
 /// Reads one entry's file location.

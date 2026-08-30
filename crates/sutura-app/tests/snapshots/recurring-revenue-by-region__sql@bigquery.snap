@@ -1,0 +1,5 @@
+---
+source: crates/sutura-app/tests/golden/dialects.rs
+expression: query.sql()
+---
+SELECT `dim_customer`.`region` AS `region`, CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) AS `period`, sum(`fct_subscription_monthly`.`mrr_cents`) AS `recurring_revenue` FROM `fct_subscription_monthly` LEFT JOIN `dim_customer` ON `fct_subscription_monthly`.`customer_key` = `dim_customer`.`customer_key` WHERE `fct_subscription_monthly`.`month` >= ? AND `fct_subscription_monthly`.`month` < ? AND `fct_subscription_monthly`.`status` = ? GROUP BY `dim_customer`.`region`, CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) ORDER BY `dim_customer`.`region`, CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) LIMIT 10001

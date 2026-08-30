@@ -63,6 +63,7 @@ use sutura_domain::expression::{AuthoredSql, DialectTag, SqlFragment};
 use sutura_domain::model::{ColumnName, TableName};
 
 use crate::dialect::{ALL, Dialect};
+use crate::generate::dialect_type;
 
 /// The name lists a refusal is decided by. Data, kept out of this file's way.
 mod vocabulary;
@@ -566,15 +567,6 @@ fn render(expression: &Expression, tag: &DialectTag, dialect: Dialect) -> Result
             cause,
         })?;
     Ok(sql)
-}
-
-/// The dialect layer's name for a data system.
-const fn dialect_type(dialect: Dialect) -> DialectType {
-    match dialect {
-        Dialect::DuckDb => DialectType::DuckDB,
-        Dialect::Postgres => DialectType::PostgreSQL,
-        Dialect::ClickHouse => DialectType::ClickHouse,
-    }
 }
 
 /// Does any node in the tree carry a non-empty `field`?

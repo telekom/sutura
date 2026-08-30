@@ -271,6 +271,14 @@ happened rather than implying the check was run.
 
 ## `use None`
 
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
 ## Module `api`
 
 Whether the generated documentation is served, and why the default differs by environment.
@@ -2629,8 +2637,8 @@ What kind of data system a source is.
 
 **A closed set of typed declarations rather than something discovered**, which is the whole of
 *pluggable by declaration*: a capability nobody declared cannot be used, and a new kind is a
-compile error in every place that has to decide about it. One variant today, because one adapter
-ships.
+compile error in every place that has to decide about it. Two variants today, and only one of them
+can be OPENED by a shipped binary - `Self::BigQuery` says which and why.
 
 **It replaced a comparison against a hard-coded source NAME**, and that is the change worth reading
 rather than the enum. The composition root used to refuse any source not called `local`, on the
@@ -2645,6 +2653,7 @@ legitimate one.
 #### Variants
 
 - `Files` - A directory of CSV or Parquet files, read by the in-process engine.
+- `BigQuery` - A `BigQuery` dataset, queried by rendering the plan into `GoogleSQL` and pushing it down.
 
 #### Methods
 
@@ -2694,12 +2703,6 @@ that treated the absence as permission is a bug the type should not be able to h
 #### Methods
 
 ```rust
-pub fn data_dir(&self) -> &Path
-```
-
-Where the files behind this source's models live.
-
-```rust
 pub const fn identity(&self) -> Option<&SourceIdentity>
 ```
 
@@ -2712,6 +2715,20 @@ pub const fn kind(&self) -> SourceKind
 ```
 
 What kind of data system this is, which is what decides which adapter opens it.
+
+Read off the placement rather than stored beside it - see `SourcePlacement::kind`.
+
+```rust
+pub const fn placement(&self) -> &SourcePlacement
+```
+
+Where this source's data is, in the terms its own kind uses.
+
+**This replaced a `data_dir()` that every kind had to have.** A `BigQuery` source has no
+directory, so a path accessor on the shared shape would have had to return something - an
+empty path, or an `Option` whose `None` every caller re-interprets. Matching on the placement
+makes the composition root say which kind it is opening, which is the same thing the kind's
+exhaustive match there already asks of it.
 
 ```rust
 pub fn posture(&self) -> Option<&SourcePosture>
@@ -2762,6 +2779,9 @@ convenience, and nothing needs to clone a startup refusal.
 - `Kind` - The `kind:` word does not name a data system this build has an adapter for.
 - `Text` - A piece of operator-written text on this entry is not usable.
 - `Conflict` - The entry's two identity declarations contradict each other.
+- `MissingForKind` - A key this kind requires was not written.
+- `KeyNotForKind` - A key was written that means nothing for this kind.
+- `ResourceName` - A declared cloud resource name is not usable.
 
 #### Implements
 
@@ -2813,6 +2833,195 @@ Did this deployment declare any source at all?
 #### Implements
 
 `Clone`, `Debug`, `Default`, `Eq`, `PartialEq`
+
+### Module `placement`
+
+Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
+Where a declared source's data actually is, in the terms its own kind uses.
+
+**One enum rather than a struct of optional fields, and the difference is unrepresentable versus
+checked.** A files source has a directory and no billing project; a `BigQuery` source has a
+billing project and a dataset and no directory. Carried as `Option` fields on one struct, the
+wrong combination would be representable - a `BigQuery` source with a data directory and no
+project - and every reader would have to decide for itself what an absence meant. As two variants
+there is nothing to decide: a reader matches, and the compiler asks about a third kind.
+
+This module is also where the two `BigQuery` newtypes live, and their `parse` functions carry an
+argument that is **ours rather than the provider's format rules restated** - see
+`BillingProject`.
+
+#### `struct BillingProject`
+
+```rust
+pub struct BillingProject
+```
+
+The project a `BigQuery` query job is billed to.
+
+**Declared, never inferred.** For this data system that is structural rather than a policy we
+chose: the project is a PATH SEGMENT of the request URL that submits a job, so there is no field
+it could be omitted from and nothing it could be defaulted from. The reason it is declared HERE,
+one step before anything impersonates, is that a federated identity has no project of its own to
+bill - so the per-subject step needs this declaration to already exist rather than introducing it
+alongside a credential exchange.
+
+# What `parse` enforces, and why the argument is ours
+
+The value is interpolated into a URL path segment. So what has to be impossible is a value that
+LEAVES that segment: a `/`, a `?`, a `#`, a `%`-escape, whitespace, a control character, anything
+non-ASCII. The accepted set is therefore `[a-z0-9-]`, starting with a letter, not ending with a
+hyphen, and 6 to 30 characters.
+
+That happens to be the documented shape of a project id, and it is deliberately not justified
+that way: **the argument for the character set is the path segment**, which holds whether or not
+the provider widens its own rules later. If the provider ever narrows them further, a value we
+accept and they reject is a startup failure against a real endpoint - the safe direction. If they
+widen them, this refuses a legal id and the fix is a considered change here rather than a value
+that silently escapes a URL.
+
+**One shape this knowingly refuses, stated because it is a real deployment and not a hypothetical:**
+a LEGACY domain-scoped project identifier carries a colon - the provider's own SQL reference uses
+`google.com:my_project` as its example and tells an author to wrap it in backticks. A colon in a
+URL path segment is legal, so this is a narrowing we are choosing rather than one escaping forces,
+and it is chosen because such an id also has to survive being a path segment, a JSON field and a
+backticked SQL identifier, and nothing here has ever been exercised against one. A deployment that
+needs it gets a considered change with a test, not a widened character set.
+
+No `Default`: a default project is a project somebody else pays for.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The id, for building a request.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidResourceName>
+```
+
+Parses a declared project id.
+
+The canonical constructor: every other way in delegates here, so there is one copy of the
+checks. Trims first, because a trailing space in a configuration file is a typo rather than a
+different project - and trimming BEFORE measuring is what stops the length refusal reporting a
+number that counts whitespace the value does not have.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `struct DatasetId`
+
+```rust
+pub struct DatasetId
+```
+
+The dataset unqualified table names in a generated statement resolve within.
+
+**Why this is configuration and not catalog:** a model in the catalog names a bare `table:`, and
+which dataset that table lives in is a property of the deployment's connection rather than of the
+metric's definition. The same catalog served against a staging dataset and a production one is one
+catalog and two deployments, which is exactly the split this type keeps.
+
+The generated statement therefore stays a bare, quoted table name in every dialect - the request
+carries the dataset beside the SQL rather than the generator qualifying it - so nothing about
+`sutura-sql` has to know this exists.
+
+`parse` accepts `[A-Za-z0-9_]`, 1 to 1024 characters. Unlike `BillingProject` this one does not
+reach a URL path, so the constraint is not an escaping argument: it is that a dataset id which is
+not an identifier is a misconfiguration worth refusing when the file is read rather than on the
+first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
+would turn a working declaration into a dataset that does not exist.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The id, for building a request.
+
+```rust
+pub fn parse(raw: impl AsRef<str>) -> Result<Self, InvalidResourceName>
+```
+
+Parses a declared dataset id.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `enum InvalidResourceName`
+
+```rust
+pub enum InvalidResourceName
+```
+
+Why a declared name for a cloud resource was not usable.
+
+One type for both newtypes above, with the offending key named by the caller rather than by the
+variant: the shapes differ and the *reasons* do not, so two near-identical enums would be two
+places to keep one set of sentences.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `Length` - Outside the length the name may be.
+- `Character` - A character that is not in the accepted set.
+- `Boundary` - The first or last character is one the shape does not allow there.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `enum SourcePlacement`
+
+```rust
+pub enum SourcePlacement
+```
+
+Where one declared source's data is.
+
+The module header carries why this is an enum. What is worth repeating at the type is that
+`SourceKind` is DERIVED from it - see `Self::kind` - rather than stored beside it, so the two
+cannot disagree about what a source is.
+
+# The limit, because an enum variant's fields are always public
+
+There is no way to make these private, so **a placement is constructible in-process by any crate
+that can name the type** - including one carrying a relative `data_dir`, which `parse_data_dir`
+refuses when it reads a file. That is a real gap in this type and it is not the one that matters,
+for the reason AGENTS.md already states about the other constructors here: what is closed is the
+path from a **configuration file**. [`ConfiguredSource`](crate::ConfiguredSource) holds its
+placement in a private field and has no public constructor, so a
+[`SourceRegistry`](crate::SourceRegistry) can still only come into existence through
+`Settings::parse`, and that is the only door a deployment goes through.
+
+Written down rather than left to be re-derived, because "the fields are public" and "the checks can
+be skipped" look like the same sentence and are not.
+
+##### Variants
+
+- `Files` - A directory of CSV or Parquet files, read by the in-process engine.
+- `BigQuery` - A `BigQuery` dataset, plus the project its jobs are billed to.
+
+##### Methods
+
+```rust
+pub const fn kind(&self) -> SourceKind
+```
+
+Which kind of data system this placement describes.
+
+**Derived rather than stored**, so `kind:` in a file and the fields beside it cannot describe
+two different data systems. The parse reads the word to decide which variant to build; from
+then on the variant is the answer.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
 
 ## Module `telemetry`
 

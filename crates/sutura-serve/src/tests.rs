@@ -298,15 +298,23 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
     // registry exists to hand to `open_engine`. This test is in the composition root's own module
     // rather than only in `sutura-config` because this is the binary that would otherwise serve it,
     // and because it is where a reader goes looking for the check that used to be here.
+    // **A fourth dialect split this into TWO refusals, and this test now asserts both** - the word
+    // it used to use, `bigquery`, is a kind this repository has an adapter for, so keeping it here
+    // would have been a fixture asserting the wrong mechanism. The two are not interchangeable, and
+    // an operator sent to the wrong one goes looking for a typo in a word that is spelled right:
+    //
+    // 1. a word no build of this repository has an adapter for is refused by the SETTINGS TREE;
+    // 2. a kind this repository has and this BINARY did not link parses fine and is refused by the
+    //    composition root, which is the only place that can know what was linked.
     let overlay = format!(
         "security:\n  identity: \"single-user\"\n  single_user_because: \"a test\"\nsources:\n  \
-             production_warehouse:\n    kind: \"bigquery\"\n    data_dir: \"{}\"\n    posture: \
+             production_warehouse:\n    kind: \"snowflake\"\n    data_dir: \"{}\"\n    posture: \
              \"shared-service-user\"\n",
         data().display()
     );
     let error =
         sutura_config::Settings::load(&sutura_config::Sources::defaults(crate::Environment::Development).with_overlay(overlay))
-            .expect_err("this build has no BigQuery adapter, so the kind is not a kind");
+            .expect_err("no build of this repository has a Snowflake adapter, so the kind is not a kind");
     let rendered = crate::flatten(error);
     assert!(
         rendered.contains("sources.production_warehouse.kind"),
@@ -315,6 +323,28 @@ fn a_source_of_a_kind_this_build_cannot_open_cannot_even_be_configured() {
     assert!(
         rendered.contains("files"),
         "the refusal must list what this build can open: {rendered}"
+    );
+
+    // The second refusal: a declared kind this binary links no adapter for. It PARSES - the settings
+    // tree accepts it, because the repository does have that adapter - and the composition root
+    // refuses it, naming the source so an operator knows which entry to change.
+    let declared = "  production_warehouse:\n    kind: \"bigquery\"\n    billing_project: \"acme-analytics\"\n    \
+                    dataset: \"warehouse\"\n    posture: \"shared-service-user\"\n";
+    let error = refusal(
+        open_engine(
+            &bundle_over(&[("customers", "production_warehouse", "dim_customer")]),
+            &registry(declared),
+            one_worker(),
+        ),
+        "a kind this binary links no adapter for must not start",
+    );
+    assert!(
+        error.contains("production_warehouse"),
+        "the refusal must name the source: {error}"
+    );
+    assert!(
+        error.contains("bigquery"),
+        "the refusal must name the kind it cannot open: {error}"
     );
 
     // And the deployment the old rule refused: a files source under an alias that is not the
