@@ -23,9 +23,29 @@ use sutura_domain::identity::{
 
 use super::tests_support::{AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse};
 use super::{
-    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, answer, exceeds_row_cap,
+    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, exceeds_row_cap,
     verify_anchors, verify_and_validate,
 };
+
+/// Bare `answer`, with the working-set ceiling pinned to 1 GiB for every unit answer here.
+///
+/// `answer` gained a sixth argument - the ceiling the federated combiner counts against - and no
+/// test in this module needs a different one, so this local wrapper keeps two dozen call sites on
+/// their original five arguments rather than touching each. Deliberately not imported as
+/// `super::answer`, or the wrapper below and the import would collide on the name.
+fn answer<W, B>(
+    definitions: &super::Validated<PinnedDefinitions>,
+    query: &sutura_domain::query::Query,
+    context: &RequestContext,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+) -> super::Answering<W, B>
+where
+    W: sutura_domain::warehouse::Warehouse,
+    B: sutura_domain::identity::CredentialBroker,
+{
+    super::answer(definitions, query, context, broker, warehouses, 1 << 30)
+}
 
 /// The context a question arrives with, naming a person the transport verified.
 ///

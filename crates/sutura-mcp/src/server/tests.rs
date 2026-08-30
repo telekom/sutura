@@ -71,6 +71,7 @@ fn with_sink() -> (CertifiedService, std::sync::Arc<testing::CountingSink>) {
         testing::fake_warehouse(),
         std::sync::Arc::clone(&sink),
         testing::broker(),
+        1 << 30,
     )
     .expect("the fixture bundle validates");
     (service, sink)

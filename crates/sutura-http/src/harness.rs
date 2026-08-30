@@ -54,7 +54,7 @@ fn over(
     warehouses: sutura_app::Warehouses<FakeWarehouse>,
     settings: Settings,
 ) -> Router {
-    let service = LocalService::start(&catalog_of(pinned), warehouses, sink(), crate::testing::broker())
+    let service = LocalService::start(&catalog_of(pinned), warehouses, sink(), crate::testing::broker(), 1<<30)
         .expect("the test bundle validates");
     crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
 }
@@ -436,7 +436,7 @@ async fn a_request_that_outruns_the_bound_carries_the_documented_failure_body() 
     let settings = settings(Environment::Development, "server:\n  request_timeout_seconds: 1\n");
     let (engine, held) = warehouse_that_can_be_held();
     let service =
-        LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker()).expect("the test bundle validates");
+        LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1<<30).expect("the test bundle validates");
     let app = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
     held.arm();
 
@@ -513,7 +513,7 @@ async fn the_assembled_router_hands_back_the_tiers_something_has_to_sweep() {
     // configuration, so there was nothing left to sweep.
     let assembled = crate::assemble(&ServiceState::new(
         Arc::new(
-            LocalService::start(&catalog_of(bundle()), fake_warehouse(), sink(), crate::testing::broker())
+            LocalService::start(&catalog_of(bundle()), fake_warehouse(), sink(), crate::testing::broker(), 1<<30)
                 .expect("the test bundle validates"),
         ),
         Arc::new(settings(

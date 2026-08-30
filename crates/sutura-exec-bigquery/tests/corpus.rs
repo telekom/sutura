@@ -586,8 +586,8 @@ mod tests {
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
-            let from_engine = sutura_app::answer(&validated, &question, &a_caller(), &locally, &engine);
-            let from_bigquery = sutura_app::answer(&validated, &question, &a_caller(), &remotely, &there);
+            let from_engine = sutura_app::answer(&validated, &question, &a_caller(), &locally, &engine, 1 << 30);
+            let from_bigquery = sutura_app::answer(&validated, &question, &a_caller(), &remotely, &there, 1 << 30);
 
             let (here, over_there) = match (from_engine, from_bigquery) {
                 (Ok(one), Ok(other)) => (one.into_outcome(), other.into_outcome()),

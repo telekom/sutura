@@ -196,6 +196,7 @@ mod tests {
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &engine,
+                1 << 30,
             );
             let from_other = answer(
                 &validated,
@@ -203,6 +204,7 @@ mod tests {
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &other,
+                1 << 30,
             );
 
             // A third outcome, and it is the one that used to be missing.

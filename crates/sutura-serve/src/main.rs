@@ -153,15 +153,21 @@ fn run() -> Result<(), String> {
     // is the shipping single-user shape, and the deployment that needs the other one is the
     // deployment that needs a broker which can perform a token exchange.
     let broker = StaticCredentialBroker::from_registry(settings.sources());
+    // The working-set ceiling this deployment configured, threaded to the federated combiner so a
+    // combined answer is counted against the same bound the engine's operators are refused by.
+    let working_set_ceiling_bytes = settings.runtime().working_set().bytes().get() as u64;
     // **One `Arc<dyn Surface>` out of two adapter types, and the erasure is where it always was.**
     // `sutura_app::Warehouses<W>` is generic in ONE adapter, so the service is monomorphised per kind
     // - and `ServiceState` takes `Arc<dyn Surface>`, so the two shapes meet one line later either
     // way. That is the whole reason this deployment does not need the closed enum over adapters that
     // `sutura_app::warehouses` describes: nothing above this line is generic.
     let (service, attached) = match opened {
-        OpenedSources::Files(files) => (started(&catalog, files.engines, broker)?, Some(files.attached)),
+        OpenedSources::Files(files) => (
+            started(&catalog, files.engines, broker, working_set_ceiling_bytes)?,
+            Some(files.attached),
+        ),
         #[cfg(feature = "bigquery")]
-        OpenedSources::BigQuery(engines) => (started(&catalog, engines, broker)?, None),
+        OpenedSources::BigQuery(engines) => (started(&catalog, engines, broker, working_set_ceiling_bytes)?, None),
     };
     // And this closes the gap between the two loads. `attached` is what the FIRST bundle's models
     // needed; the service serves the SECOND. A model added to the catalog directory between the two
@@ -468,12 +474,13 @@ fn started<W>(
     catalog: &LocalCatalog,
     engines: sutura_app::Warehouses<W>,
     broker: StaticCredentialBroker,
+    working_set_bytes: u64,
 ) -> Result<Serving, String>
 where
     W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
     W::Error: Send + Sync,
 {
-    LocalService::start(catalog, engines, TracingAuditSink::new(), broker)
+    LocalService::start(catalog, engines, TracingAuditSink::new(), broker, working_set_bytes)
         .map(|service| Arc::new(service) as Serving)
         .map_err(flatten)
 }

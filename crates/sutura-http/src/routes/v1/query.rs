@@ -426,7 +426,7 @@ mod tests {
         let settings =
             Settings::load(&Sources::defaults(Environment::Development).with_overlay(overlay)).expect("the test settings load");
         let (engine, held) = warehouse_that_can_be_held();
-        let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker())
+        let service = LocalService::start(&catalog_of(bundle()), engine, sink(), crate::testing::broker(), 1<<30)
             .expect("the test bundle validates");
         let router = crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles");
         (router, held)

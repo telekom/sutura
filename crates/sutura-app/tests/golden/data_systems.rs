@@ -77,6 +77,7 @@ where
             &crate::adapters::a_caller(),
             &crate::adapters::shared_credential(),
             &warehouse,
+            1 << 30,
         );
         settings(W::NAME).bind(|| match answered.map(sutura_app::Answered::into_outcome) {
             Ok(ToolOutcome::Refusal { ref reason }) => {
@@ -192,6 +193,7 @@ where
             &crate::adapters::a_caller(),
             &crate::adapters::shared_credential(),
             &warehouse,
+            1 << 30,
         )
         .unwrap_or_else(|e| panic!("{file} failed on {}: {e}", W::NAME))
         .into_outcome();
@@ -271,6 +273,7 @@ where
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &warehouse,
+        1 << 30,
     )
     .expect_err("a zero denominator under `fails` must not answer");
     let rendered = chain(&error);
@@ -304,6 +307,7 @@ where
         &crate::adapters::a_caller(),
         &crate::adapters::shared_credential(),
         &warehouse,
+        1 << 30,
     )
     .expect("a non-zero denominator answers")
     .into_outcome();

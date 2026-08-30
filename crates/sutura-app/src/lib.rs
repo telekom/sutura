@@ -34,8 +34,9 @@ use sutura_domain::identity::{
 };
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure, FederatedPlan, LegPlan};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
+use sutura_domain::source::ExecutedAs;
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
@@ -212,6 +213,20 @@ pub enum ServiceError<E, M> {
     Warehouse {
         #[source]
         cause: E,
+    },
+    /// The federated combiner could not assemble the two legs' rows.
+    ///
+    /// **An internal defect rather than a refusal, for every arm but the two `answer_federated`
+    /// maps by name.** A correctly split and certified question should not make the combiner fail: a
+    /// missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
+    /// it leaves as a failure the transport answers like a data-system outage. The two the answer
+    /// path turns into refusals are the two governance outcomes - [`FederatedFailure::ResourcesExhausted`],
+    /// refused as [`RefusalReason::ResourcesExhausted`], and the row cap, refused as
+    /// [`RefusalReason::ResultTooLarge`].
+    #[error("the combined answer could not be assembled")]
+    Federated {
+        #[source]
+        cause: FederatedFailure,
     },
     /// The credential broker could not mint. Nothing about the question was wrong.
     ///
@@ -407,6 +422,7 @@ pub fn answer<W, B>(
     context: &RequestContext,
     broker: &B,
     warehouses: &Warehouses<W>,
+    working_set_bytes: u64,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -419,15 +435,8 @@ where
     // the plan itself, for its own dialect.
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
-        Compiled::Federated { .. } => {
-            // The splitter and the combiner exist and are tested, but neither shipped adapter can
-            // execute a leg yet - both answer `Executable::Leg` with a typed refusal - so an answer
-            // that would need `combine` cannot be produced on this build. Executing it would surface
-            // the adapter's refusal as a 503, the status reserved for a retryable outage; refusing
-            // here first keeps a two-source question a clean 409 until an adapter executes a leg.
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::FederationNotExecutable,
-            }));
+        Compiled::Federated { plan } => {
+            return answer_federated(pinned, &plan, context, broker, warehouses, working_set_bytes);
         }
         Compiled::Planned { plan } => plan,
     };
@@ -570,6 +579,141 @@ where
             rows,
         },
     ))
+}
+
+/// Executes a two-source question: one leg per data system, combined above them.
+///
+/// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be
+/// able to execute a leg (`Warehouse::EXECUTES_LEGS`), or the answer is refused as
+/// [`RefusalReason::FederationNotExecutable`]. That check here, rather than in an adapter, is what
+/// keeps a shipped binary - whose adapters declare `false` - refusing a two-source question
+/// cleanly instead of letting a typed leg refusal surface as a retryable 503.
+///
+/// The rest mirrors the mono path leg for leg: one mint over both sources, the agreed grant checked
+/// against the request, each leg's own presented credential, and a provenance that records BOTH
+/// identities via [`ExecutedAs::and`]. The combiner applies the working-set ceiling, and the answer
+/// carries the usual row cap.
+fn answer_federated<W, B>(
+    pinned: &PinnedDefinitions,
+    plan: &FederatedPlan,
+    context: &RequestContext,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+    working_set_bytes: u64,
+) -> Answering<W, B>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    // Both data systems, resolved once: they must be open, they must be able to run one half of the
+    // answer, and their execution records must cover both legs for provenance.
+    let mut executed_as: Option<ExecutedAs> = None;
+    for source in plan.sources() {
+        if warehouses.get(source).is_none() {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::SourceUnavailable { source: source.clone() },
+            }));
+        }
+        let record = warehouses.executed_on(source).expect("the warehouse above is open");
+        if !W::EXECUTES_LEGS {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::FederationNotExecutable,
+            }));
+        }
+        executed_as = Some(match executed_as {
+            None => record,
+            Some(so_far) => so_far
+                .and(source.clone(), record.posture(source).expect("the record covers its own source").clone())
+                .expect("each leg is a distinct source, and `and` refuses a second leg for one"),
+        });
+    }
+    let executed_as = executed_as.expect("a federated plan reads exactly two sources, never zero");
+
+    // One mint over the whole set, exactly like the mono path: the broker answers for every source
+    // this answer reads, and `agreeing_with` compares that answer against this request.
+    let requested = SourceSet::of(plan.fact().source().clone()).and(plan.lookup().source().clone());
+    let minted = broker
+        .mint(context, &requested)
+        .map_err(|cause| ServiceError::Broker { cause })?;
+    let credentials = match minted
+        .agreeing_with(context.chain().subject(), &requested, now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?
+    {
+        Agreed::Refused { source } => {
+            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
+                reason: RefusalReason::CredentialUnavailable { source },
+            }));
+        }
+        Agreed::Granted { credentials } => credentials,
+    };
+
+    let fact_warehouse = warehouses.get(plan.fact().source()).expect("checked above");
+    let lookup_warehouse = warehouses.get(plan.lookup().source()).expect("checked above");
+    let fact = execute_leg::<_, B>(fact_warehouse, &credentials, plan.fact())?;
+    let lookup = execute_leg::<_, B>(lookup_warehouse, &credentials, plan.lookup())?;
+
+    // The row cap applies to the ANSWER, not to a leg - a leg carries none. The combiner checks the
+    // working-set ceiling as it groups; exhaustion here is a governance refusal, anything else the
+    // combiner reports is an internal defect.
+    let combined = match plan.combine(&fact, &lookup, working_set_bytes) {
+        Ok(rows) => rows,
+        Err(FederatedFailure::ResourcesExhausted { ceiling_bytes }) => {
+            return Ok(Answered::under(
+                &credentials,
+                ToolOutcome::Refusal {
+                    reason: RefusalReason::ResourcesExhausted { ceiling_bytes },
+                },
+            ));
+        }
+        Err(cause) => return Err(ServiceError::Federated { cause }),
+    };
+    if exceeds_row_cap(combined.rows().len(), sutura_domain::plan::MAX_ROWS) {
+        return Ok(Answered::under(
+            &credentials,
+            ToolOutcome::Refusal {
+                reason: RefusalReason::ResultTooLarge { limit: sutura_domain::plan::MAX_ROWS },
+            },
+        ));
+    }
+    Ok(Answered::under(
+        &credentials,
+        ToolOutcome::Answer {
+            provenance: pinned.provenance(executed_as),
+            rows: combined,
+        },
+    ))
+}
+
+/// Runs one leg against its own adapter, under that source's own presented credential.
+///
+/// The same guards the mono path applies run here for the same reasons: the presented credential
+/// agrees with the posture the adapter was opened with, the plan is pre-flighted where that is
+/// cheaper than running it, and the credential is still usable this instant. A deadline that ages
+/// out during the OTHER leg's work is caught by this leg's own `still_usable_at`.
+fn execute_leg<W, B>(
+    warehouse: &W,
+    credentials: &BoundToTheRequest,
+    leg: &LegPlan,
+) -> Result<RowSet, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>
+where
+    W: Warehouse,
+    B: CredentialBroker,
+{
+    let presented = credentials
+        .presented_for(leg.source())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    presented
+        .agrees_with(warehouse.posture(), leg.source())
+        .map_err(|cause| ServiceError::Posture { cause })?;
+    warehouse
+        .dry_run(Executable::Leg(leg), presented)
+        .map_err(|cause| ServiceError::Warehouse { cause })?;
+    credentials
+        .still_usable_at(now_in_unix_seconds())
+        .map_err(|cause| ServiceError::Credentials { cause })?;
+    warehouse
+        .execute(Executable::Leg(leg), presented)
+        .map_err(|cause| ServiceError::Warehouse { cause })
 }
 
 /// Whether a result set came back with more rows than its plan capped it at.

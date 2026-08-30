@@ -37,6 +37,7 @@ mod tests {
             FailingWarehouse::new(source()),
             sink(),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect_err("a catalog that fails every read starts no service");
         let ServiceNotStarted::Catalog { ref cause } = error else {
@@ -71,6 +72,7 @@ mod tests {
             FailingWarehouse::new(source()),
             sink(),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect_err("a data system that answers nothing validates no bundle");
         assert!(matches!(error, ServiceNotStarted::NotValidated { .. }), "{error:?}");
@@ -90,6 +92,7 @@ mod tests {
             FailingWarehouse::new(source()),
             sink(),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect("a bundle with no anchor validates against a warehouse that answers nothing");
         let failure = service
@@ -130,6 +133,7 @@ mod tests {
             fake_warehouse(),
             std::sync::Arc::clone(&sink),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect("an anchored bundle over a warehouse that answers validates");
 
@@ -169,6 +173,7 @@ mod tests {
             warehouse_that_answers_past_the_row_cap(),
             std::sync::Arc::clone(&sink),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect("a bundle with no anchor validates against any warehouse");
 
@@ -204,6 +209,7 @@ mod tests {
             fake_warehouse(),
             std::sync::Arc::clone(&sink),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect("an anchored bundle over a warehouse that answers validates");
         drop(
@@ -230,6 +236,7 @@ mod tests {
             crate::testing::fake_warehouse(),
             sink(),
             crate::testing::broker(),
+        1 << 30,
         )
         .expect("an anchored bundle over a warehouse that answers validates");
         assert_eq!(service.definitions().version().as_str(), "test-1");
