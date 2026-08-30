@@ -6,13 +6,20 @@
 //! authenticates is somebody else's decision. So [`AccessTokens`] is those two things, and the
 //! transport is generic in it.
 //!
-//! **This is also the seam per-subject execution arrives at**, which is why it is a port on the first
-//! day rather than a `String` field. `docs/implementation-plan-bigquery.md`'s second `BigQuery` step
-//! mints a token *per leg, for the subject who asked*; under a `String` that step would have to change
-//! the transport, and under a port it adds an implementor. Nothing here anticipates it further than
-//! that: [`Bearer`] carries the deadline because a minted token has one, and
-//! [`crate::BigQueryWarehouse`]'s `IMPERSONATION` still says `NoPlaceForASubject` because nothing
-//! mints one.
+//! It is a port on the first day rather than a `String` field, so *which* credential shape a
+//! deployment holds is a choice of implementor. [`Bearer`] carries the deadline because a minted token
+//! has one, and [`crate::BigQueryWarehouse`]'s `IMPERSONATION` still says `NoPlaceForASubject` because
+//! nothing mints one.
+//!
+//! **What this is NOT, and the correction is review's rather than a hedge:** this port is not yet the
+//! seam at which per-subject execution arrives as *merely another implementor*. Three signatures say
+//! so - `Warehouse::execute` takes a `&Presented` and `BigQueryWarehouse` reads it only to call
+//! `deliverable`; `JobTransport::run` takes a `JobRequest` and nothing else; and [`AccessTokens::bearer`]
+//! takes a clock and a budget. So an implementation behind this port **cannot select a credential for
+//! the presented subject and cannot tell two concurrent subjects apart.** The step that builds
+//! per-subject execution has to carry the leg's subject or its credential context through one of those
+//! three interfaces, and which one is part of that change rather than something anticipated here.
+//! `docs/adr/0018` records it in the same words.
 //!
 //! # Two credential kinds, as one closed shape
 //!
