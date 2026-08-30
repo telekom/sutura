@@ -3756,6 +3756,37 @@ Why a bundle is not validated.
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
+### `enum CatalogKind`
+
+```rust
+pub enum CatalogKind
+```
+
+Which class of catalog adapter this is: held to the whole model, or supplying part of it.
+
+The two classes are measured differently, and `docs/adr/0016` is where the difference is
+decided. A **golden** adapter defines the model here - the wren-style directory of markdown -
+so it can be held to producing the whole of it, which is what agreeing with the hand-written
+oracle asserts. Everything else is **declaring**: it supplies part of the model and must say
+which part through `SemanticCatalog::capabilities`, and is measured against that declaration
+(the two directions of `MetadataCapabilities::checked_against`) rather than against the oracle.
+
+**Required on `SemanticCatalog` with no default, so an adapter that omits it does not build.**
+The two classes give a registration different assertions and different goldens - the oracle for
+a golden adapter, fidelity for a declaring one - so leaving the choice to a default would mean
+an adapter that said nothing got measured the wrong way, and both defaults are wrong: defaulted
+to golden, a narrow source silently keeps a test it cannot pass; defaulted to declaring, a
+reference adapter that forgot the line loses the test that exists to hold it honest.
+
+#### Variants
+
+- `Golden` - A **reference** adapter: can produce every kind the model defines, so it is held to the hand-written oracle that states the same model. `sutura-catalog-local` is one.
+- `Declaring` - Supplies part of the model. Measured against its own `SemanticCatalog::capabilities` declaration rather than against the oracle, and registered with only the catalog cells that apply to a partial model.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
 ### `trait SemanticCatalog`
 
 ```rust
@@ -3815,12 +3846,14 @@ the two is the declaration:
 ```
 use sutura_domain::capabilities::{DefinitionCapabilities, DefinitionKind, MetadataCapabilities};
 use sutura_domain::knowledge::{Capability, KnowledgeCapabilities};
-use sutura_domain::pinned::{PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 
 struct Declared;
 
 impl SemanticCatalog for Declared {
     type Error = core::fmt::Error;
+
+    const KIND: CatalogKind = CatalogKind::Golden;
 
     fn capabilities() -> MetadataCapabilities {
         MetadataCapabilities::of(

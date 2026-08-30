@@ -24,7 +24,7 @@ use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
@@ -132,6 +132,10 @@ pub(crate) struct Infallible;
 impl SemanticCatalog for FixedCatalog {
     type Error = Infallible;
 
+    /// Golden, matching what `capabilities` below declares: this pass-through hands back whatever it
+    /// was given, so there is no kind it could not carry, and it is reference-shaped in consequence.
+    const KIND: CatalogKind = CatalogKind::Golden;
+
     /// Everything, and for a pass-through that is the accurate answer rather than the convenient one:
     /// this adapter hands back whatever bundle it was constructed with, so there is no kind it could
     /// not carry. Nothing checks it, because a fake is not registered in the conformance matrix -
@@ -219,6 +223,9 @@ pub(crate) struct FailingCatalog;
 
 impl SemanticCatalog for FailingCatalog {
     type Error = CatalogUnreadable;
+
+    /// Declaring, the class of an adapter that supplies part of the model and says which part.
+    const KIND: CatalogKind = CatalogKind::Declaring;
 
     /// Nothing, because this adapter never returns a bundle. `nothing()` is a legitimate declaration
     /// rather than a broken one, and it is reachable here only by writing it: the port has no default.
