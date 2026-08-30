@@ -414,7 +414,11 @@ fn leaf_values(federation: &Federation, leaf_rows: &[Vec<Value>], metric: &Metri
     clippy::float_arithmetic,
     reason = "the re-aggregation of a leg column sums real numbers by design"
 )]
-fn aggregate<'a>(aggregate: Aggregate, values: impl Iterator<Item = &'a Value>, metric: &MetricName) -> Result<Value, FederatedFailure> {
+fn aggregate<'a>(
+    aggregate: Aggregate,
+    values: impl Iterator<Item = &'a Value>,
+    metric: &MetricName,
+) -> Result<Value, FederatedFailure> {
     let numeric: Vec<&Value> = values.filter(|v| !matches!(*v, Value::Null)).collect();
     if numeric.is_empty() {
         return Ok(Value::Null);
@@ -427,13 +431,20 @@ fn aggregate<'a>(aggregate: Aggregate, values: impl Iterator<Item = &'a Value>, 
             for value in numeric {
                 match value {
                     Value::Integer(v) => {
-                        sum_i = sum_i.checked_add(*v).ok_or(FederatedFailure::Overflow { aggregate: Aggregate::Sum })?
+                        sum_i = sum_i.checked_add(*v).ok_or(FederatedFailure::Overflow {
+                            aggregate: Aggregate::Sum,
+                        })?
                     }
                     Value::Real(v) => {
                         has_real = true;
                         sum_r += v.get();
                     }
-                    other => return Err(FederatedFailure::NonNumericLeaf { aggregate: Aggregate::Sum, value: other.clone() }),
+                    other => {
+                        return Err(FederatedFailure::NonNumericLeaf {
+                            aggregate: Aggregate::Sum,
+                            value: other.clone(),
+                        });
+                    }
                 }
             }
             if has_real {
@@ -473,7 +484,7 @@ fn minmax(values: Vec<&Value>, max: bool) -> Result<Value, FederatedFailure> {
                         return Err(FederatedFailure::NonNumericLeaf {
                             aggregate: if max { Aggregate::Max } else { Aggregate::Min },
                             value: other.clone(),
-                        })
+                        });
                     }
                 };
                 if candidate_is_better { candidate } else { current }
@@ -832,7 +843,10 @@ mod tests {
         let lookup = lookup(vec![vec![Value::Text("c1".into()), Value::Text("north".into())]]);
         assert!(matches!(
             plan.combine(&[fact, lookup]),
-            Err(FederatedFailure::NonNumericLeaf { aggregate: Aggregate::Sum, .. })
+            Err(FederatedFailure::NonNumericLeaf {
+                aggregate: Aggregate::Sum,
+                ..
+            })
         ));
     }
 

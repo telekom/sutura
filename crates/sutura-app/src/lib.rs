@@ -572,7 +572,6 @@ where
     ))
 }
 
-
 /// Whether a result set came back with more rows than its plan capped it at.
 ///
 /// **A governance control, so the direction it fails in is the whole of what this function is for.**
