@@ -355,10 +355,15 @@ where
 /// unless the cell is itself defined in the scope holding that local, which is how the exhaustiveness
 /// check over `sutura_sql::dialect::ALL` collects.
 ///
-/// # `catalogs: $cell` - `$cell!(name, Adapter)`
+/// # `catalogs: $cell` - `$cell!(name, kind, Adapter)`
 ///
-/// `Adapter` implements [`CatalogUnderTest`]. **One entry today, and that is the honest number: there
-/// is one catalog adapter.** What this changes is the cost of the second one.
+/// `kind` is `golden` or `declaring`, and it selects which cells the adapter is expanded over:
+/// a golden registration gets every cell, a declaring one gets the universal cells only (see
+/// `golden/catalogs.rs` for the split and why it is in the type system). **One golden entry today,
+/// and that is the honest number: there is one deployable catalog adapter, and it is the reference.**
+/// The first narrow adapter is registered here with `declaring` and its declaration in front of a
+/// reviewer - `docs/adr/0016` decides that it is measured against that declaration rather than the
+/// oracle, which is why it does not get the golden cells at all.
 ///
 /// # `data_systems: $cell` - `$cell!(name, Adapter)`
 ///
@@ -381,8 +386,12 @@ where
 /// added there without a line here fails rather than rendering with no golden.
 macro_rules! registered {
     (catalogs: $cell:ident) => {
-        // `sutura-catalog-local`: a directory of markdown documents with YAML frontmatter.
-        $cell!(markdown, sutura_catalog_local::LocalCatalog);
+        // `sutura-catalog-local`, the metadata reference: a directory of markdown documents with
+        // YAML frontmatter. Golden - it defines the model here, so it is held to the whole of it.
+        $cell!(markdown, golden, sutura_catalog_local::LocalCatalog);
+        // A future narrow adapter is registered here with `declaring` and gets the universal cells
+        // and no golden-only cell. There is none to register yet; the split exists so that when the
+        // first one lands it is a registration rather than a matrix redesign. `docs/adr/0016`.
     };
 
     (data_systems: $cell:ident) => {

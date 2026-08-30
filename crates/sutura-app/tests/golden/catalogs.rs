@@ -44,7 +44,7 @@ where
 /// lives in the markdown and nowhere else.
 fn agrees_with_the_oracle<C>()
 where
-    C: CatalogUnderTest,
+    C: GoldenCatalog,
 {
     assert_eq!(
         executable_definitions::<C>(),
@@ -67,7 +67,7 @@ where
 /// is compared, the declared capabilities included.
 fn agrees_with_the_oracle_about_what_it_says<C>()
 where
-    C: CatalogUnderTest,
+    C: GoldenCatalog,
 {
     assert_eq!(
         stated_knowledge::<C>(),
@@ -127,7 +127,7 @@ where
 /// which read as coverage of three data systems and were one fact written down three times.
 fn pins_every_plan_and_refusal<C>()
 where
-    C: CatalogUnderTest,
+    C: GoldenCatalog,
 {
     let pinned = load::<C>();
     for path in questions() {
@@ -152,7 +152,7 @@ where
 /// otherwise still pass as "a refusal".
 fn provokes_every_refusal<C>()
 where
-    C: CatalogUnderTest,
+    C: GoldenCatalog,
 {
     let pinned = load::<C>();
     for &(fixture, expected) in PROVOKED {
@@ -178,7 +178,7 @@ where
 /// renderer.
 fn keeps_every_definitional_filter<C>()
 where
-    C: CatalogUnderTest,
+    C: GoldenCatalog,
 {
     let pinned = load::<C>();
     let mut seen = 0_usize;
@@ -214,49 +214,101 @@ where
     );
 }
 
-/// One cell of the catalog axis.
+/// The marker that separates a **golden** catalog from a declaring one in this target.
+///
+/// Living here rather than in `tests/adapters/mod.rs` because that module is shared by every test
+/// target and `dead_code` is `deny` - a marker only the golden cell functions use would be dead in
+/// every other target that includes the registry. It is defined so a golden-only cell can be bound
+/// on it (see the [`golden`] macro below): a cell bound on this marker compiles for an adapter only
+/// if that adapter implements it, which is what makes a golden/oracle cell impossible to register
+/// against a declaring adapter by accident. The canonical declaration of the kind is
+/// [`SemanticCatalog::KIND`] in the domain; this marker is how the same fact routes the cells here,
+/// since `macro_rules!` cannot read an associated constant.
+pub(crate) trait GoldenCatalog: CatalogUnderTest {}
+
+impl GoldenCatalog for sutura_catalog_local::LocalCatalog {}
+
+/// A catalog cell that holds for EVERY registered catalog, golden or declaring.
+///
+/// These three are what register successfully for a partial model: pinning whatever loads, that what
+/// produced matches what the adapter declared, and that its digest is a function of content. They
+/// make no assumption about a complete model, which is what lets a declaring adapter hold them.
+macro_rules! universal {
+    ($adapter:ty) => {
+        #[test]
+        fn the_catalog_is_pinned_as_a_whole() {
+            super::pins_the_whole_catalog::<$adapter>();
+        }
+
+        #[test]
+        fn it_provides_exactly_what_it_declares() {
+            super::provides_exactly_what_it_declares::<$adapter>();
+        }
+
+        #[test]
+        fn reformatting_a_document_does_not_move_the_digest() {
+            super::reads_the_same_content_to_the_same_digest::<$adapter>();
+        }
+    };
+}
+
+/// The catalog cells that additionally hold only for a GOLDEN adapter, each because it assumes the
+/// whole model: the two oracle comparisons, and the three corpus cells a catalog that produces the
+/// complete example can meet.
+///
+/// **This is where the classification lives, and it is in the type system rather than a comment.**
+/// Every golden-only cell function is bound on [`GoldenCatalog`] rather than [`CatalogUnderTest`] -
+/// so a cell written to require the whole model cannot be expanded for a declaring adapter (the call
+/// does not typecheck), and a cell that stays bound on [`CatalogUnderTest`] claims it holds for any
+/// adapter and belongs in [`universal`]. A cell added later MUST pick one bound, and this macro and
+/// [`universal`] are where the two classes are collected.
+macro_rules! golden {
+    ($adapter:ty) => {
+        universal!($adapter);
+
+        #[test]
+        fn it_agrees_with_the_oracle_about_what_executes() {
+            super::agrees_with_the_oracle::<$adapter>();
+        }
+
+        #[test]
+        fn it_agrees_with_the_oracle_about_what_it_says() {
+            super::agrees_with_the_oracle_about_what_it_says::<$adapter>();
+        }
+
+        #[test]
+        fn the_whole_corpus_compiles_and_every_outcome_is_pinned() {
+            super::pins_every_plan_and_refusal::<$adapter>();
+        }
+
+        #[test]
+        fn every_refusal_a_question_can_provoke_is_provoked_by_a_fixture() {
+            super::provokes_every_refusal::<$adapter>();
+        }
+
+        #[test]
+        fn a_definitional_filter_is_in_every_plan_about_its_metric() {
+            super::keeps_every_definitional_filter::<$adapter>();
+        }
+    };
+}
+
+/// One registration's worth of catalog cells, selected by the adapter's kind.
+///
+/// The kind is a literal tag beside the algorithm name in the registry - `golden` or `declaring` -
+/// and it routes the cells: a `declaring` registration gets [`universal`] and no golden-only cell, a
+/// `golden` one gets [`golden`], which is every cell. A golden tag on an adapter that does not
+/// implement [`GoldenCatalog`] does not build, and a cell bound on [`GoldenCatalog`] cannot be
+/// expanded for a declaring adapter, so the split holds by the compiler rather than by review.
 macro_rules! cell {
-    ($name:ident, $adapter:ty) => {
+    ($name:ident, declaring, $adapter:ty) => {
         mod $name {
-            #[test]
-            fn the_catalog_is_pinned_as_a_whole() {
-                super::pins_the_whole_catalog::<$adapter>();
-            }
-
-            #[test]
-            fn it_agrees_with_the_oracle_about_what_executes() {
-                super::agrees_with_the_oracle::<$adapter>();
-            }
-
-            #[test]
-            fn it_agrees_with_the_oracle_about_what_it_says() {
-                super::agrees_with_the_oracle_about_what_it_says::<$adapter>();
-            }
-
-            #[test]
-            fn it_provides_exactly_what_it_declares() {
-                super::provides_exactly_what_it_declares::<$adapter>();
-            }
-
-            #[test]
-            fn reformatting_a_document_does_not_move_the_digest() {
-                super::reads_the_same_content_to_the_same_digest::<$adapter>();
-            }
-
-            #[test]
-            fn the_whole_corpus_compiles_and_every_outcome_is_pinned() {
-                super::pins_every_plan_and_refusal::<$adapter>();
-            }
-
-            #[test]
-            fn every_refusal_a_question_can_provoke_is_provoked_by_a_fixture() {
-                super::provokes_every_refusal::<$adapter>();
-            }
-
-            #[test]
-            fn a_definitional_filter_is_in_every_plan_about_its_metric() {
-                super::keeps_every_definitional_filter::<$adapter>();
-            }
+            universal!($adapter);
+        }
+    };
+    ($name:ident, golden, $adapter:ty) => {
+        mod $name {
+            golden!($adapter);
         }
     };
 }
