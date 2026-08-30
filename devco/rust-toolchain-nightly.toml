@@ -30,6 +30,9 @@
 [toolchain]
 channel = "nightly-2026-08-29"
 # rustc-codegen-cranelift-preview is the whole reason this file exists. The rest match
-# rust-toolchain.toml so the inner loop has the same tools.
-components = ["rustfmt", "clippy", "rust-std", "rustc-codegen-cranelift-preview"]
+# rust-toolchain.toml so the inner loop has the same tools, plus the two that wire the
+# LANGUAGE SERVER to this same pin: rust-analyzer (the binary, first on PATH in the dev
+# shell) and rust-src (the standard library, so go-to-definition reaches std). Neither is
+# in rust-toolchain.toml, which is why this file is the place for them.
+components = ["rustfmt", "clippy", "rust-std", "rustc-codegen-cranelift-preview", "rust-analyzer", "rust-src"]
 profile = "minimal"

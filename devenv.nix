@@ -96,6 +96,12 @@ in
   env.CARGO_UNSTABLE_CODEGEN_BACKEND = "true";
   env.CARGO_PROFILE_DEV_CODEGEN_BACKEND = "cranelift";
 
+  # The standard library source, from the shell's own toolchain (nix/toolchains.nix). Both
+  # are pinned together: rust-analyzer is in the same nightly's bin and rust-src in the same
+  # sysroot, so the language server navigates the std of the compiler it is paired with. Set
+  # explicitly rather than left to discovery, which is the documented devenv behaviour.
+  env.RUST_SRC_PATH = "${rustToolchain}/lib/rustlib/src/rust/library";
+
   # Every one of these was verified present in nixpkgs before being listed: a name that
   # does not resolve fails the WHOLE shell evaluation, not just that package.
   packages = [
