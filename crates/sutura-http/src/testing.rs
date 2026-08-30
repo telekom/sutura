@@ -296,6 +296,64 @@ impl Warehouse for FailingWarehouse {
     }
 }
 
+/// What a data system says when it will not hand back a result this large.
+#[derive(Debug, thiserror::Error)]
+#[error("the data system would not return the whole result at once")]
+pub(crate) struct WouldNotReturnAtOnce;
+
+/// A data system that will not return the whole result at once.
+///
+/// **The instrument for the second half of `result_too_large`, and the reason it is a separate fake
+/// from [`FailingWarehouse`] is the whole point of the test that uses it:** these two are the same
+/// shape - a `dry_run` that accepts and an `execute` that returns `Err` - and one of them is a
+/// governance refusal while the other is an outage. What separates them is the port's own predicate,
+/// so a fake with a flag would let one code path pretend to be both.
+///
+/// `dry_run` ACCEPTS, deliberately: a size bound is a property of the reply, and a check that reads no
+/// data cannot have hit one. That is also what makes this reach the `execute` branch rather than being
+/// refused a step earlier.
+pub(crate) struct WarehouseThatWillNotPage {
+    source: SourceName,
+    posture: SourcePosture,
+}
+
+impl WarehouseThatWillNotPage {
+    pub(crate) fn new(source: SourceName) -> sutura_app::Warehouses<Self> {
+        sutura_app::Warehouses::of(Self {
+            source,
+            posture: shared_posture(),
+        })
+    }
+}
+
+impl Warehouse for WarehouseThatWillNotPage {
+    type Error = WouldNotReturnAtOnce;
+
+    const IMPERSONATION: ImpersonationCapability = ImpersonationCapability::NoPlaceForASubject;
+
+    fn source(&self) -> &SourceName {
+        &self.source
+    }
+
+    fn posture(&self) -> &SourcePosture {
+        &self.posture
+    }
+
+    fn execute(&self, _executable: Executable<'_>, _presented: &Presented) -> Result<RowSet, Self::Error> {
+        Err(WouldNotReturnAtOnce)
+    }
+
+    /// The anchor path answers with rows, so a bundle carrying an anchor is still servable against
+    /// this fake and the question path is what the test reaches.
+    fn verify_anchor(&self, _plan: AnchorPlan<'_>) -> Result<AnchorRows, Self::Error> {
+        Err(WouldNotReturnAtOnce)
+    }
+
+    fn result_did_not_fit(&self, _error: &Self::Error) -> bool {
+        true
+    }
+}
+
 /// A data system that answers every statement with one prepared result.
 ///
 /// One result for every plan, which is exactly enough: nothing in the transport layer depends on

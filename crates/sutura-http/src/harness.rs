@@ -25,7 +25,7 @@ use tower::ServiceExt as _;
 use crate::state::ServiceState;
 use crate::surface::LocalService;
 use crate::testing::{
-    FakeWarehouse, bundle, catalog_of, fake_warehouse, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
+    bundle, catalog_of, fake_warehouse, sink, two_source_bundle, unanchored_bundle, warehouse_pretending_to_be,
     warehouse_that_answers_past_the_row_cap, warehouse_that_can_be_held,
 };
 
@@ -46,14 +46,25 @@ fn app(settings: Settings) -> Router {
 
 /// The router over a named bundle and a named warehouse.
 ///
-/// The refusal statuses need three fixtures the default pair cannot produce - a result past the row
-/// cap, a bundle whose models sit on two data systems, and an adapter claiming to be somewhere else -
-/// and each is still driven through the REAL router, which is the point of this file.
-fn over(
+/// The refusal statuses need four fixtures the default pair cannot produce - a result past the row
+/// cap, a result the data system will not return at once, a bundle whose models sit on two data
+/// systems, and an adapter claiming to be somewhere else - and each is still driven through the REAL
+/// router, which is the point of this file.
+///
+/// **Generic in the adapter rather than fixed to `FakeWarehouse`**, because the last of those four
+/// needs an adapter whose ERROR TYPE is its own: what separates a size bound from an outage is the
+/// port's predicate over that type, so a fake with a flag would let one code path pretend to be both.
+/// `ServiceState` erases the surface behind a `dyn Surface`, so there is nothing downstream of here
+/// for the parameter to reach.
+fn over<W>(
     pinned: sutura_domain::pinned::PinnedDefinitions,
-    warehouses: sutura_app::Warehouses<FakeWarehouse>,
+    warehouses: sutura_app::Warehouses<W>,
     settings: Settings,
-) -> Router {
+) -> Router
+where
+    W: sutura_domain::warehouse::Warehouse + Send + Sync + 'static,
+    W::Error: Send + Sync,
+{
     let service = LocalService::start(&catalog_of(pinned), warehouses, sink(), crate::testing::broker())
         .expect("the test bundle validates");
     crate::router(&ServiceState::new(Arc::new(service), Arc::new(settings))).expect("the test router assembles")
@@ -338,6 +349,45 @@ async fn an_answer_past_the_row_cap_is_a_413_that_says_it_was_not_truncated() {
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
     assert_eq!(code, "result_too_large");
     assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
+    assert!(
+        detail.contains("NOT truncated"),
+        "the sentence does not say nothing was cut: {detail}"
+    );
+    assert!(detail.contains("narrow"), "the sentence does not say what to do: {detail}");
+}
+
+#[tokio::test]
+async fn an_answer_the_data_system_would_not_return_at_once_is_the_same_413_and_not_a_503() {
+    // **The defect this bound was added for, end to end on the transport where a caller actually
+    // reads it.** A result INSIDE the row cap that a data system will not hand back in one piece used
+    // to leave `sutura_app::answer` as `ServiceError::Warehouse`, which this surface answers
+    // `503 unavailable` - the status a dead data system produces, and `docs/adr/0005`'s one refusal
+    // where retrying is reasonable. It is not an outage and the retry returns the same reply.
+    //
+    // Both halves are asserted because either alone passes on the wrong grouping: the status is the
+    // row cap's own rather than 503, and the code is `result_too_large` rather than a second code an
+    // operator would have to learn for the same remedy.
+    let app = over(
+        unanchored_bundle(),
+        crate::testing::WarehouseThatWillNotPage::new(
+            sutura_domain::model::SourceName::parse("local").expect("a test source is a source"),
+        ),
+        settings(Environment::Development, ""),
+    );
+    let (status, code, detail) = refusal(&app, QUESTION).await;
+    assert_ne!(
+        status,
+        StatusCode::SERVICE_UNAVAILABLE,
+        "a bound that fires again in the same place was reported as an outage: {detail}"
+    );
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(code, "result_too_large");
+    // No figure, because there is none this deployment was told - the bound is the data system's own.
+    // A digit here would be a certified-looking number for a bound nobody measured.
+    assert!(
+        !detail.chars().any(char::is_numeric),
+        "the sentence names a bound nobody measured: {detail}"
+    );
     assert!(
         detail.contains("NOT truncated"),
         "the sentence does not say nothing was cut: {detail}"
