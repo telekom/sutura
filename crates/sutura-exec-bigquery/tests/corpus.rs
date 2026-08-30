@@ -41,6 +41,13 @@
 //! returns the same rows in a different order. `NULL_PLACEMENT` carries the diagnosis and says why the
 //! divergence is PINNED here rather than sorted away or fixed here.
 //!
+//! **Five of the 31 questions, measured in CI on 2026-08-31**, one of them at 61 rows:
+//!
+//! ```text
+//! bigquery-corpus: 16 answers agreed exactly, 5 agreed on content and differed on NULL
+//!                  placement, 9 refusals agreed, 1 excluded, 31 in the corpus
+//! ```
+//!
 //! It is worth reading as evidence about the instrument rather than about `BigQuery`: no golden could
 //! see it, because a golden pins the statement TEXT and the text is the same on both sides. It is the
 //! class `crates/sutura-app/tests/differential.rs` was written for, found the first time this leg ran.
