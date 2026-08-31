@@ -146,7 +146,9 @@ where
             &credentials,
             ToolOutcome::Refusal {
                 reason: RefusalReason::ResultTooLarge {
-                    limit: sutura_domain::plan::MAX_ROWS,
+                    bound: sutura_domain::query::ResultBound::Rows {
+                        limit: sutura_domain::plan::MAX_ROWS,
+                    },
                 },
             },
         ));

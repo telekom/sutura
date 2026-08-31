@@ -52,7 +52,7 @@
 //! already takes the same position where `unavailable` and `at_capacity` share `503`.
 
 use axum::http::StatusCode;
-use sutura_domain::query::RefusalReason;
+use sutura_domain::query::{RefusalReason, ResultBound};
 
 use super::RefusalBody;
 
@@ -156,14 +156,18 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
         // instead is that nothing was truncated to fit - a partial total under a certified name is
         // the failure this refusal exists to prevent - the cap itself, and the two things a caller
         // can narrow.
-        RefusalReason::ResultTooLarge { limit } => (
-            StatusCode::PAYLOAD_TOO_LARGE,
-            "result_too_large",
-            format!(
-                "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
-                 narrow the period or group by fewer dimensions and ask again"
-            ),
-        ),
+        //
+        // **One status and one code for both bounds.** They are what a client branches on, and *too
+        // much data* is one thing to branch on: the remedy is the same narrowing whichever side
+        // measured it, and a second code would make an operator configure a dashboard for two
+        // answers to one question. What differs is what can honestly be SAID, and that is
+        // [`too_much_data`]'s own exhaustive match.
+        //
+        // **Never `503`.** The volume bound is the defect this arm was widened for: a result over
+        // the data system's reply bound used to arrive as `ServiceError::Warehouse` and leave as
+        // `503`, which is what a dead data system looks like - so a caller was told to retry against
+        // a bound that returns the same reply.
+        RefusalReason::ResultTooLarge { bound } => (StatusCode::PAYLOAD_TOO_LARGE, "result_too_large", too_much_data(bound)),
         // 422, and choosing it is the whole point of this variant existing. Exhaustion used to reach
         // a caller as `503 unavailable` out of `ServiceError::Warehouse` - the same status a data
         // system that is down produces - so a caller was told to retry against a configured bound
@@ -288,11 +292,38 @@ pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     )
 }
 
+/// The sentence for a result that was too much data, per bound.
+///
+/// **A function of its own because the two bounds share a status and a code and cannot share a
+/// sentence.** One of them has a number an operator configured and the other has no number at all, so
+/// a single string would either invent a cap for the volume case or drop the cap from the row case.
+///
+/// Exhaustive with no wildcard arm: a third bound has to be answered here rather than inheriting the
+/// row cap's wording, which would be a certified-looking figure for a bound nobody measured.
+fn too_much_data(bound: ResultBound) -> String {
+    match bound {
+        ResultBound::Rows { limit } => format!(
+            "the answer exceeded this service's cap of {limit} rows and was NOT truncated to fit; \
+             narrow the period or group by fewer dimensions and ask again"
+        ),
+        // No figure, because there is none this deployment was told - see `ResultBound::Volume`,
+        // which says at length why inventing one would be worse than leaving it out. So the sentence
+        // says which side the bound belongs to, that nothing was truncated to fit, and that a retry
+        // is not the remedy.
+        ResultBound::Volume => String::from(
+            "the answer was more data than the data system would return at once and was NOT \
+             truncated to fit; the bound is the data system's own and this service is not told what \
+             it is, so narrow the period or group by fewer dimensions and ask again. Retrying it \
+             unchanged returns this same refusal",
+        ),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
     use sutura_domain::model::{DimensionName, Grain, MetricName, SourceName, TableName};
-    use sutura_domain::query::RefusalReason;
+    use sutura_domain::query::{RefusalReason, ResultBound};
 
     use super::refused;
 
@@ -370,7 +401,9 @@ mod tests {
                 "time_range_too_long",
             ),
             (
-                RefusalReason::ResultTooLarge { limit: 10_000 },
+                RefusalReason::ResultTooLarge {
+                    bound: ResultBound::Rows { limit: 10_000 },
+                },
                 StatusCode::PAYLOAD_TOO_LARGE,
                 "result_too_large",
             ),
@@ -478,12 +511,43 @@ mod tests {
         // The case the change was asked for. A caller whose answer was declined for being too large
         // must be able to tell that from the sentence alone: what happened, that nothing was
         // silently cut down to fit, the cap, and which two things they can narrow.
-        let (status, body) = refused(&RefusalReason::ResultTooLarge { limit: 10_000 });
+        let (status, body) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: 10_000 },
+        });
         assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
         let detail = body.detail();
         assert!(detail.contains("10000"), "the sentence does not name the cap: {detail}");
         assert!(detail.contains("NOT truncated"), "{detail}");
         assert!(detail.contains("narrow"), "{detail}");
+    }
+
+    #[test]
+    fn a_result_the_data_system_would_not_return_at_once_is_not_a_dead_data_system() {
+        // THE defect this bound was added for, in the shape the exhaustion test above already has:
+        // a result INSIDE the row cap that the data system will not hand back in one piece used to
+        // arrive as `ServiceError::Warehouse` and leave as `503 unavailable` - the same status
+        // `source_unavailable` is, the one refusal on this surface where retrying is reasonable. So
+        // the caller was told to retry against a bound that returns the same reply.
+        //
+        // Both halves are asserted, because either alone passes on the wrong grouping: the status is
+        // not 503, and the code is the row cap's own - one answer, one thing to branch on.
+        let (status, body) = refused(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Volume,
+        });
+        assert_ne!(status, StatusCode::SERVICE_UNAVAILABLE, "a retry returns the same reply");
+        assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+        assert_eq!(body.code(), "result_too_large");
+        let detail = body.detail();
+        // And the sentence must NOT invent a bound. `ResultBound::Volume` carries no number on
+        // purpose, so a digit here would be a figure this deployment was never told - which is the
+        // one way this arm could be worse than the `503` it replaced.
+        assert!(
+            !detail.chars().any(char::is_numeric),
+            "the sentence names a bound nobody measured: {detail}"
+        );
+        assert!(detail.contains("NOT truncated"), "{detail}");
+        assert!(detail.contains("narrow"), "{detail}");
+        assert!(detail.contains("unchanged"), "{detail}");
     }
 
     #[test]

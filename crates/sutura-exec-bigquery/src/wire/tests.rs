@@ -294,6 +294,44 @@ fn a_page_of_a_larger_result_is_refused() {
 }
 
 #[test]
+fn a_page_of_a_larger_result_is_a_size_bound_and_every_other_failure_is_not() {
+    // The predicate the transport port asks, and the reason the refusal above stops reaching a caller
+    // as `503`. A page token is the endpoint saying *there is more of this than fits one reply*, which
+    // is a governance outcome above the domain port - `ResultTooLarge` carrying `ResultBound::Volume`
+    // - and a retry returns the same page.
+    // Any wire will do: this predicate reads the error and nothing else, which is what makes it
+    // answerable with no socket in reach.
+    let wire = BigQueryWire::new(
+        pinned(),
+        Fixed::holding(Bearer::of(Secret::new("t"), Expiry::At { unix_seconds: 1 })),
+    );
+    assert!(
+        wire.result_did_not_fit(&WireError::<CannotFail>::MoreThanOnePage),
+        "a page of a larger result is a size bound"
+    );
+    // The control, and it is the half that matters more: every other failure has to stay a failure,
+    // because telling a caller not to retry a data system that is briefly unwell is the mistake the
+    // port's own documentation says costs more. `NotComplete` is the sharpest of them - a job that ran
+    // out of time may well finish on a retry.
+    for failure in [
+        WireError::<CannotFail>::NotComplete { named: String::new() },
+        WireError::NoTotal { named: String::new() },
+        WireError::NoSchema { rows: 1 },
+        WireError::NotAScalar { row: 0, column: 0 },
+        WireError::Refused {
+            status: 400,
+            named: String::new(),
+            detail: String::new(),
+        },
+    ] {
+        assert!(
+            !wire.result_did_not_fit(&failure),
+            "{failure:?} was reported as a result too large"
+        );
+    }
+}
+
+#[test]
 fn a_complete_job_that_states_no_total_is_refused_rather_than_read_as_empty() {
     // Reading an absent total as zero would make a delivered-nothing answer and a stated-nothing
     // answer the same value, and only one of those is a result this adapter may certify.

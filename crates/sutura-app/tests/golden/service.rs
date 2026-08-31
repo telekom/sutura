@@ -5,7 +5,7 @@
 //! that implements it, and a test asserting on the text of an HTTP request would prove something
 //! about the test.
 use sutura_domain::plan::MAX_ROWS;
-use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ToolOutcome};
+use sutura_domain::query::{MAX_RANGE_DAYS, Query, RefusalReason, ResultBound, ToolOutcome};
 use sutura_semantic::compile;
 
 use crate::shared::{PROVOKED, question, settings};
@@ -240,7 +240,9 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
     .into_outcome();
     assert_eq!(
         outcome.refusal(),
-        Some(&RefusalReason::ResultTooLarge { limit: MAX_ROWS }),
+        Some(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Rows { limit: MAX_ROWS }
+        }),
         "a result past the row cap must be refused, and refused for being too large"
     );
 
@@ -274,6 +276,55 @@ fn a_result_that_reached_the_row_cap_is_refused_rather_than_silently_truncated()
         panic!("a result of exactly the cap is answerable, not {outcome:?}");
     };
     assert_eq!(rows.rows().len(), cap);
+}
+
+#[test]
+fn a_result_the_data_system_would_not_return_at_once_is_refused_and_not_reported_as_an_outage() {
+    // THE defect the second bound exists for, asserted above the port where the branch is taken. A
+    // result INSIDE the row cap that a data system will not hand back in one piece used to leave here
+    // as `ServiceError::Warehouse`, which the HTTP surface answers `503 unavailable` - the one refusal
+    // where retrying is reasonable per `docs/adr/0005`. It is not an outage and the retry returns the
+    // same reply, so the caller was told to retry against a bound that fires again in the same place.
+    // The identical sentence is in `an_exhausted_working_set_is_a_refusal_and_not_a_transport_failure`
+    // above, which is the point: this is that fix applied to the bound one step further out.
+    //
+    // A fake rather than the real adapter, for the reason the exhaustion test gives: what is decided
+    // here is the branch on the way out. `sutura-exec-bigquery`'s own suite is where the real
+    // predicate is shown answering `true` for a page token and for a delivered count under the total.
+    let validated = crate::support::validated_bundle(crate::adapters::load::<crate::adapters::ReferenceCatalog>());
+    let would_not_fit = sutura_app::Warehouses::of(crate::support::WideForTheWire::new());
+    let outcome = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &would_not_fit,
+        1 << 30,
+    )
+    .expect("a result the data system would not return is a refusal, not an error")
+    .into_outcome();
+    assert_eq!(
+        outcome.refusal(),
+        Some(&RefusalReason::ResultTooLarge {
+            bound: ResultBound::Volume
+        }),
+        "a result the data system would not hand back must be refused as too much data, and say which bound"
+    );
+
+    // The other direction, which is the more dangerous mistake and the reason the port defaults to
+    // `false`: a failure that is NOT that bound must still be an error. A caller told "do not retry"
+    // about a data system that is briefly unwell has been told the wrong thing.
+    let broken = sutura_app::Warehouses::of(crate::support::BrokenEngine::new());
+    let failure = sutura_app::answer(
+        &validated,
+        &question("recurring-revenue-by-region.yaml"),
+        &crate::adapters::a_caller(),
+        &crate::adapters::shared_credential(),
+        &broken,
+        1 << 30,
+    )
+    .expect_err("a failure that is not a size bound is not a refusal");
+    assert!(matches!(failure, sutura_app::ServiceError::Warehouse { .. }), "{failure:?}");
 }
 
 #[test]

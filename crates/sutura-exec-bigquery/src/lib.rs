@@ -611,6 +611,46 @@ where
     // endpoint, and a query refused there for its own resource reasons is not this deployment's
     // configured ceiling refusing a reservation. Answering otherwise would tell a caller not to retry
     // something a retry would have answered.
+
+    /// Whether the endpoint declined to return the whole result at once.
+    ///
+    /// **This IS overridden, and it is the one place this adapter has a governance outcome the port's
+    /// default would report as an outage.** `jobs.query` answers one page - as many rows as fit the
+    /// maximum permitted reply size - so a result under the row cap can still be over the reply
+    /// bound, and both of the shapes that says so used to leave here as `BigQueryError` and reach a
+    /// caller as `503`: a status that invites a retry returning the same page.
+    ///
+    /// Two arms answer `true`, and the third case in the same variant deliberately does not:
+    ///
+    /// - `Endpoint` asks the transport, because the page token is a fact about the wire document and
+    ///   `T::Error` is the transport's own type. See `JobTransport::result_did_not_fit`.
+    /// - `Incomplete` where the delivered count is **below** the reported total: the endpoint handed
+    ///   back part of a job it says is bigger, which is the same bound reached without a page token.
+    /// - `Incomplete` where delivered is **above** the total is NOT this. That is the endpoint
+    ///   contradicting itself, and calling it a governance refusal would tell a caller not to retry a
+    ///   defect a retry might well not repeat.
+    ///
+    /// Exhaustive with no wildcard arm, so a variant added to `BigQueryError` has to be decided here
+    /// rather than inheriting `false` - and `false` is the answer that keeps a transport failure a
+    /// failure, which is the mistake the port's own documentation says costs more.
+    fn result_did_not_fit(&self, error: &Self::Error) -> bool {
+        match *error {
+            BigQueryError::Endpoint { ref cause } => self.transport.result_did_not_fit(cause),
+            BigQueryError::Incomplete { delivered, total } => delivered < total,
+            BigQueryError::Render { .. }
+            | BigQueryError::LegWithoutCombiner { .. }
+            | BigQueryError::NoPrincipalSwitch { .. }
+            | BigQueryError::PresentedDisagreesWithPosture { .. }
+            | BigQueryError::UnmappedType { .. }
+            | BigQueryError::NotAnInteger { .. }
+            | BigQueryError::NotADouble { .. }
+            | BigQueryError::NotABool { .. }
+            | BigQueryError::NotFinite { .. }
+            | BigQueryError::NotADate { .. }
+            | BigQueryError::RowWidth { .. }
+            | BigQueryError::Shape { .. } => false,
+        }
+    }
 }
 
 #[cfg(test)]
