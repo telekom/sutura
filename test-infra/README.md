@@ -67,14 +67,15 @@ principal is allowed to create.
 ## No pulumi cloud: the local file backend
 
 `preview`/`up` never talk to pulumi's cloud or a remote bucket. The state backbone is a
-**`file://` URL** the justfile/workflow sets (`PULUMI_BACKEND_URL` → `<project>/.pulumi`,
-gitignored) and stack-secrets are encrypted by a **`PULUMI_CONFIG_PASSPHRASE`** held in the
-machine's `~/.config/sutura/env.sh` locally and as a `secret` in the `e2e-gcp` environment in
-CI. Both are refused loudly when unset. `--local` as a CLI flag does not exist on the pinned
-pulumi, which is why the backend travels as an environment variable rather than a flag.
+**`file://` URL** the justfile sets (`PULUMI_BACKEND_URL` → `<project>/.pulumi`, gitignored)
+and stack-secrets are encrypted by a **`PULUMI_CONFIG_PASSPHRASE`** held in the machine's
+`~/.config/sutura/env.sh`. Both are refused loudly when unset. `--local` as a CLI flag does
+not exist on the pinned pulumi, which is why the backend travels as an environment variable
+rather than a flag.
 
-CI mints a **per-run stack name** (`e2e-gcp-<run_id>-<run_attempt>`) so parallel runs never
-touch the same local state.
+**Provisioning is an operator step, not CI.** The stack is applied once on a developer machine
+(`just infra-up`, as the operator's gcloud ADC); no CI job provisions, previews or destroys
+stack state. CI only *consumes* the outputs — see "The `bq-test` GitHub environment" below.
 
 Then preview before applying, because this program is a scaffold you run, not a proof. The stack
 name comes from `SUTURA_PULUMI_STACK` (the machine env sets it to the developer's own) and is
@@ -93,38 +94,39 @@ limited SA key does not have. Override the default ADC path with `GOOGLE_ADC`. T
 nix-pinned `pulumi` and the SDK the pixi-locked one; a gate in `config-from-env.sh` fails if the
 two ever disagree.)
 
-The two service-account **private keys are secret outputs** - capture them and store them
-as environment secrets (e.g. GitHub `bq-test` secrets), never in the tree:
-
-```sh
-pulumi stack output --show-secrets dev principal_a_key > /dev/null
-pulumi stack output --show-secrets dev principal_b_key > /dev/null
-```
+To tear the stack down (so a re-`up` rotates every key), run `just infra-down` — `pulumi
+destroy`, as the same ADC, against the same backend. It deletes every resource the stack
+created but leaves the GCP APIs **enabled** (deliberately — see the caveats). Preview it first
+with `pulumi destroy --preview-only`. Re-create afterwards with `infra-up` then `infra-set`.
 
 ## What consumes the outputs
 
-- the two keys become the `bq-test` environment's acceptance and second-service-account
-  secrets, consumed by the `bigquery-acceptance` job;
+- the `bq-test` environment's secrets/vars (see below), consumed by the `bigquery-acceptance`
+  job;
 - `principal_a_email` / `principal_b_email` and the row-grant mapping are what the
   two-principal acceptance cell asserts against;
 - `workload_audience` (and the pool provider) is the (a) end of a served
   `impersonation-at-source` source, once the exchanging broker is attached to one.
 
-## The `e2e-gcp` GitHub environment
+## The `bq-test` GitHub environment
 
-CI provisions this from `.github/workflows/e2e-gcp.yml` using a GitHub **environment
-`e2e-gcp`** - no identifier is committed. Variables hold the resource names and secrets hold
-the provider key:
+The stack's outputs reach the `bigquery-acceptance` CI job through the `bq-test` GitHub
+**environment**. A one-time operator step, `just infra-set`, reads the stack's secret outputs
+and pushes them to that environment, so nothing is committed and the CI credential + resource
+names follow the stack after a re-`up` (which only rotates the keys). `just infra-set` needs
+`gh` authenticated to the repository, and defaults to the `bq-test` environment (override with
+`BQ_TEST_ENV`).
 
-| Kind | Names (`vars` / `secrets`) |
+| Kind | Names |
 | --- | --- |
-| `vars` | `E2E_GCP_PROJECT`, `E2E_GCP_REGION`, `E2E_GCP_DATASET`, `E2E_GCP_TABLE`, `E2E_GCP_GROUP_COLUMN`, `E2E_GCP_WORKLOAD_POOL_ID`, `E2E_GCP_WORKLOAD_PROVIDER_ID`, `E2E_GCP_WORKLOAD_ISSUER_URI`, `E2E_GCP_WORKLOAD_ALLOWED_AUDIENCES` |
-| `secrets` | `E2E_GCP_ADMIN_KEY` (the provider's own service-account key) |
+| `secrets` | `SVC_SUTURUA_BQ_CI` (CI service-account key), `SVC_SUTURUA_BQ_PRINCIPAL_A`, `SVC_SUTURUA_BQ_PRINCIPAL_B` |
+| `vars` | `SUTURA_BQ_DATASET`, `SUTURA_BQ_TABLE`, `SUTURA_BQ_WORKLOAD_AUDIENCE`, `SUTURA_BQ_PRINCIPAL_A_EMAIL`, `SUTURA_BQ_PRINCIPAL_B_EMAIL` |
 
-Since a fork's pull request cannot see an environment's secrets, the job skips there and runs
-in-repo, the same `docs/adr/0017` rule as `bigquery-acceptance`. `config-from-env.sh` maps the
-`SUTURA_GOOGLE_*` variables into stack config and refuses to run on anything missing, so a
-half-configured environment fails loudly instead of previewing a broken stack.
+The stack creates a dedicated **CI service account** (`ci_sa`), granted project-level
+`bigquery.jobUser` and dataset-level `bigquery.dataEditor` on both the stack dataset and the
+`ci_dataset` (the already-populated acceptance dataset), so the acceptance/corpus legs can run
+under it. A fork's pull request cannot see an environment's secrets, so `bigquery-acceptance`
+skips there and runs in-repo, the same `docs/adr/0017` rule.
 
 ## Caveats
 
@@ -137,5 +139,8 @@ half-configured environment fails loudly instead of previewing a broken stack.
 - A row access policy is per-table; the grants here are the test-grade stand-in for a
   real entitlements mapping, and the exact row values are config (`principal_a_rows` /
   `principal_b_rows`), not logic. The one prerequisite outside the program is that the
-  applying credential holds `serviceusage.services.enable`, since the program's own
-  API-bootstrap `Service` resources turn the APIs on.
+  applying credential (the operator's ADC) holds `serviceusage.services.enable`, since the
+  program's own API-bootstrap `Service` resources turn the APIs on.
+- **An `infra-down` leaves the APIs enabled** (`disable_on_destroy=False` on the `Service`
+  resources): GCP refuses to disable some APIs that still hold resources, and re-enabling is
+  slower than leaving it. Re-running `up` reuses them.

@@ -2,7 +2,7 @@
 # Map the deployment's environment into this stack's Pulumi config, WITHOUT hardcoding any
 # identifier in the tree. Every `SUTURA_GOOGLE_<KEY>` variable becomes a
 # `sutura-google-test-infra:<key>` config value; the project and the pool come from the
-# GitHub `e2e-gcp` environment, never from a committed file.
+# operator's machine env, never from a committed file.
 #
 # The Pulumi provider's OWN credentials come from `GOOGLE_APPLICATION_CREDENTIALS`, which the
 # workflow points at a gitignored file written from a secret - not something this script places.
@@ -11,7 +11,7 @@
 #   SUTURA_GOOGLE_PROJECT=... SUTURA_GOOGLE_WORKLOAD_POOL_ID=... ... bash config-from-env.sh [--stack NAME]
 #
 # `require` keys are baked into the Pulumi program; the script refuses to run without them so a
-# half-configured `e2e-gcp` environment fails loudly rather than previewing a broken stack.
+# half-configured stack fails loudly rather than previewing a broken stack.
 set -euo pipefail
 
 cd "$(dirname "$0")"
@@ -76,7 +76,7 @@ for pair in "${REQUIRED[@]}"; do
   var="SUTURA_GOOGLE_${cap}"
   value="${!var:-}"
   if [ -z "$value" ]; then
-    echo "e2e-gcp: no \$SUTURA_GOOGLE_${cap} - this stack cannot be previewed/up'd without it" >&2
+    echo "infra: no \$SUTURA_GOOGLE_${cap} - this stack cannot be previewed/up'd without it" >&2
     exit 1
   fi
   pulumi config set --stack "$STACK" "sutura-google-test-infra:${key}" "$value"
@@ -93,4 +93,4 @@ for var in $(env | sed -n 's/^SUTURA_GOOGLE_\([A-Z0-9_]*\)=.*/\1/p'); do
   fi
 done
 
-echo "e2e-gcp: stack $STACK configured from the environment (nothing printed here is disclosed)"
+echo "infra: stack $STACK configured from the environment (nothing printed here is disclosed)"
