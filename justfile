@@ -439,6 +439,37 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
+# The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
+#
+# **Smoke rather than acceptance, and the file says so in its first line.** It submits ONE hand-built
+# `SUM` over a two-column table a developer supplies, so it exercises none of the constructs the parse
+# check was measured to be blind about. `docs/adr/0017` specifies a wider leg - the corpus, compared
+# against the engine - and that is #78's importer shape and is not built. `docs/adr/0017` decided that: this repository is public, so a workflow secret is
+# unavailable to a fork's pull request, and the nix check sandbox has no network at all. So the only
+# place acceptance evidence for this dialect exists is a developer's own terminal.
+#
+# `--run-ignored only` is the whole point: the three tests in
+# `crates/sutura-exec-bigquery/tests/acceptance.rs` carry `#[ignore]` so every other task skips
+# them. **An unconfigured run of THIS recipe FAILS rather than skipping**, naming the variable that
+# is missing - because `#[ignore]` already means nothing arrives here by accident, so typing this is
+# a statement of intent and three green ticks against no project would be a green nobody asked for.
+# The first version of that fixture did skip, and did exactly that.
+#
+# Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
+# are in that file's header; their values belong on the machine, which is what `.envrc` already
+# sources a file outside this repository for.
+
+# Ask a real BigQuery project ONE question. Opt-in smoke leg, not a gate; see the module header.
+bigquery-acceptance:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    # shellcheck source=nix/stable-env.sh
+    source nix/stable-env.sh
+    echo "bigquery-acceptance: scope sutura-exec-bigquery - the acceptance leg only, against a real project."
+    echo "bigquery-acceptance: this is NOT a gate. Run \`just test\` for the whole workspace's suite."
+    echo "bigquery-acceptance: CI runs the same leg through \`nix run .#bigquery-acceptance\`, in its own job."
+    cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only
+
 # ------------------------------------------------------------------ dev flow ---
 
 # This worktree's service ports and compose project.

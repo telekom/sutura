@@ -821,14 +821,19 @@ Named rather than implied, because an absence that reads as an oversight gets as
 - **No metrics or trace export.** A span per request exists and is rendered into the log, which is
   what makes one request's lines findable. Exporting it is a decision about a backend, a sampling
   rate and an egress path, and none of those has been made.
-- **No client TLS, and nothing to attach it to.** Mutual TLS *to* a metadata provider or *to* a data
-  source is a real requirement and it has no consumer yet: the only `SemanticCatalog` adapter reads a
-  directory, both `Warehouse` adapters read local files, and no crate here holds an HTTP client, a
-  socket or a URI type. A configuration group for it would be a port with no adapter, which
-  `AGENTS.md` forbids for the reason it forbids a trait with no implementor. It arrives with the
-  first networked adapter - a `-postgres` or `-clickhouse` `Warehouse`, or a `-datahub`
-  `SemanticCatalog` - and the parsing and validation the inbound listener already does is what it
-  will be built out of.
+- **No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.** It used to say no
+  crate here holds an HTTP client, and that stopped being true: `sutura-exec-bigquery`'s default-off
+  `wire` feature holds one - `ureq` over rustls, with a compiled-in root set and `https_only` - so
+  outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
+  *configure* it: no trust-store setting, no client certificate, no pinning, and no configuration
+  group at all. Two reasons, and the second is why it is not simply an omission. There is nothing to
+  attach one to yet: no composition root links that crate, `sutura-serve` refuses `kind: bigquery`
+  by name, and the two adapters a shipped binary can open read local files. And for that endpoint
+  the *absence* of configuration is the safer default - a compiled-in root set means the same binary
+  trusts the same authorities on every machine, and a settable host is a settable place to send a
+  bearer token, which `docs/adr/0018` records as a deliberate trade against local testability. A
+  configuration group arrives with the first networked adapter a deployment can actually open, and
+  the parsing and validation the inbound listener already does is what it will be built out of.
 - **No mutual TLS inbound either.** The listener above presents a certificate and verifies no
   client. Client-certificate authentication would be an identity, and this service has none to
   attach one to - see the first section.

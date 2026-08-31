@@ -6,9 +6,11 @@
 //! endpoint would never hand back on demand. `Conventions` asks for fakes and not mocked HTTP; this is
 //! why.
 //!
-//! What no test here can do is prove the WIRE, because there is no implementor of
-//! [`JobTransport`](crate::transport::JobTransport) that speaks to `BigQuery`. The crate
-//! documentation says so, and `docs/adr/0017` records what a test could run against instead.
+//! What no test here can do is prove the WIRE. An implementor that speaks to the endpoint now exists,
+//! [`crate::wire`], behind the default-off `wire` feature, and its own suite proves that it builds the
+//! request it says it builds and reads the answer it says it reads, over documents that are not the
+//! service's. Nothing in this repository has sent a statement to a real project; `docs/adr/0017`
+//! records what a test could run against instead, and `docs/adr/0018` records that it has not been.
 
 use core::cell::RefCell;
 
@@ -508,6 +510,50 @@ fn a_federated_leg_is_refused_because_there_is_nothing_above_it_to_combine_legs(
         other => panic!("expected a leg refusal, got {other:?}"),
     }
     assert!(warehouse.transport.seen.borrow().is_empty());
+}
+
+#[test]
+fn a_schema_this_adapter_cannot_map_is_refused_whatever_the_data_happened_to_be() {
+    // **The hole review found, and it was in the comment as well as in the code.** `cell` answers a
+    // null BEFORE it reads the column's type, which is right for a null and wrong for the schema: a
+    // result with NO rows never reaches `cell` at all, and a result whose unmapped column happens to
+    // be entirely null reaches it and is answered. So a `TIMESTAMP` column came back as a successful
+    // empty `RowSet`, and whether this adapter maps a type depended on what the data happened to be.
+    //
+    // Both shapes, because they were reachable for two different reasons.
+    let empty = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("TIMESTAMP")))],
+        Vec::new(),
+        0,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&empty).expect_err("a zero-row unmapped schema is refused") {
+        BigQueryError::UnmappedType { ref column, ref named } => {
+            assert_eq!(column, "at");
+            assert_eq!(named, "TIMESTAMP");
+        }
+        other => panic!("a zero-row unmapped schema was mapped to {other:?}"),
+    }
+
+    let all_null = JobRows::of(
+        vec![Field::of(String::from("at"), FieldType::Unmapped(String::from("BYTES")))],
+        vec![vec![Cell::Null], vec![Cell::Null]],
+        2,
+    );
+    match BigQueryWarehouse::<Recording>::rows(&all_null).expect_err("an all-null unmapped column is refused") {
+        BigQueryError::UnmappedType { ref named, .. } => assert_eq!(named, "BYTES"),
+        other => panic!("an all-null unmapped column was mapped to {other:?}"),
+    }
+
+    // A malformed type name is the same case rather than a third one: an empty `type` decodes to
+    // `Unmapped("")`, so it is named as what it is rather than read as a column that answers.
+    let malformed = JobRows::of(vec![Field::of(String::from("at"), FieldType::parse(""))], Vec::new(), 0);
+    assert!(
+        matches!(
+            BigQueryWarehouse::<Recording>::rows(&malformed),
+            Err(BigQueryError::UnmappedType { .. })
+        ),
+        "an empty type name was accepted"
+    );
 }
 
 /// One fact leg, for the arm that refuses one.

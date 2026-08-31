@@ -768,6 +768,32 @@
           '');
         };
 
+        # `nix run .#bigquery-acceptance` - the one leg that talks to a real cloud service.
+        #
+        # **An app and NOT a check, and that is the whole design.** `checks.*` run in the nix
+        # sandbox, which has no network at all, so this could not be a check even with a
+        # credential. An app runs outside it and therefore can reach the endpoint - which also
+        # means nothing about it is hermetic and it is not part of `just validate`.
+        #
+        # It supplies the pinned cargo and `cargo-nextest` for the reason `apps.deny` gives at
+        # length: `nix run` puts only the named program on PATH, so a run that shelled out to an
+        # unpinned host cargo would be a second toolchain.
+        #
+        # **What it needs from its environment, and it fails loudly without any of it:**
+        # `GOOGLE_APPLICATION_CREDENTIALS` at a credential file, plus `SUTURA_BQ_DATASET` and
+        # `SUTURA_BQ_TABLE`. The billing project comes from a service-account key's own
+        # `project_id`, so CI configures no project variable. `--run-ignored only` is what reaches
+        # the three `#[ignore]`d tests; every other task skips them.
+        apps.bigquery-acceptance = {
+          type = "app";
+          program = builtins.toString (pkgs.writeShellScript "sutura-bigquery-acceptance" ''
+            export PATH="${rustToolchain}/bin:${pkgs.cargo-nextest}/bin:$PATH"
+
+            ${cargoLinkEnv}
+            ${cargoWarmStart}
+            exec cargo nextest run -p sutura-exec-bigquery --all-features --run-ignored only "$@"
+          '');
+        };
         # `nix run .#crap` - the CRAP gate, outside the sandbox.
         #
         # `checks.crap` above is what CI runs and is the authority. This app exists for the

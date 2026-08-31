@@ -22,18 +22,26 @@
 //! as epoch-seconds text the `Date` arm cannot parse, so either comes back `Unmapped` and fails the
 //! answer, which is the correct and loud outcome. A time column therefore has to be a `DATE` here.
 //!
-//! What it does not contain is the **wire**: [`transport::JobTransport`] is the seam, and no
-//! implementor of it ships. Two reasons, and the second is the one that decides it:
+//! The **wire** - one [`transport::JobTransport`] that speaks to the endpoint - is [`wire`], behind
+//! the default-off `wire` feature. `docs/adr/0018` is the decision that produced it and prices what
+//! it costs; the two reasons it was absent are answered rather than repealed:
 //!
-//! 1. An outbound HTTP stack plus a credential library is a large dependency addition to a workspace
-//!    that cross-compiles to musl and holds an exact licence allowlist.
-//! 2. **Nothing in this repository can verify it.** There is no `BigQuery` in a container, and
-//!    `docs/adr/0017` records that the acceptance leg runs on a developer's own project or nowhere.
-//!    An unverified network client that looks like the feature is worse than a seam that says it is
-//!    one - which is this repository's own rule about an overstated claim, applied to itself.
+//! 1. The dependency addition turned out to be **zero new packages in `Cargo.lock`**, measured:
+//!    `ureq` at the resolved version and features is already in the graph under `libduckdb-sys`. The
+//!    feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
+//!    decision a composition root makes in a manifest line.
+//! 2. **Nothing in CI can verify it; a developer's own project now has.** On 2026-08-30 the three
+//!    `#[ignore]`d tests in `tests/acceptance.rs` passed against a real dataset under a
+//!    service-account key - the first statement this repository generated to be accepted by
+//!    `BigQuery`. **What that is, exactly:** one hand-built `SUM` over a two-column fixture, so it
+//!    says nothing about a join, `COUNT(DISTINCT`, `CASE WHEN`, a `NULLIF` ratio or `ISOWEEK` - and
+//!    the last is one of the two constructs `docs/adr/0017` measured the parse check to be blind
+//!    about. The corpus-wide leg that record specifies is not built.
 //!
-//! So this crate is in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited as an
-//! invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name.
+//! So this crate is still in AGENTS.md's *Built And Not Wired* section, and nothing here may be cited
+//! as an invariant. `sutura-serve` links no `BigQuery` adapter and refuses `kind: bigquery` by name,
+//! and the `data_systems:` axis of the golden matrix still gains no entry - a cell that has never
+//! executed reads as coverage.
 //!
 //! # Identity
 //!
@@ -66,6 +74,8 @@ use sutura_sql::generate::generate;
 use sutura_sql::{Dialect, GenerateError, GeneratedQuery};
 
 pub mod transport;
+#[cfg(feature = "wire")]
+pub mod wire;
 
 use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
 
@@ -294,8 +304,12 @@ where
         let column = || String::from(field.name());
         let text = match value {
             // A null is a null whatever the column is declared as, so it is answered before the type
-            // is read - which also means an unmapped type holding only nulls is still an error, since
-            // the schema is what this adapter cannot honour.
+            // is read. **A comment here used to conclude from that "an unmapped type holding only
+            // nulls is still an error", and the code did the opposite** - which is why the schema is
+            // now checked by [`Self::mappable`] before any row is read. This arm is the belt: it
+            // cannot fire for a result that came through `rows`, and it stays because `cell` is
+            // reachable from a test on its own and because a null-answered type would be a wrong
+            // number rather than a refusal.
             Cell::Null => return Ok(Value::Null),
             Cell::Text(text) => text,
         };
@@ -340,11 +354,37 @@ where
         }
     }
 
+    /// Every column the endpoint declared is one this adapter maps, or the first one that is not.
+    ///
+    /// **A schema-wide pass, and it runs BEFORE any row is read - which is the whole point.** The
+    /// per-cell check in [`Self::cell`] can only see a column that HOLDS something: a null is answered
+    /// before the type is read, so a result with no rows never reached the check at all and a result
+    /// whose unmapped column happened to be entirely null passed it. A `TIMESTAMP` or a `BYTES` column
+    /// therefore came back as a successful `RowSet`, and whether this adapter mapped a type depended on
+    /// what the data happened to be. Review found it; a test pins both shapes.
+    ///
+    /// It reads the SCHEMA and nothing else, so the answer does not vary with the page.
+    fn mappable(answered: &JobRows) -> Mapped<(), T::Error> {
+        for field in answered.fields() {
+            if let FieldType::Unmapped(ref named) = *field.kind() {
+                return Err(BigQueryError::UnmappedType {
+                    column: String::from(field.name()),
+                    named: named.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// A job's result, as a domain result set.
     fn rows(answered: &JobRows) -> Mapped<RowSet, T::Error> {
-        // The first check, because it is the cheapest and the one that refuses a wrong number before
-        // any cell work. A page whose delivered count is not what the endpoint reported is refused
-        // here rather than read as *under the cap, not truncated* - see `BigQueryError::Incomplete`.
+        // The schema first, because it is the one check whose answer does not depend on the rows -
+        // see `Self::mappable`. A page this adapter could not read whatever it contained is refused
+        // before its count is compared against anything.
+        Self::mappable(answered)?;
+        // Then the count, which refuses a wrong number before any cell work. A page whose delivered
+        // count is not what the endpoint reported is refused here rather than read as *under the cap,
+        // not truncated* - see `BigQueryError::Incomplete`.
         if answered.rows().len() != answered.total_rows() {
             return Err(BigQueryError::Incomplete {
                 delivered: answered.rows().len(),
