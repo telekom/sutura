@@ -3367,13 +3367,25 @@ stated.</p>
 <p>The set comparison stays, ahead of the order comparison, and that is deliberate: <em>different rows</em> is a
 wrong number and <em>same rows, different order</em> is a generator that stopped saying how to sort them. One
 assertion for both would report the first as the second.</p>
-<h3 id="what-this-amendment-does-not-yet-claim">What this amendment does NOT yet claim<a class="headerlink" href="#what-this-amendment-does-not-yet-claim" title="Permanent link">&para;</a></h3>
-<p><strong>The exact-order comparison has not been measured green against the endpoint from a developer's
-terminal.</strong> <code>just validate</code>'s sandbox has no network, so the corpus leg compiles and is skipped there;
-the run that decides it is the <code>bigquery-acceptance</code> job. The prediction is that the five questions
-which differed on null placement now agree exactly and the tally reads <em>21 agreed exactly, 9 refusals
-agreed, 1 excluded, 31 in the corpus</em> - and a prediction is what it is until that job is green. Nothing
-else in the third amendment's measurements is re-opened by this change.</p>
+<h3 id="measured-and-the-prediction-is-spent">Measured, and the prediction is spent<a class="headerlink" href="#measured-and-the-prediction-is-spent" title="Permanent link">&para;</a></h3>
+<p>This section was written as a prediction and is now a measurement, which is the only reason it is worth
+reading: <strong>the <code>bigquery-acceptance</code> job is green on 2026-08-31 with the exact-order comparison in
+place</strong>, and the tally is the one predicted to the number:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>                 31 in the corpus
+</span></code></pre></div>
+<p>All five questions the third amendment named now agree <strong>exactly</strong> - <code>recurring-revenue-by-region-and-family</code>
+at 19 rows, <code>recurring-revenue-by-region</code> at 6, <code>recurring-revenue-by-segment</code> at 4,
+<code>revenue-per-customer-by-segment</code> at 4 and <code>subscription-months-by-region-and-term</code> at 61 - so the 16
+that agreed exactly plus those 5 is the 21 above. 22 statements accepted, 9 refused before rendering and
+6 anchors reproduced are unchanged from the third amendment, which is the other half of the claim: this
+change moved row ORDER and nothing else.</p>
+<p><strong>What it still does not claim, and it is unchanged by the measurement.</strong> <code>just validate</code>'s sandbox has
+no network, so the corpus leg compiles and is skipped there - a developer's terminal is not where this
+is decided, and the <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains no
+entry for the reason the third amendment gives. <code>ClickHouse</code> and <code>Postgres</code> null placement is still
+answered by nothing: both are rendered and parse-checked and neither has ever executed, so their arm of
+the table above is read off documented behaviour rather than measured. And identity is untouched.</p>
 
 
 
