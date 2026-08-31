@@ -199,6 +199,11 @@ in
   # breaks the entire shell - too high a price for a convenience tool.
   env.NPM_CONFIG_PREFIX = "${config.devenv.state}/npm";
 
+  # The nix-pinned pulumi version, exported so the dev shell can see it. The pixi `infra` env's
+  # SDK is pinned to this SAME version (see pixi.toml) - nix is the authority for the number,
+  # and this env var is the readable witness that the two stay equal.
+  env.PULUMI_VERSION = "${pkgs.pulumi.version}";
+
   # A broken pin should take two seconds to diagnose, not a mid-CI failure.
   enterShell = ''
     export PATH="$NPM_CONFIG_PREFIX/bin:$PATH"

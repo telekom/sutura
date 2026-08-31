@@ -104,7 +104,11 @@ python = ">=3.13,<3.14"
 pip = "*"
 
 [feature.infra.pypi-dependencies]
-pulumi = ">=3,<4"
+# EXACT, and it MUST equal the nix-pinned pulumi CLI (`pkgs.pulumi`, exposed in the dev shell as
+# $PULUMI_VERSION and built by CI as `nix build .#pulumi`). The CLI and the SDK it drives have to
+# agree; nix is the authority for the version, so this pin is set to nix's value by hand and the
+# two are bumped together. The pypi `pulumi` package is the SDK; the CLI is the nix binary.
+pulumi = "==3.255.0"
 # >=9 : 7.x shipped no bigquery.RowAccessPolicy, so the two-principal isolation could only be
 # applied with a SEPARATE gcp CLI. 9.x exposes it as a first-class resource, keeping `up`
 # self-contained. `gcp.projects.Service` (also used for API bootstrap) exists in both.
