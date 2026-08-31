@@ -91,7 +91,10 @@ fn scan(code: &str, out: &mut Vec<Violation>) {
         };
         for lint in FORBIDDEN {
             if body_matches(body, lint) {
-                out.push(Violation { line: line_of(&blanked, at), lint });
+                out.push(Violation {
+                    line: line_of(&blanked, at),
+                    lint,
+                });
             }
         }
     }
@@ -200,7 +203,7 @@ fn line_of(blanked: &str, at: usize) -> usize {
 
 #[cfg(test)]
 mod tests {
-    use super::{FORBIDDEN, attr_end, scan, Violation};
+    use super::{FORBIDDEN, Violation, attr_end, scan};
 
     fn lints(haystack: &str) -> Vec<(&'static str, usize)> {
         let mut found = Vec::new();
@@ -241,7 +244,10 @@ mod tests {
     #[test]
     fn a_comment_naming_the_class_is_not_caught() {
         // The real confound: prose that merely names the attribute must not report.
-        let code = format!("// No `#[expect(clippy::{})]` any more, and that is worth a line\nfn f() {{}}\n", FORBIDDEN[0]);
+        let code = format!(
+            "// No `#[expect(clippy::{})]` any more, and that is worth a line\nfn f() {{}}\n",
+            FORBIDDEN[0]
+        );
         assert!(lints(&code).is_empty());
     }
 
@@ -253,7 +259,10 @@ mod tests {
 
     #[test]
     fn a_multiline_expect_is_caught_on_its_real_line() {
-        let a = format!("#[expect(\n    clippy::{},\n    reason = \"enough\"\n)]\nfn f() {{}}", FORBIDDEN[1]);
+        let a = format!(
+            "#[expect(\n    clippy::{},\n    reason = \"enough\"\n)]\nfn f() {{}}",
+            FORBIDDEN[1]
+        );
         assert_eq!(lints(&a), vec![(FORBIDDEN[1], 1)]);
     }
 
