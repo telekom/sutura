@@ -121,11 +121,14 @@ half-configured environment fails loudly instead of previewing a broken stack.
 
 ## Caveats
 
-- **Unverified until `pulumi preview`.** This program is authored blind against the
-  pulumi-gcp API; `preview` is the first thing that checks the resource shapes and the
-  pinned `requirements.txt` version is the thing to re-check against the changelog first.
+- **Preview is green against pulumi_gcp 9.35.1** (`+14 to create`: the two API-enabling
+  `Service`s, the two principals and keys, the dataset/table, the two `RowAccessPolicy`s,
+  and the WIF pool/provider). What `preview` cannot check is the live endpoint: the first
+  `up` against a real project is still the proof.
 - The two-principal cell needs the table **populated** with at least one row per grouping
-  value and the row access policy in place before it means anything.
+  value before it means anything.
 - A row access policy is per-table; the grants here are the test-grade stand-in for a
   real entitlements mapping, and the exact row values are config (`principal_a_rows` /
-  `principal_b_rows`), not logic.
+  `principal_b_rows`), not logic. The one prerequisite outside the program is that the
+  applying credential holds `serviceusage.services.enable`, since the program's own
+  API-bootstrap `Service` resources turn the APIs on.
