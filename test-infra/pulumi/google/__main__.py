@@ -172,6 +172,26 @@ gcp.bigquery.RowAccessPolicy(
      opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
 )
 
+# To RUN a query the principals need `bigquery.jobUser` (submit jobs) and `bigquery.dataViewer`
+# (read the table at all); the two row access policies above then narrow each to its own rows.
+# Without these a job submitted as principal A/B is refused before the RLS filter is ever reached,
+# which is why the two-principal cell needed them added alongside the policies.
+for tag, sa in (("principal-a", sa_a), ("principal-b", sa_b)):
+    gcp.projects.IAMMember(
+        f"{tag}-jobuser",
+        project=project,
+        role="roles/bigquery.jobUser",
+        member=sa.member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+    )
+    gcp.bigquery.DatasetIamMember(
+        f"{tag}-dataviewer",
+        dataset_id=dataset.dataset_id,
+        role="roles/bigquery.dataViewer",
+        member=sa.member,
+        opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
+    )
+
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never
 # written into the repository.
 key_a = gcp.serviceaccount.Key(
