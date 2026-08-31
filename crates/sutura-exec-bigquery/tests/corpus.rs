@@ -31,7 +31,10 @@
 //! - **A registered data system.** The `data_systems:` axis of
 //!   `crates/sutura-app/tests/adapters/mod.rs` still gains no entry, and that registry's own rule is
 //!   why: a cell in it runs inside `just test`, and this one cannot - the nix sandbox has no network.
-//! - **That a shipped binary would do any of this.** No composition root links this crate.
+//! - **That a SHIPPED binary would do any of this.** The branch below this one gives the adapter a
+//!   composition root, so *nothing links the crate* has stopped being true - but it is behind a
+//!   default-off feature and no published artifact turns it on, so what this leg exercises is still
+//!   the adapter and not a deployment. AGENTS.md's *Layout* row is the authority on that distinction.
 //!
 //! # What its first real run FOUND, which is the point of having it
 //!
