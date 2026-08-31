@@ -375,6 +375,28 @@ pub trait JobTransport {
     /// Returns nothing on success: what a caller may conclude is *the endpoint accepted this*, and a
     /// dry run's byte estimate is not something any decision above here reads.
     fn validate(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
+
+    /// Runs a statement that produces no result set.
+    ///
+    /// **A third method rather than a use of [`Self::run`], and it is behind the `fixtures` feature
+    /// so the SHIPPED port stays at the two questions above.** The header of this module says the
+    /// port has two methods because the port above it has two questions with different costs; this is
+    /// a third question that only the corpus acceptance leg asks - *put these rows in this table* -
+    /// and nothing a deployment links can ask it.
+    ///
+    /// **Why it cannot be [`Self::run`].** `run`'s contract is a COMPLETE result set: the wire refuses
+    /// an answer whose `totalRows` is absent or does not equal the delivered count, which is the
+    /// mechanism that stops a first page reading as a whole answer. A `CREATE OR REPLACE TABLE` job
+    /// has no result set for that check to be about, and what its answer document carries is not
+    /// something this repository has verified - so routing a `CREATE` through `run` would be relying
+    /// on a response shape nobody here has measured, in the one place a failure is a silently
+    /// half-loaded fixture. This method requires the job to have COMPLETED and requires nothing else.
+    ///
+    /// It still takes a [`JobRequest`], whose constructor is `pub(crate)`, so this is not the string
+    /// entry point the module header says does not exist: the statement is rendered by
+    /// [`crate::importer`] from a committed CSV whose every cell was parsed first.
+    #[cfg(feature = "fixtures")]
+    fn apply(&self, request: &JobRequest<'_>) -> Result<(), Self::Error>;
 }
 
 #[cfg(test)]

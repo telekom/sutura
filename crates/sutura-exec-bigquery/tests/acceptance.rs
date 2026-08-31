@@ -33,12 +33,22 @@
 //! reach: no second dataset and no second project, because the acceptance credential's IAM refuses
 //! `datasets.create`.
 //!
-//! **The leg the records ask for is a different piece of work**, and #78's Postgres importer already
-//! has its shape: load the example fixtures into the dataset, run the 21 corpus questions, compare
-//! rows against the engine. Every sentence in this repository that promised *the corpus* has been
-//! narrowed to what this file does - `docs/adr/0017`'s amendment, `docs/adr/0018`, `AGENTS.md`,
-//! `docs/architecture.md` and both plan pages - because a record that says "the corpus" over a test
-//! that submits one statement is the overstated-claim defect this repository treats as a defect.
+//! **The leg the records ask for is a different piece of work, and it is now BUILT - in
+//! `tests/corpus.rs`, beside this one.** It is #78's importer shape pointed at a dataset: the example
+//! fixtures loaded into four tables, the corpus questions run, the rows compared against the engine's.
+//! So the three bullets above are covered there and not here, and the two files stay apart on purpose -
+//! they prove different things over different fixtures, and a reader who runs one should not have to
+//! read the other to know which claim they got.
+//!
+//! What this file keeps for itself is the smallest round trip there is, which is the right shape for a
+//! first diagnostic: two columns, one `SUM`, and three qualification shapes with a control. When the
+//! corpus leg fails, this one is what says whether the endpoint is reachable at all.
+//!
+//! Every sentence in this repository that promised *the corpus* over THIS file was narrowed to what it
+//! does - `docs/adr/0017`'s amendment, `docs/adr/0018`, `AGENTS.md`, `docs/architecture.md` and both
+//! plan pages - because a record that says "the corpus" over a test that submits one statement is the
+//! overstated-claim defect this repository treats as a defect. `docs/adr/0017`'s second amendment is
+//! where the corpus leg's own claim is stated, with its own limits.
 //!
 //! # Why it is not in any gate, and what a green `just validate` therefore does not mean
 //!
@@ -59,13 +69,14 @@
 //!
 //! **Where this leg deliberately DIFFERS from the compose tier: an unconfigured run FAILS here
 //! rather than skipping.** `#[ignore]` already means nothing reaches these tests by accident, so the
-//! only way in is to ask for them by name - and a developer who asked for acceptance and got three
-//! green ticks against no project has been told the opposite of the truth. [`Fixture`] carries the
-//! full argument, including the fact that the skipping version was written first and did exactly
+//! only way in is to ask for them by name - and a developer who asked for acceptance and got green
+//! ticks against no project has been told the opposite of the truth. `tests/support/mod.rs` carries
+//! the full argument, including the fact that the skipping version was written first and did exactly
 //! that.
 //!
-//! So the evidence a run of this produces lives in a developer's terminal and nowhere else, and until
-//! somebody pastes one, **nothing in this repository has sent a statement to a real dataset.**
+//! Since `docs/adr/0017`'s amendment, CI reaches this in its own `bigquery-acceptance` job, which
+//! skips only on a fork's pull request - the runner there cannot see an environment's secrets, which
+//! is *skip where the runner had no choice, fail where somebody typed the command*.
 //!
 //! # How to run it
 //!
@@ -73,24 +84,26 @@
 //! just bigquery-acceptance
 //! ```
 //!
-//! Which needs, once: `just gcloud-login`, and three values in the developer's own environment.
-//! **Their names are here and their values are not, and will not be** - a project id is one of the
-//! things this repository does not write down, and `.envrc` already sources a file under the user's
-//! own configuration directory for exactly this class of value.
+//! Which runs BOTH legs, this one and the corpus. It needs, once: `just gcloud-login`, and up to
+//! three values in the developer's own environment. **Their names are here and their values are not,
+//! and will not be** - a project id is one of the things this repository does not write down, and
+//! `.envrc` already sources a file under the user's own configuration directory for exactly this class
+//! of value.
 //!
-//! | Variable | What it names |
-//! | --- | --- |
-//! | `SUTURA_BQ_BILLING_PROJECT` | the project the job is billed to, and its quota project |
-//! | `SUTURA_BQ_DATASET` | the dataset an unqualified table resolves in, inside that project |
-//! | `SUTURA_BQ_TABLE` | a table in it with a `DATE` column `day` and an `INT64` column `amount` |
+//! | Variable | What it names | Which leg |
+//! | --- | --- | --- |
+//! | `SUTURA_BQ_BILLING_PROJECT` | the project the job is billed to; **only where the credential names none** | both |
+//! | `SUTURA_BQ_DATASET` | the dataset an unqualified table resolves in, inside that project | both |
+//! | `SUTURA_BQ_TABLE` | a table in it with a `DATE` column `day` and an `INT64` column `amount` | this one |
 //!
 //! The table's shape is two columns because that is the smallest thing a real plan can be asked
 //! about: a time bucket needs a `DATE`, and a measure needs something to sum. **A `TIMESTAMP` will
 //! not do** - `transport::FieldType` maps `DATE` and refuses `TIMESTAMP`, which the crate
-//! documentation states as the limit it is.
+//! documentation states as the limit it is. The corpus leg needs no such table: it CREATES four, from
+//! the committed example CSVs.
 //!
 //! **The job is bounded before it is sent**, which matters more here than anywhere because this is
-//! the one path that spends real money: [`bounds`] sets a deadline and a `maximumBytesBilled`
+//! the one path that spends real money: `support::bounds` sets a deadline and a `maximumBytesBilled`
 //! ceiling, and a job that would scan past the ceiling fails at the service without being charged.
 //! A developer pointing this at a large table gets a refusal rather than an invoice.
 
@@ -105,10 +118,15 @@
 // compiled with `--test`, so the gate is true here and nothing below is conditional in practice -
 // `crates/sutura-runtime/tests/blocking_span.rs` and `crates/sutura-sql/tests/adversarial_findings.rs`
 // carry the same wrapper for the same reason.
+// The environment, the bounds and the composition, shared with `tests/corpus.rs`. `bounds()` in
+// particular is the one path in this repository that spends real money, and a second copy of it that
+// drifted by a digit would be a leg that bills differently from the one a reviewer read.
+#[cfg(test)]
+mod support;
+
 #[cfg(test)]
 mod tests {
     use sutura_domain::calendar::{Date, TimeRange};
-    use sutura_domain::identity::Presented;
     use sutura_domain::model::{
         Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
     };
@@ -116,99 +134,33 @@ mod tests {
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
         StatementTables,
     };
-    use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
-    use sutura_exec_bigquery::BigQueryWarehouse;
-    use sutura_exec_bigquery::transport::{DatasetId, ProjectId};
-    use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
-    use sutura_exec_bigquery::wire::{BigQueryWire, BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
 
-    /// What every job this leg submits is bounded by.
-    ///
-    /// **The deadline is DERIVED from `server.request_timeout_seconds` rather than copied from it**,
-    /// which is the correction review forced. Thirty seconds is the shipped default, and thirty seconds
-    /// is NOT what one call may spend: one answer calls the port twice and each call pays connection
-    /// setup on top of its own budget, so the number a caller wants is the share -
-    /// `QueryDeadline::within_request_timeout` does that arithmetic once, here and in whichever
-    /// composition root links this crate.
-    ///
-    /// **1 GiB because this leg is the one path that spends real money.** A developer or a CI job
-    /// pointed at a partitioned table with years of history gets `bytesBilledLimitExceeded` from the
-    /// service, unbilled, instead of discovering the scan on an invoice. Nothing else in this
-    /// repository bounds bytes scanned - the row cap bounds rows returned, not bytes read.
-    fn bounds() -> JobBounds {
-        JobBounds::of(
-            QueryDeadline::within_request_timeout(30).expect("the shipped request timeout leaves a budget"),
-            BytesBilledCeiling::parse(1024 * 1024 * 1024).expect("a gibibyte is a ceiling"),
-        )
-    }
+    use crate::support::{Connection, Wired, bounds, named, opened, presented};
 
-    /// What this leg needs from the environment, and what it takes from the credential instead.
+    /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
+    /// this leg reads.
     ///
-    /// **It FAILS when a value is absent, and it used to SKIP - the reversal is the point of this
-    /// paragraph.** The skipping version printed `SKIPPED - ... is not set` and returned, and every
-    /// one of these three tests then reported **PASS** with no project anywhere. That is a green
-    /// nobody asked for, over exactly the claim this file exists to make.
-    ///
-    /// **Why the compose tier's direction is right there and wrong here**, since it does skip: its
-    /// cells run inside `just test`, so failing would break the suite on every machine with no
-    /// docker. These tests are `#[ignore]`d, so the only way to reach one is to type
-    /// `just bigquery-acceptance` - which is already a statement of intent. A developer who asked for
-    /// acceptance and got three green ticks against nothing has been told the opposite of the truth.
-    /// It earned its keep on its first real use: pointed at a service-account key the wire could not
-    /// then read, it reported `0 passed, 3 failed` rather than three ticks.
-    ///
-    /// **The billing project comes from the CREDENTIAL where the credential names one**, which a
-    /// service-account key does and an application-default login does not. One fewer variable to set
-    /// wrongly, and it removes a second answer to *who pays* that could disagree with the first - the
-    /// same argument the wire makes for not reading `quota_project_id`.
+    /// **The environment reading itself moved to `tests/support/mod.rs` when the corpus leg arrived**,
+    /// and the argument for FAILING rather than skipping moved with it - it applies to both legs
+    /// identically and there must be one copy of it. `SUTURA_BQ_TABLE` stayed here, because the corpus
+    /// leg creates its own tables and has no use for it: a shared module is compiled once per target,
+    /// and `dead_code` is `deny`.
     struct Fixture {
-        billing_project: ProjectId,
-        dataset: DatasetId,
+        connection: Connection,
         table: TableName,
-        credentials: Credential,
     }
 
     impl Fixture {
-        /// The credential and the two names, or a panic saying exactly what is missing.
-        ///
-        /// A panic rather than a `Result`, because a test's own precondition is not an outcome a test
-        /// reports on - and because the message is the whole product here: it has to name what a
-        /// developer has to set.
+        /// The credential and the three names, or a panic saying exactly what is missing.
         fn required() -> Self {
-            let agent = WireAgent::pinned(bounds());
-            let file = CredentialFile::well_known().expect("this machine names a well-known credential location");
-            let credentials = Credential::read(&file, agent).expect(
-                "a credential file is readable - run `just gcloud-login`, or point \
-                 GOOGLE_APPLICATION_CREDENTIALS at a service-account key",
-            );
-            // Printed so a green run says WHICH identity produced it: the two kinds are two deployment
-            // shapes, and an operator reading a log needs to know which one answered. A fixed word from
-            // a closed match, never the file's own text.
-            println!("bigquery-acceptance: credential kind {}", credentials.kind());
-
-            // The key's own `project_id` first, then the variable, then a panic. A service-account key
-            // carries it; an application-default login does not, so a developer on a laptop still sets
-            // the variable and CI sets nothing.
-            let billing = credentials.project().cloned().unwrap_or_else(|| {
-                Self::named(
-                    "SUTURA_BQ_BILLING_PROJECT",
-                    "this credential names no project of its own, so the billing project has to be set",
-                )
-            });
             Self {
-                billing_project: ProjectId::parse(billing).expect("a project id parses"),
-                dataset: DatasetId::parse(Self::named(
-                    "SUTURA_BQ_DATASET",
-                    "the dataset an unqualified table resolves in",
-                ))
-                .expect("a dataset id parses"),
-                table: TableName::parse(Self::named(
+                connection: Connection::required(),
+                table: TableName::parse(named(
                     "SUTURA_BQ_TABLE",
                     "a table with a DATE column `day` and an INT64 column `amount`",
                 ))
                 .expect("a table name parses"),
-                credentials,
             }
         }
 
@@ -225,7 +177,7 @@ mod tests {
         fn in_dataset(&self) -> QualifiedTable {
             QualifiedTable::new(
                 Some(TableQualifier::in_dataset(
-                    DatasetName::parse(self.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
                 )),
                 self.table.clone(),
             )
@@ -239,53 +191,16 @@ mod tests {
         fn in_project(&self) -> QualifiedTable {
             QualifiedTable::new(
                 Some(TableQualifier::in_project(
-                    ProjectName::parse(self.billing_project.as_str()).expect("a project id is also a project name"),
-                    DatasetName::parse(self.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                    ProjectName::parse(self.connection.billing_project.as_str()).expect("a project id is also a project name"),
+                    DatasetName::parse(self.connection.dataset.as_str()).expect("a dataset id is also a dataset name"),
                 )),
                 self.table.clone(),
             )
-        }
-
-        /// One variable, or a panic naming it and saying what it is for.
-        fn named(key: &str, what: &str) -> String {
-            match std::env::var(key) {
-                Ok(value) if !value.trim().is_empty() => value,
-                Ok(_) | Err(_) => panic!(
-                    "{key} is not set - it names {what}. This is the acceptance leg: it needs a real \
-                     project, and NOTHING in this repository had ever run against one before it was \
-                     first run by hand. See the header of this file"
-                ),
-            }
         }
     }
 
     fn source() -> SourceName {
         SourceName::parse("warehouse").expect("a source name is a source name")
-    }
-
-    /// The one acknowledgement both the posture and the presented leg are built from.
-    ///
-    /// **One function rather than two literals**, because `Presented::agrees_with` compares the two
-    /// witnesses for equality - so two copies of this sentence that drifted by a character would be
-    /// a leg refused for a reason that has nothing to do with `BigQuery`.
-    fn declared() -> SharedIdentityDeclared {
-        SharedIdentityDeclared::of(
-            AcknowledgementReason::parse("a developer's own application-default credential, reaching their own project")
-                .expect("an acknowledgement is an acknowledgement"),
-        )
-    }
-
-    /// The posture this leg runs under, which is the only one this adapter can deliver.
-    ///
-    /// A developer's own application-default credential IS one identity for everybody who asks, so
-    /// `SharedServiceUser` is the honest declaration and not a placeholder. `just gcloud-login`'s own
-    /// documentation says the same thing.
-    fn posture() -> SourcePosture {
-        SourcePosture::SharedServiceUser { declared: declared() }
-    }
-
-    fn presented() -> Presented {
-        Presented::SharedServiceUser { declared: declared() }
     }
 
     /// A plan over the developer's table, built the way the compiler builds one.
@@ -341,19 +256,12 @@ mod tests {
 
     /// The adapter, wired to the endpoint through the credential the environment supplied.
     ///
-    /// **The composition, and it is the thing this test is really evidence for beside the round
-    /// trip:** one [`WireAgent`] carrying the bounds, one [`Credential`] behind the token port, one
-    /// transport behind the seam, one warehouse behind the domain's port. The agent is the pinned kind
-    /// because it is the only kind either half accepts, which is what makes the wire's claims
-    /// properties of the types rather than of this file.
-    fn opened(fixture: Fixture) -> BigQueryWarehouse<BigQueryWire<Credential>> {
-        BigQueryWarehouse::new(
-            source(),
-            posture(),
-            fixture.billing_project,
-            fixture.dataset,
-            BigQueryWire::new(WireAgent::pinned(bounds()), fixture.credentials),
-        )
+    /// **The composition it assembles - one [`crate::support::Wired`] out of an agent, a credential, a
+    /// transport and a warehouse - moved to `tests/support/mod.rs` when the corpus leg arrived**, so
+    /// both legs are evidence for the same composition rather than for two that resemble each other.
+    /// What is left here is the source NAME, which is per leg.
+    fn warehouse(fixture: Fixture) -> Wired {
+        opened(source(), fixture.connection, bounds())
     }
 
     #[test]
@@ -368,7 +276,7 @@ mod tests {
         // not "the corpus is accepted".
         let fixture = Fixture::required();
         let table = fixture.unqualified();
-        let warehouse = opened(fixture);
+        let warehouse = warehouse(fixture);
         let plan = plan(&table);
 
         let accepted = warehouse
@@ -391,7 +299,7 @@ mod tests {
         //    documentation says it should.
         let fixture = Fixture::required();
         let table = fixture.unqualified();
-        let warehouse = opened(fixture);
+        let warehouse = warehouse(fixture);
         let plan = plan(&table);
 
         let rows = warehouse
@@ -467,7 +375,7 @@ mod tests {
             ("dataset.table", fixture.in_dataset()),
             ("project.dataset.table", fixture.in_project()),
         ];
-        let warehouse = opened(fixture);
+        let warehouse = warehouse(fixture);
         for (named, path) in &paths {
             // Printed so the terminal output of a run is the evidence rather than a claim about it.
             // The PATH SHAPE, never the path: a project id is not something this repository writes
@@ -500,7 +408,7 @@ mod tests {
             )),
             fixture.table.clone(),
         );
-        let warehouse = opened(fixture);
+        let warehouse = warehouse(fixture);
         let plan = plan(&absent);
 
         let refused = warehouse
@@ -529,7 +437,7 @@ mod tests {
         // with the transport's own error on the chain, rather than as a panic under
         // `panic = "abort"`.
         let fixture = Fixture::required();
-        let warehouse = opened(fixture);
+        let warehouse = warehouse(fixture);
         let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
         let plan = plan(&absent);
 
