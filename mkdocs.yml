@@ -151,6 +151,7 @@ nav:
   - Reference:
     - Architecture: architecture.md
     - Serving over HTTP: serving.md
+    - Verifying a release: verifying-a-release.md
     - The implementation plan: implementation-plan.md
     - The plan, BigQuery: implementation-plan-bigquery.md
     - The plan, identity and services: implementation-plan-identity-and-services.md
@@ -175,6 +176,7 @@ nav:
       - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
       - A table outside the connection's own dataset: adr/0019-a-table-outside-the-connections-dataset.md
       - A credential the compiler refuses to print: adr/0020-a-credential-the-compiler-refuses-to-print.md
+      - How a published artefact proves where it came from: adr/0021-how-a-published-artefact-proves-where-it-came-from.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md
