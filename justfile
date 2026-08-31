@@ -174,7 +174,7 @@ ci:
     # byte-compared and no test covers them, so four stale-page incidents were invisible locally
     # while this task was called THE gate. It is a flake check - `nix flake check` ran it all
     # along - but this loop names its checks, so a name left out is a check nobody ran.
-    for check in hygiene fmt clippy nextest doctest crap api-docs; do
+    for check in hygiene reuse fmt clippy nextest doctest crap api-docs; do
         printf '\n=== %s ===\n' "$check"
         nix build ".#checks.$system.$check" -L \
             || nix build ".#checks.$system.$check" -L --offline
@@ -360,6 +360,12 @@ docs-list:
 # dev shell: it called a bare `cargo` and a bare `pixi` and only worked where one was active.
 api:
     nix run .#api-docs
+
+# Is every file's licence answerable by a tool? `checks.reuse` is what CI runs and is the
+# authority; this reaches the same pin the cheap way, against the REAL tree rather than the
+# git-derived copy - so it also sees a file you have not staged yet, which the check cannot.
+licences:
+    nix run .#reuse -- lint
 
 # ------------------------------------------------------------------ tooling ---
 
