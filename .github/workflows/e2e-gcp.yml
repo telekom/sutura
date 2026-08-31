@@ -37,6 +37,12 @@ jobs:
             fallback = true
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
+      # The `pulumi` CLI is a system binary - the pixi `infra` env only pins the Python SDK. A
+      # clean runner has no CLI, so install it explicitly; the python SDK then interprets __main__.py.
+      - uses: pulumi/actions@9519177da243fd32cab6d36e4af4b3a67103a21c # v6.0.1
+        with:
+          pulumi-version: "^3.0"
+
       # The Pulumi provider authenticates with the deployment's own service-account key, from a
       # secret, written OUTSIDE the checkout - the same discipline the bq-test job uses.
       - name: Place the provider credential outside the checkout
@@ -70,11 +76,18 @@ jobs:
           echo "resource names masked for the rest of this job"
 
       # Everything the stack requires comes from the e2e-gcp environment; config-from-env.sh
-      # maps SUTURA_GOOGLE_* into stack config and refuses to run on anything missing.
+      # maps SUTURA_GOOGLE_* into stack config, refuses to run on anything missing, and uses the
+      # LOCAL file backend so no pulumi cloud account or shared bucket is involved.
+      #
+      # The stack name carries a per-run postfix: with the local backend the state is keyed by
+      # stack name, so two parallel CI runs each init their own `.pulumi/<stack>.json` and cannot
+      # collide. The postfix never lands in a committed file.
       - name: Configure the stack from the environment
         working-directory: test-infra/pulumi/google
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/e2e-gcp-admin.json
+          PULUMI_BACKEND_URL: file://${{ github.workspace }}/test-infra/pulumi/google
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.E2E_GCP_PULUMI_PASSPHRASE }}
           SUTURA_GOOGLE_PROJECT: ${{ vars.E2E_GCP_PROJECT }}
           SUTURA_GOOGLE_REGION: ${{ vars.E2E_GCP_REGION }}
           SUTURA_GOOGLE_DATASET: ${{ vars.E2E_GCP_DATASET }}
@@ -86,23 +99,30 @@ jobs:
           SUTURA_GOOGLE_WORKLOAD_ALLOWED_AUDIENCES: ${{ vars.E2E_GCP_WORKLOAD_ALLOWED_AUDIENCES }}
         run: |
           set -eu
-          nix run .#pixi -- run -e infra bash ./config-from-env.sh --stack e2e-gcp
+          STACK="e2e-gcp-${{ github.run_id }}-${{ github.run_attempt }}"
+          echo "STACK=$STACK" >> "$GITHUB_ENV"
+          nix run .#pixi -- run -e infra bash ./config-from-env.sh --stack "$STACK"
 
       - name: Apply the stack
         working-directory: test-infra/pulumi/google
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/e2e-gcp-admin.json
+          PULUMI_BACKEND_URL: file://${{ github.workspace }}/test-infra/pulumi/google
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.E2E_GCP_PULUMI_PASSPHRASE }}
         run: |
           set -eu
-          nix run .#pixi -- run --frozen -e infra pulumi up --stack e2e-gcp --yes
+          nix run .#pixi -- run --frozen -e infra up --stack "$STACK" --yes
 
       # The values a downstream run consumes: the two principal keys (secrets) and the WIF
       # audience. Materialised OUTSIDE the checkout; never echoed.
       - name: Materialise the stack outputs
+        working-directory: test-infra/pulumi/google
         env:
           GOOGLE_APPLICATION_CREDENTIALS: ${{ runner.temp }}/e2e-gcp-admin.json
+          PULUMI_BACKEND_URL: file://${{ github.workspace }}/test-infra/pulumi/google
+          PULUMI_CONFIG_PASSPHRASE: ${{ secrets.E2E_GCP_PULUMI_PASSPHRASE }}
         run: |
           set -eu
-          nix run .#pixi -- run --frozen -e infra pulumi stack output --stack e2e-gcp --show-secrets -j \
+          nix run .#pixi -- run --frozen -e infra -- pulumi stack output --stack "$STACK" --show-secrets -j \
             > "$RUNNER_TEMP/e2e-gcp-outputs.json"
           echo "outputs materialised outside the checkout"
