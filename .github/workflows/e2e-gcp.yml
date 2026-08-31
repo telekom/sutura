@@ -54,9 +54,18 @@ jobs:
           echo "PULUMI_VERSION=$PULUMI_VERSION" >> "$GITHUB_ENV"
           echo "resolved pulumi from pixi.lock: $PULUMI_VERSION"
 
-      - uses: pulumi/actions@9519177da243fd32cab6d36e4af4b3a67103a21c # v6.0.1
-        with:
-          pulumi-version: ${{ env.PULUMI_VERSION }}
+      # Install the CLI at EXACTLY the pixi-locked SDK version (from the step above). The CLI
+      # is a system binary (the pypi `pulumi` is SDK-only and conda-forge has no CLI for all
+      # four of this workspace's platforms), so it is fetched by the official installer - but
+      # only at the version pixi.lock names, never a float, so CLI and SDK always agree. pixi
+      # itself comes from nix (`nix run .#pixi` below) per the repository's tool-pinning rule.
+      - name: Install the pulumi CLI at the pixi-locked version
+        run: |
+          set -eu
+          curl -fsSL https://get.pulumi.com \
+            | sh -s -- --version "$PULUMI_VERSION"
+          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
+          pulumi version
 
       # The Pulumi provider authenticates with the deployment's own service-account key, from a
       # secret, written OUTSIDE the checkout - the same discipline the bq-test job uses.
