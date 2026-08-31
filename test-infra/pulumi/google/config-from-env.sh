@@ -82,4 +82,15 @@ for pair in "${REQUIRED[@]}"; do
   pulumi config set --stack "$STACK" "sutura-google-test-infra:${key}" "$value"
 done
 
+# Optional SUTURA_GOOGLE_* beyond the required set (provider_region / provider_zone / ...) are
+# also pushed into stack config so the program sees whatever the operator declares.
+for var in $(env | sed -n 's/^SUTURA_GOOGLE_\([A-Z0-9_]*\)=.*/\1/p'); do
+  full="SUTURA_GOOGLE_${var}"
+  key="$(printf '%s' "$var" | tr '[:upper:]' '[:lower:]')"
+  value="${!full:-}"
+  if [ -n "$value" ]; then
+    pulumi config set --stack "$STACK" "sutura-google-test-infra:${key}" "$value"
+  fi
+done
+
 echo "e2e-gcp: stack $STACK configured from the environment (nothing printed here is disclosed)"

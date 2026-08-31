@@ -45,10 +45,18 @@ group_column = cfg.require("group_column")
 principal_a_rows = cfg.get("principal_a_rows") or "a"
 principal_b_rows = cfg.get("principal_b_rows") or "b"
 
+# The dataset location (may be a multi-region like `EU`) and the provider's COMPUTE region/zone are
+# separate: BigQuery takes its own `location`, while the GCP provider uses a compute region/zone to
+# build its resource-identity map. When the provider is given BOTH an explicit `region` AND `zone`
+# it does not enumerate compute regions - it is fully qualified - so it never needs
+# `compute.regions.list`, which is what produced the `403 ... regions.list ... forbidden` warning
+# on a credential that reads BigQuery/IAM only. Set `provider_region`/`provider_zone` to concrete
+# compute values (e.g. europe-west3 / europe-west3-a); they fall back to the dataset `region`.
 gcp_provider = gcp.Provider(
     "provider",
     project=project,
-    region=region,
+    region=cfg.get("provider_region") or region,
+    zone=cfg.get("provider_zone"),
 )
 
 # --------------------------------------------------------------------------- #
