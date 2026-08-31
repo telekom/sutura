@@ -259,6 +259,72 @@ seconds. Scope hook runs while iterating with `just hooks --files <path>`, then 
 runs flake outputs, so a runner needs `nix` and nothing else. The two cannot drift because they
 call the same `xtask` binary and the same cargo subcommands under the same stable pin.
 
+### What counts as verified
+
+**`just validate` is the only thing that counts as verified.** It runs the nix checks, which build
+their own copy of the tree - the only way to catch a file the build needs and that copy does not
+have. Every other command reads the real tree and cannot see that class of bug. The copy is
+GIT-DERIVED, and that is the mechanism: an untracked file is invisible to it, so a new module
+compiles under `cargo` and then does not exist in the sandbox. `git add -N` is enough to make it
+visible. **The source filter is a SECOND way to lose a file, and it now drops things.**
+`flake.nix`'s arms match a REPO-RELATIVE path; they used to match the absolute one, and that made
+the whole `||` chain short-circuit to true - a nix source root IS `/nix/store/<hash>-source`, so the
+arm written for our own `nix/` directory matched every path in the tree and the filter dropped
+nothing. What it keeps is the arms: the Rust sources and manifests crane recognises, plus `vendor/`,
+`examples/`, `crates/*/tests`, `crates/*/src`, `nix/`, `rust-toolchain.toml` and `docs/crap.md`.
+Everything else - `docs/`, `.github/`, `.agents/`, the top-level markdown, `flake.nix` itself - is
+now absent from the sandbox, so **the rule `flake.nix` states is live rather than theoretical: any
+directory a build or a test reads has to be named there.** **The blast radius is narrower than that
+sounds, and worth knowing before believing a green run:** `clippy`, `doctest`, `fmt`,
+`packages.xtask` and the release builds read the filtered copy, while `nextest`, `hygiene`, `crap`
+and `api-docs` each set `src = ./.` and read the whole tree - which is why the gates that inspect
+repo files are unaffected. It does not reach the dependency closure at all: crane synthesises
+`sutura-deps` from the manifests, so that derivation does not move whatever the filter does.
+
+### Run the task, not a hand-written cargo line
+
+**Never run a bare `cargo clippy` or `cargo nextest` when a `just` task exists - run the task.**
+`just lint` IS the gate's invocation, defined once: it sources `nix/stable-env.sh` and runs
+`cargo clippy --workspace --all-targets --all-features -- -D warnings`. A hand-written cargo line
+diverges from it in TWO ways, and naming only the first is how this rule gets complied with and still
+fails. **One:** the dev shell's cargo is nightly for the cranelift backend and reports lints stable
+has not got, so a bare run is red on lints CI does not have - `stable-env.sh` is the fix. **Two:**
+the gate adds `-D warnings`, so a bare run makes a `restriction`-category finding a WARNING that a
+grep for `^error` does not see - it passes locally and fails the gate. Both were hit in one session,
+by two different agents, after reading the half of this rule that only named the first. `just test` and `just check` stand in the same relation to their gates.
+
+### The site is not built by any nix check
+
+**`just validate` does not render the site, so `just docs` is owed by any change that touches a doc
+comment.** `cargo xtask check-docs` reads the `nav` and the assets; it does not build a page, and no
+nix check does either - the site build lives in the `verify` workflow. So a rustdoc link the
+api-docs generator copies through verbatim can pass `check`, `lint`, `test`, `hygiene`, `api` and
+every nix check, and then fail `mkdocs build --strict`. **Measured rather than reasoned:** a doc
+comment writing ``[`MAX_ROWS`](sutura_domain::plan::MAX_ROWS)`` - a link to another crate's path -
+produced `Doc file 'api/sutura-sql.md' contains an unrecognized relative link` and aborted the
+strict build, while the `crate::`-prefixed links already on four other generated pages did not
+warn. The safe form for a cross-crate reference is plain backticks; **which shapes mkdocs accepts
+was not established**, which is exactly why this is a rule to run the task rather than a gate that
+would have to encode a boundary nobody has measured. It is not in `validate` because that recipe
+would then fail on a clone whose pixi `docs` environment is not installed, and a gate that fails
+for an environment reason gets disabled.
+
+### This shell's cargo environment follows you into other checkouts
+
+**This shell's environment follows `cargo` into OTHER repositories, and it breaks builds there.**
+`devenv` exports `CARGO_UNSTABLE_CODEGEN_BACKEND=true` and
+`CARGO_PROFILE_DEV_CODEGEN_BACKEND=cranelift` for our own inner loop, plus `DUCKDB_LIB_DIR` and
+`DUCKDB_INCLUDE_DIR` pointing at nix store paths. Nothing scopes those to this directory, so a
+`cargo` invocation in an unrelated checkout inherits all four: it gets built by cranelift, and a
+crate linking C++ gets OUR DuckDB. **Measured, not theorised** - a control build of `duckdb-rs`
+from this shell aborted with `libc++abi: terminating due to uncaught foreign exception` behind
+3.4 million `ld: could not create compact unwind` lines and a 1.7 GB log, because cranelift's
+unwind tables cannot carry an exception across the C++/Rust boundary. The same suite is green with
+the four variables unset. So when working in a checkout outside this repository - upstreaming a
+patch, reproducing a bug against a dependency - **unset them first, and treat a red run from this
+shell as unexplained until you have.** There is deliberately no mechanism for this: a gate here
+cannot see a build somewhere else, which is exactly why it is written down.
+
 ## Commit messages
 
 The `commit-msg` hook runs `cargo xtask commit-msg`, which judges the subject line and nothing
@@ -464,6 +530,8 @@ One reviewable idea per branch. If describing it needs an "and", split it.
   the whole transitive tree against an allowlist, so a framework reached through an innocuous
   crate fails it too.
 
-`AGENTS.md` holds the full invariants table - every guarantee beside the type, lint, hook or
-gate that enforces it, and the rules for changing the query path or the tool surface. Read it
-before touching either.
+`AGENTS.md` holds the invariants table - every guarantee beside the type, lint, hook or gate that
+enforces it - and
+[Invariants](https://github.com/telekom/sutura/blob/main/docs/invariants.md) is the long form: the
+same rows with the LIMIT each mechanism has, what is built and not wired, and the rules for changing
+the query path or the tool surface. Read both before touching either.

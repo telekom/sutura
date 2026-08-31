@@ -145,6 +145,9 @@ nav:
     - The agent prompt: agent-prompt.md
   - Development:
     - Contributing: contributing.md
+    - Invariants: invariants.md
+    - Design principles: design-principles.md
+    - Dependency currency: dependency-currency.md
     - The CRAP gate: crap.md
     - Building without direct egress: enterprise-mirrors.md
     - Publishing the docs: publishing.md
