@@ -284,27 +284,50 @@ refactor!: rename the Warehouse port's execute method
 
 The body is not checked. Use it for why.
 
+## Two branches
+
+**`dev` is the trunk. `main` is the release ref.**
+
+| | `dev` | `main` |
+| --- | --- | --- |
+| what lands | pull requests, **squashed** | promotions from `dev`, as a **merge** |
+| what runs | the full chain, plus the trunk-only release build and image | the same chain, minus those |
+| what it means | the newest reviewed code | the newest released code |
+| docs | published as the `dev` version, no alias | nothing; the `v*` tag publishes the release |
+
+**Open your pull request against `dev`.** It is the default branch, so that is what you get by
+default.
+
+Squash into `dev`, merge into `main`, and the difference is not taste. `git-cliff` derives the
+changelog and the next version from commit subjects, so `dev` wants one clean conventional
+commit per pull request - that is the squash. A promotion has to preserve those commits, because
+squashing `dev` into one commit on `main` would collapse everything the changelog is derived
+from into a single subject. Repository rulesets enforce the merge method per branch.
+
 ## Releasing
 
-Manual, on purpose. Run `version-bump` from the Actions tab on `main`, or:
+**Automatic, on promotion.** Merge `dev` into `main` and the release cuts itself: `version-bump`
+derives the version, writes `CHANGELOG.md`, commits, tags, and asks `release.yml` and `docs.yml`
+to run on that tag. The release commit is then pushed back onto `dev`, so the two do not drift.
 
-```sh
-gh workflow run version-bump.yml --ref main
-```
+Nothing else is needed. `gh workflow run version-bump.yml --ref main` still works if a release
+has to be re-driven by hand.
 
-The version is still **derived** from the commit subjects above - `feat` a minor, `fix` and the
-rest a patch, `!` or a `BREAKING CHANGE` footer a major - so what is manual is the timing, not
-the number. Nothing is tagged if no commit since the last tag would move it.
+The version is **derived** from the commit subjects above - `feat` a minor, `fix` and the rest a
+patch, `!` or a `BREAKING CHANGE` footer a major. Nothing is tagged if no commit since the last
+tag would move it, so a promotion of chores publishes nothing.
 
-Every push to `main` still refreshes `CHANGELOG.md`, so the `## Unreleased` heading always
-lists what is on main and waiting. That is where you look to decide whether a release is worth
-cutting.
+Every push to `dev` refreshes `CHANGELOG.md`, so the `## Unreleased` heading always lists what
+is waiting. That is where you look to decide whether a promotion is worth making.
 
-It used to tag on every push whose commits moved the version, which meant one `feat` merge cut
-a release. The cost was not the tag: the release commit edits the workspace version, that
-version reaches crane's dependency derivation, and so every release recompiled and re-cached
-the whole dependency closure for all four targets - enough to push the build cache past its
-quota, after which everything gets slower.
+**Why it is a promotion rather than every merge**, because this was reversed once in each
+direction. Releasing on every push whose commits moved the version meant one `feat` merge cut a
+release - four in one day. The cost is not the tag: the release commit edits the workspace
+version, that version reaches crane's dependency derivation, and so every release recompiles and
+re-caches the whole dependency closure for all four targets - enough to push the build cache
+past its quota, after which everything gets slower. That cost is unchanged and was re-measured
+before bringing the automation back. What changed is that a release now needs somebody to decide
+to promote, which is the same thing as "release when there is something to release".
 
 ## A test has to be shown to test something
 
@@ -313,7 +336,7 @@ that passes both ways proves nothing and is worse than no test, because it looks
 
 `cargo xtask test-causality --since <base>` checks that mechanically: it re-runs the changed
 tests against the base version of the non-test sources, requires at least one to fail with no
-unrelated failures, then requires them green on your head. `just causality origin/main` is the
+unrelated failures, then requires them green on your head. `just causality origin/dev` is the
 same call. Where the change is not separable that way - impl and test in one file, or a rename
 with no behavioural difference - the gate says so and asks for the evidence instead: the command
 you ran, the failure you saw before the fix, the pass after. That goes in the pull request. Do
@@ -337,7 +360,7 @@ st ls                  # what the stack looks like now
 st refresh             # sync trunk, restack the stack, submit the updates
 ```
 
-A branch behind `main` is **rebased**, never merged. A merge commit from `main` into a topic
+A branch behind `dev` is **rebased**, never merged. A merge commit from `dev` into a topic
 branch comes back as a rebase request in review, and it also destroys the linear shape `st`
 relies on. Run `just ship-check` per branch rather than once for the stack, since each pull
 request is reviewed alone and so has to be green alone. Restacking rewrites history by design,

@@ -258,11 +258,11 @@ crap:
 crap-delta base head="target/crap/baseline.json":
     cargo run -q -p xtask -- crap-delta --baseline {{ base }} --head {{ head }}
 
-# What a diff requires. `just classify origin/main`
-classify base="origin/main":
+# What a diff requires. `just classify origin/dev`
+classify base="origin/dev":
     cargo run -q -p xtask -- classify --since {{ base }}
 
-# Red-before-green for changed tests. `just causality origin/main`
+# Red-before-green for changed tests. `just causality origin/dev`
 #
 # ON STABLE, and that is a bug fix rather than consistency. This gate RUNS THE SUITE - twice - so it
 # inherits every difference between the channels, and the dev shell's bare `cargo` is nightly for the
@@ -273,7 +273,7 @@ classify base="origin/main":
 #
 # The rule `AGENTS.md` states for `clippy` - never conclude a branch is red from a bare `cargo` line -
 # applies to any gate that runs the compiler, and this recipe is now what makes it hold here.
-causality base="origin/main":
+causality base="origin/dev":
     #!/usr/bin/env bash
     set -euo pipefail
     # shellcheck source=nix/stable-env.sh
