@@ -12,6 +12,10 @@
 default:
     @just --list --unsorted
 
+# The Pulumi stack the `infra-preview` / `infra-up` tasks operate on. Set SUTURA_PULUMI_STACK in
+# the machine env (or pass to the shell) to target a specific stack; defaults to `dev`.
+stack := env_var_or_default("SUTURA_PULUMI_STACK", "dev")
+
 # It exists because the alternative is a README section people skip, and the failure mode is
 # silent - an uninstalled hook does not complain, it just never runs. `prek install` is the
 # important line: without it every gate in this file is advisory.
@@ -472,18 +476,20 @@ infra-gl:
 # and the stack-secrets passphrase comes from `PULUMI_CONFIG_PASSPHRASE` (set in the machine's
 # `~/.config/sutura/env.sh` locally; a secret in CI).
 # The stack is configured FROM THE ENVIRONMENT FIRST (config-from-env.sh maps SUTURA_GOOGLE_* onto
-# the active stack, refusing on anything missing), so `just infra-preview` needs no other step once
-# `.envrc` has loaded the machine env. Nothing here reaches pulumi cloud, and nothing is committed.
+# the SUTURA_PULUMI_STACK stack, refusing on anything missing), and the SAME stack name is passed to
+# pulumi - no reliance on an "active" selection, which a fresh shell does not have. The stack name
+# defaults to `dev` and is overridden by SUTURA_PULUMI_STACK (the machine env sets it to the
+# developer's own). Nothing here reaches pulumi cloud, and nothing is committed.
 infra-preview *flags:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra preview {{flags}}
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra preview --stack "{{stack}}" {{flags}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra up {{flags}}
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra up --stack "{{stack}}" {{flags}}
 
 # The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
 #

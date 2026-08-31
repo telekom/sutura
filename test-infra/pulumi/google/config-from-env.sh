@@ -24,6 +24,24 @@ cd "$(dirname "$0")"
 test -n "${PULUMI_BACKEND_URL:-}" || { echo "config-from-env: set PULUMI_BACKEND_URL (file://</path/to/.pulumi>)" >&2; exit 1; }
 test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || { echo "config-from-env: set PULUMI_CONFIG_PASSPHRASE" >&2; exit 1; }
 
+ROOT="$(git rev-parse --show-toplevel)"
+
+# Version parity gate: the nix-pinned CLI (devenv's `pulumi`, or `nix build .#pulumi` in CI) and
+# the pixi-locked SDK MUST agree. pixi cannot pin from an env var (verified - `==$VAR` is taken
+# literally and refused), so the pin in pixi.toml is set to nix's version by hand, and this check
+# is what stops the two drifting apart. `PULUMI_VERSION` is the witness devenv exports
+# (pkgs.pulumi.version); when unset (CI) it is evaluated from the flake instead.
+NIX="${PULUMI_VERSION:-}"
+if [ -z "$NIX" ]; then
+  SYS="$(nix eval --impure --raw --expr builtins.currentSystem 2>/dev/null || true)"
+  NIX="$(nix eval --raw "$ROOT#packages.$SYS.pulumi.version" 2>/dev/null || true)"
+fi
+LOCK="$(awk '/  name: pulumi$/{getline; sub(/^  version: /, ""); print; exit}' "$ROOT/pixi.lock" 2>/dev/null || true)"
+if [ -n "$NIX" ] && [ -n "$LOCK" ] && [ "$NIX" != "$LOCK" ]; then
+  echo "config-from-env: pulumi skew - nix CLI $NIX vs pixi SDK $LOCK; align pixi.toml with the nix pin" >&2
+  exit 1
+fi
+
 STACK="dev"
 if [ "${1:-}" = "--stack" ]; then
   STACK="$2"

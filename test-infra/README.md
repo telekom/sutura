@@ -76,22 +76,25 @@ pulumi, which is why the backend travels as an environment variable rather than 
 CI mints a **per-run stack name** (`e2e-gcp-<run_id>-<run_attempt>`) so parallel runs never
 touch the same local state.
 
-Then preview before applying, because this program is a scaffold you run, not a proof:
+Then preview before applying, because this program is a scaffold you run, not a proof. The stack
+name comes from `SUTURA_PULUMI_STACK` (the machine env sets it to the developer's own) and is
+passed to both the config step and pulumi, so a fresh shell needs no "active stack":
 
 ```sh
-just infra-preview -s dev
-just infra-up -s dev --yes
+SUTURA_PULUMI_STACK=dev just infra-preview
+SUTURA_PULUMI_STACK=dev just infra-up --yes
 ```
 
-(`just infra-preview` / `just infra-up` resolve the stack and run Pulumi through the `infra`
-pixi env; flags after the task name flow straight through to `pulumi`.)
+(`just infra-preview` / `just infra-up` configure the stack from the environment and run Pulumi
+through the `infra` pixi env. The CLI is the nix-pinned `pulumi` and the SDK the pixi-locked one;
+a gate in `config-from-env.sh` fails if the two ever disagree.)
 
 The two service-account **private keys are secret outputs** - capture them and store them
 as environment secrets (e.g. GitHub `bq-test` secrets), never in the tree:
 
 ```sh
-pulumi stack output --show-secrets -s dev principal_a_key > /dev/null
-pulumi stack output --show-secrets -s dev principal_b_key > /dev/null
+pulumi stack output --show-secrets dev principal_a_key > /dev/null
+pulumi stack output --show-secrets dev principal_b_key > /dev/null
 ```
 
 ## What consumes the outputs
