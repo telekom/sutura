@@ -150,7 +150,7 @@ impl AccessToken {
     /// factor, because the input is a high-entropy secret an operator generated rather than
     /// something a person chose, and nothing here is stored for an attacker to find offline.
     pub fn matches_in_constant_time(&self, presented: &str) -> bool {
-        let expected = sha2::Sha256::digest(self.0.expose().as_bytes());
+        let expected = sha2::Sha256::digest(self.0.expose_secret().as_bytes());
         let actual = sha2::Sha256::digest(presented.as_bytes());
         expected.ct_eq(&actual).into()
     }

@@ -1077,7 +1077,7 @@ Names a token and its deadline.
 pub const fn token(&self) -> &Secret
 ```
 
-The token, still opaque. A caller has to reach `Secret::expose` to write it into a header, and
+The token, still opaque. A caller has to reach `Secret::expose_secret` to write it into a header, and
 that call is greppable.
 
 ##### Implements

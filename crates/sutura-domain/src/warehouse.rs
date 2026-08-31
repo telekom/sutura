@@ -314,7 +314,7 @@ pub enum PreFlight {
 ///
 /// Two types rather than one so the separation is visible at a call site rather than in a comment.
 /// [`Self::verified_at_boot`] is named to be conspicuous in review and in a grep, the way
-/// `crate::identity::Secret::expose` is.
+/// `crate::identity::Secret::expose_secret` is.
 #[derive(Debug, Clone, PartialEq)]
 pub struct AnchorRows(RowSet);
 

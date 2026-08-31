@@ -236,6 +236,28 @@ sha2 = { version = "0.11", default-features = false }
 # lives in `core`.
 subtle = { version = "2.6", default-features = false }
 
+# What `sutura_domain::identity::Secret` is built on, and the one dependency in the hexagon's
+# interior that buys a COMPILE ERROR rather than a runtime behaviour.
+#
+# `SecretBox<str>` has no `Display` and no `PartialEq`, so `format!("{token}")`, a `%token` tracing
+# field and `a == b` do not compile against a type built on it - where a hand-written `Display` that
+# printed `REDACTED` left every one of those *representable*, and this workspace's own rule is to
+# prefer unrepresentable to checked. It also zeroizes on drop, which nothing here had.
+#
+# **`serde` is deliberately ABSENT, and it is the load-bearing omission in this entry.** The feature
+# is what gives `SecretBox` a `Deserialize`, and `docs/adr/0020` plus the "a caller cannot state its
+# own identity" invariant both rest on no identity type having one. Turning it on would quietly
+# satisfy a `compile_fail` doctest.
+#
+# **What it costs, counted rather than waved at: two crates.** `secrecy` itself is
+# `forbid(unsafe_code)`; `zeroize` is the only thing it pulls, arrives with `default-features = false,
+# features = ["alloc"]` so it brings nothing further, and its volatile writes are the whole reason to
+# take it rather than write them here under a workspace `unsafe_code = "forbid"`. Both are
+# `Apache-2.0 OR MIT`, which `deny.toml` already allows, so the licence list needs no entry - checked
+# rather than assumed. `xtask/src/boundaries.rs` names both in `ALLOWED_IN_DOMAIN`, which is where the
+# architecture decision is visible in a diff.
+secrecy = { version = "0.10", default-features = false }
+
 # The configuration layering: embedded defaults, then files, then environment variables.
 #
 # `default-features = false` with `yaml` alone is not tuning. The default set compiles JSON, JSON5,

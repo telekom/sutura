@@ -612,6 +612,39 @@ An overstated claim is itself the defect, so each of these is written down here 
    calls it a proof that *this request* transited anything, and why the hop between the component
    and this process is a trusted transport boundary rather than an incidental one.
 
+# A token cannot become a log field, and this is where the real macro is pinned
+
+This module is the one that holds caller-supplied token material *and* a `tracing` dependency, so
+it is where the claim `sutura_domain::identity::Secret` makes can be checked against the macro
+rather than against the bound the macro imposes. `docs/adr/0020` decides the type; the domain
+carries the `compile_fail` doctest for a `Display` bound, because `sutura-domain` may not acquire
+`tracing` - `cargo xtask check-boundaries` walks its whole resolve graph.
+
+`%` records a field through `tracing::field::display`, which is `T: Display`. A `Secret` has none:
+
+```compile_fail
+use sutura_domain::identity::Secret;
+
+let token = Secret::new("hunter2");
+// `%` wants `Display`. There is not one, so this line does not build.
+tracing::info!(token = %token, "a caller presented a token");
+```
+
+The compiling twin, differing by the one sigil - `?` is `Debug`, which exists and cannot print the
+value:
+
+```
+use sutura_domain::identity::Secret;
+
+let token = Secret::new("hunter2");
+tracing::info!(token = ?token, "a caller presented a token");
+```
+
+**The limit, stated with the claim:** `?token` compiles and is *safe here* because that `Debug` is
+`secrecy`'s and cannot render the value. Nothing stops a call site logging
+`token.expose_secret()`, which is exactly why that method is named to be conspicuous in a grep
+rather than relied on to be absent.
+
 # Why this is not shared with the agent surface
 
 `sutura-mcp` has its own `principal` module and it still answers

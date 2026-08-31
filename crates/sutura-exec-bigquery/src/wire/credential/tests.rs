@@ -342,7 +342,7 @@ fn the_pem_unwrapping_is_a_text_format_and_nothing_more() {
     // decode, it does not parse ASN.1, and it does not validate - `ring` does that, one layer down.
     let unwrapped =
         unwrap_pem("-----BEGIN PRIVATE KEY-----\nAAAB\nBBBC\n-----END PRIVATE KEY-----\n").expect("a well-formed block unwraps");
-    assert_eq!(unwrapped.expose(), "AAABBBBC");
+    assert_eq!(unwrapped.expose_secret(), "AAABBBBC");
     assert!(unwrap_pem("AAAB").is_none(), "a bare body is not a PEM block");
 }
 

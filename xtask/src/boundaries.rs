@@ -114,6 +114,36 @@ const ALLOWED_IN_DOMAIN: &[&str] = &[
     // compiles neither.
     "cmov",
     "ctutils",
+    // The credential type, and the only entry here taken for a COMPILE ERROR rather than for a value
+    // the domain has to compute. `docs/adr/0020` is the decision.
+    //
+    // `identity::Secret` was `Secret(String)` with a hand-written `Display` printing `REDACTED`, and
+    // that left `format!("{token}")` and `tracing::info!(%token)` compiling - a redacted line where
+    // an author believed a value was logged. `secrecy::SecretString` has no `Display` and no
+    // `PartialEq`, so both of those and `==` stop building. Zeroize-on-drop arrives with it.
+    //
+    // **Two crates, and the second is why this is a decision rather than a convenience.** `secrecy`
+    // is `forbid(unsafe_code)` and pulls only `zeroize`, with `default-features = false, features =
+    // ["alloc"]`, so nothing further follows - measured against `cargo tree -p sutura-domain
+    // --all-features` rather than assumed. `zeroize` DOES contain `unsafe`: volatile writes and a
+    // compiler fence, which is precisely the thing a workspace with `unsafe_code = "forbid"` cannot
+    // write for itself and should not try to. Neither is a framework - no runtime, no client, no
+    // engine - which is the line this list's doc comment draws.
+    //
+    // `secrecy`'s `serde` feature is OFF, and the manifests say why at length: it is what would give
+    // `SecretBox` a `Deserialize`. That is a supply-chain decision and not the mechanism - `Secret`
+    // is a newtype that derives nothing, so feature unification cannot hand it one.
+    "secrecy",
+    "zeroize",
+    // And one entry of the OVER-BROAD kind the block above describes, arriving with the same
+    // decision. `zeroize_derive` is `zeroize`'s optional `derive` feature; nothing in this workspace
+    // turns it on, so `cargo tree -p sutura-domain --all-features` does not list it and
+    // `cargo check -p sutura-domain --no-default-features` does not compile it. It is here because
+    // this gate walks the whole-workspace resolve graph rather than reasoning about which edges a
+    // feature resolver would really enable - and **the gate found it rather than a reader**: adding
+    // `secrecy` with `zeroize` alone failed `check-boundaries` by name, which is what the list is for.
+    // Its own tree is `proc-macro2`, `quote` and `syn`, all already above for the serde derives.
+    "zeroize_derive",
 ];
 
 const DOMAIN: &str = "sutura-domain";
