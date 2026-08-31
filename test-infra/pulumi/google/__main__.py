@@ -188,6 +188,52 @@ key_b = gcp.serviceaccount.Key(
 )
 
 # --------------------------------------------------------------------------- #
+# A dedicated CI service account - the credential the BigQuery acceptance / corpus
+# legs run as. Owned by this stack rather than a hand-managed external SA, so the CI
+# credential is provisioned and rotated here. Granted what those legs need: project
+# bigquery.jobUser (run jobs) and dataset-level bigquery.dataEditor (the corpus CREATES
+# its four fixture tables in the dataset). Its key is exported for the GitHub
+# environment's secret; the dataset/table it points the legs at are exported too.
+# --------------------------------------------------------------------------- #
+ci_sa = gcp.serviceaccount.Account(
+    "ci-sa",
+    account_id=sutura_name(cfg, "ci"),
+    display_name="sutura CI BigQuery runner",
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+)
+gcp.projects.IAMMember(
+    "ci-bigquery-jobuser",
+    project=project,
+    role="roles/bigquery.jobUser",
+    member=ci_sa.member,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+)
+gcp.bigquery.DatasetIamMember(
+    "ci-bigquery-dataeditor",
+    dataset_id=dataset.dataset_id,
+    role="roles/bigquery.dataEditor",
+    member=ci_sa.member,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
+)
+# The CI legs may run against a separate, already-populated dataset (e.g. the acceptance table
+# with the two fixture rows the smoke leg asserts on). Grant the same dataEditor there.
+ci_dataset = cfg.require("ci_dataset")
+gcp.bigquery.DatasetIamMember(
+    "ci-bigquery-dataeditor-external",
+    dataset_id=ci_dataset,
+    role="roles/bigquery.dataEditor",
+    member=ci_sa.member,
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
+)
+ci_table = cfg.require("ci_table")
+ci_key = gcp.serviceaccount.Key(
+    "ci-key",
+    service_account_id=ci_sa.email,
+    key_algorithm="KEY_ALG_RSA_2048",
+    opts=pulumi.ResourceOptions(provider=gcp_provider),
+)
+
+# --------------------------------------------------------------------------- #
 # (4a) Google Workload Identity Federation - the (a) token path
 # --------------------------------------------------------------------------- #
 # A workload identity pool + OIDC provider. **Workload, not workforce** - this is
@@ -248,3 +294,7 @@ pulumi.export("principal_b_key", key_b.private_key)
 pulumi.export("dataset", dataset.dataset_id)
 pulumi.export("table", table.table_id)
 pulumi.export("workload_audience", audience)
+pulumi.export("ci_email", ci_sa.email)
+pulumi.export("ci_key", ci_key.private_key)
+pulumi.export("ci_dataset", ci_dataset)
+pulumi.export("ci_table", ci_table)
