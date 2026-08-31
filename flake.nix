@@ -845,6 +845,31 @@
           program = "${pkgs.betterleaks}/bin/betterleaks";
         };
 
+        # The two supply-chain tools the release path runs, from the LOCKED nixpkgs for the
+        # reason the block above states at length: `nix run nixpkgs#cosign` resolves through the
+        # flake registry to whatever nixpkgs-unstable points at when the job runs, and one of the
+        # jobs running them is the only job in this repository that holds a write token.
+        #
+        # NEITHER is in pixi.toml - `cargo xtask check-pins` fails a tool named in both - and for
+        # both of them the version decides what they PRODUCE rather than only what they report.
+        # That is a stronger reason to pin than the linters have: a signature bundle and an SBOM
+        # are read by somebody else's verifier, months later, and a format change is silent on the
+        # producing side.
+        #
+        # Apps rather than checks, and it is the `apps.deny` argument twice over. `cosign` reaches
+        # Fulcio for a certificate and Rekor for a transparency entry, so in a nix build sandbox it
+        # could only fail. `syft` needs no network to read a local image tarball - but the tarball
+        # it reads is produced by a workflow step rather than by a derivation, so there is nothing
+        # in a sandbox to point it at.
+        apps.cosign = {
+          type = "app";
+          program = "${pkgs.cosign}/bin/cosign";
+        };
+        apps.syft = {
+          type = "app";
+          program = "${pkgs.syft}/bin/syft";
+        };
+
         # `just` itself, for the one workflow that needs the TASK LIST rather than a task.
         #
         # `docs.yml` runs `.github/scripts/check-task-citations.sh`, which checks every

@@ -21,6 +21,21 @@
 # compiles nothing: it loads image tarballs, pushes bytes, and renders text. It never executes
 # anything the build jobs produced, and it is the one job with no build cache attached.
 #
+# `publish` NOW HOLDS FOUR WRITE GRANTS rather than two, and that paragraph is worth re-reading
+# rather than skimming, because the count changed and the property did not. `id-token: write`
+# lets the job mint a short-lived OIDC token that says which workflow, at which ref, in which
+# repository is asking - which is what Fulcio signs a certificate against and what makes a
+# signature mean "this pipeline produced these bytes" instead of "somebody holding a key did".
+# `attestations: write` is what stores the SLSA provenance. Neither can read the repository's
+# secrets, neither can push code, and both are useless to an attacker who does not already
+# control this workflow file - at which point they would change the source instead, which is the
+# same argument the cache paragraph above makes.
+#
+# What did NOT change is the sentence that matters: this job still never executes anything the
+# build jobs produced. `cosign` and the attestation action HASH bytes and sign digests; `docker
+# load` and `docker push` move layers without running an entrypoint. The smoke tests stayed in
+# `build`, under a token that can read the repository and nothing else.
+#
 # Actions pinned by commit.
 name: release
 
@@ -278,6 +293,73 @@ jobs:
           esac
           ls -l dist images
 
+      # An SBOM of the IMAGE, per target, and what it does and does not describe is the whole
+      # point of this comment.
+      #
+      # It reads the image TARBALL rather than the daemon or the registry, so what it inventories
+      # is exactly the bytes `publish` pushes - not an image resolved by a tag that could have
+      # moved between two steps. Decompressed to a scratch file rather than piped, because
+      # `docker-archive:` seeks within the archive; the copy is transient and is deleted in the
+      # same step, so peak disk is what the `Image` step above already reached.
+      #
+      # In `build` and not in `publish`, for the reason the header gives: this is compute, and the
+      # job holding the write tokens compiles and inspects nothing.
+      #
+      # **WHAT IT COVERS, stated plainly because a green SBOM step invites a larger reading.** The
+      # image is the binary, `cacert` and `tzdata` and nothing else - no shell, no package manager
+      # - so this document inventories those, and the CRATE GRAPH IS NOT IN IT. `syft` reads a
+      # Rust dependency list out of a `Cargo.lock` on disk or out of a `cargo auditable` section in
+      # the ELF, and this image has neither: nothing ships a lock file and the release profile does
+      # not embed one. So what is published here is an accurate answer to "what files are in the
+      # image", and it is NOT an answer to "which crates is the binary built from". The second
+      # question is answered by the SBOM the build itself emits, which is a separate artefact
+      # arriving in a separate change; until it does, this file must not be cited as a dependency
+      # inventory.
+      #
+      # Two formats, because they have different consumers rather than because more is better.
+      # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry and what the
+      # licence-review toolchain reads; SPDX is what most ingestion pipelines take. Both are
+      # generated from one scan, so they cannot disagree.
+      #
+      # ASSERTED rather than described, like the static-linking and manifest-list claims either
+      # side of it: an SBOM naming no packages is a well-formed JSON document that says nothing,
+      # and it would publish, attach and verify exactly like a real one.
+      - name: SBOM
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          mkdir -p dist
+          gzip -dc "images/sutura-oci-${TARGET}.tar.gz" > sbom-input.tar
+          nix run .#syft -- scan "docker-archive:sbom-input.tar" \
+            --source-name "sutura-${TARGET}" \
+            --source-version "${GITHUB_REF_NAME}" \
+            -o "cyclonedx-json=dist/sutura-oci-${TARGET}.cdx.json" \
+            -o "spdx-json=dist/sutura-oci-${TARGET}.spdx.json"
+          rm -f sbom-input.tar
+          for sbom in "dist/sutura-oci-${TARGET}.cdx.json" "dist/sutura-oci-${TARGET}.spdx.json"; do
+            if [ ! -s "$sbom" ]; then
+              echo "::error::${sbom} was not written"
+              exit 1
+            fi
+            # No jq: it is not a pinned tool here, and the question is only whether the document
+            # names anything at all. CycloneDX spells an entry `"bom-ref"` and SPDX spells it
+            # `"SPDXID": "SPDXRef-Package-`, so one grep per format would need a case; counting
+            # the shared `"name":` key needs none and cannot pass on an empty inventory.
+            named="$(grep -c '"name":' "$sbom" || true)"
+            if [ "${named:-0}" -lt 2 ]; then
+              echo "::error::${sbom} names ${named} thing(s): an SBOM with no inventory is not an SBOM"
+              exit 1
+            fi
+            printf '%s: %s named entries\n' "$sbom" "$named"
+          done
+          # NO `.sha256` sidecar, unlike the tarballs. The tarballs have one because they predate
+          # anything better and a consumer's script may read it; an SBOM ships from the first
+          # release that has signatures, and its Sigstore bundle already commits to its digest and
+          # says who produced it. Adding a bare hash beside a signature is a weaker mechanism next
+          # to a stronger one, and the failure mode is a reader checking the weak one.
+          ls -l dist
+
       # The handover. `dist/` is release assets, `images/` is what `publish` pushes and never
       # ships, `facts/` is one line of prose for the notes.
       #
@@ -311,8 +393,10 @@ jobs:
     runs-on: rust-mcp
     timeout-minutes: 60
     permissions:
-      contents: write   # create the release, upload assets
-      packages: write   # push to GHCR
+      contents: write      # create the release, upload assets
+      packages: write      # push to GHCR, and the signatures and attestations that sit beside it
+      id-token: write      # mint the OIDC token Fulcio signs a certificate against
+      attestations: write  # store the SLSA provenance against this repository
     env:
       # The four targets, in the order the release notes list them: the glibc pair first,
       # because an unqualified `docker pull` and an unqualified download both mean glibc here.
@@ -366,6 +450,11 @@ jobs:
             want=$((want + 1))
             files="facts/${target}.txt images/sutura-oci-${target}.tar.gz"
             files="${files} dist/sutura-${target}.tar.gz dist/sutura-${target}.tar.gz.sha256"
+            # Both SBOMs for EVERY target, not only the musl pair whose image tarball ships. The
+            # asymmetry below is about a 26 MiB attachment nobody needs; an SBOM is kilobytes, and
+            # the glibc pair is what an unqualified `docker pull` resolves - so it is the pair most
+            # likely to be the one somebody has to inventory.
+            files="${files} dist/sutura-oci-${target}.cdx.json dist/sutura-oci-${target}.spdx.json"
             case "$target" in
               *-musl)
                 files="${files} dist/sutura-oci-${target}.tar.gz"
@@ -515,6 +604,32 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           docker logout ghcr.io
 
+      # Everything published so far becomes verifiable here: a Sigstore signature per release
+      # asset and per image reference, each leaf image's CycloneDX SBOM attached as a cosign
+      # attestation, and SLSA provenance for the assets and for the two manifest lists.
+      #
+      # A LOCAL composite action rather than steps in this file, and the reason is in the action's
+      # own header at length. Short version: this file is hand-written configuration under the
+      # 1000-line cap `cargo xtask max-lines` enforces, and the signing sequence is the part of
+      # the release path that grows with every new artefact kind - so it is the part that had to
+      # move before the next addition forced the split under pressure.
+      #
+      # BEFORE the release exists, deliberately. A Sigstore signature and a provenance attestation
+      # are bound to the bytes' digest and not to a release object, so nothing here needs the
+      # release - and doing it now means a failure lands while nothing is half-created, which is
+      # the same reason the notes below are assembled before the draft. The bundles it writes into
+      # `dist/` are picked up by the upload, so they are release assets like anything else there.
+      #
+      # It cannot know what SHOULD have been published - it signs what it is handed - so the step
+      # that keeps a missing artefact from becoming a quietly unsigned one is `Check that all four
+      # builds arrived` above, and that is the step to extend when a new asset shape is added.
+      - name: Attest and sign
+        uses: ./.github/actions/attest-and-sign
+        with:
+          image: ${{ env.IMAGE }}
+          registry-username: ${{ github.actor }}
+          registry-token: ${{ secrets.GITHUB_TOKEN }}
+
       # The body, assembled before anything is published so a failure here lands while
       # nothing is half-created.
       #
@@ -636,6 +751,64 @@ jobs:
               done
             } >> notes.md
           fi
+
+          # The supply-chain section, and it obeys the TABLES ONLY rule above rather than being an
+          # exception to it. Three tables: what the SBOMs are, what each claim is, and the one
+          # command that checks it. A verify command is a fact, not a tutorial - what it does NOT
+          # get here is the argument for why keyless signing is the right shape, which is
+          # `docs/verifying-a-release.md`'s job and is linked as a row rather than summarised.
+          #
+          # The SBOM table is globbed like the image tarballs above, for the reason stated there:
+          # which SBOMs exist is decided by the build, and a hardcoded list here would misreport
+          # the day a target is added.
+          {
+            echo
+            echo "### Software bill of materials"
+            echo
+            echo "| Target | CycloneDX | SPDX |"
+            echo "| --- | --- | --- |"
+            for target in $TARGETS; do
+              cdx="sutura-oci-${target}.cdx.json"
+              spdx="sutura-oci-${target}.spdx.json"
+              [ -f "dist/${cdx}" ] || continue
+              printf "| \`%s\` | [\`%s\`](%s/%s) | [\`%s\`](%s/%s) |\n" \
+                "$target" "$cdx" "$base" "$cdx" "$spdx" "$base" "$spdx"
+            done
+            echo
+            echo "| Covers | Does not cover |"
+            echo "| --- | --- |"
+            echo "| the files in the image: the binary, CA certificates, tzdata | the crate graph the binary was compiled from |"
+          } >> notes.md
+
+          {
+            echo
+            echo "### Provenance and signatures"
+            echo
+            echo "| Artefact | Sigstore bundle | SLSA provenance | Registry signature |"
+            echo "| --- | --- | --- | --- |"
+            echo "| binaries, image tarballs, SBOMs, \`image-digests.txt\` | \`<asset>.sigstore.json\`, attached | yes | n/a |"
+            echo "| the \`.sha256\` sidecars | no: the bundle above already commits to the digest | yes | n/a |"
+            echo "| images, four leaves and two manifest lists | n/a | the two manifest lists | \`cosign\`, all six references |"
+            echo "| each leaf image's CycloneDX SBOM | n/a | n/a | \`cosign attest --type cyclonedx\` |"
+            echo
+            echo "| Check | Command |"
+            echo "| --- | --- |"
+            # Double-quoted with escaped backticks, matching the printfs above. A single-quoted
+            # format string would be the obvious way to write a literal backtick and shellcheck
+            # reports SC2016 on it, reasonably: inside single quotes a backtick is exactly as
+            # inert as it looks, and telling the two cases apart is not something a linter can do.
+            issuer="https://token.actions.githubusercontent.com"
+            identity="'^https://github.com/${GITHUB_REPOSITORY}/'"
+            printf "| an asset is the bytes this workflow produced, offline | \`cosign verify-blob --bundle <asset>.sigstore.json --certificate-identity-regexp %s --certificate-oidc-issuer %s <asset>\` |\n" \
+              "$identity" "$issuer"
+            printf "| the same, against this forge | \`gh attestation verify <asset> --repo %s\` |\n" "$GITHUB_REPOSITORY"
+            printf "| an image is the one this workflow pushed | \`cosign verify %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
+              "$IMAGE" "$identity" "$issuer"
+            printf "| what is inside an image | \`cosign verify-attestation --type cyclonedx %s@<digest> --certificate-identity-regexp %s --certificate-oidc-issuer %s\` |\n" \
+              "$IMAGE" "$identity" "$issuer"
+            printf "| what any of it means | [Verifying a release](%s/%s/blob/%s/docs/verifying-a-release.md) |\n" \
+              "$GITHUB_SERVER_URL" "$GITHUB_REPOSITORY" "$tag"
+          } >> notes.md
 
       # Draft first, then the assets, then publish. NOT create-and-publish-then-upload, which
       # is what this file did and what the first real release failed on:

@@ -1,0 +1,289 @@
+name: Attest and sign what was published
+description: >
+  Sign every release asset and every pushed image with Sigstore, attach each leaf image's
+  CycloneDX SBOM as a cosign attestation, and record SLSA provenance for the assets and for the
+  two manifest lists.
+
+inputs:
+  image:
+    description: >
+      The image repository the digests in `digests-file` belong to, without a tag - the
+      `subject-name` a provenance attestation is looked up by.
+    required: true
+  digests-file:
+    description: >
+      A file of `kind name reference@digest` lines, as `release.yml`'s `Push the images` step
+      writes it. `leaf` is one architecture, `list` is a manifest list. Read rather than derived,
+      so a reference added to the push step is signed without a second list agreeing to it.
+    required: false
+    default: dist/image-digests.txt
+  assets-dir:
+    description: Directory whose files are the release assets. Bundles are written beside them.
+    required: false
+    default: dist
+  expected-leaves:
+    description: >
+      How many `leaf` references must be present. A gate rather than a wish: `grep` matching
+      nothing is a successful command, so a loop over an empty list signs nothing and reports
+      success - which is the one failure that would publish an unsigned release quietly.
+    required: false
+    default: "4"
+  expected-lists:
+    description: How many `list` references must be present, on the same reasoning.
+    required: false
+    default: "2"
+  registry:
+    description: Registry to authenticate against for the image signatures and attestations.
+    required: false
+    default: ghcr.io
+  registry-username:
+    description: Username for that registry.
+    required: true
+  registry-token:
+    description: Token for that registry.
+    required: true
+
+# A LOCAL composite action, for `reclaim-disk`'s reasons and one of its own.
+#
+# The shared reason: every action this repository calls is pinned by digest and reviewed, and a
+# local one cannot drift from the workflow that uses it - one file, one behaviour, no version to
+# bump. It is `./.github/actions/...`, so it is the same commit as the caller by construction.
+#
+# ITS OWN REASON, and this is why the sequence lives here rather than inline in `release.yml`:
+# that file is hand-written configuration under the 1000-line cap `cargo xtask max-lines`
+# enforces, and this sequence is the part of it that GROWS. Every artefact kind added later - a
+# crate-graph SBOM, an attribution document - is another thing to sign, and the loops below take
+# it without a new step. Keeping it inline meant the cap would be reached by the next addition,
+# and at that point the split would be made under pressure rather than for a reason.
+#
+# WHAT THIS DOES NOT DO: it does not decide what is published. It signs what it is handed. So a
+# file that never reaches `assets-dir` is not signed and nothing here notices - which is why
+# `release.yml` has a step whose whole job is to assert that all four targets arrived, and why
+# that step is the one to extend when a new asset shape is added.
+#
+# The caller must hold `id-token: write` for the Sigstore certificate, `attestations: write` for
+# the provenance, and `packages: write` for the registry. There is no `permissions:` key on a
+# composite action: it inherits the calling job's, which is the reason `release.yml` states them
+# with a comment each rather than as a list.
+runs:
+  using: composite
+  steps:
+    # A SIGNATURE PER IMAGE, and an SBOM attached to each one that a registry client can fetch
+    # without the release page.
+    #
+    # KEYLESS. There is no signing key in this repository or in its secrets, and that is the
+    # design rather than a shortcut: a long-lived key is a thing to store, rotate and lose, and a
+    # key that can sign is a key that can sign anything for as long as it exists. `cosign`
+    # exchanges the job's OIDC token - which says which repository, which workflow and which ref
+    # - for a Fulcio certificate valid for minutes that records that identity, and logs the
+    # signature in Rekor. So what a verifier checks is not "somebody had the key" but "this
+    # workflow, at this ref, in this repository", and there is nothing for a leaked secret to be.
+    #
+    # BY DIGEST, never by tag, for every reference. Signing a tag resolves it at signing time, and
+    # the release path moves `:latest` in the same job: a signature made against a name is a
+    # signature against whatever that name meant at that instant.
+    #
+    # The lists are signed WITHOUT `--recursive`, because their children are signed here by their
+    # own digests. `--recursive` would sign each child a second time under the list's certificate
+    # and leave two signatures per leaf differing in nothing a verifier reads.
+    #
+    # Its own `cosign login` rather than reusing the push step's session: that step logs out when
+    # it finishes, deliberately, and a step depending on another step's ambient credentials is a
+    # step that breaks when somebody reorders them.
+    - name: Sign the images
+      shell: bash
+      env:
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+        ASSETS: ${{ inputs.assets-dir }}
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_TOKEN: ${{ inputs.registry-token }}
+        WANT_LEAVES: ${{ inputs.expected-leaves }}
+        WANT_LISTS: ${{ inputs.expected-lists }}
+      run: |
+        set -eu
+        cosign() { nix run .#cosign -- "$@"; }
+        printf '%s' "$REGISTRY_TOKEN" \
+          | cosign login "$REGISTRY" -u "$REGISTRY_USERNAME" --password-stdin
+
+        # Filtered into files and looped with a redirect, not a pipe and not a heredoc. A pipe
+        # runs the loop in a subshell, so the counter would be back to 0 by the time it is
+        # checked - and the assertion would then be the thing that is wrong rather than the thing
+        # that catches it.
+        grep -E '^leaf ' "$IMAGE_DIGESTS" > leaves.txt
+        grep -E '^list ' "$IMAGE_DIGESTS" > lists.txt
+        want=$((WANT_LEAVES + WANT_LISTS))
+
+        signed=0
+        for refs in leaves.txt lists.txt; do
+          while read -r kind name ref; do
+            printf '\n=== signing %s %s ===\n' "$kind" "$name"
+            cosign sign --yes "$ref"
+            signed=$((signed + 1))
+          done < "$refs"
+        done
+        if [ "$signed" -ne "$want" ]; then
+          echo "::error::signed ${signed} image reference(s), expected ${want} - ${WANT_LEAVES} leaves and ${WANT_LISTS} manifest lists"
+          exit 1
+        fi
+
+        # The SBOM, attached to the LEAF it describes. Per leaf and not per list, because an
+        # inventory is per architecture: the amd64 and arm64 images hold different bytes, and one
+        # document covering a manifest list would have to be true of both or true of neither.
+        attested=0
+        while read -r _ target ref; do
+          sbom="${ASSETS}/sutura-oci-${target}.cdx.json"
+          if [ ! -s "$sbom" ]; then
+            echo "::error::${sbom} is missing: there is no inventory to attach to ${target}"
+            exit 1
+          fi
+          printf '\n=== attesting %s with %s ===\n' "$target" "$sbom"
+          cosign attest --yes --type cyclonedx --predicate "$sbom" "$ref"
+          attested=$((attested + 1))
+        done < leaves.txt
+        if [ "$attested" -ne "$WANT_LEAVES" ]; then
+          echo "::error::attested ${attested} leaf image(s), expected ${WANT_LEAVES}"
+          exit 1
+        fi
+        docker logout "$REGISTRY"
+
+    # A SIGNATURE PER RELEASE ASSET, and it is not redundant with the provenance below.
+    #
+    # They differ in what a verifier needs to have. `gh attestation verify` asks GitHub's API, so
+    # it needs network reach to the forge and an authenticated `gh`. `cosign verify-blob` needs
+    # the file, its bundle and Sigstore's trust root - so an artefact somebody mirrored into their
+    # own storage six months ago is still verifiable from the bytes they mirrored, with no account
+    # anywhere. That is the case a release asset exists for, so it gets the signature that
+    # survives it.
+    #
+    # `--bundle` on cosign 3 writes a Sigstore bundle - certificate, signature and the
+    # transparency-log entry in one file - because `--use-signing-config` defaults to true.
+    # Checked against `cosign sign-blob --help` at the pinned version rather than assumed: the
+    # flag's own text is "Must provide --bundle, which will output verification material in the
+    # new format". One file per asset, so a consumer takes two files and needs no index.
+    #
+    # THE ASSET LIST IS SNAPSHOTTED FIRST. The bundles land beside what they sign, so a loop
+    # reading the directory as it writes into it would sign its own output, and then sign that - a
+    # `find` evaluated once is what stops it.
+    #
+    # THE `.sha256` SIDECARS ARE NOT SIGNED, and this is the one exclusion. A bundle over
+    # `sutura-x86_64-unknown-linux-gnu.tar.gz` already commits to that file's digest, so a second
+    # signature over a file whose entire content is that digest proves nothing new and costs a
+    # certificate and a transparency-log entry. They still get PROVENANCE, which is one call for
+    # every subject and therefore free. The sidecars stay in the release because a consumer's
+    # script may already read them.
+    - name: Sign the release assets
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+      run: |
+        set -eu
+        # Sorted, so the log reads the same way twice and a diff between two releases' logs is
+        # about the assets rather than about directory order.
+        find "$ASSETS" -maxdepth 1 -type f ! -name '*.sha256' | sort > assets.txt
+        count="$(wc -l < assets.txt)"
+        if [ "$count" -lt 1 ]; then
+          echo "::error::${ASSETS} holds no files to sign"
+          exit 1
+        fi
+        printf 'signing %s asset(s)\n' "$count"
+        while read -r asset; do
+          nix run .#cosign -- sign-blob --yes --bundle "${asset}.sigstore.json" "$asset"
+          if [ ! -s "${asset}.sigstore.json" ]; then
+            echo "::error::no bundle written for ${asset}"
+            exit 1
+          fi
+        done < assets.txt
+        # One bundle per asset and no more: a mismatch means the loop above skipped something or
+        # signed a bundle, and both are silent without this.
+        bundles="$(find "$ASSETS" -maxdepth 1 -type f -name '*.sigstore.json' | wc -l)"
+        if [ "$bundles" -ne "$count" ]; then
+          echo "::error::${bundles} bundle(s) for ${count} asset(s)"
+          exit 1
+        fi
+
+    # SLSA PROVENANCE for everything the release page carries, in ONE call.
+    #
+    # `subject-checksums` and not `subject-path`: the action accepts a `sha256sum`-format file and
+    # takes each line as a subject, so thirty-odd assets are one invocation instead of a glob per
+    # shape. The file is written from within the assets directory so the names it carries are the
+    # basenames a consumer downloads, which is what the attestation is looked up by.
+    #
+    # WHAT IS EXCLUDED, and it is one thing: the signature bundles written by the step above.
+    # Provenance over a signature says the pipeline produced the signature, which nobody needs to
+    # know and which the signature's own certificate already says. Everything else is included
+    # without exception - the `.sha256` sidecars too, though they are trivially derivable -
+    # because "every published byte has provenance" is a rule a reader can check, and "every
+    # published byte except the ones we judged uninteresting" is not.
+    - name: Read the subjects
+      id: subjects
+      shell: bash
+      env:
+        ASSETS: ${{ inputs.assets-dir }}
+      run: |
+        set -eu
+        # The directory is captured before the subshell rather than reached with `..`, which would
+        # be right only while `assets-dir` is one level deep, and `$OLDPWD`, which would be right
+        # only because a redirect happens to be expanded after the `cd`.
+        root="$PWD"
+        ( cd "$ASSETS" && find . -maxdepth 1 -type f ! -name '*.sigstore.json' -printf '%P\n' \
+          | sort | xargs -r sha256sum > "${root}/subjects.sha256" )
+        subjects="$(wc -l < subjects.sha256)"
+        if [ "$subjects" -lt 1 ]; then
+          echo "::error::no subjects to attest"
+          exit 1
+        fi
+        printf 'attesting %s subject(s)\n' "$subjects"
+        cat subjects.sha256
+
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-checksums: subjects.sha256
+
+    # And provenance for the two MANIFEST LISTS - the references the notes tell a consumer to pin,
+    # and the only ones an unqualified `docker pull` can resolve.
+    #
+    # `subject-digest` rather than a path, because there is no local file whose hash is an image's
+    # digest: a manifest digest is the sha256 of the index bytes the registry holds.
+    #
+    # NO `push-to-registry`, deliberately, and the reason is that it would be a second copy of a
+    # claim already made. That input writes the attestation into the registry as an OCI referrer,
+    # for a verifier that reads the registry and not the forge - and `Sign the images` above
+    # already serves that verifier, with a cosign signature on every reference and a CycloneDX
+    # attestation on every leaf. `gh attestation verify oci://...` resolves the digest from the
+    # registry and fetches the attestation from GitHub, so nothing here is unreachable without it.
+    # It would also need registry credentials, which means staying logged in across a step this
+    # file does not control.
+    #
+    # TWO STEPS rather than a loop: the action takes one digest per call, and a matrix cannot be
+    # opened in the middle of a job. Written out means the glibc and musl lists are visibly two
+    # things rather than two iterations of something. That is also the reason `expected-lists`
+    # exists as an input and is not read here - the count is asserted where the signing loop can
+    # act on it, and these two steps are the hardcoded consequence of it being 2.
+    - name: Read the list digests
+      id: lists
+      shell: bash
+      env:
+        IMAGE_DIGESTS: ${{ inputs.digests-file }}
+      run: |
+        set -eu
+        for variant in glibc musl; do
+          ref="$(awk -v want="$variant" '$1 == "list" && $2 == want { print $3 }' "$IMAGE_DIGESTS")"
+          digest="${ref#*@}"
+          case "$digest" in
+            sha256:*) ;;
+            *) echo "::error::no list digest recorded for ${variant}: got '${ref}'"; exit 1 ;;
+          esac
+          printf '%s=%s\n' "$variant" "$digest" >> "$GITHUB_OUTPUT"
+          printf '%s list: %s\n' "$variant" "$digest"
+        done
+
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-name: ${{ inputs.image }}
+        subject-digest: ${{ steps.lists.outputs.glibc }}
+
+    - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+      with:
+        subject-name: ${{ inputs.image }}
+        subject-digest: ${{ steps.lists.outputs.musl }}
