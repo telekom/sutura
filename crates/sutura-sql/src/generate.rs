@@ -785,7 +785,10 @@ mod tests {
                 // placement is still stated in the AST (`ordered_nulls_last`) and this arm confirms
                 // the collapse is the layer's doing rather than our omission.
                 Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => {
-                    assert!(!sql.contains("NULLS"), "{dialect} unexpectedly spelled a null placement: {sql}");
+                    assert!(
+                        !sql.contains("NULLS"),
+                        "{dialect} unexpectedly spelled a null placement: {sql}"
+                    );
                 }
             }
         }
