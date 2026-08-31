@@ -348,6 +348,9 @@ fn every_refusal() -> Vec<RefusalReason> {
             metric: MetricName::parse("active_subscriptions").expect("a test metric is a metric"),
             aggregate: Aggregate::CountDistinct,
         },
+        RefusalReason::PlanTablesShareAnIdentifier {
+            table: TableName::parse("orders").expect("a test table is a table"),
+        },
         RefusalReason::SourceUnavailable {
             source: SourceName::parse("elsewhere").expect("a test source is a source"),
         },

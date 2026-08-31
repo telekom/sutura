@@ -55,7 +55,7 @@ use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
 use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
-use sutura_domain::model::{Aggregate, Grain, JoinType};
+use sutura_domain::model::{Aggregate, Grain, JoinType, Qualification, QualifiedTable};
 use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
 
 use crate::GeneratedQuery;
@@ -79,6 +79,29 @@ pub enum GenerateError {
     /// `order` becomes a syntax error at the data system instead of an error here.
     #[error("an alias for {label:?} did not come back as an alias, so it could not be quoted")]
     UnquotableAlias { label: String },
+    /// A table path deeper than the target resolves.
+    ///
+    /// **Not a refusal, and the boundary is worth being precise about.** A caller cannot cause one:
+    /// there is no field on a question that names a table, so what produced this is a catalog document
+    /// naming `project.dataset.table` for a data system with nowhere to put the project - which is
+    /// upstream of here, exactly as this enum's own header says.
+    ///
+    /// **An error and not a silently-dropped qualifier**, which is the whole reason it exists: the
+    /// dialect layer renders three parts for any target, so dropping the part that does not fit would
+    /// read the table of that name in whatever the connection defaults to and return a plausible
+    /// number under a certified metric. That is the failure issue #83 reports, moved rather than
+    /// fixed.
+    ///
+    /// The path travels as text because that is the only thing a message can show, and it is safe to
+    /// show: every part of it is a parsed name, so it carries no quote character and no value from any
+    /// question.
+    #[error("{table} names a {carries} path, and {dialect} resolves at most a {resolves} one")]
+    QualificationUnsupported {
+        dialect: Dialect,
+        table: String,
+        carries: Qualification,
+        resolves: Qualification,
+    },
     /// A plan that carries no predicate at all.
     ///
     /// Unreachable: a plan always carries the two bounds of its `TimeRange`, which cannot be
@@ -385,15 +408,51 @@ fn bucket_expression(bucket: &PlanBucket, dialect: Dialect) -> Expr {
 /// system is a [`LegPlan::Lookup`] leg and not a join, so the join kind a splitter derives for the
 /// combine above - INNER for a remote dimension carrying a filter, LEFT for one that does not - is
 /// decided nowhere in this file.
-fn joined(statement: SelectBuilder, joins: &[PlanJoin]) -> SelectBuilder {
+fn joined(statement: SelectBuilder, joins: &[PlanJoin], dialect: Dialect) -> Result<SelectBuilder, GenerateError> {
     let mut statement = statement;
     for join in joins {
+        // A joined table carries its own path, which is what makes a cross-dataset join one native
+        // statement rather than two legs and a combiner.
+        let path = table_path(join.table(), dialect)?;
         let on = column(join.origin()).eq(column(join.target()));
         statement = match join.join_type() {
-            JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(join.table().as_str(), on),
+            JoinType::OneToOne | JoinType::ManyToOne | JoinType::OneToMany => statement.left_join(&path, on),
         };
     }
-    statement
+    Ok(statement)
+}
+
+/// The dotted path a `FROM` or a `JOIN` names, or a refusal if this target cannot resolve it.
+///
+/// **The one place a table's parts are joined back into text, and the two reasons that is sound
+/// here.** First, the path is handed to the builder, whose `builder_table_ref` splits it on `.` and
+/// puts each piece in a `TableRef` slot of its own - a plain split, not a tokenizer, so a hyphen in a
+/// project id is a character rather than an operator - and `always_quote_identifiers` then quotes
+/// **each part separately**. `` `analytics-prod`.`sales`.`orders` `` is what comes out, which is what
+/// *no identifier reaches the statement unquoted* means for a path. Second, no part can contain a
+/// `.`, so the split reconstructs exactly the parts that went in; `sutura_domain::model::qualified`
+/// is where that is parsed and where it is argued.
+///
+/// **No explicit alias is emitted, and that is a declaration rather than an oversight.** A column is
+/// qualified by the table's BARE name - `PlanColumn` holds a `TableName` - and `FROM a.b.c` gives the
+/// reference an implicit alias of `c` in all four targets. An explicit `AS "c"` would say so in the
+/// statement instead of relying on that, and it is not reachable through the builder: `left_join`
+/// takes a `&str` and `join_with_kind` is private, so aliasing the joined table would mean
+/// hand-building the AST - which this module's header rules out for a reason. So the implicit alias is
+/// what holds, the live acceptance leg is what measures it on the target where a misquoted identifier
+/// is not a syntax error, and this paragraph is here so the next reader knows it was a choice.
+fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, GenerateError> {
+    let carries = table.qualification();
+    let resolves = dialect.qualification();
+    if carries > resolves {
+        return Err(GenerateError::QualificationUnsupported {
+            dialect,
+            table: table.to_string(),
+            carries,
+            resolves,
+        });
+    }
+    Ok(table.to_string())
 }
 
 /// The statement, as this dialect writes it.
@@ -427,7 +486,11 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     projection.push(aliased(bucket_expr.clone(), bucket.label())?);
     grouping.push(bucket_expr);
     projection.push(aliased(measure_expression(plan.measure(), dialect), plan.measure_label())?);
-    let statement = joined(builder::select(projection).from(plan.table().as_str()), plan.joins());
+    let statement = joined(
+        builder::select(projection).from(&table_path(plan.table(), dialect)?),
+        plan.joins(),
+        dialect,
+    )?;
 
     // Folded in plan order, which is parameter order: the range bounds, then the metric's required
     // filters, then the caller's. For a dialect that writes `?` the position in the statement is the
@@ -504,7 +567,7 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
         LegPlan::Fact {
             ref bucket,
             ref terms,
-            ref joins,
+            ref tables,
             ..
         } => {
             let bucket_expr = bucket_expression(bucket, dialect);
@@ -515,14 +578,18 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
             for term in terms {
                 projection.push(aliased(term_expression(term.term(), dialect), term.label())?);
             }
-            joins
+            tables.joins()
         }
         // No bucket, no terms, no joins. It projects its keys and groups by them, which is the
         // distinct set of dimension rows surviving its own filters.
         LegPlan::Lookup { .. } => &[],
     };
 
-    let mut statement = joined(builder::select(projection).from(leg.table().as_str()), joins);
+    let mut statement = joined(
+        builder::select(projection).from(&table_path(leg.table(), dialect)?),
+        joins,
+        dialect,
+    )?;
 
     // Folded in leg order, which is parameter order, exactly as `generate` folds a plan's.
     let mut clauses = leg.filters().iter().map(|f| predicate(dialect, f.predicate()));

@@ -155,6 +155,9 @@ pub(crate) fn refused_a_reservation(error: &DataFusionError) -> bool {
         // A leg handed to an adapter with nothing above it is a composition fault, not a ceiling
         // refusing a reservation: no operator ran, so no reservation was made.
         | DataFusionError::LegWithoutCombiner { .. }
+        // A qualified model table is refused before the registry is even consulted, so nothing was
+        // planned and nothing reserved.
+        | DataFusionError::QualifiedTableUnreachable { .. }
         // The same shape one step earlier: credential material this adapter cannot use is refused
         // before anything is planned, so nothing reserved anything.
         | DataFusionError::NoPlaceForASubject { .. }

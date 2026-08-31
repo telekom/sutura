@@ -13,7 +13,8 @@ use super::{
 };
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, Qualification, QualifiedTable,
+    RelationshipName, SourceName, TableName,
 };
 
 fn column(raw: &str) -> ColumnName {
@@ -46,6 +47,21 @@ fn model(name: &str, source: &str, columns: &[&str]) -> Model {
         model_name(name),
         SourceName::parse(source).expect("a test source is a source"),
         TableName::parse(name).expect("a test table is a table"),
+        columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
+        Description::default(),
+    )
+}
+
+/// A model whose physical table is named separately from the model itself.
+///
+/// [`model`] names the table after the model, which is the ordinary case and what every other test
+/// here wants. The label-collision and qualified-path cases need the two to differ, and a path
+/// rather than a name because that is what a catalog document writes.
+fn model_over(name: &str, source: &str, table_path: &str, columns: &[&str]) -> Model {
+    Model::new(
+        model_name(name),
+        SourceName::parse(source).expect("a test source is a source"),
+        QualifiedTable::parse(table_path).expect("a test table path is a path"),
         columns.iter().map(|c| column(c)).collect::<BTreeSet<_>>(),
         Description::default(),
     )
@@ -292,6 +308,271 @@ fn a_dimension_may_not_take_a_label_the_projection_already_uses() {
         InconsistentDefinitions::DimensionShadowsMeasure {
             metric: metric_name("revenue"),
             dimension: dimension_name("revenue"),
+        }
+    );
+}
+
+#[test]
+fn a_label_may_not_be_spelled_the_same_as_a_table_the_statement_reads() {
+    // **The live failure this closes, and it was a 400 rather than a wrong number this time.** A
+    // `BigQuery` submission returned `invalidQuery` - "Cannot access field day on a value with type
+    // INT64" - because the metric's label equalled the table name and `GoogleSQL` bound the qualifier
+    // in `table.column` to the select-list alias instead of to the table. Refused at load, for every
+    // dialect, because which of two things a qualifier binds to is not something to maintain per
+    // target.
+    let orders_named_revenue = || {
+        vec![model_over(
+            "orders",
+            "local",
+            "revenue",
+            &["amount_cents", "order_date", "region"],
+        )]
+    };
+    let metric_collides = metric("revenue", vec![]);
+    assert_eq!(
+        Definitions::assemble(orders_named_revenue(), vec![], vec![metric_collides]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from("revenue"),
+            table: TableName::parse("revenue").expect("a test table is a table"),
+        },
+        "the metric's own label is the one the live run collided on"
+    );
+
+    // The time bucket, which is projected for every question - so a table named after it collides
+    // with all of them and no dimension has to be involved.
+    let orders_named_period = vec![model_over(
+        "orders",
+        "local",
+        TIME_BUCKET_LABEL,
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(orders_named_period, vec![], vec![metric("revenue", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from(TIME_BUCKET_LABEL),
+            table: TableName::parse(TIME_BUCKET_LABEL).expect("a test table is a table"),
+        }
+    );
+
+    // A dimension's label, against the metric's own table.
+    let orders_named_region = || {
+        vec![model_over(
+            "orders",
+            "local",
+            "region",
+            &["amount_cents", "order_date", "region"],
+        )]
+    };
+    assert_eq!(
+        Definitions::assemble(
+            orders_named_region(),
+            vec![],
+            vec![metric("revenue", vec![dimension("region", "region", None, None)])]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from("region"),
+            table: TableName::parse("region").expect("a test table is a table"),
+        }
+    );
+
+    // And against a JOINED table, which is the half `check_metric` alone cannot see: the collision is
+    // with the second table in the statement rather than with the first.
+    let joined = vec![
+        model("orders", "local", &["amount_cents", "order_date", "customer_id"]),
+        model_over("customers", "local", "revenue", &["id", "region_code"]),
+    ];
+    assert_eq!(
+        Definitions::assemble(
+            joined,
+            vec![Relationship::new(
+                relationship_name("orders_customer"),
+                model_name("orders"),
+                column("customer_id"),
+                model_name("customers"),
+                column("id"),
+                JoinType::ManyToOne,
+            )],
+            vec![metric(
+                "revenue",
+                vec![dimension("region", "region_code", Some("orders_customer"), None)]
+            )]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from("revenue"),
+            table: TableName::parse("revenue").expect("a test table is a table"),
+        }
+    );
+
+    // The positive half: distinct names still assemble. Without it the four assertions above would
+    // pass on a check that refused everything.
+    drop(
+        Definitions::assemble(
+            orders_named_region(),
+            vec![],
+            vec![metric("revenue", vec![dimension("segment", "region", None, None)])],
+        )
+        .expect("labels that collide with nothing still assemble"),
+    );
+}
+
+#[test]
+fn a_label_and_a_table_that_differ_only_in_case_still_collide() {
+    // **The hole a review reproduced, and it was an equality check.** GoogleSQL's lexical reference
+    // lists *aliases within a query* and *column names* as NOT case-sensitive (checked 2026-08-30),
+    // while its table names ARE case-sensitive by default - so a table `Orders` is a distinct table
+    // and the qualifier `Orders` still resolves to a select-list alias spelled `orders`. An equality
+    // check let every such pair through, and then the statement collided exactly as the same-case one
+    // did.
+    //
+    // Compared under `IdentifierCase::COARSEST` for that reason, which is dialect-agnostic on purpose:
+    // a bundle is loaded without knowing which target will serve it, and refusing a pair Postgres
+    // would have told apart costs an author a rename while accepting one BigQuery folds is a wrong
+    // number under a certified name. `sutura_sql::Dialect::identifier_case` is where each target
+    // declares its own, and a test there holds this assumption to being the coarsest.
+    //
+    // Three cases, because there are three sources of a projected label: the metric, the time bucket
+    // and a dimension.
+    let orders_named_revenue = vec![model_over(
+        "orders",
+        "local",
+        "revenue",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(orders_named_revenue, vec![], vec![metric("Revenue", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("Revenue"),
+            label: String::from("Revenue"),
+            table: TableName::parse("revenue").expect("a test table is a table"),
+        },
+        "a metric label folds against the table name"
+    );
+
+    let orders_named_period = vec![model_over(
+        "orders",
+        "local",
+        "Period",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(orders_named_period, vec![], vec![metric("revenue", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from(TIME_BUCKET_LABEL),
+            table: TableName::parse("Period").expect("a test table is a table"),
+        },
+        "the time bucket's label folds too, and it is projected for every question"
+    );
+
+    let orders_named_region = vec![model_over(
+        "orders",
+        "local",
+        "region",
+        &["amount_cents", "order_date", "region"],
+    )];
+    assert_eq!(
+        Definitions::assemble(
+            orders_named_region,
+            vec![],
+            vec![metric("revenue", vec![dimension("Region", "region", None, None)])]
+        )
+        .unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("revenue"),
+            label: String::from("Region"),
+            table: TableName::parse("region").expect("a test table is a table"),
+        },
+        "a dimension label folds as well"
+    );
+
+    // The positive half, and it is what stops the three above passing on a check that refuses
+    // everything: two names that fold to different things still assemble.
+    drop(
+        Definitions::assemble(
+            vec![model_over(
+                "orders",
+                "local",
+                "region_totals",
+                &["amount_cents", "order_date", "region"],
+            )],
+            vec![],
+            vec![metric("revenue", vec![dimension("Region", "region", None, None)])],
+        )
+        .expect("region_totals and Region are two identifiers under any rule"),
+    );
+}
+
+#[test]
+fn two_projected_labels_that_differ_only_in_case_are_one_result_column() {
+    // The other half of *two result columns cannot share a label*, and it was case-sensitive for the
+    // same reason: GoogleSQL documents a result column's NAME as not case-sensitive, so `Period`
+    // beside `period` is one column there. Both existing refusals now fold, and neither needed a new
+    // variant - what changed is the comparison.
+    let one_model = || vec![model("orders", "local", &["amount_cents", "order_date", "region_code"])];
+    let bucket = metric("revenue", vec![dimension("Period", "region_code", None, None)]);
+    assert_eq!(
+        Definitions::assemble(one_model(), vec![], vec![bucket]).unwrap_err(),
+        InconsistentDefinitions::DimensionShadowsTimeBucket {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("Period"),
+        }
+    );
+
+    let measure = metric("revenue", vec![dimension("Revenue", "region_code", None, None)]);
+    assert_eq!(
+        Definitions::assemble(one_model(), vec![], vec![measure]).unwrap_err(),
+        InconsistentDefinitions::DimensionShadowsMeasure {
+            metric: metric_name("revenue"),
+            dimension: dimension_name("Revenue"),
+        }
+    );
+}
+
+#[test]
+fn a_model_may_name_a_table_in_another_dataset_and_the_label_check_reads_the_last_part() {
+    // A qualified model loads, and the two readings of "the table" are both available: the path a
+    // `FROM` names, and the bare name a column is qualified by. The label check reads the BARE name
+    // deliberately - `FROM a.b.c` gives the reference an implicit alias of `c` in every dialect
+    // rendered for here, so `c` is what a qualifier could bind to and `a` and `b` are not.
+    let qualified = vec![model_over(
+        "orders",
+        "local",
+        "analytics-prod.sales.orders",
+        &["amount_cents", "order_date", "region"],
+    )];
+    let definitions = Definitions::assemble(qualified, vec![], vec![metric("revenue", vec![])])
+        .expect("a qualified model with no label collision assembles");
+    let model = definitions.models().get(&model_name("orders")).expect("the model is there");
+    assert_eq!(model.table().to_string(), "analytics-prod.sales.orders");
+    assert_eq!(model.table_name().as_str(), "orders");
+    assert_eq!(model.table().qualification(), Qualification::ProjectAndDataset);
+
+    // And the collision is still on the last part rather than on the dataset: a metric called
+    // `sales` beside a table in a dataset called `sales` is fine, and one called `orders` is not.
+    let in_sales = || {
+        vec![model_over(
+            "orders",
+            "local",
+            "analytics-prod.sales.orders",
+            &["amount_cents", "order_date", "region"],
+        )]
+    };
+    drop(
+        Definitions::assemble(in_sales(), vec![], vec![metric("sales", vec![])])
+            .expect("a metric named after the DATASET collides with nothing a qualifier binds to"),
+    );
+    assert_eq!(
+        Definitions::assemble(in_sales(), vec![], vec![metric("orders", vec![])]).unwrap_err(),
+        InconsistentDefinitions::LabelShadowsTable {
+            metric: metric_name("orders"),
+            label: String::from("orders"),
+            table: TableName::parse("orders").expect("a test table is a table"),
         }
     );
 }

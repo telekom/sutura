@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 
 use crate::calendar::TimeRange;
 use crate::catalog::DimensionValue;
-use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName};
+use crate::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
 use crate::pinned::Provenance;
 use crate::warehouse::RowSet;
 
@@ -293,6 +293,29 @@ pub enum RefusalReason {
     ///
     /// Carries the metric and the aggregate that cannot descend, so a caller sees why.
     MeasureDoesNotFederate { metric: MetricName, aggregate: Aggregate },
+    /// Two tables the plan would read answer to one identifier inside one statement.
+    ///
+    /// **A reproduced wrong-answer report, not a hypothetical.** A fact table at
+    /// `analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` gave a
+    /// statement whose `ON` clause compared `orders.customer_id` with `orders.id` - one table with
+    /// itself - because a column is qualified by the LAST part of a path and both paths end the same
+    /// way. A real `DuckDB` answers that with `Binder Error: Ambiguous reference to table "orders"`; a
+    /// target that binds it to one side instead returns a number under a certified metric name.
+    ///
+    /// **A refusal here rather than a load-time refusal, deliberately**, and the asymmetry with
+    /// [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable) is the
+    /// reason: a colliding LABEL costs its author a rename, while a colliding TABLE is a physical
+    /// name nobody here can change - and same-name tables across datasets are the normal shape of the
+    /// estate that qualified paths exist for. So the metric stays authorable and only a question that
+    /// actually puts both tables in one statement is declined; asking for a dimension that needs no
+    /// join is still answered. `sutura_domain::plan::tables` holds the guard and the argument for why
+    /// distinct explicit aliases are not the fix today.
+    ///
+    /// Carries the identifier the two collapsed to and neither of the two paths. The identifier is
+    /// the thing a person can act on - it names the join to avoid - and a path carries the project
+    /// and dataset a deployment reads, which is the operator's business rather than the asker's. The
+    /// operator-facing detail is on the domain error the plan stage refused with.
+    PlanTablesShareAnIdentifier { table: TableName },
     /// The plan named a data system this process did not open.
     ///
     /// **What raises it today is a name comparison, not an identity check**, and the doc comment

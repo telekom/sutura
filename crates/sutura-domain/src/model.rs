@@ -12,6 +12,99 @@
 //! field is an escape hatch, and an escape hatch on the query path is the thing being defended
 //! against.
 
+mod qualified;
+
+pub use qualified::{DatasetName, InvalidQualifiedTable, ProjectName, Qualification, QualifiedTable, TableQualifier};
+
+/// Whether a data system tells two identifiers in one statement apart by case.
+///
+/// **The vocabulary lives here and the declaration lives on `sutura_sql::Dialect`**, which is the
+/// shape [`Qualification`] already has and for the same reason: the domain names what the difference
+/// IS, a target answers for itself, and a comparison decides. One type rather than two so the two can
+/// be compared.
+///
+/// # What it covers, and it is more than the word "alias" suggests
+///
+/// Three resolutions in a generated statement read an identifier back, and a target that folds case
+/// folds all three:
+///
+/// - the identifier a column is qualified by - `orders` in `orders.amount_cents`, which is the
+///   IMPLICIT alias `FROM a.b.orders` gives the table;
+/// - the alias a projected column is labelled with, which `GoogleSQL` resolves ahead of a table of
+///   the same spelling - the wrong-answer report behind
+///   [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable);
+/// - the name of a result column, which is what makes two labels one column rather than two.
+///
+/// # Why the catalog and the plan both compare under [`Self::COARSEST`]
+///
+/// A bundle is dialect-agnostic: the same definitions are served against whichever target a
+/// deployment opened, and nothing at load knows which. So the identity two identifiers are compared
+/// under has to be the coarsest any target uses, and refusing a pair that one target would have told
+/// apart costs a catalog author a rename - while accepting a pair the *serving* target folds is a
+/// wrong number under a certified name. That asymmetry is the whole argument, and it is the same one
+/// `check_labels_against_table` already makes for refusing the whole cross product.
+///
+/// # The mechanism, and what it is not
+///
+/// `sutura_sql::Dialect::identifier_case` is an exhaustive match, so a fifth target cannot compile
+/// without answering; and a test there asserts every declared value is no coarser than
+/// [`Self::COARSEST`], so a variant added below that folds MORE than ASCII case - Unicode folding,
+/// say - fails that assertion instead of silently invalidating the comparison the catalog makes.
+///
+/// **A declaration in the `Sensitive` direction cannot make a bundle unsafe**, and that is worth
+/// stating because two of the four are not measured here: the catalog and the plan compare under
+/// `COARSEST` whatever a dialect declares, so the declaration's only consumer is that assertion.
+/// What it buys is that the assumption is written down per target rather than asserted once in prose.
+///
+/// **The variant order is load-bearing and is asserted rather than assumed.** The derived [`Ord`] on
+/// an enum is declaration order, so `Sensitive < InsensitiveAscii` is what makes
+/// `dialect.identifier_case() <= IdentifierCase::COARSEST` mean *folds at most as much as*.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdentifierCase {
+    /// Two identifiers differing only in case name two different things.
+    Sensitive,
+    /// Two identifiers differing only in ASCII case name one thing.
+    InsensitiveAscii,
+}
+
+impl IdentifierCase {
+    /// The coarsest rule any target this workspace renders for applies, and therefore the identity a
+    /// catalog and a plan are checked under. See the type's own note for the argument.
+    pub const COARSEST: Self = Self::InsensitiveAscii;
+
+    /// Do these two identifiers name one thing under this rule?
+    ///
+    /// ASCII rather than Unicode folding, deliberately and for the reason `Phrase::parse` gives for
+    /// the same choice: there is no NFC/NFD anywhere in this workspace, so a decomposed spelling and
+    /// a homoglyph are each a second identifier - and `parse_identifier` admits neither, because it
+    /// accepts `[A-Za-z0-9_]` and nothing else. So on the values this type is ever handed, ASCII
+    /// folding IS full folding.
+    #[inline]
+    #[must_use]
+    pub fn names_one_thing(self, left: &str, right: &str) -> bool {
+        match self {
+            Self::Sensitive => left == right,
+            Self::InsensitiveAscii => left.eq_ignore_ascii_case(right),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Sensitive => "sensitive",
+            Self::InsensitiveAscii => "insensitive_ascii",
+        }
+    }
+}
+
+impl core::fmt::Display for IdentifierCase {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// The longest identifier we accept.
 ///
 /// 63 is the tightest limit among the data systems we target, and it is a *silent* limit there:
@@ -40,6 +133,50 @@ pub enum InvalidIdentifier {
     /// the data systems targeted here.
     #[error("a name may be at most {limit} characters, {value:?} has {len}")]
     TooLong { value: String, len: usize, limit: usize },
+    /// Ends in a hyphen.
+    ///
+    /// **Only [`Hyphens::Allowed`] can produce this**, and there is exactly one name shape in this
+    /// domain that admits a hyphen at all - see [`ProjectName`]. Under [`Hyphens::Rejected`] a
+    /// hyphen anywhere is an [`Self::IllegalCharacter`], so this variant is unreachable for the
+    /// seven ordinary identifier types.
+    ///
+    /// Its own variant rather than folded into `IllegalCharacter`, because the offending character
+    /// is legal *elsewhere in the same name*: reporting `-` as illegal in `my-project-` would be a
+    /// message the parse of `my-project` contradicts.
+    #[error("a name must not end in a hyphen: {value:?} does")]
+    TrailingHyphen { value: String },
+}
+
+/// Whether a hyphen is a character this name may contain.
+///
+/// **A parameter rather than a second parser, for the reason [`identifier_newtype`] gives:** the
+/// names in this module are used interchangeably by the resolver, so two parsers would be two places
+/// for the answer to differ. One body, one flag, one error enum.
+///
+/// **What this flag may NOT be widened to admit, because two golden claims rest on it.** The corpus
+/// assertions in `sutura-app` strip quoted spans out of a statement with a single toggle, and that is
+/// sound only because no name can contain `"`, `'` or `` ` ``. A hyphen is none of those, so
+/// admitting one leaves the argument intact - and that is the *whole* licence this flag has. A
+/// variant admitting a quote character, a dot or whitespace would silently invalidate the stripping
+/// rather than fail a test.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Hyphens {
+    /// `[A-Za-z_][A-Za-z0-9_]*`. Every identifier a model, a metric or a column is named with.
+    Rejected,
+    /// `[A-Za-z_][A-Za-z0-9_-]*`, not ending in `-`. The one shape that needs it is a cloud project
+    /// id, which is where a table's topmost qualifier comes from.
+    Allowed,
+}
+
+impl Hyphens {
+    /// Is this character one this policy admits after the first?
+    #[inline]
+    const fn admits(self, character: char) -> bool {
+        match self {
+            Self::Rejected => character.is_ascii_alphanumeric() || character == '_',
+            Self::Allowed => character.is_ascii_alphanumeric() || character == '_' || character == '-',
+        }
+    }
 }
 
 /// Parses one identifier, rejecting anything that is not one.
@@ -56,6 +193,14 @@ pub enum InvalidIdentifier {
 /// expanded. The alternative was a second copy of this parser in the other module, which is the one
 /// thing the macro exists to prevent.
 pub(crate) fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
+    parse_name(raw, Hyphens::Rejected)
+}
+
+/// Parses one name under a hyphen policy.
+///
+/// The body [`parse_identifier`] delegates to, and the only other caller is [`ProjectName`]. See
+/// [`Hyphens`] for what the flag is licensed to widen and what it is not.
+pub(crate) fn parse_name(raw: &str, hyphens: Hyphens) -> Result<String, InvalidIdentifier> {
     let trimmed = raw.trim();
     let Some(first) = trimmed.chars().next() else {
         return Err(InvalidIdentifier::Empty);
@@ -66,10 +211,18 @@ pub(crate) fn parse_identifier(raw: &str) -> Result<String, InvalidIdentifier> {
             first,
         });
     }
-    if let Some(offending) = trimmed.chars().find(|c| !(c.is_ascii_alphanumeric() || *c == '_')) {
+    if let Some(offending) = trimmed.chars().find(|c| !hyphens.admits(*c)) {
         return Err(InvalidIdentifier::IllegalCharacter {
             value: String::from(trimmed),
             offending,
+        });
+    }
+    // After the character set, because a hyphen at the end of something that is not a name at all is
+    // the less useful thing to report. Unreachable under `Hyphens::Rejected`, where the check above
+    // has already refused every hyphen.
+    if trimmed.ends_with('-') {
+        return Err(InvalidIdentifier::TrailingHyphen {
+            value: String::from(trimmed),
         });
     }
     // Every character is ASCII by now, so byte length is character length.

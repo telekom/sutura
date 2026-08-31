@@ -26,7 +26,10 @@ pub use authored::{
 
 use crate::calendar::TimeRange;
 use crate::measure::{Measure, RequiredFilter};
-use crate::model::{ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName};
+use crate::model::{
+    ColumnName, DimensionName, Grain, IdentifierCase, JoinType, MetricName, ModelName, QualifiedTable, RelationshipName,
+    SourceName, TableName,
+};
 
 /// The label a generated projection gives the truncated time column.
 ///
@@ -72,23 +75,30 @@ pub const MAX_VALUES_PER_DIMENSION: usize = 64;
 pub struct Model {
     name: ModelName,
     source: SourceName,
-    table: TableName,
+    table: QualifiedTable,
     columns: BTreeSet<ColumnName>,
     description: Description,
 }
 
 impl Model {
-    pub const fn new(
+    /// A model over one physical table, wherever that table lives.
+    ///
+    /// **`impl Into<QualifiedTable>` and not `QualifiedTable`, and that is the compatibility hinge
+    /// rather than a convenience.** `From<TableName>` yields an unqualified path, so every existing
+    /// caller - a catalog document naming only a table, and every fixture in this workspace - passes
+    /// a [`TableName`] and compiles unchanged, meaning exactly what it used to. It costs the `const`
+    /// this constructor used to be, which nothing depended on.
+    pub fn new(
         name: ModelName,
         source: SourceName,
-        table: TableName,
+        table: impl Into<QualifiedTable>,
         columns: BTreeSet<ColumnName>,
         description: Description,
     ) -> Self {
         Self {
             name,
             source,
-            table,
+            table: table.into(),
             columns,
             description,
         }
@@ -104,9 +114,20 @@ impl Model {
         &self.source
     }
 
+    /// Where the table lives: the whole path, which is what a `FROM` clause names.
+    ///
+    /// Read [`Self::table_name`] instead wherever what is wanted is the name a column is qualified by
+    /// or the name a file-registering engine registers under. Two accessors rather than one that
+    /// guesses - `QualifiedTable::name` carries why both readings are real.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         &self.table
+    }
+
+    /// The table's own name, without whatever sits above it.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table.name()
     }
 
     #[inline]
@@ -542,6 +563,40 @@ pub enum InconsistentDefinitions {
         "dimension {dimension} of metric {metric} has the metric's own name, which is the label the measure is projected under"
     )]
     DimensionShadowsMeasure { metric: MetricName, dimension: DimensionName },
+    /// A label this metric projects is spelled the same as a table its statement reads.
+    ///
+    /// **This one is a wrong-answer report rather than a hypothetical, and it was found by a live
+    /// run.** A `BigQuery` submission came back `400 invalidQuery` - *"Cannot access field day on a
+    /// value with type INT64"* - because the metric's label equalled the table name, and `GoogleSQL`
+    /// resolved the qualifier in `table.column` to the **select-list alias** instead of to the table.
+    /// Same root as the unqualified table itself: a physical name that nothing checked against the
+    /// labels beside it.
+    ///
+    /// It is refused for **every** dialect rather than for the one that reported it, because a rule
+    /// about which of two things a qualifier binds to is precisely the kind of difference nobody
+    /// should be maintaining per target - and the alternative outcomes across four dialects are a
+    /// wrong number, a rejected statement and silence.
+    ///
+    /// **The comparison folds case, and it did not until a review reproduced the hole.** `GoogleSQL`'s
+    /// lexical reference lists *aliases within a query* and *column names* as NOT case-sensitive
+    /// (checked 2026-08-30), so a table named `Orders` beside a projected label `orders` passed an
+    /// equality check here and then collided in the generated statement exactly like the live
+    /// same-case failure above. [`IdentifierCase`] is the vocabulary,
+    /// `sutura_sql::Dialect::identifier_case` is the per-target declaration, and
+    /// [`IdentifierCase::COARSEST`] is what this check compares under - see that type for why a
+    /// dialect-agnostic bundle has to be held to the coarsest rule rather than to the serving
+    /// target's.
+    ///
+    /// `label` is a `String` and not one of the three name types, because the three labels a
+    /// statement projects are a metric name, a dimension name and
+    /// [`TIME_BUCKET_LABEL`] - which is a `&str` constant. The variant says which text collided; the
+    /// three sources of it are not what a reader needs to branch on.
+    #[error("metric {metric} projects the label {label}, which is also the name of the table {table} its statement reads")]
+    LabelShadowsTable {
+        metric: MetricName,
+        label: String,
+        table: TableName,
+    },
 }
 
 impl Definitions {
@@ -663,6 +718,9 @@ impl Definitions {
                 metric: metric.name.clone(),
             });
         }
+        // The metric's own model, which every statement about it reads. Each dimension's owning model
+        // is checked in `check_dimension`, where the relationship has already been resolved.
+        Self::check_labels_against_table(metric, model.table_name())?;
         for dimension in metric.dimensions.values() {
             Self::check_dimension(models, relationships, metric, model, dimension)?;
         }
@@ -679,13 +737,19 @@ impl Definitions {
         // Two columns with one label is not a modelling opinion, it is a result set a caller cannot
         // read by name. Caught here, once, at load, rather than as a query-time refusal for
         // something the caller did not choose.
-        if dimension.name.as_str() == TIME_BUCKET_LABEL {
+        //
+        // **Compared under `IdentifierCase::COARSEST` and not by equality**, because `GoogleSQL`
+        // documents a result column's name as case-insensitive, so `Period` beside `period` is one
+        // column there and two here. That type's own note is where the argument for using the
+        // coarsest rule at load time lives, and `sutura_sql::Dialect::identifier_case` is where each
+        // target declares its own.
+        if IdentifierCase::COARSEST.names_one_thing(dimension.name.as_str(), TIME_BUCKET_LABEL) {
             return Err(InconsistentDefinitions::DimensionShadowsTimeBucket {
                 metric: metric.name.clone(),
                 dimension: dimension.name.clone(),
             });
         }
-        if dimension.name.as_str() == metric.name.as_str() {
+        if IdentifierCase::COARSEST.names_one_thing(dimension.name.as_str(), metric.name.as_str()) {
             return Err(InconsistentDefinitions::DimensionShadowsMeasure {
                 metric: metric.name.clone(),
                 dimension: dimension.name.clone(),
@@ -759,6 +823,40 @@ impl Definitions {
                 model: owning.name.clone(),
                 column: dimension.column.clone(),
             });
+        }
+        // The joined table, now that the relationship has been resolved. `check_metric` covers the
+        // metric's own model; between them every table a statement about this metric can read is
+        // checked against every label it can project.
+        Self::check_labels_against_table(metric, owning.table_name())?;
+        Ok(())
+    }
+
+    /// Every label this metric projects, against one table name its statement reads.
+    ///
+    /// **Every label against every table, which is stricter than the collision that has to bite and
+    /// deliberately so.** A joined table is in the `FROM` only when a dimension reached through it is
+    /// asked for, but any *other* dimension can be asked for in the same question - so which pairs
+    /// can meet at query time is a function of the question, and a load-time check that tried to
+    /// predict it would be a check that sometimes let one through. Refusing the whole cross product
+    /// costs a catalog author one rename and cannot be wrong in the direction that returns a number.
+    ///
+    /// [`TIME_BUCKET_LABEL`] is in the list because it is projected for every question, so a table
+    /// literally named `period` collides with every one of them.
+    ///
+    /// Compared under [`IdentifierCase::COARSEST`] rather than by equality: a table named `Period`
+    /// collides too. The variant's own note carries the report and the doc reference.
+    fn check_labels_against_table(metric: &Metric, table: &TableName) -> Result<(), InconsistentDefinitions> {
+        let projected = [metric.name.as_str(), TIME_BUCKET_LABEL]
+            .into_iter()
+            .chain(metric.dimensions.values().map(|dimension| dimension.name.as_str()));
+        for label in projected {
+            if IdentifierCase::COARSEST.names_one_thing(label, table.as_str()) {
+                return Err(InconsistentDefinitions::LabelShadowsTable {
+                    metric: metric.name.clone(),
+                    label: String::from(label),
+                    table: table.clone(),
+                });
+            }
         }
         Ok(())
     }

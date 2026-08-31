@@ -18,9 +18,15 @@
 //!   HTTP: the port is a Rust trait, so the honest stand-in is a type that implements it, and a test
 //!   asserting on the text of an HTTP request would prove something about the test. They are what lets
 //!   every refusal be checked with no database at all.
-//! - [`TwoSourceCatalog`] provokes one refusal. It is built in code rather than as a catalog
+//! - [`TwoSourceCatalog`] provokes one plan shape - a SPLIT, since `docs/adr/0007`'s splitter
+//!   serves two sources, and a refusal before that. It is built in code rather than as a catalog
 //!   directory, because a corpus spanning two data systems would make every other test in the
 //!   suite span two.
+//! - [`same_name_tables_catalog`]'s fake provokes one refusal too, and is built in code for the same
+//!   reason: qualifying the shipped corpus would move every existing golden and break the executed
+//!   axis in order to demonstrate a refusal. [`federated_same_name_tables_catalog`] is the same
+//!   collision on the other plan shape - a two-source question, so the collision lands inside the
+//!   fact LEG - because a guard reached by one shape and not the other is not a guard.
 //!
 //! Only one test target includes this module, because a fake is used where it is needed rather than
 //! everywhere: `unused_imports` and `dead_code` are both `deny` in the workspace lint table, so an
@@ -29,8 +35,8 @@
 mod oracle;
 
 pub(crate) use oracle::{
-    HandWrittenCatalog, TwoSourceCatalog, executable_definitions, june_range, oracle_definitions, oracle_knowledge,
-    stated_knowledge, two_source_catalog,
+    HandWrittenCatalog, TwoSourceCatalog, executable_definitions, federated_same_name_tables_catalog, june_range,
+    oracle_definitions, oracle_knowledge, same_name_tables_catalog, stated_knowledge, two_source_catalog,
 };
 
 use std::cell::RefCell;
@@ -103,10 +109,7 @@ fn fake_leg() -> Presented {
 fn whole_plan(executable: Executable<'_>) -> &QueryPlan {
     match executable {
         Executable::Query(plan) => plan,
-        Executable::Leg(leg) => panic!(
-            "no fake in this suite answers a leg, and one arrived against {}",
-            leg.table().as_str()
-        ),
+        Executable::Leg(leg) => panic!("no fake in this suite answers a leg, and one arrived against {}", leg.table()),
     }
 }
 

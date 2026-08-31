@@ -30,6 +30,12 @@
 //! **How the date bucket is spelled.** [`DateTruncShape`] carries the argument order and whether the
 //! grain is a string literal or a bare keyword, and it exists because the parse check cannot catch
 //! getting it wrong - see that type.
+//!
+//! **How deep a qualifier a table may carry.** [`Dialect::qualification`] declares it, and the reason
+//! it is not delegated is that the layer will happily RENDER `a.b.c` for a target with no third
+//! position to put `a` in. See that accessor.
+
+use sutura_domain::model::{IdentifierCase, Qualification};
 
 /// The data systems a statement can be rendered for.
 ///
@@ -215,6 +221,95 @@ impl Dialect {
             Self::BigQuery => DateTruncShape::DateFirstAsKeyword,
         }
     }
+
+    /// The deepest table path this data system resolves.
+    ///
+    /// A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
+    /// the [`DateTruncShape`] and [`identifier_quote`](Dialect::identifier_quote) precedent, and for
+    /// the same reason: **the dialect layer renders `catalog.schema.name` for ANY target given three
+    /// parts.** Its `TableRef` is a name plus two `Option`s with no per-dialect arity check, so
+    /// without this declaration a `project.dataset.table` rendered for a target with no third
+    /// position produces a statement that either fails at the data system or, worse, resolves the
+    /// leading part as something else. [`mod@crate::generate`] refuses past what this returns.
+    ///
+    /// The vocabulary is [`sutura_domain::model::Qualification`], shared with the type that reports
+    /// how deep a *name* is - so the comparison is an ordering rather than a hand-written match.
+    ///
+    /// **`BigQuery` is the reason the feature exists.** `project.dataset.table` is a first-class path
+    /// there, one credential reaches several projects, and a cross-project join is native and pushed
+    /// down. That is what makes cross-project **not** federation - see
+    /// `sutura_domain::model::qualified`'s header.
+    ///
+    /// **Postgres is `Dataset`, and stops there because cross-DATABASE is not a thing it does.** Its
+    /// three-part form `database.schema.table` parses and is accepted only when the leading part is
+    /// the database already connected to, so rendering one would be a statement that works or fails
+    /// depending on a connection detail no catalog can see. A schema qualifier is the real capability
+    /// and is what a `schema.table` model gets.
+    ///
+    /// **`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
+    /// them. Its arm is a rendering claim and not an execution one: nothing in this workspace
+    /// executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+    ///
+    /// **`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
+    /// schemas and attached catalogs, so this is narrower than what the engine can parse. It is
+    /// declared for what a `DuckDB` deployment HERE can resolve: `sutura-exec-duckdb` registers one
+    /// view per model in the default schema of the default catalog, and `sutura-exec-datafusion`
+    /// registers one file per model in its own table registry. A qualified name resolves to nothing in
+    /// either, so a refusal naming the path is the useful outcome and a rendered `a.b.c` that returns
+    /// `Catalog with name a does not exist` is not. Widening this arm is a change to what those
+    /// adapters ATTACH, not to what this renders.
+    #[inline]
+    #[must_use]
+    pub const fn qualification(self) -> Qualification {
+        match self {
+            Self::DuckDb => Qualification::TableOnly,
+            Self::Postgres | Self::ClickHouse => Qualification::Dataset,
+            Self::BigQuery => Qualification::ProjectAndDataset,
+        }
+    }
+
+    /// Whether this data system tells two identifiers in one statement apart by case.
+    ///
+    /// A declaration, exhaustively matched, so a fifth dialect cannot compile without answering - the
+    /// [`DateTruncShape`] and [`Self::qualification`] precedent. The vocabulary is
+    /// [`IdentifierCase`], and what reads it is the test
+    /// `every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes` below:
+    /// `sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables` both
+    /// compare under [`IdentifierCase::COARSEST`], because a bundle is dialect-agnostic and nothing at
+    /// load knows which target will serve it.
+    ///
+    /// **So this declaration is a self-check on that assumption rather than a barrier**, and it is
+    /// worth saying which: a value declared `Sensitive` here cannot make a bundle unsafe, because
+    /// those checks fold regardless. What it buys is that a target whose folding is *coarser* than
+    /// ASCII case - a Unicode-folding variant added to [`IdentifierCase`] - fails a test instead of
+    /// quietly invalidating both comparisons.
+    ///
+    /// **`BigQuery` is `InsensitiveAscii`, and it is the reason the type exists.** `GoogleSQL`'s lexical
+    /// reference lists *aliases within a query*, *column names* and *field names* as NOT
+    /// case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by default, which is
+    /// the asymmetry that makes the collision reachable: a table `Orders` is a distinct table, and the
+    /// qualifier `Orders` still resolves to a select-list alias spelled `orders`.
+    ///
+    /// **`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
+    /// `DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+    /// returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
+    /// keeps two projected aliases differing only in case as two distinct output columns. Declaring
+    /// the coarser of the two behaviours covers both.
+    ///
+    /// **`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
+    /// here** - neither has a server in this repository to ask, which is why the paragraph above about
+    /// the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
+    /// compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
+    /// case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
+    /// every `ClickHouse` golden.
+    #[inline]
+    #[must_use]
+    pub const fn identifier_case(self) -> IdentifierCase {
+        match self {
+            Self::Postgres | Self::ClickHouse => IdentifierCase::Sensitive,
+            Self::DuckDb | Self::BigQuery => IdentifierCase::InsensitiveAscii,
+        }
+    }
 }
 
 impl core::fmt::Display for Dialect {
@@ -225,7 +320,43 @@ impl core::fmt::Display for Dialect {
 
 #[cfg(test)]
 mod tests {
+    use sutura_domain::model::{IdentifierCase, Qualification};
+
     use super::{ALL, DateTruncShape, Dialect, IdentifierQuote, PlaceholderStyle};
+
+    /// The assumption the catalog and the plan both make, checked against every target's own
+    /// declaration.
+    ///
+    /// `sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables`
+    /// compare identifiers under `IdentifierCase::COARSEST`, because a bundle is dialect-agnostic and
+    /// nothing at load knows which target will serve it. That is only sound while no target folds MORE
+    /// than `COARSEST` does - so this is where that stops being a sentence in a doc comment.
+    ///
+    /// It is trivially true for the two variants that exist, and it is not decoration: the case it
+    /// exists for is a third variant coarser than ASCII case, which would make both of those
+    /// comparisons too fine and is exactly the change a reviewer would otherwise wave through.
+    #[test]
+    fn every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes() {
+        for dialect in ALL {
+            assert!(
+                dialect.identifier_case() <= IdentifierCase::COARSEST,
+                "{dialect} folds identifiers more than the catalog's own comparison does: {} against {}",
+                dialect.identifier_case(),
+                IdentifierCase::COARSEST
+            );
+        }
+    }
+
+    /// The declaration order the comparison above rests on.
+    ///
+    /// The derived `Ord` on an enum is declaration order, so reordering `IdentifierCase`'s variants
+    /// would silently invert every `<=` against `COARSEST` - the same trap `Qualification` documents
+    /// and asserts, for the same reason.
+    #[test]
+    fn folding_more_is_greater_because_the_comparison_is_what_decides_the_check() {
+        assert!(IdentifierCase::Sensitive < IdentifierCase::InsensitiveAscii);
+        assert_eq!(IdentifierCase::COARSEST, IdentifierCase::InsensitiveAscii);
+    }
 
     #[test]
     fn every_dialect_is_in_all() {
@@ -285,6 +416,22 @@ mod tests {
             assert_eq!(dialect.identifier_quote(), IdentifierQuote::Double, "{dialect}");
             assert_eq!(dialect.identifier_quote().character(), '"', "{dialect}");
         }
+    }
+
+    #[test]
+    fn bigquery_is_the_one_that_resolves_a_project_and_duckdb_resolves_nothing_above_a_table() {
+        // The declaration behind a cross-project read, and behind the refusal that stops a qualified
+        // path being rendered for a target that would resolve its leading part as something else.
+        // Pinned by value per dialect rather than by a loop, because each arm is a separate claim
+        // about a separate data system and the accessor's own doc says which.
+        assert_eq!(Dialect::BigQuery.qualification(), Qualification::ProjectAndDataset);
+        assert_eq!(Dialect::Postgres.qualification(), Qualification::Dataset);
+        assert_eq!(Dialect::ClickHouse.qualification(), Qualification::Dataset);
+        assert_eq!(Dialect::DuckDb.qualification(), Qualification::TableOnly);
+        // And the ordering this is read through: a name is renderable when it is no deeper than the
+        // target. `Qualification`'s own suite pins the variant order that makes this mean that.
+        assert!(Qualification::Dataset <= Dialect::BigQuery.qualification());
+        assert!(Qualification::Dataset > Dialect::DuckDb.qualification());
     }
 
     #[test]

@@ -21,6 +21,18 @@
 //! composition (agent, credential source, transport, warehouse) actually fits together, which no
 //! local test can show. That is worth having and it is a smaller claim.
 //!
+//! **And since #83, one thing more that nothing local can reach: a QUALIFIED table RESOLVES.** Every
+//! golden in `crates/sutura-app/tests/golden/qualified.rs` can show that `project.dataset.table`
+//! leaves the generator quoted per part and parses as `GoogleSQL`; none of them can show that the
+//! service reads the table that path names.
+//! [`the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers`] reads the same table
+//! three ways and requires the same numbers from all three, and
+//! [`a_qualified_name_naming_a_dataset_that_is_not_there_is_a_refusal_and_not_a_wrong_number`] is the
+//! control without which those three greens would be satisfied by a service that ignored the
+//! qualifier entirely. `docs/adr/0019` is the record, and it states what this leg still does not
+//! reach: no second dataset and no second project, because the acceptance credential's IAM refuses
+//! `datasets.create`.
+//!
 //! **The leg the records ask for is a different piece of work**, and #78's Postgres importer already
 //! has its shape: load the example fixtures into the dataset, run the 21 corpus questions, compare
 //! rows against the engine. Every sentence in this repository that promised *the corpus* has been
@@ -97,9 +109,12 @@
 mod tests {
     use sutura_domain::calendar::{Date, TimeRange};
     use sutura_domain::identity::Presented;
-    use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
+    use sutura_domain::model::{
+        Aggregate, ColumnName, DatasetName, Grain, MetricName, ProjectName, QualifiedTable, SourceName, TableName, TableQualifier,
+    };
     use sutura_domain::plan::{
         Executable, PlanBucket, PlanColumn, PlanFilter, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+        StatementTables,
     };
     use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
@@ -197,6 +212,40 @@ mod tests {
             }
         }
 
+        /// The table as an unqualified name, resolved by the job's `defaultDataset`.
+        ///
+        /// The shape every leg in this file used before qualification existed, kept so the qualified
+        /// legs have something to be COMPARED against: a qualified read that returns the right numbers
+        /// is only evidence beside an unqualified read that returns the same ones.
+        fn unqualified(&self) -> QualifiedTable {
+            QualifiedTable::from(self.table.clone())
+        }
+
+        /// `dataset.table` - the same table, named without relying on the job's default.
+        fn in_dataset(&self) -> QualifiedTable {
+            QualifiedTable::new(
+                Some(TableQualifier::in_dataset(
+                    DatasetName::parse(self.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                )),
+                self.table.clone(),
+            )
+        }
+
+        /// `project.dataset.table` - the same table, fully qualified.
+        ///
+        /// **The claim this file was extended for.** The path is built from the fixture's OWN project
+        /// and dataset, so no value here is written into the repository - which is the same rule the
+        /// two variables above are read under.
+        fn in_project(&self) -> QualifiedTable {
+            QualifiedTable::new(
+                Some(TableQualifier::in_project(
+                    ProjectName::parse(self.billing_project.as_str()).expect("a project id is also a project name"),
+                    DatasetName::parse(self.dataset.as_str()).expect("a dataset id is also a dataset name"),
+                )),
+                self.table.clone(),
+            )
+        }
+
         /// One variable, or a panic naming it and saying what it is for.
         fn named(key: &str, what: &str) -> String {
             match std::env::var(key) {
@@ -244,8 +293,11 @@ mod tests {
     /// One bucket, one measure, and the two range bounds as predicates - because a `TimeRange` has no
     /// unbounded form, so every real plan carries them and the generator refuses one with no
     /// predicate.
-    fn plan(table: &TableName) -> QueryPlan {
-        let column = |name: &str| PlanColumn::new(table.clone(), ColumnName::parse(name).expect("a column name parses"));
+    fn plan(table: &QualifiedTable) -> QueryPlan {
+        // Every column is qualified by the table's BARE name, because `FROM a.b.c` gives the reference
+        // an implicit alias of `c`. That is a claim about GoogleSQL that no local test can check, and
+        // `the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers` is what checks it.
+        let column = |name: &str| PlanColumn::new(table.name().clone(), ColumnName::parse(name).expect("a column name parses"));
         // **Under `MAX_RANGE_DAYS`, which the previous version was not.** A hundred-year span is a
         // question this surface REFUSES as `TimeRangeTooLong` before an adapter ever sees it, so
         // asking a real endpoint one was asking something no caller could ask - which made
@@ -256,8 +308,7 @@ mod tests {
         QueryPlan::new(
             source(),
             MetricName::parse("total_amount").expect("a metric name parses"),
-            table.clone(),
-            Vec::new(),
+            StatementTables::only(table.clone()),
             PlanBucket::new(String::from("period"), Grain::Month, column("day")),
             Vec::new(),
             PlanMeasure::Simple {
@@ -316,7 +367,7 @@ mod tests {
         // **ONE statement, and the module header lists what that leaves untested.** A green here is
         // not "the corpus is accepted".
         let fixture = Fixture::required();
-        let table = fixture.table.clone();
+        let table = fixture.unqualified();
         let warehouse = opened(fixture);
         let plan = plan(&table);
 
@@ -339,7 +390,7 @@ mod tests {
         //    a column typed `TIMESTAMP` rather than `DATE` will show up, loudly, as the crate
         //    documentation says it should.
         let fixture = Fixture::required();
-        let table = fixture.table.clone();
+        let table = fixture.unqualified();
         let warehouse = opened(fixture);
         let plan = plan(&table);
 
@@ -352,15 +403,31 @@ mod tests {
             "the projected labels are the plan's"
         );
 
-        // **The numbers, not merely the shape.** A fixture whose rows a wrong plan could also produce
-        // is not evidence, so the four rows behind this sum to 42 in June and 99 in July - two buckets
-        // that discriminate. Asserted as a set of pairs rather than by index, because the row order is
-        // the statement's `ORDER BY` and this test is about the values.
+        assert_the_fixtures_numbers("the unqualified read", &rows);
+    }
+
+    /// The fixture's own numbers, whichever way its table was named.
+    ///
+    /// **The numbers, not merely the shape.** A fixture whose rows a wrong plan could also produce is
+    /// not evidence, so the four rows behind this sum to 42 in June and 99 in July - two buckets that
+    /// discriminate. Asserted as a set of pairs rather than by index, because the row order is the
+    /// statement's `ORDER BY` and these tests are about the values.
+    ///
+    /// **A function rather than three copies, and that is what makes the qualified legs mean
+    /// anything:** what they claim is that a fully qualified read returns *the same* numbers as the
+    /// unqualified one, and three separately written expectations could drift into three different
+    /// claims. `named` says which leg is speaking, because a failure has to name the path shape.
+    fn assert_the_fixtures_numbers(named: &str, rows: &sutura_domain::warehouse::RowSet) {
+        assert_eq!(
+            rows.columns(),
+            ["period", "total_amount"],
+            "{named}: the projected labels are the plan's"
+        );
         let mut answered: Vec<(String, String)> = Vec::new();
         for row in rows.rows() {
-            assert_eq!(row.len(), 2, "a row is as wide as the schema");
+            assert_eq!(row.len(), 2, "{named}: a row is as wide as the schema");
             let (Some(period), Some(total)) = (row.first(), row.get(1)) else {
-                panic!("a two-column row has two cells");
+                panic!("{named}: a two-column row has two cells");
             };
             answered.push((period.render(), total.render()));
         }
@@ -371,7 +438,85 @@ mod tests {
                 (String::from("2026-06-01"), String::from("42")),
                 (String::from("2026-07-01"), String::from("99")),
             ],
-            "the endpoint's numbers are not the fixture's"
+            "{named}: the endpoint's numbers are not the fixture's"
+        );
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn the_same_table_read_by_its_fully_qualified_name_answers_the_same_numbers() {
+        // **The claim that separates *qualification renders* from *qualification resolves*, and it is
+        // the only place in this repository where the second half can be made.** Every local golden
+        // can show that `project.dataset.table` comes out of the generator quoted per part and parses
+        // as GoogleSQL; none of them can show that the service reads the table the path names.
+        //
+        // So: the SAME table, three ways - unqualified through the job's `defaultDataset`, then
+        // `dataset.table`, then `project.dataset.table` - and all three have to answer 42 and 99. The
+        // unqualified leg is inside this test rather than borrowed from the one above, because what is
+        // being asserted is an EQUALITY between the three, and a comparison split across two test
+        // functions is one a `--skip` can quietly turn into a single-sided claim.
+        //
+        // **It also measures the one thing `sutura_sql::generate::table_path` declares and cannot
+        // prove locally:** that `FROM a.b.c` gives the reference an implicit alias of `c`, so
+        // `c.column` binds to the table. If GoogleSQL bound it elsewhere this leg would fail with
+        // `invalidQuery` naming the column, which is exactly how the label collision this branch also
+        // fixes first showed up.
+        let fixture = Fixture::required();
+        let paths = [
+            ("the unqualified read", fixture.unqualified()),
+            ("dataset.table", fixture.in_dataset()),
+            ("project.dataset.table", fixture.in_project()),
+        ];
+        let warehouse = opened(fixture);
+        for (named, path) in &paths {
+            // Printed so the terminal output of a run is the evidence rather than a claim about it.
+            // The PATH SHAPE, never the path: a project id is not something this repository writes
+            // down, and a test's own output is a place it would be written down.
+            println!("bigquery-acceptance: reading the fixture table as {named}");
+            let plan = plan(path);
+            let rows = warehouse
+                .execute(Executable::Query(&plan), &presented())
+                .unwrap_or_else(|e| panic!("{named}: the endpoint did not answer: {e:?}"));
+            assert_the_fixtures_numbers(named, &rows);
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a real BigQuery project, named in the developer's own environment"]
+    fn a_qualified_name_naming_a_dataset_that_is_not_there_is_a_refusal_and_not_a_wrong_number() {
+        // **The negative control the positive leg needs, and the one that rules out the reading that
+        // would make the positive leg worthless.** If the service ignored the qualifier and resolved
+        // the last part in the job's `defaultDataset`, the leg above would pass while proving nothing
+        // - which is precisely the wrong-number failure this whole branch is about, one layer further
+        // out.
+        //
+        // So the same table name is asked for in a dataset that does not exist. It has to be refused.
+        // A green here plus a green above is what makes "the path is what resolved it" a measurement
+        // rather than an inference.
+        let fixture = Fixture::required();
+        let absent = QualifiedTable::new(
+            Some(TableQualifier::in_dataset(
+                DatasetName::parse("sutura_no_such_dataset").expect("a dataset name parses"),
+            )),
+            fixture.table.clone(),
+        );
+        let warehouse = opened(fixture);
+        let plan = plan(&absent);
+
+        let refused = warehouse
+            .dry_run(Executable::Query(&plan), &presented())
+            .expect_err("a dataset that is not there is refused");
+        // **Printing the error is safe HERE for a reason that is not local to this test**, and it is
+        // worth naming because this leg provokes an endpoint refusal deliberately: the wire carries the
+        // endpoint's own `message`, and that message quotes what it refused as `project:dataset.table`.
+        // On a public repository a failing run's log is public, so what covers it is the
+        // `::add-mask::` step in `ci.yml`'s `bigquery-acceptance` job, which redacts the project, the
+        // dataset and the table from every later line in the job - a panicking test's message included.
+        // `docs/adr/0017`'s amendment carries the argument and the cost. The dataset name in the path
+        // above is a fictitious literal, so it is the one part of it nothing needs to mask.
+        assert!(
+            core::error::Error::source(&refused).is_some(),
+            "the endpoint's own error did not survive #[source]: {refused:?}"
         );
     }
 
@@ -385,7 +530,7 @@ mod tests {
         // `panic = "abort"`.
         let fixture = Fixture::required();
         let warehouse = opened(fixture);
-        let absent = TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses");
+        let absent = QualifiedTable::from(TableName::parse("sutura_acceptance_no_such_table").expect("a table name parses"));
         let plan = plan(&absent);
 
         let refused = warehouse

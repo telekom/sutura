@@ -337,6 +337,16 @@ const PLAN_SPANS_TOO_MANY_SOURCES: Guide = Guide {
              in the hope of avoiding it.",
 };
 
+const PLAN_TABLES_SHARE_AN_IDENTIFIER: Guide = Guide {
+    reason: "PlanTablesShareAnIdentifier",
+    meaning: "answering would read two different tables that carry the same name, and one statement \
+              cannot tell them apart",
+    remedy: "Try a dimension that does not need that join - it is the join that puts both tables in \
+             one statement, so a question without it is still answered. If every dimension you need \
+             goes through it, report it to a person: it is a fact about where the tables live, not \
+             about how you asked.",
+};
+
 const FEDERATION_NOT_EXECUTABLE: Guide = Guide {
     reason: "FederationNotExecutable",
     meaning: "this deployment has no adapter that can execute one half of a question spanning two data \
@@ -407,6 +417,11 @@ const GUIDES: &[&Guide] = &[
     &FEDERATION_NOT_EXECUTABLE,
     &FEDERATION_LINK_AMBIGUOUS,
     &MEASURE_DOES_NOT_FEDERATE,
+    // Actionable, and the reason it sits after the source-count refusals rather than with the
+    // narrowing ones: the move is to drop a JOIN rather than to narrow anything, and an agent
+    // reaching it has already read that a refusal about the plan's shape is not one to retry
+    // unchanged.
+    &PLAN_TABLES_SHARE_AN_IDENTIFIER,
     &SOURCE_UNAVAILABLE,
     &CREDENTIAL_UNAVAILABLE,
 ];
@@ -438,6 +453,7 @@ const fn guide_for(reason: &RefusalReason) -> &'static Guide {
         RefusalReason::FederationNotExecutable => &FEDERATION_NOT_EXECUTABLE,
         RefusalReason::FederationLinkAmbiguous { .. } => &FEDERATION_LINK_AMBIGUOUS,
         RefusalReason::MeasureDoesNotFederate { .. } => &MEASURE_DOES_NOT_FEDERATE,
+        RefusalReason::PlanTablesShareAnIdentifier { .. } => &PLAN_TABLES_SHARE_AN_IDENTIFIER,
         RefusalReason::SourceUnavailable { .. } => &SOURCE_UNAVAILABLE,
         RefusalReason::CredentialUnavailable { .. } => &CREDENTIAL_UNAVAILABLE,
     }

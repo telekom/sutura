@@ -34,14 +34,22 @@
 //! frontmatter describe different definitions is a certified metric nobody can check, and the fix is
 //! in the document rather than here.
 //!
-//! [`TwoSourceCatalog`] provokes one refusal and is here for the same reason: it is built in code
-//! rather than as a catalog directory, because a corpus spanning two data systems would make every
-//! other test in the suite span two.
+//! The three catalogs that exist to provoke ONE plan decision each - a question spanning a second
+//! data system, and the same-name-tables collision on each of the two plan shapes - live in
+//! `refusals` beside this file. They are built in code rather than as catalog directories, because a corpus
+//! spanning two data systems would make every other test in the suite span two, and qualifying the
+//! shipped corpus would move every existing golden to demonstrate a refusal. Their own module says
+//! the rest.
 
 // The other half of the same statement: what the catalog says ABOUT what it defines. Its own file for
 // the reason this one is its own file - a hand-written catalog is a list of literals and
 // `cargo xtask max-lines` fails at a thousand of them.
 mod knowledge;
+
+// The three fakes that provoke one plan decision each - two refusals and, since the splitter landed,
+// one split. Their own file for this one's reason: a hand-written catalog is a list of literals and
+// `cargo xtask max-lines` fails at a thousand of them.
+mod refusals;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -51,7 +59,7 @@ use sutura_domain::catalog::{Anchor, Definitions, Description, Dimension, Dimens
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, ZeroDenominator};
 use sutura_domain::model::{
-    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
+    Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, TableName,
 };
 use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
 
@@ -705,95 +713,4 @@ pub(crate) fn june_range() -> TimeRange {
     june()
 }
 
-/// The snapshot and its customers, with `customers` moved to a second data system.
-///
-/// It exists to provoke one refusal: a plan whose join would reach a second data system is refused
-/// before anything runs, because a second data system is a second identity to satisfy.
-///
-/// **Two models and one metric rather than the whole catalog, and the reduction is deliberate.**
-/// Nothing here ever executes and nothing compares it against a document, so carrying eleven
-/// metrics would be eleven more literals to keep in step with a directory this type is not a
-/// statement of. What it does have to carry is the shape the refusal needs: a metric on the LOCAL
-/// model whose dimension is reached `via` a relationship whose target sits ELSEWHERE. The
-/// definitional filter the real `recurring_revenue` declares is left off for the same reason - it
-/// changes no plan that is refused before planning finishes.
-pub(crate) fn two_source_catalog() -> TwoSourceCatalog {
-    TwoSourceCatalog
-}
-
-/// See [`two_source_catalog`].
-pub(crate) struct TwoSourceCatalog;
-
-impl SemanticCatalog for TwoSourceCatalog {
-    type Error = Never;
-
-    /// **Declaring**, the narrow pole of the fidelity test: two models on two data systems and none
-    /// of the kinds a plan would only consume after the refusal this fake exists to provoke.
-    const KIND: CatalogKind = CatalogKind::Declaring;
-
-    /// **Five declared absences, which is what makes this the narrow end of the fidelity test.** Two
-    /// models on two data systems, one metric, one join that licenses one dimension - and no prose,
-    /// no definitional filter, no value allowlist and no anchor, because the refusal this fake exists
-    /// to provoke happens before any of those would matter. Its own doc comment says so; this line is
-    /// the same reduction stated where a caller could read it.
-    fn capabilities() -> MetadataCapabilities {
-        MetadataCapabilities::of(
-            DefinitionCapabilities::of([
-                DefinitionKind::Structure,
-                DefinitionKind::Relationships,
-                DefinitionKind::Cardinality,
-                DefinitionKind::Metrics,
-                DefinitionKind::Grains,
-            ]),
-            sutura_domain::knowledge::KnowledgeCapabilities::none(),
-        )
-    }
-
-    #[expect(
-        clippy::unwrap_in_result,
-        reason = "every value here is a literal in this file, so a parse failure is a broken test \n                  rather than an input to handle; `allow-expect-in-tests` covers the bare lint but \n                  not this one, which fires on position rather than on being test code"
-    )]
-    fn load(&self) -> Result<PinnedDefinitions, Self::Error> {
-        let subscriptions = Model::new(
-            ModelName::parse("subscriptions").expect("a name"),
-            source(),
-            TableName::parse("fct_subscription_monthly").expect("a name"),
-            BTreeSet::from([
-                column("month"),
-                column("subscription_key"),
-                column("customer_key"),
-                column("mrr_cents"),
-            ]),
-            Description::default(),
-        );
-        let customers = Model::new(
-            ModelName::parse("customers").expect("a name"),
-            SourceName::parse("elsewhere").expect("a name"),
-            TableName::parse("dim_customer").expect("a name"),
-            BTreeSet::from([column("customer_key"), column("region")]),
-            Description::default(),
-        );
-        let joins = vec![Relationship::new(
-            RelationshipName::parse("subscription_customer").expect("a name"),
-            ModelName::parse("subscriptions").expect("a name"),
-            column("customer_key"),
-            ModelName::parse("customers").expect("a name"),
-            column("customer_key"),
-            JoinType::ManyToOne,
-        )];
-        let recurring_revenue = Metric::new(
-            MetricName::parse("recurring_revenue").expect("a name"),
-            ModelName::parse("subscriptions").expect("a name"),
-            Measure::Simple(Term::Aggregate(AggregatedColumn::new(Aggregate::Sum, column("mrr_cents")))),
-            Vec::new(),
-            column("month"),
-            BTreeSet::from([Grain::Month]),
-            BTreeMap::from([dimension("region", "region", Some("subscription_customer"), None)]),
-            None,
-            Description::default(),
-        );
-        let definitions = Definitions::assemble(vec![subscriptions, customers], joins, vec![recurring_revenue])
-            .expect("a two-source catalog is still internally consistent");
-        Ok(PinnedDefinitions::pin(version(), definitions, Knowledge::none()).expect("the definitions hash"))
-    }
-}
+pub(crate) use refusals::{TwoSourceCatalog, federated_same_name_tables_catalog, same_name_tables_catalog, two_source_catalog};

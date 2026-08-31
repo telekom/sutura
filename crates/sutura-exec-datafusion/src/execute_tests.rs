@@ -17,6 +17,7 @@ use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, ColumnName, Grain, MetricName, SourceName, TableName};
 use sutura_domain::plan::{
     Executable, PlanBucket, PlanColumn, PlanFilter, PlanKey, PlanMeasure, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
+    StatementTables,
 };
 // `Warehouse as _`: the trait is imported for `dry_run` and `execute`, and never named.
 use sutura_domain::warehouse::{ParamValue, Real, Value, Warehouse as _};
@@ -64,8 +65,7 @@ fn plan(measure: PlanMeasure, label: &str, keys: Vec<PlanKey>) -> QueryPlan {
     QueryPlan::new(
         SourceName::parse("local").expect("a test source is a source"),
         MetricName::parse("revenue").expect("a test metric is a metric"),
-        orders(),
-        Vec::new(),
+        StatementTables::only(orders()),
         PlanBucket::new(String::from("period"), Grain::Month, on("order_date")),
         keys,
         measure,

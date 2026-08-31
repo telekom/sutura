@@ -303,7 +303,7 @@ impl DuckDbWarehouse {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::DuckDb).map_err(|cause| DuckDbError::Render { cause }),
             Executable::Leg(leg) => Err(DuckDbError::LegWithoutCombiner {
-                table: String::from(leg.table().as_str()),
+                table: leg.table().to_string(),
             }),
         }
     }

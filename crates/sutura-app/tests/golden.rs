@@ -31,7 +31,11 @@
 //!   against. Rendering `ClickHouse` SQL is not a claim that a `ClickHouse` exists anywhere.
 //!   `golden/legs.rs` is the same axis over the federated plan shapes, and it is a second file rather
 //!   than more cells in the first because its input is not the question corpus: there is no splitter,
-//!   so a leg plan is a hand-built fixture and says so.
+//!   so a leg plan is a hand-built fixture and says so. `golden/qualified.rs` is a third file on the
+//!   same axis and a third file for the same reason: a question has no field that names a table, so a
+//!   table outside the connection's own dataset comes from a catalog document - and the shipped
+//!   corpus is deliberately unqualified, because the two data systems that EXECUTE it register one
+//!   file per model and have nothing to resolve a project against.
 //! - **The data-system axis.** The rows: the anchor check, the executed corpus, and `dry_run`
 //!   acceptance. Two entries today and they are two different kinds of thing behind one port - an
 //!   engine that generates no SQL, and a data source that renders and pushes down.
@@ -76,6 +80,10 @@ mod dialects;
 #[cfg(test)]
 #[path = "golden/legs.rs"]
 mod legs;
+
+#[cfg(test)]
+#[path = "golden/qualified.rs"]
+mod qualified;
 
 #[cfg(test)]
 #[path = "golden/data_systems.rs"]

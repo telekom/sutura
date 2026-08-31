@@ -383,7 +383,19 @@ fn open_engine(pinned: &PinnedDefinitions, data: &Path) -> Result<sutura_app::Wa
     }
     let engine = DataFusionWarehouse::new(engine_source, single_user_posture()?, working_set()?).map_err(|e| render(&e))?;
     for model in pinned.definitions().models().values() {
-        attach(&engine, model.name(), model.table(), data)?;
+        // Refused here rather than at query time, so a catalog this build cannot serve fails the
+        // command instead of failing the question. This tool registers one file per model in the
+        // engine's own registry, so there is nothing above a table for a dataset or a project to name
+        // - and dropping the qualifier would read the file of that name and answer about it.
+        if model.table().qualifier().is_some() {
+            return Err(format!(
+                "model {} names the table {}, and this command registers one file per model with \
+                 nothing above it. A qualified table needs a data system that resolves one",
+                model.name(),
+                model.table()
+            ));
+        }
+        attach(&engine, model.name(), model.table_name(), data)?;
     }
     // One data system, registered under its own name - which is what `answer` looks a plan up in.
     Ok(sutura_app::Warehouses::of(engine))

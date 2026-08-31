@@ -37,6 +37,12 @@ use sutura_domain::query::RefusalReason;
 ///
 /// The match is exhaustive with no wildcard arm, and it decides both at once rather than in two
 /// matches that could drift apart.
+#[expect(
+    clippy::too_many_lines,
+    reason = "one exhaustive match over every refusal, deciding code and sentence together - so it \
+              grows by one arm per domain variant and splitting it would need a wildcard arm, which \
+              is exactly the gap the exhaustiveness exists to close"
+)]
 pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     match *reason {
         RefusalReason::MetricUnknown { ref metric } => {
@@ -114,6 +120,17 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
                  data system"
             ),
         ),
+        // Written for an agent, so it says which of the two moves is available rather than only that
+        // this one failed: unlike the two-source refusal there usually is another question, because a
+        // dimension that needs no join is still answered.
+        RefusalReason::PlanTablesShareAnIdentifier { ref table } => (
+            "plan_tables_share_an_identifier",
+            format!(
+                "answering this would read two different tables both called `{table}`, and one \
+                 statement cannot tell them apart. Try a dimension that needs no join; if every \
+                 useful one does, say so to the person you are acting for."
+            ),
+        ),
         RefusalReason::SourceUnavailable { ref source } => (
             "source_unavailable",
             format!("the data system `{source}` is not one this process opened"),
@@ -145,7 +162,7 @@ pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
 
 #[cfg(test)]
 mod tests {
-    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName};
+    use sutura_domain::model::{Aggregate, DimensionName, Grain, MetricName, SourceName, TableName};
     use sutura_domain::query::RefusalReason;
 
     use super::refused;
@@ -194,6 +211,9 @@ mod tests {
             RefusalReason::MeasureDoesNotFederate {
                 metric: metric(),
                 aggregate: Aggregate::CountDistinct,
+            },
+            RefusalReason::PlanTablesShareAnIdentifier {
+                table: TableName::parse("orders").expect("a test table is a table"),
             },
             RefusalReason::SourceUnavailable {
                 source: SourceName::parse("elsewhere").expect("a test source is a source"),

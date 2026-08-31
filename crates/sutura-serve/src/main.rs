@@ -396,7 +396,7 @@ fn served_tables(served: &PinnedDefinitions) -> BTreeSet<TableName> {
         .definitions()
         .models()
         .values()
-        .map(|model| model.table().clone())
+        .map(|model| model.table_name().clone())
         .collect()
 }
 
@@ -482,12 +482,26 @@ fn open_engine(
             .values()
             .filter(|model| model.source() == source)
         {
-            attach(&engine, model.table(), data_dir)?;
+            // Refused at BOOT, which is where it belongs: this binary links the in-process engine
+            // and nothing else, and the engine registers one file per model with no catalog and no
+            // schema above it. So a qualified model is a bundle this deployment cannot serve, and a
+            // deployment that cannot serve its bundle should not start. `DataFusionWarehouse::scan`
+            // refuses the same thing again for a model that could only arrive after this loop.
+            if model.table().qualifier().is_some() {
+                return Err(format!(
+                    "model {} names the table {}, and the in-process engine registers one file per \
+                     model with nothing above it. Refusing to serve a bundle whose questions would \
+                     fail at query time",
+                    model.name(),
+                    model.table()
+                ));
+            }
+            attach(&engine, model.table_name(), data_dir)?;
             // Collected AFTER the attach, so this set is what the engines hold rather than what was
             // asked for. `attach` fails the startup on a missing file, so the two cannot diverge
             // here - and recording it from the successful call rather than from the model list is
             // what keeps that true if it ever gains a path that can skip one.
-            attached.insert(model.table().clone());
+            attached.insert(model.table_name().clone());
         }
         engines = Some(match engines {
             None => sutura_app::Warehouses::of(engine),

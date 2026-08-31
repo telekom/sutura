@@ -110,6 +110,11 @@ Every reason you can be given, and what to do about each:
   recombined - its aggregate (a distinct count) is not additive the way a sum or an average is.
   Nothing you can change about the question. Ask the same metric without the dimension that sits on
   the second data system, or report it to a person.
+- **PlanTablesShareAnIdentifier** - answering would read two different tables that carry the same
+  name, and one statement cannot tell them apart.
+  Try a dimension that does not need that join - it is the join that puts both tables in one
+  statement, so a question without it is still answered. If every dimension you need goes through
+  it, report it to a person: it is a fact about where the tables live, not about how you asked.
 - **SourceUnavailable** - the data system that metric lives in is not one this deployment opened.
   Nothing you can change. Report it to a person. This is the one refusal that looks like an outage
   and is still not one to retry: the answer will not become available by asking again.

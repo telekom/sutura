@@ -164,6 +164,10 @@ stopped asserting anything the moment a fourth dialect arrived.
 grain is a string literal or a bare keyword, and it exists because the parse check cannot catch
 getting it wrong - see that type.
 
+**How deep a qualifier a table may carry.** `Dialect::qualification` declares it, and the reason
+it is not delegated is that the layer will happily RENDER `a.b.c` for a target with no third
+position to put `a` in. See that accessor.
+
 ### `enum Dialect`
 
 ```rust
@@ -201,6 +205,45 @@ See `DateTruncShape` for why this is a declaration rather than something the par
 would have caught.
 
 ```rust
+pub const fn identifier_case(self) -> IdentifierCase
+```
+
+Whether this data system tells two identifiers in one statement apart by case.
+
+A declaration, exhaustively matched, so a fifth dialect cannot compile without answering - the
+`DateTruncShape` and `Self::qualification` precedent. The vocabulary is
+`IdentifierCase`, and what reads it is the test
+`every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes` below:
+`sutura_domain::catalog::Definitions::assemble` and `sutura_domain::plan::StatementTables` both
+compare under `IdentifierCase::COARSEST`, because a bundle is dialect-agnostic and nothing at
+load knows which target will serve it.
+
+**So this declaration is a self-check on that assumption rather than a barrier**, and it is
+worth saying which: a value declared `Sensitive` here cannot make a bundle unsafe, because
+those checks fold regardless. What it buys is that a target whose folding is *coarser* than
+ASCII case - a Unicode-folding variant added to `IdentifierCase` - fails a test instead of
+quietly invalidating both comparisons.
+
+**`BigQuery` is `InsensitiveAscii`, and it is the reason the type exists.** `GoogleSQL`'s lexical
+reference lists *aliases within a query*, *column names* and *field names* as NOT
+case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by default, which is
+the asymmetry that makes the collision reachable: a table `Orders` is a distinct table, and the
+qualifier `Orders` still resolves to a select-list alias spelled `orders`.
+
+**`DuckDb` is `InsensitiveAscii`, and that was MEASURED rather than read.** On the pinned
+`DuckDB` 1.5.5, a table created as a quoted `Orders` is bound by a quoted `orders` qualifier and
+returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
+keeps two projected aliases differing only in case as two distinct output columns. Declaring
+the coarser of the two behaviours covers both.
+
+**`Postgres` and `ClickHouse` are `Sensitive`, from their documented behaviour and NOT measured
+here** - neither has a server in this repository to ask, which is why the paragraph above about
+the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
+compares exactly, and this renderer force-quotes every identifier; `ClickHouse` identifiers are
+case-sensitive. Nothing in this workspace executes either, which `AGENTS.md` already says of
+every `ClickHouse` golden.
+
+```rust
 pub const fn identifier_quote(self) -> IdentifierQuote
 ```
 
@@ -230,6 +273,47 @@ parameter's identity there IS its position - so positional is the shape that alr
 end to end. Choosing named would mean inventing a name per parameter in the generator, a third
 `PlaceholderStyle`, and a map on `GeneratedQuery` for a driver to read: three new things, none
 of which the domain has anything to put in them.
+
+```rust
+pub const fn qualification(self) -> Qualification
+```
+
+The deepest table path this data system resolves.
+
+A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
+the `DateTruncShape` and [`identifier_quote`](Dialect::identifier_quote) precedent, and for
+the same reason: **the dialect layer renders `catalog.schema.name` for ANY target given three
+parts.** Its `TableRef` is a name plus two `Option`s with no per-dialect arity check, so
+without this declaration a `project.dataset.table` rendered for a target with no third
+position produces a statement that either fails at the data system or, worse, resolves the
+leading part as something else. `mod@crate::generate` refuses past what this returns.
+
+The vocabulary is `sutura_domain::model::Qualification`, shared with the type that reports
+how deep a *name* is - so the comparison is an ordering rather than a hand-written match.
+
+**`BigQuery` is the reason the feature exists.** `project.dataset.table` is a first-class path
+there, one credential reaches several projects, and a cross-project join is native and pushed
+down. That is what makes cross-project **not** federation - see
+`sutura_domain::model::qualified`'s header.
+
+**Postgres is `Dataset`, and stops there because cross-DATABASE is not a thing it does.** Its
+three-part form `database.schema.table` parses and is accepted only when the leading part is
+the database already connected to, so rendering one would be a statement that works or fails
+depending on a connection detail no catalog can see. A schema qualifier is the real capability
+and is what a `schema.table` model gets.
+
+**`ClickHouse` is `Dataset` for its `database.table`.** It has databases and no catalog above
+them. Its arm is a rendering claim and not an execution one: nothing in this workspace
+executes `ClickHouse`, which `AGENTS.md` already says of every `ClickHouse` golden.
+
+**`DuckDB` is `TableOnly`, and that arm is the one worth reading twice** - `DuckDB` *does* have
+schemas and attached catalogs, so this is narrower than what the engine can parse. It is
+declared for what a `DuckDB` deployment HERE can resolve: `sutura-exec-duckdb` registers one
+view per model in the default schema of the default catalog, and `sutura-exec-datafusion`
+registers one file per model in its own table registry. A qualified name resolves to nothing in
+either, so a refusal naming the path is the useful outcome and a rendered `a.b.c` that returns
+`Catalog with name a does not exist` is not. Widening this arm is a change to what those
+adapters ATTACH, not to what this renders.
 
 #### Implements
 
@@ -719,6 +803,7 @@ differently. A plan that will not render is a bug here or upstream.
 
 - `Render`
 - `UnquotableAlias` - The builder produced something that is not an alias, so its identifier could not be quoted.
+- `QualificationUnsupported` - A table path deeper than the target resolves.
 - `NoPredicate` - A plan that carries no predicate at all.
 
 #### Implements

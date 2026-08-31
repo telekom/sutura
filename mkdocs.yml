@@ -173,6 +173,7 @@ nav:
       - What DataHub can carry: adr/0016-what-datahub-can-carry.md
       - What a BigQuery test runs against: adr/0017-what-a-bigquery-test-runs-against.md
       - What the BigQuery wire is built from: adr/0018-what-the-bigquery-wire-is-built-from.md
+      - A table outside the connection's own dataset: adr/0019-a-table-outside-the-connections-dataset.md
     - API:
       - api/index.md
       - sutura-domain: api/sutura-domain.md

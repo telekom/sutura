@@ -162,7 +162,7 @@ fn quotes_every_identifier(dialect: Dialect) {
     // does not record is covered too.
     let mut names: BTreeSet<String> = BTreeSet::from([String::from(TIME_BUCKET_LABEL)]);
     for model in definitions.models().values() {
-        names.insert(String::from(model.table().as_str()));
+        names.insert(String::from(model.table_name().as_str()));
         names.extend(model.columns().iter().map(|column| String::from(column.as_str())));
     }
     for metric in definitions.metrics().values() {
@@ -196,8 +196,8 @@ fn quotes_every_identifier(dialect: Dialect) {
 
         // And the names this plan does use are there, quoted. Without this half a generator that
         // emitted no projection at all would satisfy everything above.
-        let mut quoted = vec![String::from(plan.table().as_str())];
-        quoted.extend(plan.joins().iter().map(|join| String::from(join.table().as_str())));
+        let mut quoted = vec![String::from(plan.table_name().as_str())];
+        quoted.extend(plan.joins().iter().map(|join| String::from(join.table_name().as_str())));
         quoted.push(String::from(plan.bucket().label()));
         quoted.push(String::from(plan.measure_label()));
         quoted.extend(plan.keys().iter().map(|key| String::from(key.label())));

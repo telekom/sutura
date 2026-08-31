@@ -200,6 +200,21 @@ columns: [month, subscription_key, customer_key, status, mrr_cents, churned_in_m
 One row per subscription per month. Money in minor units, so a total is exact.
 ```
 
+`table:` may also name where the table lives, when that is more than the connection's own default:
+
+```markdown
+table: fct_subscription_monthly              # the connection's default dataset
+table: sales.fct_subscription_monthly        # a named dataset, or schema
+table: analytics-prod.sales.fct_subscription # a named project above a named dataset
+```
+
+Each part is parsed on its own and quoted on its own in the statement, so a path is never a string
+somebody assembled. **How deep a path is usable depends on the data system**: BigQuery resolves all
+three forms and a join across two of its projects is one native statement; Postgres and ClickHouse
+resolve a schema or a database; the in-process engine resolves neither, because it registers one file
+per model and has nothing above it - a qualified model there fails at startup rather than at query
+time. `docs/adr/0019` is the decision and states each dialect's arm.
+
 A metric names a model, what it measures, the grains it answers at and the dimensions it may be
 broken down by:
 

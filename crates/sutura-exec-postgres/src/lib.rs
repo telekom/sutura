@@ -303,7 +303,7 @@ impl PostgresWarehouse {
         match executable {
             Executable::Query(plan) => generate(plan, Dialect::Postgres).map_err(|cause| PostgresError::Render { cause }),
             Executable::Leg(leg) => Err(PostgresError::LegWithoutCombiner {
-                table: String::from(leg.table().as_str()),
+                table: leg.table().to_string(),
             }),
         }
     }

@@ -33,7 +33,7 @@ use sutura_domain::model::{SourceName, TableName};
 use sutura_domain::plan::leg::LegTerm;
 use sutura_domain::plan::{
     FederatedPlan, PlanBucket, PlanColumn, PlanFilter, PlanJoin, PlanKey, PlanPredicate, PlanTerm, PredicateOrigin, QueryPlan,
-    labels, plan_measure, plan_required_filter,
+    StatementTables, labels, plan_measure, plan_required_filter,
 };
 use sutura_domain::query::RefusalReason;
 use sutura_domain::warehouse::ParamValue;
@@ -53,6 +53,15 @@ pub(crate) enum Plan {
 }
 
 /// Turns a resolution into a plan, or refuses it.
+///
+/// **Two refusals are produced here and nowhere else, and both are about the SHAPE of the statement
+/// rather than about anything a caller wrote:** a plan that would read from more data systems than
+/// the deployment serves, and a statement whose tables could not be told apart inside it. Everything
+/// a caller could have got wrong was already checked when their names were looked up.
+///
+/// The second one is asked TWICE, once per plan shape, and that is the type's doing rather than this
+/// function's discipline: a whole-answer plan and a fact leg each take their tables as a
+/// [`StatementTables`], so neither can be built without the answer.
 pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
     // Every source besides the metric's own that a join reaches. A `RemoteDimension` that this
     // iterator yields has a join by construction (`is_remote` requires one), so the filter cannot
@@ -62,7 +71,7 @@ pub(crate) fn plan(resolution: &Resolution<'_>) -> Result<Plan, RefusalReason> {
         .collect();
 
     match remote.len() {
-        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)))),
+        0 => Ok(Plan::Mono(Box::new(mono_plan(resolution)?))),
         1 => Ok(Plan::Federated(Box::new(federated_plan(resolution)?))),
         // Two are served; three or more refused, because each source is a separate identity.
         _ => Err(RefusalReason::PlanSpansTooManySources {
@@ -84,11 +93,20 @@ fn is_remote(dimension: &ResolvedDimension<'_>, own: &SourceName) -> bool {
 }
 
 /// A question confined to one data system: exactly the plan this module already built.
-fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
+fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
-    let own_table = model.table();
+    // Two readings of "the table", and both are used below. `own_path` is what the `FROM` names -
+    // dataset and project included, where the model declares them. `own_table` is the bare name, which
+    // is what every column is qualified by: `FROM a.b.c` gives the reference an implicit alias of `c`
+    // in all four dialects rendered for, so a `PlanColumn` holds `c` and never the path.
+    let own_path = model.table();
+    let own_table = model.table_name();
 
+    // Deduplicated by relationship and then sorted, so two dimensions reached through one
+    // relationship produce one join, and the join order is a function of the plan rather than of the
+    // order the caller happened to list their dimensions in. A statement whose text depends on
+    // argument order has no stable golden.
     let mut joins: Vec<PlanJoin> = Vec::new();
     for resolved in every_dimension(resolution) {
         if let Some(ref join) = resolved.join {
@@ -98,10 +116,13 @@ fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
             }
             joins.push(PlanJoin::new(
                 name,
+                // The joined model's own path: a dimension table in another dataset is still one
+                // statement. Its columns are qualified by the bare name beside it, for the reason
+                // `own_table` above gives.
                 join.model.table().clone(),
                 join.relationship.join_type(),
                 PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table().clone(), join.relationship.target_column().clone()),
+                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
             ));
         }
     }
@@ -120,11 +141,22 @@ fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
 
     let measure = plan_measure(metric.measure(), |column| PlanColumn::new(own_table.clone(), column.clone()));
 
-    QueryPlan::new(
+    // **Where the statement's tables stop being a list and become a checked set.** Two tables whose
+    // paths end in the same name render under one implicit alias, so a column qualified by it names
+    // neither and the `ON` clause compares one table with itself - reproduced, and
+    // `sutura_domain::plan::tables` holds the measurement and the argument for refusing rather than
+    // aliasing. The refusal is here rather than at load because a physical table name is not
+    // something a catalog author can rename, so the metric stays authorable and only the question
+    // that actually puts both in one statement is declined.
+    let tables =
+        StatementTables::parse(own_path.clone(), joins).map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
+            table: ambiguous.alias().clone(),
+        })?;
+
+    Ok(QueryPlan::new(
         model.source().clone(),
         metric.name().clone(),
-        own_table.clone(),
-        joins,
+        tables,
         PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column),
         keys,
         measure,
@@ -132,7 +164,7 @@ fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
         filters,
         params,
         resolution.range,
-    )
+    ))
 }
 
 /// Splits a two-source question into a fact leg and a lookup leg.
@@ -151,7 +183,10 @@ fn mono_plan(resolution: &Resolution<'_>) -> QueryPlan {
 fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;
-    let own_table = model.table();
+    // Two readings of "the table", for the reason `mono_plan` gives: the path is what a leg's `FROM`
+    // names, the bare name is what every column in that leg is qualified by.
+    let own_path = model.table();
+    let own_table = model.table_name();
 
     let federation = Federation::of(metric.measure());
     // The combiner cannot re-count a distinct aggregate, so a measure that needs that is refused.
@@ -177,7 +212,8 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
         return Err(RefusalReason::PlanSpansTooManySources { sources: 1, limit: 2 });
     };
     let relationship = first_join.relationship;
-    let remote_table = first_join.model.table();
+    let remote_path = first_join.model.table();
+    let remote_table = first_join.model.table_name();
     let remote_source = first_join.model.source();
     for dim in every_remote_dimension(resolution) {
         let Some(join) = dim.join.as_ref() else {
@@ -271,10 +307,11 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
             }
             joins.push(PlanJoin::new(
                 name,
+                // The joined model's own path, for the reason `mono_plan`'s loop gives.
                 join.model.table().clone(),
                 join.relationship.join_type(),
                 PlanColumn::new(own_table.clone(), join.relationship.origin_column().clone()),
-                PlanColumn::new(join.model.table().clone(), join.relationship.target_column().clone()),
+                PlanColumn::new(join.model.table_name().clone(), join.relationship.target_column().clone()),
             ));
         }
     }
@@ -282,11 +319,23 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
 
     let bucket = PlanBucket::new(String::from(TIME_BUCKET_LABEL), resolution.grain, time_column);
 
+    // **Where the fact leg's tables stop being a list and become a checked set - the same guard the
+    // whole-answer path goes through, reached from the other plan shape.** A leg keeps every
+    // same-source hop as a `JOIN` of its own, so two paths ending in one name render under one
+    // implicit alias inside ONE leg's statement: reproduced, and worse there than on the whole-answer
+    // path, because a leg's rows are combined above it and nothing downstream sees the statement.
+    // `sutura_domain::plan::tables` holds the measurement and the argument for refusing rather than
+    // aliasing; `LegPlan::Fact` takes the checked set as a field, so this call is not something a
+    // future leg producer can forget.
+    let fact_tables =
+        StatementTables::parse(own_path.clone(), joins).map_err(|ambiguous| RefusalReason::PlanTablesShareAnIdentifier {
+            table: ambiguous.alias().clone(),
+        })?;
+
     let fact = sutura_domain::plan::LegPlan::Fact {
         source: model.source().clone(),
         metric: metric.name().clone(),
-        table: own_table.clone(),
-        joins,
+        tables: fact_tables,
         bucket: bucket.clone(),
         keys: fact_keys,
         terms,
@@ -297,7 +346,7 @@ fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalR
 
     let lookup = sutura_domain::plan::LegPlan::Lookup {
         source: remote_source.clone(),
-        table: remote_table.clone(),
+        table: remote_path.clone(),
         keys: lookup_keys,
         filters: lookup_filters,
         params: lookup_params,
@@ -441,6 +490,6 @@ fn column_of(resolved: &ResolvedDimension<'_>, own_table: &TableName) -> PlanCol
     let table = resolved
         .join
         .as_ref()
-        .map_or_else(|| own_table.clone(), |join| join.model.table().clone());
+        .map_or_else(|| own_table.clone(), |join| join.model.table_name().clone());
     PlanColumn::new(table, resolved.dimension.column().clone())
 }

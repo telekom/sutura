@@ -23,18 +23,20 @@
 use crate::calendar::TimeRange;
 use crate::catalog::Anchor;
 use crate::measure::{Measure, RequiredFilter, Term, ZeroDenominator};
-use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, RelationshipName, SourceName, TableName};
+use crate::model::{Aggregate, ColumnName, Grain, JoinType, MetricName, QualifiedTable, RelationshipName, SourceName, TableName};
 use crate::pinned::PinnedDefinitions;
 use crate::warehouse::ParamValue;
 
 pub mod federated;
 pub mod leg;
+pub mod tables;
 
 #[cfg(test)]
 mod anchor_tests;
 
 pub use crate::plan::federated::{AnswerKey, FederatedFailure, FederatedPlan, FederatedPlanError, LegSide, labels};
 pub use crate::plan::leg::{Executable, LegPlan, LegTerm};
+pub use crate::plan::tables::{AmbiguousTables, StatementTables};
 
 /// The most rows any plan may return.
 ///
@@ -90,24 +92,34 @@ impl PlanColumn {
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct PlanJoin {
     relationship: RelationshipName,
-    table: TableName,
+    table: QualifiedTable,
     join_type: JoinType,
     origin: PlanColumn,
     target: PlanColumn,
 }
 
 impl PlanJoin {
+    /// One join to a table, wherever that table lives.
+    ///
+    /// **A joined table carries its own qualifier, and that is the whole point of the feature rather
+    /// than completeness:** a fact table in one dataset joined to a dimension table in another is
+    /// what a multi-project estate looks like, and it is one statement, one job and one credential -
+    /// a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
+    /// so where a source count decides between one statement, a split and
+    /// `PlanSpansTooManySources`.
+    ///
+    /// `impl Into<QualifiedTable>` for the reason `Model::new` gives.
     #[inline]
-    pub const fn new(
+    pub fn new(
         relationship: RelationshipName,
-        table: TableName,
+        table: impl Into<QualifiedTable>,
         join_type: JoinType,
         origin: PlanColumn,
         target: PlanColumn,
     ) -> Self {
         Self {
             relationship,
-            table,
+            table: table.into(),
             join_type,
             origin,
             target,
@@ -119,9 +131,16 @@ impl PlanJoin {
         &self.relationship
     }
 
+    /// Where the joined table lives: the whole path, which is what a `JOIN` clause names.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         &self.table
+    }
+
+    /// The joined table's own name, which is what its columns are qualified by.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table.name()
     }
 
     #[inline]
@@ -336,7 +355,7 @@ impl PlanFilter {
 pub struct QueryPlan {
     source: SourceName,
     metric: MetricName,
-    table: TableName,
+    table: QualifiedTable,
     joins: Vec<PlanJoin>,
     bucket: PlanBucket,
     keys: Vec<PlanKey>,
@@ -349,16 +368,22 @@ pub struct QueryPlan {
 }
 
 impl QueryPlan {
+    /// One statement's worth of decisions.
+    ///
+    /// **The tables arrive as a [`StatementTables`] and not as a table plus a vector of joins**, and
+    /// that argument is the whole of what keeps this constructor infallible: the check that two of
+    /// them do not answer to one identifier happens where that set is parsed, so a plan holding the
+    /// ambiguous pair does not exist to be rendered. [`crate::plan::tables`] is where the defect, the
+    /// measurement and the choice of a refusal over an alias are argued.
     #[expect(
         clippy::too_many_arguments,
         reason = "a plan is what the compiler decided, and every field is decided in one place; a \
                   builder would add a half-built state that this type cannot currently have"
     )]
-    pub const fn new(
+    pub fn new(
         source: SourceName,
         metric: MetricName,
-        table: TableName,
-        joins: Vec<PlanJoin>,
+        tables: StatementTables,
         bucket: PlanBucket,
         keys: Vec<PlanKey>,
         measure: PlanMeasure,
@@ -367,6 +392,10 @@ impl QueryPlan {
         params: Vec<ParamValue>,
         range: TimeRange,
     ) -> Self {
+        // Taken apart rather than stored whole, so the serialized form a golden pins is unchanged by
+        // the guard existing. What the argument buys is that there is no way in here for a set of
+        // tables one statement could not tell apart - `plan::tables` is where that is argued.
+        let (table, joins) = tables.into_parts();
         Self {
             source,
             metric,
@@ -393,9 +422,18 @@ impl QueryPlan {
         &self.metric
     }
 
+    /// Where the table lives: the whole path, which is what the `FROM` clause names.
+    ///
+    /// Read [`Self::table_name`] instead where what is wanted is the name a column is qualified by.
     #[inline]
-    pub const fn table(&self) -> &TableName {
+    pub const fn table(&self) -> &QualifiedTable {
         &self.table
+    }
+
+    /// The table's own name, which is what this plan's columns are qualified by.
+    #[inline]
+    pub const fn table_name(&self) -> &TableName {
+        self.table.name()
     }
 
     #[inline]

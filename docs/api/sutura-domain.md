@@ -890,16 +890,36 @@ pub const fn name(&self) -> &ModelName
 ```
 
 ```rust
-pub const fn new(name: ModelName, source: SourceName, table: TableName, columns: BTreeSet<ColumnName>, description: Description) -> Self
+pub fn new(name: ModelName, source: SourceName, table: impl Into<QualifiedTable>, columns: BTreeSet<ColumnName>, description: Description) -> Self
 ```
+
+A model over one physical table, wherever that table lives.
+
+**`impl Into<QualifiedTable>` and not `QualifiedTable`, and that is the compatibility hinge
+rather than a convenience.** `From<TableName>` yields an unqualified path, so every existing
+caller - a catalog document naming only a table, and every fixture in this workspace - passes
+a `TableName` and compiles unchanged, meaning exactly what it used to. It costs the `const`
+this constructor used to be, which nothing depended on.
 
 ```rust
 pub const fn source(&self) -> &SourceName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the table lives: the whole path, which is what a `FROM` clause names.
+
+Read `Self::table_name` instead wherever what is wanted is the name a column is qualified by
+or the name a file-registering engine registers under. Two accessors rather than one that
+guesses - `QualifiedTable::name` carries why both readings are real.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, without whatever sits above it.
 
 #### Implements
 
@@ -1213,6 +1233,7 @@ system error rather than as a refusal.
 - `TooManyValues` - More declared values than `MAX_VALUES_PER_DIMENSION`.
 - `DimensionShadowsTimeBucket`
 - `DimensionShadowsMeasure`
+- `LabelShadowsTable` - A label this metric projects is spelled the same as a table its statement reads.
 
 #### Implements
 
@@ -3007,6 +3028,83 @@ never the string `a.x = b.y`. `docs/adr/0001-first-party-semantic-models.md` arg
 field is an escape hatch, and an escape hatch on the query path is the thing being defended
 against.
 
+### `enum IdentifierCase`
+
+```rust
+pub enum IdentifierCase
+```
+
+Whether a data system tells two identifiers in one statement apart by case.
+
+**The vocabulary lives here and the declaration lives on `sutura_sql::Dialect`**, which is the
+shape `Qualification` already has and for the same reason: the domain names what the difference
+IS, a target answers for itself, and a comparison decides. One type rather than two so the two can
+be compared.
+
+# What it covers, and it is more than the word "alias" suggests
+
+Three resolutions in a generated statement read an identifier back, and a target that folds case
+folds all three:
+
+- the identifier a column is qualified by - `orders` in `orders.amount_cents`, which is the
+  IMPLICIT alias `FROM a.b.orders` gives the table;
+- the alias a projected column is labelled with, which `GoogleSQL` resolves ahead of a table of
+  the same spelling - the wrong-answer report behind
+  [`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable);
+- the name of a result column, which is what makes two labels one column rather than two.
+
+# Why the catalog and the plan both compare under `Self::COARSEST`
+
+A bundle is dialect-agnostic: the same definitions are served against whichever target a
+deployment opened, and nothing at load knows which. So the identity two identifiers are compared
+under has to be the coarsest any target uses, and refusing a pair that one target would have told
+apart costs a catalog author a rename - while accepting a pair the *serving* target folds is a
+wrong number under a certified name. That asymmetry is the whole argument, and it is the same one
+`check_labels_against_table` already makes for refusing the whole cross product.
+
+# The mechanism, and what it is not
+
+`sutura_sql::Dialect::identifier_case` is an exhaustive match, so a fifth target cannot compile
+without answering; and a test there asserts every declared value is no coarser than
+`Self::COARSEST`, so a variant added below that folds MORE than ASCII case - Unicode folding,
+say - fails that assertion instead of silently invalidating the comparison the catalog makes.
+
+**A declaration in the `Sensitive` direction cannot make a bundle unsafe**, and that is worth
+stating because two of the four are not measured here: the catalog and the plan compare under
+`COARSEST` whatever a dialect declares, so the declaration's only consumer is that assertion.
+What it buys is that the assumption is written down per target rather than asserted once in prose.
+
+**The variant order is load-bearing and is asserted rather than assumed.** The derived `Ord` on
+an enum is declaration order, so `Sensitive < InsensitiveAscii` is what makes
+`dialect.identifier_case() <= IdentifierCase::COARSEST` mean *folds at most as much as*.
+
+#### Variants
+
+- `Sensitive` - Two identifiers differing only in case name two different things.
+- `InsensitiveAscii` - Two identifiers differing only in ASCII case name one thing.
+
+#### Methods
+
+```rust
+pub const fn as_str(self) -> &'static str
+```
+
+```rust
+pub fn names_one_thing(self, left: &str, right: &str) -> bool
+```
+
+Do these two identifiers name one thing under this rule?
+
+ASCII rather than Unicode folding, deliberately and for the reason `Phrase::parse` gives for
+the same choice: there is no NFC/NFD anywhere in this workspace, so a decomposed spelling and
+a homoglyph are each a second identifier - and `parse_identifier` admits neither, because it
+accepts `[A-Za-z0-9_]` and nothing else. So on the values this type is ever handed, ASCII
+folding IS full folding.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Display`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`, `Serialize`
+
 ### `enum InvalidIdentifier`
 
 ```rust
@@ -3024,10 +3122,39 @@ variant is the contract and the `#[error]` text is a convenience for a human.
 - `BadFirstCharacter` - Starts with something other than a letter or underscore. A leading digit is legal in some dialects and not others, so accepting it would make a model portable by luck.
 - `IllegalCharacter` - Contains a character that is not `[A-Za-z0-9_]`. `offending` is the first one, which is the one worth reporting: a message naming all of them tells the reader less.
 - `TooLong` - Longer than a target data system will keep. The limit is 63 characters, the tightest among the data systems targeted here.
+- `TrailingHyphen` - Ends in a hyphen.
 
 #### Implements
 
 `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+### `enum Hyphens`
+
+```rust
+pub enum Hyphens
+```
+
+Whether a hyphen is a character this name may contain.
+
+**A parameter rather than a second parser, for the reason `identifier_newtype` gives:** the
+names in this module are used interchangeably by the resolver, so two parsers would be two places
+for the answer to differ. One body, one flag, one error enum.
+
+**What this flag may NOT be widened to admit, because two golden claims rest on it.** The corpus
+assertions in `sutura-app` strip quoted spans out of a statement with a single toggle, and that is
+sound only because no name can contain `"`, `'` or `` ` ``. A hyphen is none of those, so
+admitting one leaves the argument intact - and that is the *whole* licence this flag has. A
+variant admitting a quote character, a dot or whitespace would silently invalidate the stripping
+rather than fail a test.
+
+#### Variants
+
+- `Rejected` - `[A-Za-z_][A-Za-z0-9_]*`. Every identifier a model, a metric or a column is named with.
+- `Allowed` - `[A-Za-z_][A-Za-z0-9_-]*`, not ending in `-`. The one shape that needs it is a cloud project id, which is where a table's topmost qualifier comes from.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
 
 ### `struct ModelName`
 
@@ -3332,6 +3459,18 @@ decides a refusal rather than a plan detail.
 #### Implements
 
 `Clone`, `Copy`, `Debug`, `Deserialize<'de>`, `Eq`, `Hash`, `PartialEq`, `Serialize`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
+
+### `use None`
 
 ## Module `pinned`
 
@@ -3946,8 +4085,19 @@ pub const fn join_type(&self) -> JoinType
 ```
 
 ```rust
-pub const fn new(relationship: RelationshipName, table: TableName, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
+pub fn new(relationship: RelationshipName, table: impl Into<QualifiedTable>, join_type: JoinType, origin: PlanColumn, target: PlanColumn) -> Self
 ```
+
+One join to a table, wherever that table lives.
+
+**A joined table carries its own qualifier, and that is the whole point of the feature rather
+than completeness:** a fact table in one dataset joined to a dimension table in another is
+what a multi-project estate looks like, and it is one statement, one job and one credential -
+a native join the data system pushes down, not a second source. `sutura_semantic::plan` says
+so where a source count decides between one statement, a split and
+`PlanSpansTooManySources`.
+
+`impl Into<QualifiedTable>` for the reason `Model::new` gives.
 
 ```rust
 pub const fn origin(&self) -> &PlanColumn
@@ -3958,8 +4108,16 @@ pub const fn relationship(&self) -> &RelationshipName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the joined table lives: the whole path, which is what a `JOIN` clause names.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The joined table's own name, which is what its columns are qualified by.
 
 ```rust
 pub const fn target(&self) -> &PlanColumn
@@ -4214,8 +4372,16 @@ pub const fn metric(&self) -> &MetricName
 ```
 
 ```rust
-pub const fn new(source: SourceName, metric: MetricName, table: TableName, joins: Vec<PlanJoin>, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
+pub fn new(source: SourceName, metric: MetricName, tables: StatementTables, bucket: PlanBucket, keys: Vec<PlanKey>, measure: PlanMeasure, measure_label: String, filters: Vec<PlanFilter>, params: Vec<ParamValue>, range: TimeRange) -> Self
 ```
+
+One statement's worth of decisions.
+
+**The tables arrive as a `StatementTables` and not as a table plus a vector of joins**, and
+that argument is the whole of what keeps this constructor infallible: the check that two of
+them do not answer to one identifier happens where that set is parsed, so a plan holding the
+ambiguous pair does not exist to be rendered. `crate::plan::tables` is where the defect, the
+measurement and the choice of a refusal over an alias are argued.
 
 ```rust
 pub fn params(&self) -> &[ParamValue]
@@ -4255,8 +4421,18 @@ pub const fn source(&self) -> &SourceName
 ```
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
+
+Where the table lives: the whole path, which is what the `FROM` clause names.
+
+Read `Self::table_name` instead where what is wanted is the name a column is qualified by.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, which is what this plan's columns are qualified by.
 
 #### Implements
 
@@ -4389,6 +4565,10 @@ A required filter as a plan predicate, binding a parameter when it needs one.
 `bind` is called only for the operators that compare against a value, and returns the index it
 was stored at. Passing the binding in rather than returning a value keeps the parameter list in
 one place: the caller owns the order, which is what the placeholder-position contract depends on.
+
+### `use None`
+
+### `use None`
 
 ### `use None`
 
@@ -4829,10 +5009,10 @@ check somebody runs:
 
 ```compile_fail
 use sutura_domain::calendar::TimeRange;
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::LegPlan;
 
-fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
+fn _dated(source: SourceName, table: QualifiedTable, range: TimeRange) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
@@ -4845,10 +5025,10 @@ fn _dated(source: SourceName, table: TableName, range: TimeRange) -> LegPlan {
 ```
 
 ```
-use sutura_domain::model::{SourceName, TableName};
+use sutura_domain::model::{QualifiedTable, SourceName};
 use sutura_domain::plan::LegPlan;
 
-fn _undated(source: SourceName, table: TableName) -> LegPlan {
+fn _undated(source: SourceName, table: QualifiedTable) -> LegPlan {
     LegPlan::Lookup {
         source,
         table,
@@ -4856,6 +5036,64 @@ fn _undated(source: SourceName, table: TableName) -> LegPlan {
         filters: Vec::new(),
         params: Vec::new(),
     }
+}
+```
+
+A fact leg's tables arrive as a checked set, so a producer cannot state a table beside a vector
+of joins and skip the ambiguity guard - which is exactly what the first producer of a leg did:
+
+```compile_fail
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin};
+
+fn _unchecked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> LegPlan {
+    LegPlan::Fact {
+        source,
+        metric,
+        table,
+        joins,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    }
+}
+```
+
+```
+use sutura_domain::calendar::TimeRange;
+use sutura_domain::model::{MetricName, QualifiedTable, SourceName};
+use sutura_domain::plan::{LegPlan, PlanBucket, PlanJoin, StatementTables};
+
+fn _checked(
+    source: SourceName,
+    metric: MetricName,
+    table: QualifiedTable,
+    joins: Vec<PlanJoin>,
+    bucket: PlanBucket,
+    range: TimeRange,
+) -> Result<LegPlan, sutura_domain::plan::AmbiguousTables> {
+    Ok(LegPlan::Fact {
+        source,
+        metric,
+        tables: StatementTables::parse(table, joins)?,
+        bucket,
+        keys: Vec::new(),
+        terms: Vec::new(),
+        filters: Vec::new(),
+        params: Vec::new(),
+        range,
+    })
 }
 ```
 
@@ -4904,10 +5142,20 @@ Every leg is mono-source, so *a plan cannot silently span two sources* applies p
 unchanged: neither variant has a second `SourceName` to disagree with this one.
 
 ```rust
-pub const fn table(&self) -> &TableName
+pub const fn table(&self) -> &QualifiedTable
 ```
 
-The table this leg reads.
+Where the table this leg reads lives: the whole path, which is what its `FROM` names.
+
+A leg qualifies exactly as a whole-answer plan does, and it shares `generate`'s rendering to
+make sure of it - two `FROM`-building paths would be two places for identifier quoting to
+differ, which is the drift `sutura_sql::generate`'s own header is written against.
+
+```rust
+pub const fn table_name(&self) -> &TableName
+```
+
+The table's own name, which is what this leg's columns are qualified by.
 
 ##### Implements
 
@@ -4983,6 +5231,158 @@ The one data system this runs against, whichever shape it is.
 ##### Implements
 
 `Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### Module `tables`
+
+Every table one statement reads, and the guarantee that the statement can tell them apart.
+
+# The defect this type exists for
+
+A column in a plan is qualified by a table's BARE name - `PlanColumn` holds a `TableName` - and
+the reason is that `FROM a.b.orders` gives the reference an implicit alias of `orders` in every
+target this workspace renders for. `crate::model::qualified` argues that at length and it is
+right; what it does not do is say what happens when TWO of the tables in one statement end their
+paths with the same name.
+
+What happened was this, and it was reproduced rather than reasoned about: a fact table at
+`analytics-prod.sales.orders` joined to a dimension table at `reference-data.crm.orders` rendered
+a `FROM` and a `LEFT JOIN` whose `ON` clause compared `orders.customer_id` with `orders.id` - one
+table with itself - and every projected column was qualified by an identifier that named two
+tables. On a real `DuckDB` 1.5.5 that statement is
+`Binder Error: Ambiguous reference to table "orders"`; a target that binds it to one side instead
+returns a number under a certified metric name, which is the failure class this repository is
+arranged against. **Same-name tables are the normal shape of the estate `docs/adr/0019` exists
+for** - dev/prod splits, per-tenant datasets, staging copies - so this is reachable rather than
+exotic.
+
+# Why a refusal, and not distinct explicit aliases
+
+Distinct aliases are the fix that would keep the question answerable, and they are **not reachable
+through the SQL builder this workspace renders with**, which was measured rather than assumed
+against `polyglot-sql` 0.9.2: `SelectBuilder::from_expr` takes an expression, so the `FROM` side
+could carry an `AS`, but `left_join` and every other join method take a `&str` table name and
+`join_with_kind` is private - so the JOINED side cannot be aliased without hand-building a select
+expression with upwards of thirty fields, which `sutura_sql`'s renderer rules out at its own header
+for a reason. An alias on one side of a join and not the other is not a fix.
+
+So the decision is the other one, and it is made where the plan is built rather than where it is
+rendered: **a statement whose tables cannot be told apart is unrepresentable.** There is no
+[`QueryPlan`](crate::plan::QueryPlan) and no [`LegPlan::Fact`](crate::plan::LegPlan::Fact) holding
+such a set, because `StatementTables` is the only way to construct either and its canonical
+constructor refuses the pair. `sutura_semantic::plan` turns
+that refusal into
+[`PlanTablesShareAnIdentifier`](crate::query::RefusalReason::PlanTablesShareAnIdentifier), so the
+question is declined and the metric stays authorable: a question that does NOT reach the colliding
+table is still answered. The alternative - refusing the metric at load - would make the estate
+shape unauthorable, and unlike a label a physical table is not something an author can rename.
+
+# The limit, and what it used to be
+
+**It used to be the fact leg, and that was not theoretical: the change that gave a leg a producer
+shipped the bypass this section predicted.** `LegPlan::Fact` carried a `table` and a `joins` field
+and was built by struct literal, so a federated question over a fact table at
+`analytics_prod.sales.orders` with a same-source dimension table at `reference_data.crm.orders`
+compiled, and its fact leg rendered
+`FROM ...sales.orders LEFT JOIN ...crm.orders ON orders.customer_id = orders.customer_id`. Worse
+than the whole-answer case rather than equal to it, because a leg's rows are combined above it and
+nothing downstream sees the statement. That variant now takes a `StatementTables` as its field
+instead, pinned by a `compile_fail` doctest with a compiling twin, so a second leg producer cannot
+reintroduce it - **a prediction in a doc comment is not a mechanism, which is the lesson worth
+keeping from this.**
+
+What remains is narrow and stated so it is not mistaken for the above. A
+[`Lookup`](crate::plan::LegPlan::Lookup) leg reads ONE table and declares no joins, so it has no
+pair to compare - the shape is the check. And two LEGS whose tables collide are not this defect:
+each leg is its own statement on its own data system, so nothing binds one identifier to two
+tables; what the combiner joins on is a label, and a label that shadowed a table is
+[`LabelShadowsTable`](crate::catalog::InconsistentDefinitions::LabelShadowsTable)'s refusal at
+load.
+
+#### `enum AmbiguousTables`
+
+```rust
+pub enum AmbiguousTables
+```
+
+Why the tables one statement reads could not be told apart inside it.
+
+One variant today, and an enum rather than a struct because a second way for a statement's tables
+to be indistinguishable - a target that folds more than ASCII case, an alias this workspace starts
+emitting - is a variant a caller can branch on rather than a change to a message.
+
+##### Variants
+
+- `OneIdentifierTwoTables` - Two of the statement's tables answer to one identifier.
+
+##### Methods
+
+```rust
+pub const fn alias(&self) -> &TableName
+```
+
+The identifier two tables collapsed to.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
+
+#### `struct StatementTables`
+
+```rust
+pub struct StatementTables
+```
+
+The tables one statement reads: the `FROM` table, and one per join.
+
+**If an instance of this type exists, every table in it is distinguishable from every other one
+inside the statement** - which is the whole return on the newtype, and what lets
+[`QueryPlan::new`](crate::plan::QueryPlan::new) stay infallible while the plan it builds cannot be
+the ambiguous one. See this module's header for what the ambiguity does and why it is refused
+rather than aliased around.
+
+##### Methods
+
+```rust
+pub fn joins(&self) -> &[PlanJoin]
+```
+
+Every join, in the order the statement will make them.
+
+```rust
+pub fn only(table: impl Into<QualifiedTable>) -> Self
+```
+
+One table and no joins.
+
+Infallible by construction rather than by a skipped check: a set of one has no pair to compare.
+
+```rust
+pub fn parse(table: impl Into<QualifiedTable>, joins: Vec<PlanJoin>) -> Result<Self, AmbiguousTables>
+```
+
+The `FROM` table and its joins, or a refusal if two of them answer to one identifier.
+
+**The canonical constructor.** `Self::only` is the no-join spelling of it and repeats no
+check, because one table cannot collide with itself.
+
+Compared under `IdentifierCase::COARSEST` rather than by equality, because `GoogleSQL`
+resolves an alias case-insensitively and a real `DuckDB` binds `"orders".id` against a table
+declared `"Orders"` - so `Orders` beside `orders` is the same defect spelled to look like two
+names. That type's own note is where the argument for comparing under the coarsest rule lives.
+
+The comparison is over POSITIONS and not over distinct paths, so the same table joined twice
+through two relationships is refused too: two occurrences under one identifier is a duplicate
+alias whether or not they name the same rows.
+
+```rust
+pub const fn table(&self) -> &QualifiedTable
+```
+
+Where the statement's own table lives: the whole path, which is what the `FROM` names.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`, `Serialize`
 
 ## Module `query`
 
@@ -5148,6 +5548,7 @@ somebody else's input.
 - `FederationNotExecutable` - The question asked is served by two sources, but this build has no adapter that can execute a leg.
 - `FederationLinkAmbiguous` - The question's remote dimensions join the metric's own through more than one relationship.
 - `MeasureDoesNotFederate` - The question's measure cannot be decomposed into one leg per source.
+- `PlanTablesShareAnIdentifier` - Two tables the plan would read answer to one identifier inside one statement.
 - `SourceUnavailable` - The plan named a data system this process did not open.
 - `ResourcesExhausted` - An engine operator asked its memory pool for more than the deployment's working-set ceiling.
 - `CredentialUnavailable` - The asking subject has no credential at that data system.
