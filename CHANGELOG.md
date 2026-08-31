@@ -57,6 +57,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Tests
 
+- **bigquery**: The corpus acceptance leg, and the importer it needed (#90)
 - **sql**: Prove and cover the week grain's Monday semantics (#67) (#75)
 - **golden**: A value in double quotes was stripped before we looked (#51)
 - **startup**: The source refusals both binaries make and neither proved (#31)
@@ -70,6 +71,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### CI
 
+- Run all workflows on the rust-mcp larger runner (#96)
 - **docs**: A text-only citation gate, so a prose-only PR stops paying 15m45s (#32)
 
 ## 0.2.4 - 2026-08-25
