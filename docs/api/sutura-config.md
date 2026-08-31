@@ -2736,6 +2736,16 @@ pub fn posture(&self) -> Option<&SourcePosture>
 
 The posture this source was declared with, if it is one a deployment may be served with.
 
+```rust
+pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig>
+```
+
+The token-exchange setup this `impersonation-at-source` source declared.
+
+`Some` exactly when the source is impersonating: the parse refuses an impersonating entry with
+none, and refuses a non-impersonating entry with one, so an accessor's shape and a deployment's
+posture cannot disagree about which sources exchange a subject's token.
+
 #### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
@@ -2783,6 +2793,9 @@ convenience, and nothing needs to clone a startup refusal.
 - `MissingForKind` - A key this kind requires was not written.
 - `KeyNotForKind` - A key was written that means nothing for this kind.
 - `ResourceName` - A declared cloud resource name is not usable.
+- `MissingWorkloadIdentity` - An `impersonation-at-source` source declared no token-exchange setup.
+- `WorkloadIdentityNotImpersonating` - A workload-identity block was declared on a source that is not impersonating.
+- `WorkloadIdentity` - The declared workload-identity value is not usable.
 
 #### Implements
 
@@ -3023,6 +3036,137 @@ then on the variant is the answer.
 ##### Implements
 
 `Clone`, `Debug`, `Eq`, `PartialEq`
+
+### Module `workload_identity`
+
+The token-exchange setup one `impersonation-at-source` source declares.
+The token-exchange setup one `impersonation-at-source` source declares.
+
+**This is the tape a subject's own credential is exchanged against** - RFC 8693 handed to a
+Workload Identity Federation provider. A source that executes as the asking subject has to say
+*which* provider receives the subject's token and *what the exchanged credential may do*, and
+both are that source's declaration rather than this process's guess. See `docs/adr/0008` and the
+issue that wired the adapter that presents one.
+
+The two newtypes are declared here, in the settings tree that owns the value, and the broker that
+performs the exchange holds its own copies in the adapter that links it - the same reason
+`super::placement::BillingProject` is checked both here and in the transport that interpolates
+it: an adapter may not depend on the settings tree, so the format is checked where it is declared
+AND where it is sent.
+
+#### `struct WifAudience`
+
+```rust
+pub struct WifAudience
+```
+
+The audience a subject token is exchanged for: a workload identity provider resource.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The audience, for building a request.
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity>
+```
+
+Parses an audience.
+
+The accepted set is the printable ASCII a workload identity provider resource is built from -
+letters, digits and `/ : . - _` - so a value that would escape the STS request body cannot
+exist here. Bounded in length, because it is a foreign string heading for a request and a log.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `struct WifScope`
+
+```rust
+pub struct WifScope
+```
+
+The OAuth scope the exchanged credential is minted for.
+
+##### Methods
+
+```rust
+pub fn as_str(&self) -> &str
+```
+
+The scope, for building a request.
+
+```rust
+pub fn parse(raw: &str) -> Result<Self, InvalidWorkloadIdentity>
+```
+
+Parses a scope.
+
+A scope is a URL (`https://www.googleapis.com/auth/bigquery.readonly`), so it allows the `%`
+and letters a URL does rather than the narrower set an audience does. Same bound, same reason:
+it belongs in a request and a refusal should never log it raw.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `Hash`, `Ord`, `PartialEq`, `PartialOrd`
+
+#### `struct WorkloadIdentityConfig`
+
+```rust
+pub struct WorkloadIdentityConfig
+```
+
+The token-exchange setup a `impersonation-at-source` source needs.
+
+##### Methods
+
+```rust
+pub const fn audience(&self) -> &WifAudience
+```
+
+The provider audience.
+
+```rust
+pub fn parse(audience: impl AsRef<str>, scope: impl AsRef<str>) -> Result<Self, InvalidWorkloadIdentity>
+```
+
+Parses a declared audience and scope together, since neither is usable alone.
+
+```rust
+pub const fn scope(&self) -> &WifScope
+```
+
+The scope the exchanged credential carries.
+
+##### Implements
+
+`Clone`, `Debug`, `Eq`, `PartialEq`
+
+#### `enum InvalidWorkloadIdentity`
+
+```rust
+pub enum InvalidWorkloadIdentity
+```
+
+Why a declared workload-identity value is not usable.
+
+**The position is carried and the value is not**, for the reason every refusal about
+operator-written text carries it: an audience and a scope are foreign strings heading for a
+request, and neither belongs in a log.
+
+##### Variants
+
+- `Empty` - Nothing was written, or only whitespace was.
+- `TooLong` - Longer than the endpoint's ceiling.
+- `Character` - A character outside the accepted set.
+
+##### Implements
+
+`Clone`, `Debug`, `Display`, `Eq`, `Error`, `PartialEq`
 
 ## Module `telemetry`
 
