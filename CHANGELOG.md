@@ -7,6 +7,9 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **serve**: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)
+- **identity**: A credential the compiler refuses to print (#86)
+- **catalog**: A model may name a table outside its connection's dataset (#83) (#84)
 - **bigquery**: The wire, and the client decision that had to come first (#80)
 - **postgres**: A Warehouse adapter over Postgres, on a static credential (#78)
 - **federation**: Split, combine and serve a two-source question (#72) (#76)
