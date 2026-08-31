@@ -24,4 +24,3 @@ config:
   sutura-google-test-infra:workload_issuer_uri: "https://accounts.google.com"
   # One or more audiences the subject JWTs' `aud` may carry. Placeholder.
   sutura-google-test-infra:workload_allowed_audiences: '["your-oidc-client-id.apps.googleusercontent.com"]'
-

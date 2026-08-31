@@ -75,7 +75,7 @@ rather than a flag.
 
 **Provisioning is an operator step, not CI.** The stack is applied once on a developer machine
 (`just infra-up`, as the operator's gcloud ADC); no CI job provisions, previews or destroys
-stack state. CI only *consumes* the outputs — see "The `bq-test` GitHub environment" below.
+stack state. CI only *consumes* the outputs - see "The `bq-test` GitHub environment" below.
 
 Then preview before applying, because this program is a scaffold you run, not a proof. The stack
 name comes from `SUTURA_PULUMI_STACK` (the machine env sets it to the developer's own) and is
@@ -94,9 +94,9 @@ limited SA key does not have. Override the default ADC path with `GOOGLE_ADC`. T
 nix-pinned `pulumi` and the SDK the pixi-locked one; a gate in `config-from-env.sh` fails if the
 two ever disagree.)
 
-To tear the stack down (so a re-`up` rotates every key), run `just infra-down` — `pulumi
+To tear the stack down (so a re-`up` rotates every key), run `just infra-down` - `pulumi
 destroy`, as the same ADC, against the same backend. It deletes every resource the stack
-created but leaves the GCP APIs **enabled** (deliberately — see the caveats). Preview it first
+created but leaves the GCP APIs **enabled** (deliberately - see the caveats). Preview it first
 with `pulumi destroy --preview-only`. Re-create afterwards with `infra-up` then `infra-set`.
 
 ## What consumes the outputs
