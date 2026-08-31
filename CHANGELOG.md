@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **release**: The SBOM comes out of the binary, not out of Cargo.lock (#98)
 - **federation**: Execute a two-source question end to end (#89)
 - **bigquery**: A BigQuery source executes as the asking subject (issue 87) (#93)
 - **serve**: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)
@@ -75,6 +76,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### CI
 
+- **release**: Sign and attest every published artefact (#97)
 - Run all workflows on the rust-mcp larger runner (#96)
 - **docs**: A text-only citation gate, so a prose-only PR stops paying 15m45s (#32)
 
