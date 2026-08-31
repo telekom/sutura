@@ -95,6 +95,9 @@ mod importer;
 #[cfg(feature = "fixtures")]
 pub use crate::importer::{FixtureNotLoaded, FixtureNotUsable, Loaded};
 
+mod sts;
+pub use sts::{StsCredential, StsExchange, WorkloadIdentity, WorkloadIdentityBroker};
+
 use crate::transport::{Cell, DatasetId, Field, FieldType, JobRequest, JobRows, JobTransport, ProjectId};
 
 /// One fallible step of this adapter.

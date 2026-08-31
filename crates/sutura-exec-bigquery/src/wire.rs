@@ -111,6 +111,8 @@ use crate::wire::credential::{AccessTokens, QuotaProject};
 
 pub mod credential;
 mod document;
+mod sts;
+pub use sts::StsOverHttp;
 
 #[cfg(test)]
 mod tests;

@@ -112,6 +112,7 @@ pub(crate) struct RawSource {
     #[serde(default)]
     pub(crate) max_bytes_billed: Option<u64>,
     /// `shared-service-user` or `impersonation-at-source`. No default.
+    /// `shared-service-user` or `impersonation-at-source`. No default.
     pub(crate) posture: String,
     /// The operator's reason for serving this source under one identity for everybody.
     #[serde(default)]
@@ -120,6 +121,29 @@ pub(crate) struct RawSource {
     /// one the verification identity IS the shared identity, and a name here would be read by nothing.
     #[serde(default)]
     pub(crate) verification_identity: Option<String>,
+    /// The token-exchange setup this source needs when it is `impersonation-at-source`.
+    ///
+    /// Required for an impersonating source, refused for any other posture - see
+    /// `crate::sources::parse_entry`. It names the Workload Identity Federation provider this
+    /// deployment hands a subject's token to, and the scope the exchanged credential is minted for.
+    #[serde(default)]
+    pub(crate) workload_identity: Option<RawWorkloadIdentity>,
+}
+
+/// One source's Workload Identity Federation provider, as read.
+///
+/// `Debug`/`Clone` because `RawSourceEntry` (which carries the unparsed entry a refuse-anything-raw
+/// reader works from) derives both. Neither touches a secret: an audience and a scope are not.
+#[derive(Debug, Clone, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct RawWorkloadIdentity {
+    /// The provider's audience - the value a subject token is exchanged against. A workload identity
+    /// provider resource, such as
+    /// `//iam.googleapis.com/projects/{project}/locations/global/workloadIdentityPools/{pool}/providers/{provider}`.
+    pub(crate) audience: String,
+    /// The OAuth scope the exchanged credential is minted for, e.g.
+    /// `https://www.googleapis.com/auth/bigquery.readonly`.
+    pub(crate) scope: String,
 }
 
 /// How much runs at once, how wide the engine is, and how long stopping may take.
