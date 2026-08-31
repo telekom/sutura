@@ -52,6 +52,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Documentation
 
+- **adr**: Settle where each identity claim is proven, per issue 81 (#103)
 - The exact-order comparison is measured now, not predicted (#100)
 - **adr**: DataHub carries part of a model, and declares the rest (#53)
 - **agents**: The dev shell follows cargo into other repos and breaks builds there (#46)
