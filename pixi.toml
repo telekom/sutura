@@ -97,6 +97,11 @@ mike = "mike"
 # changelogs before widening either ceiling.
 [feature.infra.dependencies]
 python = ">=3.13,<3.14"
+# `python -m pip` must work in this environment even though pixi owns the packages: pulumi's
+# python runtime probes the interpreter it was launched with via `pip list --format json` to
+# discover package requirements, and it FAILS when pip is absent. pip is a package manager, not
+# a resolver we build on, so pinning it here does not conflict with the one-resolver rule.
+pip = "*"
 
 [feature.infra.pypi-dependencies]
 pulumi = ">=3,<4"
