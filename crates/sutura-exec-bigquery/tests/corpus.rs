@@ -62,6 +62,14 @@
 //! measurement that used to be asserted here (*at least one question diverges on null placement*) is
 //! gone rather than relaxed: a divergence in either now fails.
 //!
+//! **Measured in CI on 2026-08-31 with the exact comparison in place**, and the five questions above
+//! are the five that moved into the first number:
+//!
+//! ```text
+//! bigquery-corpus: 21 answers agreed exactly on content AND order, 9 refusals agreed, 1 excluded,
+//!                  31 in the corpus
+//! ```
+//!
 //! `docs/adr/0017`'s THIRD amendment records the finding and its FOURTH records this closure. The
 //! numbering is worth getting right rather than approximating: the constant deleted from this file
 //! cited *the second amendment*, which is the registration record and says nothing about a null.

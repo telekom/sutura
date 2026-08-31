@@ -434,9 +434,12 @@ record, including the cost per run, the dataset grant it needs, and the new limi
 WRITES four fixed table names, so two runs against one dataset race.
 
 **It has RUN, green, in CI on 2026-08-31** - the `bigquery-acceptance` job, 8 tests passed, against
-the `bq-test` environment's real dataset. Measured: 22 corpus statements accepted, 9 refused by the
-compiler before a statement existed, 16 answers agreeing exactly with the engine's, 9 refusals
-agreeing, 1 excluded, and 6 anchors reproduced by the endpoint.
+the `bq-test` environment's real dataset. Measured on its FIRST run, which is the one that produced the
+finding below: 22 corpus statements accepted, 9 refused by the compiler before a statement existed, 16
+answers agreeing exactly with the engine's, 5 agreeing on content and differing on null placement, 9
+refusals agreeing, 1 excluded, and 6 anchors reproduced by the endpoint. **The 16 is the pre-fix number
+and reads as 21 now** - see the paragraph after next, which is where that stops being two tallies a
+reader has to reconcile.
 
 **And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` did not
 say where a null goes, and `DataFusion` orders nulls LAST while `GoogleSQL` orders them FIRST - so
@@ -457,10 +460,14 @@ dialects spell `NULLS LAST`" is the wrong sentence:** the layer renders the keyw
 where it already IS the default - so 30 `BigQuery` goldens moved (22 corpus, 5 legs, 3 qualified) and
 no other dialect's did. `every_order_by_states_nulls_last` is the measurement that keeps that honest,
 asserting the keyword for `BigQuery` and its ABSENCE for the other three, so a claim of four would
-have been red the day it was written. **The limit, and it is the one to read:** the exact-order
-comparison is asserted and **not yet measured green against the endpoint** - `just validate`'s sandbox
-has no network, so the run that decides it is the `bigquery-acceptance` job. `docs/adr/0017`'s FOURTH
-amendment is the record, including the tally it predicts.
+have been red the day it was written. **And it is MEASURED rather than asserted:** the
+`bigquery-acceptance` job is green on 2026-08-31 with the exact comparison in place - *21 answers agreed
+exactly on content AND order, 9 refusals agreed, 1 excluded, 31 in the corpus* - so all five previously
+divergent questions agree, the 61-row one included, while the 22 accepted statements, 9 compile-side
+refusals and 6 reproduced anchors are unmoved. **The limit that remains:** `just validate` cannot reach
+any of it - the nix sandbox has no network - and `ClickHouse` and `Postgres` null placement is still
+answered by nothing, both being rendered and parse-checked and never executed. `docs/adr/0017`'s FOURTH
+amendment is the record.
 
 **What is still untouched by either leg is identity.** A service-account key is `SharedServiceUser` -
 one identity for everybody who asks - so what both legs establish is *accepted, and correct for that
