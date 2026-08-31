@@ -16,6 +16,10 @@ default:
 # the machine env (or pass to the shell) to target a specific stack; defaults to `dev`.
 stack := env_var_or_default("SUTURA_PULUMI_STACK", "dev")
 
+# The GitHub environment whose secrets/vars `just infra-set` re-populates from the stack's outputs.
+# Defaults to `bq-test` (the acceptance environment); override with BQ_TEST_ENV.
+bq_test_env := env_var_or_default("BQ_TEST_ENV", "bq-test")
+
 # It exists because the alternative is a README section people skip, and the failure mode is
 # silent - an uninstalled hook does not complain, it just never runs. `prek install` is the
 # important line: without it every gate in this file is advisory.
@@ -494,6 +498,24 @@ infra-up *flags:
     # See infra-preview: run as the developer's gcloud ADC, not the limited BigQuery SA key.
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
     PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
+
+# `pulumi destroy` - tear down the Google test infra this stack created, so a redeployment starts
+# clean. Same local-file backend and developer-ADC identity as infra-up, but NO config-from-env.sh:
+# destroying reads the existing state and needs none of the SUTURA_* values. GCP APIs stay ENABLED
+# (the Service resources set disable_on_destroy=False), deliberately - GCP refuses to disable some
+# APIs that still hold resources, and re-enabling is slower than leaving it. Run `just infra-preview`
+# and then `just infra-up` to re-create afterwards.
+infra-down:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra destroy --stack "{{stack}}" --yes
+
+# Re-export the fresh `up` outputs into the {{bq_test_env}} GitHub environment's secrets/vars, so
+# CI's acceptance key + resource names follow the stack without hand-editing. Run after an
+# `infra-up` (especially one following an `infra-down`, which rotates every key). Reads the local
+# `.pulumi/` state (no GCP credential needed) and pushes via `gh`, which must be authenticated.
+infra-set:
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    STACK="{{stack}}" BQ_TEST_ENV="{{bq_test_env}}" PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/sync-bq-test-env.sh
 
 # The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
 #

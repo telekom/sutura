@@ -141,6 +141,10 @@ cwd = "test-infra/pulumi/google"
 cmd = "pulumi up"
 cwd = "test-infra/pulumi/google"
 
+[feature.infra.tasks.destroy]
+cmd = "pulumi destroy"
+cwd = "test-infra/pulumi/google"
+
 # -------------------------------------------------------------------- gcloud ---
 # The Google Cloud CLI, for the BigQuery steps of the plan. Reached as a CONTAINER and declared as
 # a task rather than as a package, and that is a decision rather than an implementation detail.
