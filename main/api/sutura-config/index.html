@@ -3865,16 +3865,22 @@ exhaustive match there already asks of it.</p>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-177-1"><a id="__codelineno-177-1" name="__codelineno-177-1" href="#__codelineno-177-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">posture</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">SourcePosture</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The posture this source was declared with, if it is one a deployment may be served with.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-178-1"><a id="__codelineno-178-1" name="__codelineno-178-1" href="#__codelineno-178-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">workload_identity</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">WorkloadIdentityConfig</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The token-exchange setup this <code>impersonation-at-source</code> source declared.</p>
+<p><code>Some</code> exactly when the source is impersonating: the parse refuses an impersonating entry with
+none, and refuses a non-impersonating entry with one, so an accessor's shape and a deployment's
+posture cannot disagree about which sources exchange a subject's token.</p>
 <h4 id="implements_50">Implements<a class="headerlink" href="#implements_50" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-unknownposture"><code>struct UnknownPosture</code><a class="headerlink" href="#struct-unknownposture" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-178-1"><a id="__codelineno-178-1" name="__codelineno-178-1" href="#__codelineno-178-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownPosture</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-179-1"><a id="__codelineno-179-1" name="__codelineno-179-1" href="#__codelineno-179-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownPosture</span>
 </span></code></pre></div>
 <p>The configured word did not name a posture.</p>
 <h4 id="implements_51">Implements<a class="headerlink" href="#implements_51" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidsourceregistry"><code>enum InvalidSourceRegistry</code><a class="headerlink" href="#enum-invalidsourceregistry" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-179-1"><a id="__codelineno-179-1" name="__codelineno-179-1" href="#__codelineno-179-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidSourceRegistry</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-180-1"><a id="__codelineno-180-1" name="__codelineno-180-1" href="#__codelineno-180-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidSourceRegistry</span>
 </span></code></pre></div>
 <p>Why a <code>sources:</code> tree is not usable.</p>
 <p>Every variant names the alias, because a refusal that does not say which entry to change is a
@@ -3898,11 +3904,14 @@ convenience, and nothing needs to clone a startup refusal.</p>
 <li><code>MissingForKind</code> - A key this kind requires was not written.</li>
 <li><code>KeyNotForKind</code> - A key was written that means nothing for this kind.</li>
 <li><code>ResourceName</code> - A declared cloud resource name is not usable.</li>
+<li><code>MissingWorkloadIdentity</code> - An <code>impersonation-at-source</code> source declared no token-exchange setup.</li>
+<li><code>WorkloadIdentityNotImpersonating</code> - A workload-identity block was declared on a source that is not impersonating.</li>
+<li><code>WorkloadIdentity</code> - The declared workload-identity value is not usable.</li>
 </ul>
 <h4 id="implements_52">Implements<a class="headerlink" href="#implements_52" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-sourceregistry"><code>struct SourceRegistry</code><a class="headerlink" href="#struct-sourceregistry" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-180-1"><a id="__codelineno-180-1" name="__codelineno-180-1" href="#__codelineno-180-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SourceRegistry</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-181-1"><a id="__codelineno-181-1" name="__codelineno-181-1" href="#__codelineno-181-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">SourceRegistry</span>
 </span></code></pre></div>
 <p>Every source this deployment declares, keyed by the alias a model's <code>source:</code> names.</p>
 <p>A newtype over the map rather than the map, so <code>Self::parse</code> is the only way one comes into
@@ -3913,16 +3922,16 @@ naming a source with no declaration and stops before a listener is bound. Refusi
 this crate would mean <code>Settings::load</code> on the embedded defaults could not produce a <code>Settings</code> at
 all, and the defaults are what the <code>prompt</code> command and every settings test read.</p>
 <h4 id="methods_34">Methods<a class="headerlink" href="#methods_34" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-181-1"><a id="__codelineno-181-1" name="__codelineno-181-1" href="#__codelineno-181-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-182-1"><a id="__codelineno-182-1" name="__codelineno-182-1" href="#__codelineno-182-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">count</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">usize</span>
 </span></code></pre></div>
 <p>How many sources are declared.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-182-1"><a id="__codelineno-182-1" name="__codelineno-182-1" href="#__codelineno-182-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">each</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-183-1"><a id="__codelineno-183-1" name="__codelineno-183-1" href="#__codelineno-183-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">each</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Iterator</span><span class="o">&lt;</span><span class="n">Item</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every declared source, in alias order.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-183-1"><a id="__codelineno-183-1" name="__codelineno-183-1" href="#__codelineno-183-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">alias</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ConfiguredSource</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-184-1"><a id="__codelineno-184-1" name="__codelineno-184-1" href="#__codelineno-184-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">get</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">alias</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">SourceName</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">ConfiguredSource</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The source declared under <code>alias</code>, if there is one.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-184-1"><a id="__codelineno-184-1" name="__codelineno-184-1" href="#__codelineno-184-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-185-1"><a id="__codelineno-185-1" name="__codelineno-185-1" href="#__codelineno-185-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">is_empty</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
 <p>Did this deployment declare any source at all?</p>
 <h4 id="implements_53">Implements<a class="headerlink" href="#implements_53" title="Permanent link">&para;</a></h4>
@@ -3940,7 +3949,7 @@ there is nothing to decide: a reader matches, and the compiler asks about a thir
 argument that is <strong>ours rather than the provider's format rules restated</strong> - see
 <code>BillingProject</code>.</p>
 <h4 id="struct-billingproject"><code>struct BillingProject</code><a class="headerlink" href="#struct-billingproject" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-185-1"><a id="__codelineno-185-1" name="__codelineno-185-1" href="#__codelineno-185-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BillingProject</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-186-1"><a id="__codelineno-186-1" name="__codelineno-186-1" href="#__codelineno-186-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BillingProject</span>
 </span></code></pre></div>
 <p>The project a <code>BigQuery</code> query job is billed to.</p>
 <p><strong>Declared, never inferred.</strong> For this data system that is structural rather than a policy we
@@ -3969,10 +3978,10 @@ backticked SQL identifier, and nothing here has ever been exercised against one.
 needs it gets a considered change with a test, not a widened character set.</p>
 <p>No <code>Default</code>: a default project is a project somebody else pays for.</p>
 <h5 id="methods_35">Methods<a class="headerlink" href="#methods_35" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-186-1"><a id="__codelineno-186-1" name="__codelineno-186-1" href="#__codelineno-186-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-187-1"><a id="__codelineno-187-1" name="__codelineno-187-1" href="#__codelineno-187-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The id, for building a request.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-187-1"><a id="__codelineno-187-1" name="__codelineno-187-1" href="#__codelineno-187-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidResourceName</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-188-1"><a id="__codelineno-188-1" name="__codelineno-188-1" href="#__codelineno-188-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidResourceName</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Parses a declared project id.</p>
 <p>The canonical constructor: every other way in delegates here, so there is one copy of the
@@ -3982,7 +3991,7 @@ number that counts whitespace the value does not have.</p>
 <h5 id="implements_54">Implements<a class="headerlink" href="#implements_54" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
 <h4 id="struct-datasetid"><code>struct DatasetId</code><a class="headerlink" href="#struct-datasetid" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-188-1"><a id="__codelineno-188-1" name="__codelineno-188-1" href="#__codelineno-188-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetId</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DatasetId</span>
 </span></code></pre></div>
 <p>The dataset unqualified table names in a generated statement resolve within.</p>
 <p><strong>Why this is configuration and not catalog:</strong> a model in the catalog names a bare <code>table:</code>, and
@@ -3998,16 +4007,16 @@ not an identifier is a misconfiguration worth refusing when the file is read rat
 first question. Case is PRESERVED, because a dataset id is case-sensitive and folding it here
 would turn a working declaration into a dataset that does not exist.</p>
 <h5 id="methods_36">Methods<a class="headerlink" href="#methods_36" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-189-1"><a id="__codelineno-189-1" name="__codelineno-189-1" href="#__codelineno-189-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-190-1"><a id="__codelineno-190-1" name="__codelineno-190-1" href="#__codelineno-190-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The id, for building a request.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-190-1"><a id="__codelineno-190-1" name="__codelineno-190-1" href="#__codelineno-190-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidResourceName</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-191-1"><a id="__codelineno-191-1" name="__codelineno-191-1" href="#__codelineno-191-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidResourceName</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Parses a declared dataset id.</p>
 <h5 id="implements_55">Implements<a class="headerlink" href="#implements_55" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
 <h4 id="enum-invalidresourcename"><code>enum InvalidResourceName</code><a class="headerlink" href="#enum-invalidresourcename" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-191-1"><a id="__codelineno-191-1" name="__codelineno-191-1" href="#__codelineno-191-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidResourceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-192-1"><a id="__codelineno-192-1" name="__codelineno-192-1" href="#__codelineno-192-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidResourceName</span>
 </span></code></pre></div>
 <p>Why a declared name for a cloud resource was not usable.</p>
 <p>One type for both newtypes above, with the offending key named by the caller rather than by the
@@ -4023,7 +4032,7 @@ places to keep one set of sentences.</p>
 <h5 id="implements_56">Implements<a class="headerlink" href="#implements_56" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h4 id="enum-sourceplacement"><code>enum SourcePlacement</code><a class="headerlink" href="#enum-sourceplacement" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-192-1"><a id="__codelineno-192-1" name="__codelineno-192-1" href="#__codelineno-192-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SourcePlacement</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-193-1"><a id="__codelineno-193-1" name="__codelineno-193-1" href="#__codelineno-193-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">SourcePlacement</span>
 </span></code></pre></div>
 <p>Where one declared source's data is.</p>
 <p>The module header carries why this is an enum. What is worth repeating at the type is that
@@ -4046,7 +4055,7 @@ be skipped" look like the same sentence and are not.</p>
 <li><code>BigQuery</code> - A <code>BigQuery</code> dataset, plus the project its jobs are billed to.</li>
 </ul>
 <h5 id="methods_37">Methods<a class="headerlink" href="#methods_37" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-193-1"><a id="__codelineno-193-1" name="__codelineno-193-1" href="#__codelineno-193-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-194-1"><a id="__codelineno-194-1" name="__codelineno-194-1" href="#__codelineno-194-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">SourceKind</span>
 </span></code></pre></div>
 <p>Which kind of data system this placement describes.</p>
 <p><strong>Derived rather than stored</strong>, so <code>kind:</code> in a file and the fields beside it cannot describe
@@ -4054,6 +4063,82 @@ two different data systems. The parse reads the word to decide which variant to 
 then on the variant is the answer.</p>
 <h5 id="implements_57">Implements<a class="headerlink" href="#implements_57" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="module-workload_identity">Module <code>workload_identity</code><a class="headerlink" href="#module-workload_identity" title="Permanent link">&para;</a></h3>
+<p>The token-exchange setup one <code>impersonation-at-source</code> source declares.
+The token-exchange setup one <code>impersonation-at-source</code> source declares.</p>
+<p><strong>This is the tape a subject's own credential is exchanged against</strong> - RFC 8693 handed to a
+Workload Identity Federation provider. A source that executes as the asking subject has to say
+<em>which</em> provider receives the subject's token and <em>what the exchanged credential may do</em>, and
+both are that source's declaration rather than this process's guess. See <code>docs/adr/0008</code> and the
+issue that wired the adapter that presents one.</p>
+<p>The two newtypes are declared here, in the settings tree that owns the value, and the broker that
+performs the exchange holds its own copies in the adapter that links it - the same reason
+<code>super::placement::BillingProject</code> is checked both here and in the transport that interpolates
+it: an adapter may not depend on the settings tree, so the format is checked where it is declared
+AND where it is sent.</p>
+<h4 id="struct-wifaudience"><code>struct WifAudience</code><a class="headerlink" href="#struct-wifaudience" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-195-1"><a id="__codelineno-195-1" name="__codelineno-195-1" href="#__codelineno-195-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WifAudience</span>
+</span></code></pre></div>
+<p>The audience a subject token is exchanged for: a workload identity provider resource.</p>
+<h5 id="methods_38">Methods<a class="headerlink" href="#methods_38" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-196-1"><a id="__codelineno-196-1" name="__codelineno-196-1" href="#__codelineno-196-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The audience, for building a request.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-197-1"><a id="__codelineno-197-1" name="__codelineno-197-1" href="#__codelineno-197-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidWorkloadIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses an audience.</p>
+<p>The accepted set is the printable ASCII a workload identity provider resource is built from -
+letters, digits and <code>/ : . - _</code> - so a value that would escape the STS request body cannot
+exist here. Bounded in length, because it is a foreign string heading for a request and a log.</p>
+<h5 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h4 id="struct-wifscope"><code>struct WifScope</code><a class="headerlink" href="#struct-wifscope" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-198-1"><a id="__codelineno-198-1" name="__codelineno-198-1" href="#__codelineno-198-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WifScope</span>
+</span></code></pre></div>
+<p>The OAuth scope the exchanged credential is minted for.</p>
+<h5 id="methods_39">Methods<a class="headerlink" href="#methods_39" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-199-1"><a id="__codelineno-199-1" name="__codelineno-199-1" href="#__codelineno-199-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The scope, for building a request.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-200-1"><a id="__codelineno-200-1" name="__codelineno-200-1" href="#__codelineno-200-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidWorkloadIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a scope.</p>
+<p>A scope is a URL (<code>https://www.googleapis.com/auth/bigquery.readonly</code>), so it allows the <code>%</code>
+and letters a URL does rather than the narrower set an audience does. Same bound, same reason:
+it belongs in a request and a refusal should never log it raw.</p>
+<h5 id="implements_59">Implements<a class="headerlink" href="#implements_59" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code></p>
+<h4 id="struct-workloadidentityconfig"><code>struct WorkloadIdentityConfig</code><a class="headerlink" href="#struct-workloadidentityconfig" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-201-1"><a id="__codelineno-201-1" name="__codelineno-201-1" href="#__codelineno-201-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WorkloadIdentityConfig</span>
+</span></code></pre></div>
+<p>The token-exchange setup a <code>impersonation-at-source</code> source needs.</p>
+<h5 id="methods_40">Methods<a class="headerlink" href="#methods_40" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-202-1"><a id="__codelineno-202-1" name="__codelineno-202-1" href="#__codelineno-202-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">audience</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">WifAudience</span>
+</span></code></pre></div>
+<p>The provider audience.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-203-1"><a id="__codelineno-203-1" name="__codelineno-203-1" href="#__codelineno-203-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">audience</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">scope</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidWorkloadIdentity</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a declared audience and scope together, since neither is usable alone.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-204-1"><a id="__codelineno-204-1" name="__codelineno-204-1" href="#__codelineno-204-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">scope</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">WifScope</span>
+</span></code></pre></div>
+<p>The scope the exchanged credential carries.</p>
+<h5 id="implements_60">Implements<a class="headerlink" href="#implements_60" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="enum-invalidworkloadidentity"><code>enum InvalidWorkloadIdentity</code><a class="headerlink" href="#enum-invalidworkloadidentity" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-205-1"><a id="__codelineno-205-1" name="__codelineno-205-1" href="#__codelineno-205-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidWorkloadIdentity</span>
+</span></code></pre></div>
+<p>Why a declared workload-identity value is not usable.</p>
+<p><strong>The position is carried and the value is not</strong>, for the reason every refusal about
+operator-written text carries it: an audience and a scope are foreign strings heading for a
+request, and neither belongs in a log.</p>
+<h5 id="variants_22">Variants<a class="headerlink" href="#variants_22" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Empty</code> - Nothing was written, or only whitespace was.</li>
+<li><code>TooLong</code> - Longer than the endpoint's ceiling.</li>
+<li><code>Character</code> - A character outside the accepted set.</li>
+</ul>
+<h5 id="implements_61">Implements<a class="headerlink" href="#implements_61" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h2 id="module-telemetry">Module <code>telemetry</code><a class="headerlink" href="#module-telemetry" title="Permanent link">&para;</a></h2>
 <p>What the log looks like, and who is meant to read it.</p>
 <p>One decision with two right answers, which is why it is a type rather than a flag. In
@@ -4066,36 +4151,36 @@ set inconsistently by omission. An explicit value overrides it - a developer deb
 the collector will actually receive needs that - and the startup log says which of the two
 happened.</p>
 <h3 id="enum-logformat"><code>enum LogFormat</code><a class="headerlink" href="#enum-logformat" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-194-1"><a id="__codelineno-194-1" name="__codelineno-194-1" href="#__codelineno-194-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-206-1"><a id="__codelineno-206-1" name="__codelineno-206-1" href="#__codelineno-206-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">LogFormat</span>
 </span></code></pre></div>
 <p>How a log line is rendered.</p>
-<h4 id="variants_22">Variants<a class="headerlink" href="#variants_22" title="Permanent link">&para;</a></h4>
+<h4 id="variants_23">Variants<a class="headerlink" href="#variants_23" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Bunyan</code> - One JSON object per line, in the bunyan schema. What a collector ingests.</li>
 <li><code>Pretty</code> - Indented, coloured, and meant for a terminal.</li>
 </ul>
-<h4 id="methods_38">Methods<a class="headerlink" href="#methods_38" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-195-1"><a id="__codelineno-195-1" name="__codelineno-195-1" href="#__codelineno-195-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<h4 id="methods_41">Methods<a class="headerlink" href="#methods_41" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-207-1"><a id="__codelineno-207-1" name="__codelineno-207-1" href="#__codelineno-207-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-196-1"><a id="__codelineno-196-1" name="__codelineno-196-1" href="#__codelineno-196-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-208-1"><a id="__codelineno-208-1" name="__codelineno-208-1" href="#__codelineno-208-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">default_for</span><span class="p">(</span><span class="n">environment</span><span class="p">:</span><span class="w"> </span><span class="nc">Environment</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
 <p>The format an environment gets when the configuration does not say.</p>
 <p><strong>This is the split, in one function.</strong> Production is machine-readable and everything else
 is human-readable, and it is expressed as a total match rather than an <code>if</code> so a fourth
 environment cannot inherit an answer nobody chose for it.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-197-1"><a id="__codelineno-197-1" name="__codelineno-197-1" href="#__codelineno-197-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownLogFormat</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-209-1"><a id="__codelineno-209-1" name="__codelineno-209-1" href="#__codelineno-209-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownLogFormat</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a format name.</p>
-<h4 id="implements_58">Implements<a class="headerlink" href="#implements_58" title="Permanent link">&para;</a></h4>
+<h4 id="implements_62">Implements<a class="headerlink" href="#implements_62" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="struct-unknownlogformat"><code>struct UnknownLogFormat</code><a class="headerlink" href="#struct-unknownlogformat" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-198-1"><a id="__codelineno-198-1" name="__codelineno-198-1" href="#__codelineno-198-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownLogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-210-1"><a id="__codelineno-210-1" name="__codelineno-210-1" href="#__codelineno-210-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownLogFormat</span>
 </span></code></pre></div>
 <p>The string was neither format.</p>
-<h4 id="implements_59">Implements<a class="headerlink" href="#implements_59" title="Permanent link">&para;</a></h4>
+<h4 id="implements_63">Implements<a class="headerlink" href="#implements_63" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-logfilter"><code>struct LogFilter</code><a class="headerlink" href="#struct-logfilter" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-199-1"><a id="__codelineno-199-1" name="__codelineno-199-1" href="#__codelineno-199-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LogFilter</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-211-1"><a id="__codelineno-211-1" name="__codelineno-211-1" href="#__codelineno-211-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LogFilter</span>
 </span></code></pre></div>
 <p>A tracing filter directive, as written for <code>RUST_LOG</code>.</p>
 <p>Kept as text here and turned into a real filter by whatever installs the subscriber, because
@@ -4103,68 +4188,68 @@ the type that parses one lives in <code>tracing-subscriber</code> and this crate
 <em>is</em> checked here is that it is not empty and not a smuggled second line: an empty filter
 silently means "no directives", which is a service that logs at the default level while its
 configuration says otherwise.</p>
-<h4 id="methods_39">Methods<a class="headerlink" href="#methods_39" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-200-1"><a id="__codelineno-200-1" name="__codelineno-200-1" href="#__codelineno-200-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_42">Methods<a class="headerlink" href="#methods_42" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-212-1"><a id="__codelineno-212-1" name="__codelineno-212-1" href="#__codelineno-212-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-201-1"><a id="__codelineno-201-1" name="__codelineno-201-1" href="#__codelineno-201-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidLogFilter</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-213-1"><a id="__codelineno-213-1" name="__codelineno-213-1" href="#__codelineno-213-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidLogFilter</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a filter directive.</p>
-<h4 id="implements_60">Implements<a class="headerlink" href="#implements_60" title="Permanent link">&para;</a></h4>
+<h4 id="implements_64">Implements<a class="headerlink" href="#implements_64" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidlogfilter"><code>enum InvalidLogFilter</code><a class="headerlink" href="#enum-invalidlogfilter" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-202-1"><a id="__codelineno-202-1" name="__codelineno-202-1" href="#__codelineno-202-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidLogFilter</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-214-1"><a id="__codelineno-214-1" name="__codelineno-214-1" href="#__codelineno-214-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidLogFilter</span>
 </span></code></pre></div>
 <p>Why a string is not a filter directive.</p>
-<h4 id="variants_23">Variants<a class="headerlink" href="#variants_23" title="Permanent link">&para;</a></h4>
+<h4 id="variants_24">Variants<a class="headerlink" href="#variants_24" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Empty</code> - Empty, or only whitespace.</li>
 <li><code>ControlCharacter</code> - A control character, which in practice is a newline pasted in with the value. A newline in a filter is a log line an attacker can forge if the value ever reaches the log itself.</li>
 </ul>
-<h4 id="implements_61">Implements<a class="headerlink" href="#implements_61" title="Permanent link">&para;</a></h4>
+<h4 id="implements_65">Implements<a class="headerlink" href="#implements_65" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-servicename"><code>struct ServiceName</code><a class="headerlink" href="#struct-servicename" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-203-1"><a id="__codelineno-203-1" name="__codelineno-203-1" href="#__codelineno-203-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-215-1"><a id="__codelineno-215-1" name="__codelineno-215-1" href="#__codelineno-215-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ServiceName</span>
 </span></code></pre></div>
 <p>The name every log line is attributed to.</p>
 <p>A separate type because it is the field a collector groups by, so an empty or whitespace one
 makes every line from this deployment unattributable.</p>
-<h4 id="methods_40">Methods<a class="headerlink" href="#methods_40" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-204-1"><a id="__codelineno-204-1" name="__codelineno-204-1" href="#__codelineno-204-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<h4 id="methods_43">Methods<a class="headerlink" href="#methods_43" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-216-1"><a id="__codelineno-216-1" name="__codelineno-216-1" href="#__codelineno-216-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-205-1"><a id="__codelineno-205-1" name="__codelineno-205-1" href="#__codelineno-205-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidServiceName</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-217-1"><a id="__codelineno-217-1" name="__codelineno-217-1" href="#__codelineno-217-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">InvalidServiceName</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Reads a service name.</p>
 <p>Narrow on purpose: a name with a space or a quote in it has to be escaped by every
 consumer, and the one that forgets produces a log line that does not parse.</p>
-<h4 id="implements_62">Implements<a class="headerlink" href="#implements_62" title="Permanent link">&para;</a></h4>
+<h4 id="implements_66">Implements<a class="headerlink" href="#implements_66" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-invalidservicename"><code>enum InvalidServiceName</code><a class="headerlink" href="#enum-invalidservicename" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-206-1"><a id="__codelineno-206-1" name="__codelineno-206-1" href="#__codelineno-206-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-218-1"><a id="__codelineno-218-1" name="__codelineno-218-1" href="#__codelineno-218-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">InvalidServiceName</span>
 </span></code></pre></div>
 <p>Why a string is not a service name.</p>
-<h4 id="variants_24">Variants<a class="headerlink" href="#variants_24" title="Permanent link">&para;</a></h4>
+<h4 id="variants_25">Variants<a class="headerlink" href="#variants_25" title="Permanent link">&para;</a></h4>
 <ul>
 <li><code>Empty</code></li>
 <li><code>NotAnIdentifier</code></li>
 </ul>
-<h4 id="implements_63">Implements<a class="headerlink" href="#implements_63" title="Permanent link">&para;</a></h4>
+<h4 id="implements_67">Implements<a class="headerlink" href="#implements_67" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
 <h3 id="struct-telemetrysettings"><code>struct TelemetrySettings</code><a class="headerlink" href="#struct-telemetrysettings" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-207-1"><a id="__codelineno-207-1" name="__codelineno-207-1" href="#__codelineno-207-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TelemetrySettings</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-219-1"><a id="__codelineno-219-1" name="__codelineno-219-1" href="#__codelineno-219-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">TelemetrySettings</span>
 </span></code></pre></div>
 <p>Everything about the log.</p>
-<h4 id="methods_41">Methods<a class="headerlink" href="#methods_41" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-208-1"><a id="__codelineno-208-1" name="__codelineno-208-1" href="#__codelineno-208-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filter</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LogFilter</span>
+<h4 id="methods_44">Methods<a class="headerlink" href="#methods_44" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-220-1"><a id="__codelineno-220-1" name="__codelineno-220-1" href="#__codelineno-220-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">filter</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">LogFilter</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-209-1"><a id="__codelineno-209-1" name="__codelineno-209-1" href="#__codelineno-209-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LogFormat</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-221-1"><a id="__codelineno-221-1" name="__codelineno-221-1" href="#__codelineno-221-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">LogFormat</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-210-1"><a id="__codelineno-210-1" name="__codelineno-210-1" href="#__codelineno-210-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-222-1"><a id="__codelineno-222-1" name="__codelineno-222-1" href="#__codelineno-222-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">format_was_explicit</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">bool</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-211-1"><a id="__codelineno-211-1" name="__codelineno-211-1" href="#__codelineno-211-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="nc">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFilter</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFormat</span><span class="p">,</span><span class="w"> </span><span class="n">format_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-223-1"><a id="__codelineno-223-1" name="__codelineno-223-1" href="#__codelineno-223-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service_name</span><span class="p">:</span><span class="w"> </span><span class="nc">ServiceName</span><span class="p">,</span><span class="w"> </span><span class="n">filter</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFilter</span><span class="p">,</span><span class="w"> </span><span class="n">format</span><span class="p">:</span><span class="w"> </span><span class="nc">LogFormat</span><span class="p">,</span><span class="w"> </span><span class="n">format_was_explicit</span><span class="p">:</span><span class="w"> </span><span class="kt">bool</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
 </span></code></pre></div>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-212-1"><a id="__codelineno-212-1" name="__codelineno-212-1" href="#__codelineno-212-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service_name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceName</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-224-1"><a id="__codelineno-224-1" name="__codelineno-224-1" href="#__codelineno-224-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">service_name</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">ServiceName</span>
 </span></code></pre></div>
-<h4 id="implements_64">Implements<a class="headerlink" href="#implements_64" title="Permanent link">&para;</a></h4>
+<h4 id="implements_68">Implements<a class="headerlink" href="#implements_68" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 
 
