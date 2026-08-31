@@ -337,6 +337,9 @@ st ls                  # what the stack looks like now
 st refresh             # sync trunk, restack the stack, submit the updates
 ```
 
+**Restack with stax (`st`); never hand-`git rebase` a branch that belongs to a stack.** See the
+`stacked-branches` skill.
+
 A branch behind `main` is **rebased**, never merged. A merge commit from `main` into a topic
 branch comes back as a rebase request in review, and it also destroys the linear shape `st`
 relies on. Run `just ship-check` per branch rather than once for the stack, since each pull
