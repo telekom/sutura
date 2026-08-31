@@ -34,7 +34,7 @@ Nothing here requires (or permits) committing them.
 
 ```sh
 # authenticate to Google once, from this repo: both logins in one container
-just gl
+just infra-gl
 cd test-infra/pulumi/google
 cp Pulumi.example.yaml Pulumi.dev.yaml   # then edit with REAL values
 pulumi stack init dev --copy-config-from=dev  # (adjust to your stack)
