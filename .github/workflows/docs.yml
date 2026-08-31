@@ -52,7 +52,12 @@ name: docs
 
 on:
   push:
-    branches: [main]
+    # `dev` ONLY, and `main` is deliberately absent. The site has two kinds of version: the
+    # development copy, which is the trunk, and one directory per release, which comes from the
+    # `v*` tag below. `main` is now the release ref, and a promotion to it is followed within the
+    # minute by the tag that publishes the release directory - so publishing from `main` as well
+    # would deploy the same tree twice under two names and race `gh-pages` against itself.
+    branches: [dev]
     # A `v*` tag publishes that release's own directory. "Path filters are not evaluated for
     # pushes of tags" - documented GitHub behaviour - so `paths` below narrows branch pushes only
     # and a tag always builds, which is what a release needs.
@@ -316,13 +321,19 @@ jobs:
             # A release owns the `latest` alias, and the root redirect follows it.
             echo "version=${REF_NAME#v}" >> "$GITHUB_OUTPUT"
             echo "alias=latest" >> "$GITHUB_OUTPUT"
-          elif [ "$REF_NAME" = main ]; then
-            # `main` is the development copy and takes no alias: `latest` must keep pointing at
-            # the newest RELEASE, or every push to main would silently move it.
-            echo "version=main" >> "$GITHUB_OUTPUT"
+          elif [ "$REF_NAME" = dev ]; then
+            # `dev` is the trunk, and its directory is the development copy. It takes no alias:
+            # `latest` must keep pointing at the newest RELEASE, or every push to the trunk would
+            # silently move it.
+            #
+            # The DIRECTORY NAME is `dev` now rather than `main`, so the previously published
+            # `main` directory is left behind on `gh-pages` - stale, and still linked from
+            # `versions.json` until somebody runs `mike delete main`. Called out because a
+            # renamed trunk is exactly the kind of change that leaves an orphan nobody looks for.
+            echo "version=dev" >> "$GITHUB_OUTPUT"
             echo "alias=" >> "$GITHUB_OUTPUT"
           else
-            echo "::error::docs publishes from main or a v* tag only; got $REF_NAME"
+            echo "::error::docs publishes from dev or a v* tag only; got $REF_NAME"
             exit 1
           fi
 

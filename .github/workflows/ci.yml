@@ -83,7 +83,14 @@ name: ci
 # never runs blocks the merge.
 on:
   push:
-    branches: [main]
+    # `dev` IS THE TRUNK and `main` is the release ref. Both are listed, and the second one is
+    # not redundant: a promotion to `main` is a fast-forward of commits CI already judged on
+    # `dev`, but it is also what triggers a release, and a ref nothing validated is a poor thing
+    # to publish from. Cheap insurance - the work is cached from the `dev` run.
+    #
+    # The expensive trunk-only steps below key on `refs/heads/dev`, not on this list. A promotion
+    # pays for the lints and the tests, not for a second release build of the same tree.
+    branches: [dev, main]
     paths:
       - "**"
       - "!**/*.md"
@@ -94,7 +101,7 @@ on:
       - "!docs/**"
       - "!mkdocs.yml"
   # The same list twice, and it has to stay the same list. A filter that let a path start a run
-  # on `main` but not on the pull request that introduced it would report the merge green and
+  # on the trunk but not on the pull request that introduced it would report the merge green and
   # then fail immediately after it.
   pull_request:
     paths:
@@ -452,7 +459,7 @@ jobs:
       # older than that gets the warning and the skip above. That is the right failure - a branch
       # a month behind `main` has a comparison problem the CRAP gate cannot fix.
       - name: Publish the CRAP baseline
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main' && steps.classify.outputs.rust == 'true'
+        if: github.event_name == 'push' && github.ref == 'refs/heads/dev' && steps.classify.outputs.rust == 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: crap-baseline
@@ -505,7 +512,7 @@ jobs:
       # and libc breakage does not, because `cross` builds all four, and `panic = "abort"` is no
       # longer in that list: the `ci` profile sets it too.
       - name: Release build
-        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
           nix build .#sutura -L
@@ -516,7 +523,7 @@ jobs:
           file result/bin/sutura result-aarch64/bin/sutura
 
       - name: Image
-        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
+        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/dev'
         run: |
           set -eu
           nix build .#oci -L -o result-oci
@@ -785,7 +792,11 @@ jobs:
   cross:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
-    if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/main'
+    # Neither trunk nor the release ref: this is the pull-request link check, and after the move
+    # to a `dev` trunk it has to exclude BOTH. Excluding only `main` would run all four cross
+    # builds a second time on every push to `dev`, where the `Release build` step above has
+    # already built two of them.
+    if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/dev' && github.ref != 'refs/heads/main'
     runs-on: rust-mcp
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
