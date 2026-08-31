@@ -363,7 +363,11 @@ impl TokenValidator {
             None => Scopes::none(),
             Some(ref written) => Scopes::parse(written).map_err(|cause| TokenRejected::UnusableScope { cause })?,
         };
-        Ok(VerifiedCaller::established(chain, scopes))
+        Ok(VerifiedCaller::established(
+            chain,
+            scopes,
+            sutura_domain::identity::Secret::new(token),
+        ))
     }
 
     /// Is this the class of token this deployment accepts?

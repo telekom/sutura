@@ -18,6 +18,7 @@
 //! **What is deliberately NOT here: a method that takes a string.** The request carries a statement
 //! this crate rendered from a plan, and there is no entry point a caller could hand SQL to.
 
+use sutura_domain::identity::Secret;
 use sutura_domain::warehouse::ParamValue;
 
 /// How a request writes its bind parameters.
@@ -47,6 +48,7 @@ pub struct JobRequest<'job> {
     params: &'job [ParamValue],
     billing_project: &'job ProjectId,
     default_dataset: &'job DatasetId,
+    subject_bearer: Option<&'job Secret>,
 }
 
 impl<'job> JobRequest<'job> {
@@ -60,12 +62,14 @@ impl<'job> JobRequest<'job> {
         params: &'job [ParamValue],
         billing_project: &'job ProjectId,
         default_dataset: &'job DatasetId,
+        subject_bearer: Option<&'job Secret>,
     ) -> Self {
         Self {
             statement,
             params,
             billing_project,
             default_dataset,
+            subject_bearer,
         }
     }
 
@@ -84,6 +88,19 @@ impl<'job> JobRequest<'job> {
     #[must_use]
     pub const fn params(&self) -> &[ParamValue] {
         self.params
+    }
+
+    /// The asking subject's own credential, where the leg carried one.
+    ///
+    /// **This is the half that makes a `BigQuery` source execute as the asker.** A
+    /// [`Presented::SubjectToken`] carries the credential a broker minted for the asking subject - an
+    /// exchanged Google access token scoped to that subject - and the transport sends it as its bearer
+    /// for THIS job, so the endpoint evaluates the statement under whoever the token says. `None` for
+    /// the shared posture, whose leg runs under the identity the transport itself already holds.
+    #[inline]
+    #[must_use]
+    pub const fn subject_bearer(&self) -> Option<&Secret> {
+        self.subject_bearer
     }
 
     /// Which parameter form the values are to be sent as.

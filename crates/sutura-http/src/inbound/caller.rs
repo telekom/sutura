@@ -192,10 +192,11 @@ impl Scopes {
 ///     matches!(caller.chain().attribution(), Attribution::BareSubject { .. })
 /// }
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct VerifiedCaller {
     chain: PrincipalChain,
     scopes: Scopes,
+    assertion: sutura_domain::identity::Secret,
 }
 
 impl VerifiedCaller {
@@ -203,8 +204,16 @@ impl VerifiedCaller {
     ///
     /// Named for what happened rather than for what it builds: a `new` here would read as a value
     /// anybody may assemble, and the whole point of the type is that assembling one is a verification.
-    pub(crate) const fn established(chain: PrincipalChain, scopes: Scopes) -> Self {
-        Self { chain, scopes }
+    ///
+    /// `assertion` is the token that JUST verified - the caller's own credential, retained so a broker
+    /// that performs an exchange has the asker's token to exchange (`docs/adr/0008`'s `Caller` shape).
+    /// It is not `Clone`-free here on purpose, and `Secret`'s `Debug` redacts it.
+    pub(crate) const fn established(chain: PrincipalChain, scopes: Scopes, assertion: sutura_domain::identity::Secret) -> Self {
+        Self {
+            chain,
+            scopes,
+            assertion,
+        }
     }
 
     /// Who this call is attributed to.
@@ -212,6 +221,17 @@ impl VerifiedCaller {
     #[must_use]
     pub const fn chain(&self) -> &PrincipalChain {
         &self.chain
+    }
+
+    /// The caller's own credential this verification accepted.
+    ///
+    /// The token that passed the signature, class, issuer, audience and lifetime checks - the only
+    /// way a token enters the request path. A broker that performs an exchange reads it; everything
+    /// else ignores it and, on the shared posture, never sees a value that would change a leg.
+    #[inline]
+    #[must_use]
+    pub const fn assertion(&self) -> &sutura_domain::identity::Secret {
+        &self.assertion
     }
 
     /// What the token said this caller may do.

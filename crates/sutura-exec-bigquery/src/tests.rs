@@ -34,15 +34,16 @@ use crate::{BigQueryError, BigQueryWarehouse};
 #[error("the fake transport cannot fail")]
 struct FakeCannotFail;
 
-/// One request the fake was handed, taken apart into the four things a test asserts on.
+/// One request the fake was handed, taken apart into the things a test asserts on.
 ///
-/// A struct rather than a tuple, because a four-tuple of `String` is over the `type_complexity`
+/// A struct rather than a tuple, because a five-tuple of `String` is over the `type_complexity`
 /// threshold this workspace tightened and is unreadable at the assertion anyway.
 struct Asked {
     statement: String,
     params: Vec<String>,
     project: String,
     dataset: String,
+    subject: Option<String>,
 }
 
 /// A transport that records what it was asked and answers with what a test handed it.
@@ -82,6 +83,9 @@ impl Recording {
                 .collect(),
             project: String::from(request.billing_project().as_str()),
             dataset: String::from(request.default_dataset().as_str()),
+            // Exposed only here, in a test, where the whole point is to assert the exact bearer the
+            // adapter forwarded. Production code never reads it as text.
+            subject: request.subject_bearer().map(|secret| String::from(secret.expose())),
         });
     }
 }
@@ -166,12 +170,24 @@ fn other_posture() -> SourcePosture {
     }
 }
 
+/// The posture the per-subject tests open this adapter with.
+fn impersonating_posture() -> SourcePosture {
+    SourcePosture::ImpersonationAtSource
+}
+
+/// A token presented as the asker's own, for the impersonating posture.
+fn a_subject_token(raw: &str) -> Presented {
+    Presented::SubjectToken {
+        material: sutura_domain::identity::Secret::new(raw),
+    }
+}
+
 fn leg_of(posture: &SourcePosture) -> Presented {
     match *posture {
         SourcePosture::SharedServiceUser { ref declared } => Presented::SharedServiceUser {
             declared: declared.clone(),
         },
-        SourcePosture::ImpersonationAtSource => panic!("the fixture postures are shared"),
+        SourcePosture::ImpersonationAtSource => a_subject_token("an-exchanged-token-for-the-asker"),
     }
 }
 
@@ -247,12 +263,12 @@ fn one_cell(kind: FieldType, cell: Cell) -> JobRows {
 // -------------------------------------------------------------------------------- tests ----
 
 #[test]
-fn this_adapter_declares_that_it_has_nowhere_for_a_subject_to_arrive() {
-    // The declaration a boot check reads, pinned by value. Declaring the other way round "to leave
-    // room" would report a leg as impersonated that ran shared.
+fn this_adapter_declares_that_it_can_carry_a_subject() {
+    // The declaration a boot check reads, pinned by value: `impersonation-at-source` may be opened
+    // here, because a subject's own credential has somewhere to go - it rides as the job's bearer.
     assert_eq!(
         <BigQueryWarehouse<Recording> as Warehouse>::IMPERSONATION,
-        ImpersonationCapability::NoPlaceForASubject
+        ImpersonationCapability::PerSubjectCredential
     );
 }
 
@@ -284,27 +300,72 @@ fn the_statement_and_its_values_reach_the_transport_in_separate_fields() {
 }
 
 #[test]
-fn credential_material_this_adapter_cannot_use_is_refused_before_anything_is_asked() {
-    // Refused BEFORE the transport is reached, which is the half that matters: a statement prepared
-    // as the wrong identity resolves against tables the asker may not be able to see.
+fn a_subjects_own_credential_is_sent_as_the_jobs_bearer_and_the_statement_runs_under_it() {
+    // **The acceptance criterion, at the adapter boundary.** A source opened `impersonation-at-source`
+    // accepts a `SubjectToken` - it does not refuse it - and forwards the token as THIS job's bearer.
+    // It is that bearer, and not the adapter's own identity, that the endpoint evaluates the statement
+    // against, which is what makes two subjects with different grants read different rows.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let plan = plan();
+    let token = "exchanged-for-subject-a";
+    drop(
+        warehouse
+            .execute(Executable::Query(&plan), &a_subject_token(token))
+            .expect("an impersonating source accepts a subject's own credential"),
+    );
+    let seen = warehouse.transport.seen.borrow();
+    let asked = seen.first().expect("the transport was asked once");
+    assert_eq!(asked.subject.as_deref(), Some(token));
+}
+
+#[test]
+fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
+    // **The acceptance criterion, mechanised at the seam the end-to-end path depends on.** Two askers,
+    // each with a credential minted for them, drive two jobs; each job's bearer is the asker's own and
+    // never the other's. At a dataset with row-level security that is exactly what makes the two
+    // subjects read different rows. The adapter holds the identity of neither asker; the `Presented`
+    // value carries it, and the statement runs under it.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let plan = plan();
+    for token in ["exchanged-for-subject-a", "exchanged-for-subject-b"] {
+        drop(
+            warehouse
+                .execute(Executable::Query(&plan), &a_subject_token(token))
+                .expect("an impersonating source accepts a subject's own credential"),
+        );
+    }
+    let seen = warehouse.transport.seen.borrow();
+    assert_eq!(seen.len(), 2);
+    assert_eq!(seen[0].subject.as_deref(), Some("exchanged-for-subject-a"));
+    assert_eq!(seen[1].subject.as_deref(), Some("exchanged-for-subject-b"));
+    assert_ne!(seen[0].subject, seen[1].subject);
+}
+
+#[test]
+fn a_subjects_own_credential_on_a_shared_source_is_refused_by_the_posture_check() {
+    // A source opened shared has nowhere for a subject's credential - it is the wrong SHAPE for the
+    // posture, not a value this adapter cannot carry. Refused before the transport is reached, which
+    // is the half that matters: a statement prepared as the wrong identity resolves against tables
+    // the asker may not be able to see.
     let warehouse = open(Recording::empty(), shared_posture());
     let plan = plan();
     for presented in [
-        Presented::SubjectToken {
-            material: sutura_domain::identity::Secret::new("an-exchanged-token"),
-        },
+        a_subject_token("an-exchanged-token"),
         Presented::SubjectPrincipal {
             name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
         },
     ] {
         let error = warehouse
             .execute(Executable::Query(&plan), &presented)
-            .expect_err("a subject credential has nowhere to go here");
-        assert!(matches!(error, BigQueryError::NoPlaceForASubject { .. }), "{error:?}");
+            .expect_err("a subject credential does not fit the shared posture");
+        assert!(
+            matches!(error, BigQueryError::PresentedDisagreesWithPosture { .. }),
+            "{error:?}"
+        );
     }
     assert!(
         warehouse.transport.seen.borrow().is_empty(),
-        "nothing may reach the endpoint after a credential refusal"
+        "nothing may reach the endpoint after a posture refusal"
     );
 }
 

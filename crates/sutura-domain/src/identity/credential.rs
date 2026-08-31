@@ -39,21 +39,19 @@
 //! defect - a broker's answer being used without being compared with the request it was made for -
 //! and one comparison is what they get.
 //!
-//! # What this port cannot express yet, said with the claim
+//! # Where the caller's own assertion lives, and what is still open about it
 //!
-//! **A broker that has to exchange the caller's OWN token has nowhere to read it from.** `mint`
-//! takes the [`RequestContext`], which carries who the caller is and not what they presented.
-//! `docs/adr/0008` part 2 sketched a `Caller { subject, assertion }` for that, and `docs/adr/0014`
-//! Decision 3 is why the field is deliberately absent rather than guessed: the exchange chain
-//! differs per inbound mode, needs TWO exchanges in the direct one, and is **blocked on a
-//! verification nobody has done** - whether a deployment's own identity provider will mint a token
-//! of the required type for an audience we do not control. The shape of the value a broker would
-//! exchange is exactly what that verification decides, and a `Secret` field added now would be the
-//! guess the port was delayed to avoid. The one implementor that ships mints from configuration and
-//! needs the subject only.
-//!
-//! So: adding the caller's assertion here is a change to this port's signature, and it arrives with
-//! the broker adapter that performs an exchange - not before it.
+//! **A broker that has to exchange the caller's OWN token can now read it**, and the claim is kept
+//! honest about the half that is still open. [`RequestContext::assertion`] carries an
+//! [`crate::identity::Secret`] where the transport established and retained one - the shape
+//! `docs/adr/0008` part 2 called `Caller { subject, assertion }`, split as `chain()` and
+//! `assertion()`, and `docs/adr/0014` Decision 3 is the reason it arrived with the first broker that
+//! exchanges rather than before it. What was gated by that decision and is STILL open is which token
+//! a given inbound mode hands to that field: the exchange chain differs per mode and needs different
+//! tokens in the direct one. The ~~`Secret` field~~ *presence* of the value is not the guess the port
+//! was delayed to avoid; the question of which document the transport retains to fill it is, and that
+//! remains a per-mode decision for the transport that verifies. The one implementor that ships mints
+//! from configuration and never reads the assertion.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -890,6 +888,12 @@ pub trait CredentialBroker {
     /// something the transport ESTABLISHED and a caller cannot state - none of the types in
     /// `crate::identity` implements `Deserialize`, so there is no code that could turn a request
     /// body into one. It takes `&self` and holds no request state, like every other port here.
+    ///
+    /// The caller's own assertion, where the transport retained one, is read off
+    /// [`RequestContext::assertion`] - the value a broker that performs an exchange hands to an
+    /// authorization server, and the value the broker that ships never reads because it mints from
+    /// configuration. A broker that needs to exchange and finds none has a per-source refusal
+    /// (`crate::query::RefusalReason::CredentialUnavailable`), not a leg that runs as the process.
     fn mint(&self, context: &RequestContext, sources: &SourceSet) -> Result<Minted, Self::Error>;
 }
 

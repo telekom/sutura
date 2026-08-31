@@ -761,15 +761,28 @@ where
         // this shape.
         let call = CallDeadline::opened(self.agent.bounds().deadline());
         let now = Self::now()?;
-        let bearer = self
-            .credentials
-            .bearer(now, call)
-            .map_err(|cause| WireError::Credential { cause })?;
-        // Checked BEFORE anything is built or sent, which is why an expired credential costs no round
-        // trip - and why it is the one guard in this function a test can reach with no socket.
-        if let Some(at) = bearer.not_after().passed_by(now) {
-            return Err(WireError::Expired { at, now });
-        }
+        // **Which bearer authorizes this job is decided HERE, once.** A leg that carries the asking
+        // subject's own exchanged credential sends THAT - the whole point of this change, and the
+        // half that makes a dataset evaluate under the asker. A leg carrying none (the shared posture)
+        // reaches the credential source as before. The two are never both sent: a subject bearer is
+        // the asker's, and blending the deployment's identity into the same header would be the
+        // cross-subject leak this crate refuses.
+        let sending_bearer: String = if let Some(subject) = request.subject_bearer() {
+            format!("Bearer {}", subject.expose())
+        } else {
+            let bearer = self
+                .credentials
+                .bearer(now, call)
+                .map_err(|cause| WireError::Credential { cause })?;
+            // Checked BEFORE anything is built or sent, which is why an expired credential costs no
+            // round trip - and why it is the one guard in this function a test can reach with no
+            // socket. A subject's own token was already checked by the broker that minted it and by
+            // `Presented::agrees_with`; only the source's own credential needs this here.
+            if let Some(at) = bearer.not_after().passed_by(now) {
+                return Err(WireError::Expired { at, now });
+            }
+            format!("Bearer {}", bearer.token().expose())
+        };
         // What the exchange left. Every number below reads THIS rather than the whole budget: the two
         // timeout fields in the request body and the socket the answer is waited for on.
         let left = call.remaining().ok_or(WireError::DeadlineSpent {
@@ -792,7 +805,7 @@ where
             .config()
             .timeout_global(Some(CallDeadline::socket(left)))
             .build()
-            .header("authorization", format!("Bearer {}", bearer.token().expose_secret()))
+            .header("authorization", sending_bearer)
             .header("content-type", "application/json");
         // **The quota project, and whether to send it AT ALL is the credential's answer rather than
         // this function's** - which is the correction that made `AccessTokens::quota_project` a
