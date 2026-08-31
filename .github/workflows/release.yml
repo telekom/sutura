@@ -60,7 +60,7 @@ jobs:
   # a commit no branch contains, so CI never validated that tree at all: "main was green"
   # would have shipped something nothing had ever checked.
   gates:
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 60
     permissions:
       contents: read
@@ -137,7 +137,7 @@ jobs:
   # that compiles happens here, under a token that can read the repository and nothing else.
   build:
     needs: [gates]
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 90
     permissions:
       contents: read
@@ -308,7 +308,7 @@ jobs:
   publish:
     needs: [build]
     if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 60
     permissions:
       contents: write   # create the release, upload assets

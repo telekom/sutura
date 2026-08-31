@@ -44,7 +44,7 @@ env:
 jobs:
   # A 20-minute build should not start because someone clicked the wrong button.
   validate:
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 5
     steps:
       - name: Require explicit confirmation
@@ -67,7 +67,7 @@ jobs:
 
   build:
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 120
     permissions:
       contents: write   # attach assets to an existing release

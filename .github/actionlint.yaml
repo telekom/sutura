@@ -1,0 +1,16 @@
+# actionlint's view of which runner labels exist. It ships a list of the standard GitHub-hosted
+# labels and rejects anything else as `label "..." is unknown`, which is the right default: a typo
+# in `runs-on` is otherwise a job that queues for 24 hours and is then cancelled - `timeout-minutes`
+# does not apply to queue time, so nothing fails fast.
+#
+# `rust-mcp` is a GitHub-hosted LARGER runner, not a self-hosted one. The key is still
+# `self-hosted-runner.labels`, because actionlint draws no distinction between the two - its own
+# documentation lists `windows-latest-xl`, a larger-runner name, under this key.
+#
+# This file is the whole enforcement: a label added to `runs-on` and not named here fails
+# `just lint-ci`, and a label named here that no runner group serves is caught by the job queueing
+# rather than by a gate. So the entry is a claim that an org runner group serves this repository -
+# which is a permission on the GitHub side and cannot be checked from the tree.
+self-hosted-runner:
+  labels:
+    - rust-mcp
