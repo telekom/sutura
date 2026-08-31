@@ -528,10 +528,6 @@ impl KeySetCache {
     /// [`MIN_REFETCH_INTERVAL`] and [`MAX_KEY_SET_AGE`] - and the only reason they are parameters at
     /// all is that a test asserting a window *reopens* would otherwise have to sleep for it. It is not
     /// `cfg(test)` because [`Self::primed`] is written in terms of it.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a parts struct would need public fields, which check-boundaries refuses; the two windows exist only so a test need not sleep for them"
-    )]
     pub(crate) fn primed_with_window(
         source: Box<dyn KeySetSource>,
         family: KeyFamily,
@@ -736,10 +732,6 @@ fn adopt(cached: &mut Cached, read: String, candidate: Result<KeySet, InvalidKey
 /// and so the levels are decided in one place: a rotation is `info`, a refused candidate is `error`
 /// because the deployment is now serving keys that disagree with what is on disk, and no change says
 /// nothing at all - a quiet deployment must not emit a line a minute saying so.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "each arm is a tracing macro expanding into branches; the control flow is one match over three variants"
-)]
 fn announce(outcome: Refreshed) {
     match outcome {
         // Both silent, and for one reason: a quiet deployment must not emit a line a minute saying
@@ -778,10 +770,6 @@ fn parse_for(document: &str, family: KeyFamily, pinned: &str) -> Result<KeySet, 
 #[expect(
     clippy::integer_division_remainder_used,
     reason = "the `select!` macro expands through remainder arithmetic to pick a poll order; nothing here does"
-)]
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "the `select!` macro and the tracing calls expand into branches; the control flow is one loop with two arms"
 )]
 async fn poll_until_shutdown(watched: Weak<KeySetCache>, interval: Duration, shutdown: Shutdown) {
     loop {

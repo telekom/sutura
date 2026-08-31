@@ -28,6 +28,7 @@ mod shared_client;
 mod skills;
 mod tasks;
 mod text;
+mod threshold_expect;
 mod unused_deps;
 mod warm_start;
 mod workflows;
@@ -197,6 +198,15 @@ const TASKS: &[Task] = &[
         description: "the nav in mkdocs.yml and the pages under docs/ agree",
         kind: Kind::Hygiene,
         run: docs::run,
+    },
+    Task {
+        // A threshold lint's cause is a NUMBER, which is a property of the surrounding
+        // function rather than of the code the attribute sits on - so two branches can each
+        // move that number correctly and only their merge is wrong. See the module doc.
+        name: "check-expect-thresholds",
+        description: "no #[expect] on a count-threshold lint (too_many_lines / too_many_arguments / cognitive_complexity)",
+        kind: Kind::Hygiene,
+        run: threshold_expect::run,
     },
     Task {
         // CHEAP HALF of the CRAP gate: it reads `.cargo-crap.toml`, checks the allowlist

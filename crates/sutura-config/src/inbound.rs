@@ -194,10 +194,6 @@ impl TransitProof {
     /// refuses on a public struct in a library crate - for the reason it exists, that a public field is
     /// a second way to build a value without its invariant. Every one of these is already a parsed
     /// newtype, so the list is seven invariants rather than seven strings.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a parts struct would need public fields, which check-boundaries refuses; each argument is an already-parsed newtype"
-    )]
     #[inline]
     #[must_use]
     pub const fn new(

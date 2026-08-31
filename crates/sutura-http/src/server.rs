@@ -195,10 +195,6 @@ where
 ///
 /// A drain that overran is `Ok`: the process was asked to stop and it stopped, later than it wanted
 /// to. A serve error is `Err`, because the server fell over on its own.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every arm is a tracing macro expanding into branches; the control flow is one match"
-)]
 fn report(outcome: Outcome) -> Result<(), ServeFailed> {
     match outcome {
         Outcome::Completed(Ok(())) => {

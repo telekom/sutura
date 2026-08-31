@@ -90,10 +90,6 @@ impl AuditSink for TracingAuditSink {
     ///
     /// The message is `answered` or `refused` - the same two words the log line this replaced used,
     /// so a filter written against that line still finds these.
-    #[expect(
-        clippy::cognitive_complexity,
-        reason = "both arms are a tracing macro expanding into branches; the control flow is one match"
-    )]
     fn record(&self, record: &CallRecord<'_>) {
         let who = Attributed::of(record.chain());
         match *record.outcome() {
