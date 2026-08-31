@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **bigquery**: A BigQuery source executes as the asking subject (issue 87) (#93)
 - **serve**: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)
 - **identity**: A credential the compiler refuses to print (#86)
 - **catalog**: A model may name a table outside its connection's dataset (#83) (#84)
@@ -34,6 +35,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Fixes
 
+- **sql**: State null placement in ORDER BY so the dialects agree (#92) (#95)
 - **xtask**: A lock file naming no holder is not PID 0, and it is never visibly empty (#68)
 - **identity**: The anchor door was a shape check, not an authority (#61)
 - **identity**: A broker's answer was trusted, and now it is checked (#62)
