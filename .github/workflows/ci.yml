@@ -724,9 +724,12 @@ jobs:
   # the head repository rather than on `github.event_name`, because a pull request from a BRANCH of
   # this repository can see the secret and should be held to it.
   #
-  # It is NOT in `needs` for anything and nothing needs it, so it neither delays nor gates the merge
-  # path; whether it becomes required is a branch-protection decision rather than one this file makes.
+  # It waits for `ci`, so the dependency closure that job fills is available before this one asks the
+  # cache for it and a red local gate spends no cloud request. Nothing needs this job, so an endpoint
+  # failure still does not hold the cross matrix; whether it becomes required is a branch-protection
+  # decision rather than one this file makes.
   bigquery-acceptance:
+    needs: [ci]
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
     runs-on: rust-mcp
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
