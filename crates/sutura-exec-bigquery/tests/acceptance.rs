@@ -136,7 +136,7 @@ mod tests {
     };
     use sutura_domain::warehouse::{ParamValue, PreFlight, Warehouse as _};
 
-    use crate::support::{Connection, Wired, named, opened, presented};
+    use crate::support::{Connection, Wired, bounds, named, opened, presented};
 
     /// What this leg needs from the environment: the shared [`Connection`], plus the one variable only
     /// this leg reads.
@@ -261,7 +261,7 @@ mod tests {
     /// both legs are evidence for the same composition rather than for two that resemble each other.
     /// What is left here is the source NAME, which is per leg.
     fn warehouse(fixture: Fixture) -> Wired {
-        opened(source(), fixture.connection)
+        opened(source(), fixture.connection, bounds())
     }
 
     #[test]
