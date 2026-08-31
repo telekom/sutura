@@ -133,6 +133,14 @@
          <lastmod>2026-08-31</lastmod>
     </url>
     <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0019-a-table-outside-the-connections-dataset/</loc>
+         <lastmod>2026-08-31</lastmod>
+    </url>
+    <url>
+         <loc>https://telekom.github.io/sutura/main/adr/0020-a-credential-the-compiler-refuses-to-print/</loc>
+         <lastmod>2026-08-31</lastmod>
+    </url>
+    <url>
          <loc>https://telekom.github.io/sutura/main/api/</loc>
          <lastmod>2026-08-31</lastmod>
     </url>

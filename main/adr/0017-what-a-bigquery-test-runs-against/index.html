@@ -909,6 +909,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1653,6 +1657,67 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-08-30-second-the-adapter-is-registered-so-the-last-not-wired-is-spent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-08-30 (second): the adapter is registered, so the last not wired is spent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-08-30 (second): the adapter is registered, so the last not wired is spent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-wired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is wired
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-binaries-link-it-and-the-one-that-deliberately-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which binaries link it, and the one that deliberately does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-limits-this-registration-introduces-both-refusals-rather-than-silences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two limits this registration introduces, both refusals rather than silences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-claimed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not claimed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -1677,6 +1742,62 @@
     
   
     What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
   
 
     
@@ -2438,6 +2559,67 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#amendment-2026-08-30-second-the-adapter-is-registered-so-the-last-not-wired-is-spent" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Amendment, 2026-08-30 (second): the adapter is registered, so the last not wired is spent
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Amendment, 2026-08-30 (second): the adapter is registered, so the last not wired is spent">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-wired" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is wired
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#which-binaries-link-it-and-the-one-that-deliberately-does-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which binaries link it, and the one that deliberately does not
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#two-limits-this-registration-introduces-both-refusals-rather-than-silences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two limits this registration introduces, both refusals rather than silences
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-claimed" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not claimed
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2459,8 +2641,11 @@
 
 
 <h1 id="what-a-bigquery-test-runs-against">What a BigQuery test runs against<a class="headerlink" href="#what-a-bigquery-test-runs-against" title="Permanent link">&para;</a></h1>
-<p>Status: <strong>accepted.</strong> The rendering half is built and green; the acceptance leg is opt-in and is not
-in CI, because there is nothing in CI for it to run against.</p>
+<p>Status: <strong>accepted, and amended twice.</strong> The rendering half is built and green. The acceptance leg is
+no longer opt-in-only and no longer absent from CI - see <em>Amendment, 2026-08-30</em> - and the adapter is
+no longer unwired: a composition root links it, behind a default-off feature, which is <em>Amendment,
+2026-08-30 (second)</em> at the foot of this page. <strong>Read the amendments before citing anything above
+them</strong>; the reasoning stands, two of its conclusions do not.</p>
 <p><code>docs/implementation-plan-bigquery.md</code> gates its first BigQuery step on one decision, to be made
 before the adapter is written: <strong>what does a test run against?</strong> There is no BigQuery in a container.
 The choice decides whether the step can claim <em>acceptance</em> at all or only <em>rendering</em>, and
@@ -2708,14 +2893,87 @@ check to be blind about, so they are what a live run is worth most for. <strong>
 is #78's importer shape pointed at a dataset - load the fixtures, run the 21 questions, compare rows
 with the engine - and it is not built.</strong> <code>docs/adr/0018</code> records that gap, and the smoke leg's own
 header opens with it.</p>
-<p><strong>Everything else on this page still holds, including the part that matters most.</strong> This record said
-the change adding the wire would be the change that could first run it against a project. <strong>It was
-not.</strong> The machine it was written on has no <code>gcloud</code>, no application-default credential and no
-project, so nothing has been executed against a real dataset, the acceptance leg has never run, and
-the <code>data_systems:</code> axis still gains no entry. The summary sentence therefore survives with one word
+<p><strong>This record said the change adding the wire would be the change that could first run it against a
+project. It was not</strong> - the machine it was written on had no <code>gcloud</code>, no application-default
+credential and no project, so the diff that wrote the wire executed nothing. <strong>A LATER diff did, and
+the two sentences that followed this one here have been deleted rather than hedged:</strong> they read
+<em>"nothing has been executed against a real dataset, the acceptance leg has never run"</em>, and
+<em>Amendment, 2026-08-30</em> above records the run that made both false. What survives unchanged is the
+narrowness: the <code>data_systems:</code> axis still gains no entry, because one live statement is not a
+registered data system. The summary sentence therefore survives with one word
 changed - <em>five</em> mechanisms rather than four, the fifth being the wire's own suite over response
 documents that are not the service's - and 0018's <em>What is still not claimed</em> section is where that
 is spelled out.</p>
+<h2 id="amendment-2026-08-30-second-the-adapter-is-registered-so-the-last-not-wired-is-spent">Amendment, 2026-08-30 (second): the adapter is registered, so the last <em>not wired</em> is spent<a class="headerlink" href="#amendment-2026-08-30-second-the-adapter-is-registered-so-the-last-not-wired-is-spent" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> Nothing above is contradicted by this section - it closes the
+one thing every version of this page, and <code>AGENTS.md</code>'s <em>Built And Not Wired</em>, kept naming as absent:
+<em>no composition root links the crate, and <code>sutura-serve</code> refuses <code>kind: bigquery</code> by name.</em> Both
+sentences are now false, and this records what replaced them so a reader does not have to infer it
+from a diff.</p>
+<h3 id="what-is-wired">What is wired<a class="headerlink" href="#what-is-wired" title="Permanent link">&para;</a></h3>
+<p><code>sutura-serve</code> opens a <code>kind: bigquery</code> source. <code>open_engine</code> holds the exhaustive match over
+<code>sutura_config::SourceKind</code> - it MOVED there from <code>build_engine</code>, because a kind whose answer is a
+different registry can only be dispatched by the function that chooses one - and <code>build_bigquery</code>
+composes the three layers the acceptance leg composes, in the same order and through the same
+constructors: a <code>WireAgent::pinned</code> carrying <code>JobBounds</code>, a <code>Credential</code> read off a declared file, a
+<code>BigQueryWire</code> over both, and a <code>BigQueryWarehouse</code> over that.</p>
+<p>Two values the source entry did not carry before, both required for that kind and both refused on a
+<code>files</code> one:</p>
+<ul>
+<li><strong><code>credential_file</code></strong>, absolute. Required rather than falling back to <code>CredentialFile::well_known</code>,
+  which is what the acceptance leg uses: a test may resolve a credential from whichever of three
+  Google variables happened to be exported, and a <em>service</em> may not - that is an identity nobody
+  declared. It is read at BOOT, for the reason the inbound key set is read before the listener opens.</li>
+<li><strong><code>max_bytes_billed</code></strong>, with no default. It is the only bound on bytes SCANNED anywhere in this
+  repository and the only number in the settings tree that spends money, so both safe defaults are
+  wrong in opposite directions: a small one refuses ordinary questions on a large table and a large one
+  is indistinguishable from no bound. Its RANGE stays the adapter's - <code>BytesBilledCeiling::parse</code> - so
+  there is one parse of it and a value outside the range is a startup refusal naming the key.</li>
+</ul>
+<p>The <strong>query deadline</strong> is not a new key: it is filled from <code>server.request_timeout_seconds</code>, which is
+what <code>wire::QueryDeadline</code>'s own documentation asks a composition root for by name. A job that outlives
+the request it is answering is billed for a result nobody is waiting for.</p>
+<h3 id="which-binaries-link-it-and-the-one-that-deliberately-does-not">Which binaries link it, and the one that deliberately does not<a class="headerlink" href="#which-binaries-link-it-and-the-one-that-deliberately-does-not" title="Permanent link">&para;</a></h3>
+<p><strong><code>sutura-serve</code>, behind a default-off <code>bigquery</code> feature. <code>sutura-cli</code>, not at all.</strong> The reason is
+the four cross builds and it is measured rather than assumed:</p>
+<ul>
+<li>the release derivations pass <code>--package sutura-cli</code>, so they never compile <code>sutura-serve</code> itself;</li>
+<li>but <code>crane.buildDepsOnly</code> is deliberately <strong>unscoped</strong> - the flake says so, because the checks share
+  that derivation - so a non-optional dependency in <code>sutura-serve</code> would compile <code>ureq</code>, rustls and
+  <code>ring</code> for all four cross dependency derivations, two of which are musl, for a binary that links none
+  of it.</li>
+</ul>
+<p>So the feature is the honest shape, and the refusal that used to name the KIND now names the FEATURE:
+<code>open_bigquery</code> has two definitions of one signature, and the <code>cfg(not(feature = "bigquery"))</code> one
+tells an operator to build with <code>--features bigquery</code> rather than to change the <code>kind:</code>. Every gate
+here passes <code>--all-features</code>, so the registration is compiled, linted and tested on every run; a bare
+<code>cargo build</code> and the four cross builds are unchanged.</p>
+<p><strong>What that means for a shipped artifact, stated plainly because a feature is easy to read as
+availability:</strong> no published binary opens a <code>BigQuery</code> dataset today. The image holds <code>sutura-cli</code>,
+which links the engine only; <code>sutura-serve</code> is not a <code>nix</code> package at all and is built from source.</p>
+<h3 id="two-limits-this-registration-introduces-both-refusals-rather-than-silences">Two limits this registration introduces, both refusals rather than silences<a class="headerlink" href="#two-limits-this-registration-introduces-both-refusals-rather-than-silences" title="Permanent link">&para;</a></h3>
+<ol>
+<li><strong>A catalog reading two KINDS of source does not start.</strong> <code>sutura_app::Warehouses&lt;W&gt;</code> is generic in
+   one adapter type, so this process holds two file sources or two datasets and cannot hold one of
+   each; the closed enum over adapter types is an architecture decision that module already defers.
+   <code>one_kind</code> makes the limit a startup refusal naming both entries and both kinds, because the
+   alternative is a source nothing opened answering <code>SourceUnavailable</code> - a refusal that reads as
+   <em>nobody configured that</em> about a source the operator configured.</li>
+<li><strong><code>refuse_unattached</code> is files-only now.</strong> It compares the served bundle's tables against what the
+   engine holds, and the engine holds them because <code>attach</code> put them there. A <code>BigQuery</code> source has no
+   attach step, so a bundle naming a table the dataset does not hold STARTS, where a <code>files</code> deployment
+   in the same state does not. An anchor closes it for a metric that matters, because an anchor
+   re-executes at boot; closing it for the rest is a per-model pre-flight, which is a network call per
+   model rather than a check on a set.</li>
+</ol>
+<h3 id="what-is-still-not-claimed">What is still not claimed<a class="headerlink" href="#what-is-still-not-claimed" title="Permanent link">&para;</a></h3>
+<p>Everything the amendment above narrows stays narrow. The <code>data_systems:</code> axis of the golden matrix
+gains no entry: the registration is a composition, and that registry's rule is that a cell which
+cannot execute in the suite reads as coverage. <code>IMPERSONATION</code> still reads <code>NoPlaceForASubject</code>, so a
+<code>BigQuery</code> source serves every caller as one service account and an <code>impersonation-at-source</code>
+declaration against it is a boot refusal - which is the posture cross-check working, not per-subject
+execution arriving. And the corpus-wide leg this page specifies is still #78's importer shape pointed
+at a dataset, and is still not built.</p>
 
 
 

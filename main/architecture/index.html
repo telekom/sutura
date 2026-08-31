@@ -1131,6 +1131,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1664,6 +1668,62 @@
     
   
     What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
   
 
     
@@ -2624,6 +2684,13 @@ gains no entry - one live statement is not a registered data system.</p>
 before reading its green as closing the gap: one hand-built <code>SUM</code> over a two-column table, exercising
 none of the constructs the parse check was measured to be blind about. The wider leg is #78's importer
 shape pointed at a dataset, and it is not built.</p>
+<p><strong>One thing that leg now does prove, and it is the reason it grew:</strong> the same table read by its
+<strong>fully qualified</strong> <code>project.dataset.table</code> name answers the same numbers as the unqualified read, and
+a qualified path naming a dataset that is not there is refused - which is the control that makes the
+first half a measurement rather than an inference. So <em>qualification resolves</em>, not merely renders.
+<a href="../adr/0019-a-table-outside-the-connections-dataset/"><code>adr/0019</code></a> is that record and says what the run
+does not cover: no second dataset and no second project, because the acceptance credential's IAM
+refuses <code>datasets.create</code>.</p>
 <p>0017 also records how much narrower parse-checking is than acceptance - measured, not assumed: within
 one target the parse check cannot see a function's argument order.</p>
 <p>The engine refuses a catalogue that declares any data system other than the one it is: naming the

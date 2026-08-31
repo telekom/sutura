@@ -907,6 +907,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1440,6 +1444,62 @@
     
   
     What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
   
 
     
@@ -2154,6 +2214,9 @@ stopped asserting anything the moment a fourth dialect arrived.</p>
 <p><strong>How the date bucket is spelled.</strong> <code>DateTruncShape</code> carries the argument order and whether the
 grain is a string literal or a bare keyword, and it exists because the parse check cannot catch
 getting it wrong - see that type.</p>
+<p><strong>How deep a qualifier a table may carry.</strong> <code>Dialect::qualification</code> declares it, and the reason
+it is not delegated is that the layer will happily RENDER <code>a.b.c</code> for a target with no third
+position to put <code>a</code> in. See that accessor.</p>
 <h3 id="enum-dialect"><code>enum Dialect</code><a class="headerlink" href="#enum-dialect" title="Permanent link">&para;</a></h3>
 <div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Dialect</span>
 </span></code></pre></div>
@@ -2177,15 +2240,46 @@ a feature flag, a match arm and a snapshot.</p>
 <p>How this data system spells truncating a date to a grain.</p>
 <p>See <code>DateTruncShape</code> for why this is a declaration rather than something the parse check
 would have caught.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identifier_quote</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identifier_case</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">IdentifierCase</span>
+</span></code></pre></div>
+<p>Whether this data system tells two identifiers in one statement apart by case.</p>
+<p>A declaration, exhaustively matched, so a fifth dialect cannot compile without answering - the
+<code>DateTruncShape</code> and <code>Self::qualification</code> precedent. The vocabulary is
+<code>IdentifierCase</code>, and what reads it is the test
+<code>every_dialect_is_at_most_as_case_folding_as_the_catalog_assumes</code> below:
+<code>sutura_domain::catalog::Definitions::assemble</code> and <code>sutura_domain::plan::StatementTables</code> both
+compare under <code>IdentifierCase::COARSEST</code>, because a bundle is dialect-agnostic and nothing at
+load knows which target will serve it.</p>
+<p><strong>So this declaration is a self-check on that assumption rather than a barrier</strong>, and it is
+worth saying which: a value declared <code>Sensitive</code> here cannot make a bundle unsafe, because
+those checks fold regardless. What it buys is that a target whose folding is <em>coarser</em> than
+ASCII case - a Unicode-folding variant added to <code>IdentifierCase</code> - fails a test instead of
+quietly invalidating both comparisons.</p>
+<p><strong><code>BigQuery</code> is <code>InsensitiveAscii</code>, and it is the reason the type exists.</strong> <code>GoogleSQL</code>'s lexical
+reference lists <em>aliases within a query</em>, <em>column names</em> and <em>field names</em> as NOT
+case-sensitive (checked 2026-08-30). Its TABLE names are case-sensitive by default, which is
+the asymmetry that makes the collision reachable: a table <code>Orders</code> is a distinct table, and the
+qualifier <code>Orders</code> still resolves to a select-list alias spelled <code>orders</code>.</p>
+<p><strong><code>DuckDb</code> is <code>InsensitiveAscii</code>, and that was MEASURED rather than read.</strong> On the pinned
+<code>DuckDB</code> 1.5.5, a table created as a quoted <code>Orders</code> is bound by a quoted <code>orders</code> qualifier and
+returns a result - so an identifier is folded when it is RESOLVED, even though the same engine
+keeps two projected aliases differing only in case as two distinct output columns. Declaring
+the coarser of the two behaviours covers both.</p>
+<p><strong><code>Postgres</code> and <code>ClickHouse</code> are <code>Sensitive</code>, from their documented behaviour and NOT measured
+here</strong> - neither has a server in this repository to ask, which is why the paragraph above about
+the direction of a wrong declaration matters. A Postgres quoted identifier preserves case and
+compares exactly, and this renderer force-quotes every identifier; <code>ClickHouse</code> identifiers are
+case-sensitive. Nothing in this workspace executes either, which <code>AGENTS.md</code> already says of
+every <code>ClickHouse</code> golden.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">identifier_quote</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
 </span></code></pre></div>
 <p>Which character this data system wraps an identifier in.</p>
 <p>Declared here and measured in <code>mod@crate::generate</code> against what the layer actually emits, so
 this cannot become a claim about a rendering nobody checked.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownDialect</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">raw</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">AsRef</span><span class="o">&lt;</span><span class="kt">str</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnknownDialect</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Parses a dialect name.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">placeholder_style</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">placeholder_style</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
 </span></code></pre></div>
 <p>How this data system writes a bind parameter.</p>
 <p><strong><code>BigQuery</code> is <code>Question</code>, and the decision was taken against the client's request shape
@@ -2197,10 +2291,42 @@ parameter's identity there IS its position - so positional is the shape that alr
 end to end. Choosing named would mean inventing a name per parameter in the generator, a third
 <code>PlaceholderStyle</code>, and a map on <code>GeneratedQuery</code> for a driver to read: three new things, none
 of which the domain has anything to put in them.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">qualification</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Qualification</span>
+</span></code></pre></div>
+<p>The deepest table path this data system resolves.</p>
+<p>A declaration, exhaustively matched, so a fifth dialect cannot compile without answering -
+the <code>DateTruncShape</code> and <a href="Dialect::identifier_quote"><code>identifier_quote</code></a> precedent, and for
+the same reason: <strong>the dialect layer renders <code>catalog.schema.name</code> for ANY target given three
+parts.</strong> Its <code>TableRef</code> is a name plus two <code>Option</code>s with no per-dialect arity check, so
+without this declaration a <code>project.dataset.table</code> rendered for a target with no third
+position produces a statement that either fails at the data system or, worse, resolves the
+leading part as something else. <code>mod@crate::generate</code> refuses past what this returns.</p>
+<p>The vocabulary is <code>sutura_domain::model::Qualification</code>, shared with the type that reports
+how deep a <em>name</em> is - so the comparison is an ordering rather than a hand-written match.</p>
+<p><strong><code>BigQuery</code> is the reason the feature exists.</strong> <code>project.dataset.table</code> is a first-class path
+there, one credential reaches several projects, and a cross-project join is native and pushed
+down. That is what makes cross-project <strong>not</strong> federation - see
+<code>sutura_domain::model::qualified</code>'s header.</p>
+<p><strong>Postgres is <code>Dataset</code>, and stops there because cross-DATABASE is not a thing it does.</strong> Its
+three-part form <code>database.schema.table</code> parses and is accepted only when the leading part is
+the database already connected to, so rendering one would be a statement that works or fails
+depending on a connection detail no catalog can see. A schema qualifier is the real capability
+and is what a <code>schema.table</code> model gets.</p>
+<p><strong><code>ClickHouse</code> is <code>Dataset</code> for its <code>database.table</code>.</strong> It has databases and no catalog above
+them. Its arm is a rendering claim and not an execution one: nothing in this workspace
+executes <code>ClickHouse</code>, which <code>AGENTS.md</code> already says of every <code>ClickHouse</code> golden.</p>
+<p><strong><code>DuckDB</code> is <code>TableOnly</code>, and that arm is the one worth reading twice</strong> - <code>DuckDB</code> <em>does</em> have
+schemas and attached catalogs, so this is narrower than what the engine can parse. It is
+declared for what a <code>DuckDB</code> deployment HERE can resolve: <code>sutura-exec-duckdb</code> registers one
+view per model in the default schema of the default catalog, and <code>sutura-exec-datafusion</code>
+registers one file per model in its own table registry. A qualified name resolves to nothing in
+either, so a refusal naming the path is the useful outcome and a rendered <code>a.b.c</code> that returns
+<code>Catalog with name a does not exist</code> is not. Widening this arm is a change to what those
+adapters ATTACH, not to what this renders.</p>
 <h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Hash</code>, <code>Ord</code>, <code>PartialEq</code>, <code>PartialOrd</code>, <code>Serialize</code></p>
 <h3 id="enum-placeholderstyle"><code>enum PlaceholderStyle</code><a class="headerlink" href="#enum-placeholderstyle" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">PlaceholderStyle</span>
 </span></code></pre></div>
 <p>How a bind parameter is written.</p>
 <h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
@@ -2211,7 +2337,7 @@ of which the domain has anything to put in them.</p>
 <h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-identifierquote"><code>enum IdentifierQuote</code><a class="headerlink" href="#enum-identifierquote" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">IdentifierQuote</span>
 </span></code></pre></div>
 <p>Which character a dialect wraps an identifier in.</p>
 <p>Two variants and no <code>Other(char)</code>, for this workspace's usual reason: a variant is a claim that we
@@ -2223,13 +2349,13 @@ tested against.</p>
 <li><code>Backtick</code> - <code>`name`</code>. <code>BigQuery</code>.</li>
 </ul>
 <h4 id="methods_2">Methods<a class="headerlink" href="#methods_2" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">character</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">char</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">character</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">char</span>
 </span></code></pre></div>
 <p>The character itself, for building or searching for a quoted span.</p>
 <h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="enum-datetruncshape"><code>enum DateTruncShape</code><a class="headerlink" href="#enum-datetruncshape" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DateTruncShape</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">DateTruncShape</span>
 </span></code></pre></div>
 <p>How a dialect spells truncating a date to a grain.</p>
 <p><strong>This type exists because the parse check cannot catch getting it wrong, and that was measured
@@ -2259,7 +2385,7 @@ and one of them - <code>WEEK(&lt;WEEKDAY&gt;)</code> - is not expressible as a s
 <h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h3 id="struct-unknowndialect"><code>struct UnknownDialect</code><a class="headerlink" href="#struct-unknowndialect" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownDialect</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">UnknownDialect</span>
 </span></code></pre></div>
 <p>Why a dialect name was not recognised.</p>
 <h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
@@ -2314,39 +2440,39 @@ is compiled into this build, so nothing here can tell. That is precisely what th
 variants of <code>AuthoredSql</code> are for: the author names the dialect and takes the claim, and a
 dialect with neither an exact fragment nor a <code>portable</code> one is refused rather than guessed at.</p>
 <h3 id="struct-rendering"><code>struct Rendering</code><a class="headerlink" href="#struct-rendering" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Rendering</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Rendering</span>
 </span></code></pre></div>
 <p>One authored fragment, compiled for one dialect.</p>
 <p><code>authored_for</code> is the traceability half and is not cosmetic: with a <code>portable</code> fragment and a
 <code>clickhouse</code> one in the same metric, "which one did this statement use" is otherwise a question
 answered by re-deriving the resolution rule in your head.</p>
 <h4 id="methods_3">Methods<a class="headerlink" href="#methods_3" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authored_for</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DialectTag</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">authored_for</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">DialectTag</span>
 </span></code></pre></div>
 <p>The dialect word whose fragment was chosen: the target's own, or <code>portable</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sql</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">sql</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The rendered expression, with every identifier already quoted.</p>
 <h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="struct-compiledexpression"><code>struct CompiledExpression</code><a class="headerlink" href="#struct-compiledexpression" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CompiledExpression</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CompiledExpression</span>
 </span></code></pre></div>
 <p>An authored expression, compiled for every dialect this build renders for.</p>
 <p>Complete by construction: <code>compile</code> returns one of these only when every entry in
 <code>crate::dialect::ALL</code> resolved and rendered. So there is no per-query moment at which a target
 turns out to have no expression - that failure has already happened, at load, naming the dialect.</p>
 <h4 id="methods_4">Methods<a class="headerlink" href="#methods_4" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Rendering</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">for_dialect</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="n">Rendering</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>The rendering for one target. Always <code>Some</code> for a dialect in <code>crate::dialect::ALL</code>.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">renderings</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">Dialect</span><span class="p">,</span><span class="w"> </span><span class="n">Rendering</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">renderings</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">BTreeMap</span><span class="o">&lt;</span><span class="n">Dialect</span><span class="p">,</span><span class="w"> </span><span class="n">Rendering</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Every rendering, for a snapshot a reviewer reads.</p>
 <h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
 <p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code>, <code>Serialize</code></p>
 <h3 id="fn-compile"><code>fn compile</code><a class="headerlink" href="#fn-compile" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile</span><span class="p">(</span><span class="n">authored</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">AuthoredSql</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">ColumnName</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">CompiledExpression</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">refusal</span><span class="p">::</span><span class="n">ExpressionError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">compile</span><span class="p">(</span><span class="n">authored</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">AuthoredSql</span><span class="p">,</span><span class="w"> </span><span class="n">table</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">TableName</span><span class="p">,</span><span class="w"> </span><span class="n">columns</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">std</span><span class="p">::</span><span class="n">collections</span><span class="p">::</span><span class="n">BTreeSet</span><span class="o">&lt;</span><span class="n">sutura_domain</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">ColumnName</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="n">CompiledExpression</span><span class="p">,</span><span class="w"> </span><span class="k">crate</span><span class="p">::</span><span class="n">expression</span><span class="p">::</span><span class="n">refusal</span><span class="p">::</span><span class="n">ExpressionError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Compiles an authored expression for every dialect this build renders for.</p>
 <p><code>columns</code> is the metric's own model's declared column set and <code>table</code> its table. Both are
@@ -2358,7 +2484,7 @@ is broken whether or not anybody asks about it, and the difference between findi
 and finding out at query time is the difference between a refusal an operator can fix and a stack
 trace an agent shows a user.</p>
 <h3 id="fn-embed"><code>fn embed</code><a class="headerlink" href="#fn-embed" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">embed</span><span class="p">(</span><span class="n">rendering</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Rendering</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">polyglot_sql</span><span class="p">::</span><span class="n">builder</span><span class="p">::</span><span class="n">Expr</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">embed</span><span class="p">(</span><span class="n">rendering</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Rendering</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">polyglot_sql</span><span class="p">::</span><span class="n">builder</span><span class="p">::</span><span class="n">Expr</span>
 </span></code></pre></div>
 <p>The compiled expression, as something the statement builder will accept.</p>
 <p><code>Expression::Raw</code> is a true verbatim passthrough - the generator writes <code>raw.sql</code> and consults no
@@ -2388,7 +2514,7 @@ site already holds; the two refusals that name a <em>set</em> carry the set. The
 message reads and not what it is - a caller wanting the sentence has <code>Display</code>, and a caller
 wanting the list has the list, where before it had to split a message on <code>", "</code>.</p>
 <h4 id="enum-construct"><code>enum Construct</code><a class="headerlink" href="#enum-construct" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Construct</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Construct</span>
 </span></code></pre></div>
 <p>A construct an authored fragment may not contain, and why.</p>
 <p>Every variant is a refusal a compile can produce, and the reason is carried with it rather than
@@ -2415,16 +2541,16 @@ read this file.</p>
 <li><code>NotAggregated</code> - A fragment that aggregates nothing.</li>
 </ul>
 <h5 id="methods_5">Methods<a class="headerlink" href="#methods_5" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>The name a refusal prints.</p>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">why</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">why</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <p>Why it is refused. One sentence, and it is the whole value of the refusal.</p>
 <h5 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h4 id="enum-shape"><code>enum Shape</code><a class="headerlink" href="#enum-shape" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Shape</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">Shape</span>
 </span></code></pre></div>
 <p>Which of the four shape guards a fragment failed.</p>
 <p>Named individually because each one is a different mistake: two projections is a comma somebody
@@ -2440,12 +2566,12 @@ a habit from writing <code>SELECT</code> lists. "Not one expression" would send 
 <li><code>CarriedClause</code> - Any other clause on the wrapper's <code>SELECT</code>, which taking the projection would DISCARD.</li>
 </ul>
 <h5 id="methods_6">Methods<a class="headerlink" href="#methods_6" title="Permanent link">&para;</a></h5>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_str</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
 </span></code></pre></div>
 <h5 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h5>
 <p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
 <h4 id="enum-expressionerror"><code>enum ExpressionError</code><a class="headerlink" href="#enum-expressionerror" title="Permanent link">&para;</a></h4>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExpressionError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">ExpressionError</span>
 </span></code></pre></div>
 <p>Why an authored expression could not be compiled.</p>
 <p><strong>All of these are load failures.</strong> A catalog that produces one does not serve; there is no
@@ -2531,7 +2657,7 @@ reject it. <code>crate::dialect::PlaceholderStyle</code> decides.</p>
 <p><code>transpile</code> is never called and is not compiled. See <code>clippy.toml</code> and the feature list in the
 workspace manifest.</p>
 <h3 id="enum-generateerror"><code>enum GenerateError</code><a class="headerlink" href="#enum-generateerror" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">GenerateError</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">GenerateError</span>
 </span></code></pre></div>
 <p>Why a statement could not be rendered.</p>
 <p>Not a refusal: a caller cannot cause one of these and there is nothing they could ask
@@ -2540,16 +2666,17 @@ differently. A plan that will not render is a bug here or upstream.</p>
 <ul>
 <li><code>Render</code></li>
 <li><code>UnquotableAlias</code> - The builder produced something that is not an alias, so its identifier could not be quoted.</li>
+<li><code>QualificationUnsupported</code> - A table path deeper than the target resolves.</li>
 <li><code>NoPredicate</code> - A plan that carries no predicate at all.</li>
 </ul>
 <h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
 <p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
 <h3 id="fn-generate"><code>fn generate</code><a class="headerlink" href="#fn-generate" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate</span><span class="p">(</span><span class="n">plan</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">QueryPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Renders a plan as one statement, paired with its parameters.</p>
 <h3 id="fn-generate_leg"><code>fn generate_leg</code><a class="headerlink" href="#fn-generate_leg" title="Permanent link">&para;</a></h3>
-<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate_leg</span><span class="p">(</span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">generate_leg</span><span class="p">(</span><span class="n">leg</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_domain</span><span class="p">::</span><span class="n">plan</span><span class="p">::</span><span class="n">LegPlan</span><span class="p">,</span><span class="w"> </span><span class="n">dialect</span><span class="p">:</span><span class="w"> </span><span class="nc">crate</span><span class="p">::</span><span class="n">dialect</span><span class="p">::</span><span class="n">Dialect</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="k">crate</span><span class="p">::</span><span class="n">GeneratedQuery</span><span class="p">,</span><span class="w"> </span><span class="n">GenerateError</span><span class="o">&gt;</span>
 </span></code></pre></div>
 <p>Renders one leg of a federated question as one statement, paired with its parameters.</p>
 <p><strong>Four differences from <code>generate</code>, and each of them is why a second entry point exists rather

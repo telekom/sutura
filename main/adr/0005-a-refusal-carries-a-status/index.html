@@ -909,6 +909,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1583,6 +1587,62 @@
     
   
     What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
   
 
     
@@ -2412,6 +2472,11 @@ outcome from reaching a caller as an unnamed one, extended to cover the status.<
 <td><code>MeasureDoesNotFederate</code></td>
 <td><code>409</code></td>
 <td>A measure a single data system computes (a distinct count) cannot be recombined above two legs, so the splitter refuses it rather than pull its rows up through a combiner that would have to re-count</td>
+</tr>
+<tr>
+<td><code>PlanTablesShareAnIdentifier</code></td>
+<td><code>409</code></td>
+<td><strong>Added by <a href="../0019-a-table-outside-the-connections-dataset/">0019</a> Decision 5.</strong> Two tables the plan would read end their paths in one name, so a column qualified by it names neither. The same grouping as the rows above and for the same reason: answerable in principle, and this deployment cannot express it as one statement. Unlike those rows there usually <em>is</em> another question - a dimension needing no join - so the sentence says so, and it names the identifier and neither path: the identifier is what a person can act on, and a path carries the project and dataset a deployment reads</td>
 </tr>
 <tr>
 <td><code>ResultTooLarge</code></td>

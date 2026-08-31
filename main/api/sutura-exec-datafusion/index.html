@@ -907,6 +907,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1440,6 +1444,62 @@
     
   
     What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
   
 
     
@@ -2089,6 +2149,7 @@ map" send a reader to three different places.</p>
 <li><code>Runtime</code> - The runtime this adapter executes on could not be built.</li>
 <li><code>Environment</code> - The execution environment - the bounded memory pool, and nowhere to spill - could not be built.</li>
 <li><code>Attach</code></li>
+<li><code>QualifiedTableUnreachable</code> - A model names a table this engine has nowhere to look for.</li>
 <li><code>Build</code> - A logical plan could not be assembled from the query plan.</li>
 <li><code>Analyze</code> - The engine refused the plan: an unknown table, an unknown column, a type mismatch.</li>
 <li><code>Execute</code></li>

@@ -16,7 +16,7 @@
         <link rel="prev" href="../0017-what-a-bigquery-test-runs-against/">
       
       
-        <link rel="next" href="../../api/">
+        <link rel="next" href="../0019-a-table-outside-the-connections-dataset/">
       
       
         
@@ -909,6 +909,10 @@
       
         
       
+        
+      
+        
+      
     
     
     
@@ -1675,6 +1679,62 @@
   
 </nav>
       
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
     </li>
   
 
@@ -2885,7 +2945,7 @@ INT64"</em>. The fault was in the FIXTURE - the plan's metric label was the same
 </ol>
 <h3 id="what-is-still-not-claimed-and-by-what-mechanism">What is still not claimed, and by what mechanism<a class="headerlink" href="#what-is-still-not-claimed-and-by-what-mechanism" title="Permanent link">&para;</a></h3>
 <p>The leg is a <strong>smoke leg</strong>, and it is:
-<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, three <code>#[ignore]</code>d tests, reached by
+<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, five <code>#[ignore]</code>d tests, reached by
 <code>just bigquery-acceptance</code>, needing three variables a developer names in their own environment.</p>
 <p><strong>And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
 promises the corpus over a test submitting one statement is the overstated-claim defect this
