@@ -1,0 +1,12 @@
+# Real stack config carries project/pool/principal identifiers and OIDC client ids -
+# disclosure on this public repo. Only Pulumi.example.yaml is tracked.
+Pulumi.*.yaml
+!Pulumi.example.yaml
+!Pulumi.yaml
+
+# The local file backend's state and metadata (`.pulumi/`), which any `--local` run writes.
+# This is what lets pulumi work without a cloud account or a shared bucket.
+.pulumi/
+
+# Never commit key material pulled from `pulumi stack output --show-secrets`.
+*.key.json

@@ -82,6 +82,7 @@ name: ci
 # If CI is ever made a required check, add a skip-equivalent job here: a required check that
 # never runs blocks the merge.
 on:
+  merge_group:
   push:
     # `dev` IS THE TRUNK and `main` is the release ref. Both are listed, and the second one is
     # not redundant: a promotion to `main` is a fast-forward of commits CI already judged on

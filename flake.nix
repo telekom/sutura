@@ -476,6 +476,9 @@
           default = sutura;
           inherit sutura;
 
+          # The Pulumi CLI, as a package as well as an app, so `nix build .#pulumi` works from CI.
+          pulumi = pkgs.pulumi;
+
           sutura-performance = nativeFor "release-performance";
 
           # The gate binary on its own, so CI can run `nix run .#xtask -- classify` with
@@ -979,6 +982,14 @@
         apps.pixi = {
           type = "app";
           program = "${pkgs.pixi}/bin/pixi";
+        };
+
+        # The Pulumi CLI, nix-pinned. CI adds `nix build .#pulumi`'s bin to PATH so the test-infra
+        # stack under `test-infra/pulumi/google` runs the same CLI everywhere; the pypi `pulumi`
+        # package is the Python SDK and is not a CLI, which is why the CLI is a nix package.
+        apps.pulumi = {
+          type = "app";
+          program = "${pkgs.pulumi}/bin/pulumi";
         };
 
         formatter = pkgs.nixpkgs-fmt;

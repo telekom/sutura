@@ -1,0 +1,6 @@
+name: sutura-google-test-infra
+runtime:
+  name: python
+  options:
+    toolchain: pip
+description: Test-grade Google identity E2E infrastructure for sutura's (a) Google WIF path and the (3) two-principal row-access cell. All identifiers come from stack config; nothing here is a real project, pool or principal.

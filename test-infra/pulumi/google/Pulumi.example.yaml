@@ -1,0 +1,26 @@
+# Template stack config. COPY to Pulumi.<stack>.yaml with real values and NEVER commit the copy:
+# project/pool/principal identifiers are disclosure on the public repo. .gitignore excludes
+# Pulumi.*.yaml below, so only this example is tracked.
+config:
+  sutura-google-test-infra:project: "your-test-project-id"
+  sutura-google-test-infra:region: "europe-west1"
+  # Optional - a concrete compute region/zone for the GCP provider, so it does not need
+  # compute.regions.list (which a BigQuery/IAM-only key lacks). Dataset location stays `region`.
+  sutura-google-test-infra:provider_region: "europe-west3"
+  sutura-google-test-infra:provider_zone: "europe-west3-a"
+  sutura-google-test-infra:dataset: "sutura_identity"
+  sutura-google-test-infra:table: "fact_events"
+  # The dataset/table the CI BigQuery acceptance+corpus legs run against (the pre-existing,
+  # already-populated acceptance dataset). The stack grants its CI service account dataEditor
+  # here, and exports these two plus the CI key for the GitHub environment's secrets/vars.
+  sutura-google-test-infra:ci_dataset: "sutura_dev"
+  sutura-google-test-infra:ci_table: "acceptance"
+  sutura-google-test-infra:group_column: "segment"
+  sutura-google-test-infra:workload_pool_id: "sutura"
+  sutura-google-test-infra:workload_provider_id: "oidc"
+  # An OIDC issuer whose JWKS Google STS can fetch, minting the JWT subject tokens
+  # the caller presents. `accounts.google.com` means the JWTs are Google id_tokens
+  # (aud = the OAuth client id below); a self-hosted IdP names its own issuer.
+  sutura-google-test-infra:workload_issuer_uri: "https://accounts.google.com"
+  # One or more audiences the subject JWTs' `aud` may carry. Placeholder.
+  sutura-google-test-infra:workload_allowed_audiences: '["your-oidc-client-id.apps.googleusercontent.com"]'
