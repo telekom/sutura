@@ -77,11 +77,13 @@ sutura-semantic = { path = "crates/sutura-semantic" }
 sutura-sql = { path = "crates/sutura-sql" }
 sutura-app = { path = "crates/sutura-app" }
 sutura-exec-duckdb = { path = "crates/sutura-exec-duckdb" }
-# `sutura-exec-bigquery` is deliberately ABSENT from this table, and `cargo xtask unused-deps` is what
-# keeps it absent: no member crate inherits it, because nothing links it. Its own line said as much and
-# the gate said it better - "it comes back with the code that needs it", which here is the composition
-# root that gets a transport. The crate is still a workspace MEMBER, so every gate compiles, lints and
-# tests it.
+# It came back with the code that needs it, which is exactly what its absence predicted: `sutura-serve`
+# links it behind that crate's own default-off `wire` feature, through a default-off `bigquery` feature
+# of its own. So the entry is inherited by ONE member and only when asked for, and the four cross builds
+# - which pass `--package sutura-cli` and share an unscoped dependency derivation with the checks - are
+# unchanged. `cargo xtask unused-deps` is what keeps a line here honest in either direction: the entry
+# left this table when nothing linked the crate, and it is back because something does.
+sutura-exec-bigquery = { path = "crates/sutura-exec-bigquery" }
 sutura-exec-datafusion = { path = "crates/sutura-exec-datafusion" }
 sutura-exec-postgres = { path = "crates/sutura-exec-postgres" }
 sutura-config = { path = "crates/sutura-config" }
