@@ -40,12 +40,12 @@ pulumi stack init dev --copy-config-from=dev  # (adjust to your stack)
 
 No venv, no `requirements.txt`: the Pulumi runtime (Python + `pulumi` + `pulumi-gcp`) is a
 pixi environment (`infra`), so pixi owns the interpreter and everything in it - the same
-reasoning the docs environment uses. `just preview` and `just up` in this directory run
-Pulumi through it; anything you run with `pixi run -e infra` works too.
+reasoning the docs environment uses. `just infra-preview` and `just infra-up` (top-level
+justfile) run Pulumi through it; anything you run with `pixi run -e infra` works too.
 
 ## Logging in: ADC vs the normal login
 
-`just gl` (in this directory) runs pixi's `gl` task, and that task does **both** gcloud
+`just infra-gl` runs pixi's `gl` task, and that task does **both** gcloud
 logins because doing one and forgetting the other is the failure that looks like a broken
 adapter:
 
@@ -65,12 +65,12 @@ principal is allowed to create.
 Then preview before applying, because this program is a scaffold you run, not a proof:
 
 ```sh
-just preview -s dev
-just up -s dev --yes
+just infra-preview -s dev
+just infra-up -s dev --yes
 ```
 
-(`just preview` / `just up` resolve the stack and run Pulumi through the `infra` pixi env;
-flags after the task name flow straight through to `pulumi`.)
+(`just infra-preview` / `just infra-up` resolve the stack and run Pulumi through the `infra`
+pixi env; flags after the task name flow straight through to `pulumi`.)
 
 The two service-account **private keys are secret outputs** - capture them and store them
 as environment secrets (e.g. GitHub `bq-test` secrets), never in the tree:
