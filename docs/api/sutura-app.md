@@ -56,6 +56,7 @@ boundary gate bans `anyhow` for, arrived at by a different route.
 
 - `Compile`
 - `Warehouse`
+- `Federated` - The federated combiner could not assemble the two legs' rows.
 - `Broker` - The credential broker could not mint. Nothing about the question was wrong.
 - `Posture` - The broker's answer does not agree with the request it was made for.
 - `Credentials`
@@ -114,7 +115,7 @@ What the caller is told.
 ## `fn answer`
 
 ```rust
-pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>) -> Answering<W, B>
+pub fn answer<W, B>(definitions: &Validated<sutura_domain::pinned::PinnedDefinitions>, query: &sutura_domain::query::Query, context: &sutura_domain::identity::RequestContext, broker: &B, warehouses: &Warehouses<W>, working_set_bytes: u64) -> Answering<W, B>
 ```
 
 Answers one question, or says why it will not.
@@ -405,7 +406,7 @@ that answers as the process, it is a service that does not compile.
 #### Methods
 
 ```rust
-pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B) -> Result<Self, ServiceNotStarted>
+pub fn start<C>(catalog: &C, warehouses: Warehouses<W>, sink: S, broker: B, working_set_bytes: u64) -> Result<Self, ServiceNotStarted>
 ```
 
 Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a

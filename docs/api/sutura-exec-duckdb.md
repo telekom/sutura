@@ -45,8 +45,7 @@ Why this data system could not answer.
 - `NoSchema` - The driver handed back a result set with no statement behind it, so there are no column labels to read.
 - `Render` - The plan could not be rendered as SQL.
 - `Attach`
-- `LegWithoutCombiner` - One leg of a federated answer, which nothing here can assemble above.
-- `NoPlaceForASubject` - The credential broker handed this adapter subject material it has nowhere to put.
+- `NoPlaceForASubject` - One leg of a federated answer, rendered here and assembled above by the combiner.
 - `PresentedDisagreesWithPosture` - The broker presented a leg that does not agree with how this source was DECLARED.
 
 ### Implements
