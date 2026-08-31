@@ -482,14 +482,18 @@ infra-gl:
 # developer's own). Nothing here reaches pulumi cloud, and nothing is committed.
 infra-preview *flags:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra preview --stack "{{stack}}" {{flags}}
+    # The infra run identity is the developer's gcloud ADC (their own elevated account), NOT the
+    # limited BigQuery SA key that env.sh points the acceptance legs at. GOOGLE_ADC overrides the
+    # default ADC path. just runs each line in a fresh shell, so the identity is set per command.
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra preview --stack "{{stack}}" {{flags}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
     test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
-    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra up --stack "{{stack}}" {{flags}}
+    # See infra-preview: run as the developer's gcloud ADC, not the limited BigQuery SA key.
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" bash {{ justfile_directory() }}/test-infra/pulumi/google/config-from-env.sh --stack "{{stack}}"
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" GOOGLE_APPLICATION_CREDENTIALS="${GOOGLE_ADC:-$HOME/.config/gcloud/application_default_credentials.json}" pixi run -e infra up --stack "{{stack}}" {{flags}}
 
 # The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
 #

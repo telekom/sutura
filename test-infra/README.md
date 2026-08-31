@@ -86,8 +86,12 @@ SUTURA_PULUMI_STACK=dev just infra-up --yes
 ```
 
 (`just infra-preview` / `just infra-up` configure the stack from the environment and run Pulumi
-through the `infra` pixi env. The CLI is the nix-pinned `pulumi` and the SDK the pixi-locked one;
-a gate in `config-from-env.sh` fails if the two ever disagree.)
+through the `infra` pixi env. They run as the **developer's gcloud ADC** (the elevated account
+from `gcloud auth application-default login`), NOT the BigQuery SA key that the `env.sh` acceptance
+leg uses - a self-bootstrapping `up` needs ability to enable APIs and create resources, which the
+limited SA key does not have. Override the default ADC path with `GOOGLE_ADC`. The CLI is the
+nix-pinned `pulumi` and the SDK the pixi-locked one; a gate in `config-from-env.sh` fails if the
+two ever disagree.)
 
 The two service-account **private keys are secret outputs** - capture them and store them
 as environment secrets (e.g. GitHub `bq-test` secrets), never in the tree:
