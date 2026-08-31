@@ -8,6 +8,15 @@ useDefault = true
 
 [allowlist]
 description = "Imported prose and generated tool output: neither is our source"
+# A GCP API enum, not a credential: `key_algorithm="KEY_ALG_RSA_2048"` on the service-account Key
+# resources in the test-infra pulumi program trips the `generic-api-key` rule (it is exactly the
+# `key...= "UPPERCASE_VALUE"` shape that rule exists for). Suppressing by the enum's VALUE keeps
+# every real constructor in the same file scanned - the alternative, exempting the pulumi path,
+# would walk past a genuine key typed in the same file. Deliberately narrow; nothing a real
+# secret could contain is also called KEY_ALG_RSA_2048.
+regexes = [
+    '''KEY_ALG_RSA_2048''',
+]
 # Scoped to PATHS rather than to a rule or a regex. `.agents/skills/**` is imported prose
 # whose sha256 `cargo xtask check-skills` verifies, so the usual escape hatch - a
 # `betterleaks:allow` comment on the offending line - is unavailable here: editing a
