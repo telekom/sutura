@@ -118,9 +118,11 @@ pulumi-gcp = ">=9,<10"
 # and IGNORES the shell's working directory, so `cd test-infra/pulumi/google && pixi run -e
 # infra preview` still invoked pulumi from the workspace root and pulumi could not find
 # Pulumi.yaml ("searching upwards from )"). Naming the project dir here makes the task correct
-# regardless of where it is launched. The `pulumi` CLI itself is the system/homebrew binary
-# (the pypi `pulumi` package is the Python SDK the runtime interprets, not a CLI), so the
-# cwd is the only part that has to be right.
+# regardless of where it is launched. The `pulumi` CLI itself is the NIX-pinned binary (devenv
+# on the dev shell, `nix run .#pulumi` / `nix build .#pulumi` in CI - the pypi `pulumi` package
+# is the Python SDK the runtime interprets, not a CLI, and conda-forge has no cross-platform
+# CLI), so `pulumi` on PATH is what this task resolves, and the cwd is the only part that has
+# to be right.
 #
 # NO CLOUD, NO SHARED BUCKET: the state backend and the encryption passphrase come from the
 # environment, never from pulumi cloud. `PULUMI_BACKEND_URL` is a `file://` URL set by the
