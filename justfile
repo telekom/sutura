@@ -445,6 +445,34 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
+# ------------------------------------------------------------------ test-infra ---
+# The Pulumi test infrastructure under `test-infra/`. `infra-` prefix keeps these out of
+# the way of the Rust surface's tasks; everything runs through pixi (the `infra` env
+# owns Python + pulumi + pulumi-gcp, the `gcloud` env owns the login), so there is no
+# venv and no requirements.txt to keep in step - pixi owns the interpreter and everything
+# in it, the same reasoning the `docs` env uses.
+
+# Authenticate against Google Cloud for the Pulumi provider. Maps to pixi's `gl` task,
+# which runs BOTH gcloud logins in one container into ~/.config/gcloud:
+#   * `gcloud auth login` - the CLI's OWN credentials (credentials.db);
+#   * `gcloud auth application-default login` - ADC, what client libraries (the Pulumi
+#     provider, Google SDKs) read from ~/.config/gcloud/application_default_credentials.json.
+# `< -e gcloud` is required because pixi declares `gl` in the `gcloud` FEATURE's tasks, not
+# in the default environment. Interactive (`-it`); not in any gate; nothing is written into
+# this repository. This is the same task as `gcloud-login` above.
+infra-gl:
+    pixi run --frozen -e gcloud gl
+
+# `pulumi preview` over the `test-infra/pulumi/google` stack, through the `infra` pixi env.
+# `cd` into the project so pulumi finds Pulumi.yaml; extra flags (e.g. `--stack dev`) flow
+# through as appended arguments.
+infra-preview *flags:
+    cd '{{ justfile_directory() }}/test-infra/pulumi/google' && pixi run -e infra preview {{flags}}
+
+# `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
+infra-up *flags:
+    cd '{{ justfile_directory() }}/test-infra/pulumi/google' && pixi run -e infra up {{flags}}
+
 # The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
 #
 # **Smoke rather than acceptance, and the file says so in its first line.** It submits ONE hand-built
