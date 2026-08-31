@@ -7,8 +7,10 @@ cell from issue #81:
     so the same question answered under each principal returns different rows -
     the mechanism issue #81 wants proven in CI (the isolation itself is BigQuery
     row-level IAM; sutura's part is only that each job runs under its own bearer);
-  * a dataset and a table with a grouping column, plus a row access policy gated
-    on that column, granting the two principals disjoint rows;
+  * a dataset and a table with a grouping column. The disjoint row ACCESS POLICY
+    the two principals rely on is applied OUT-OF-BAND with `bq`/`gcloud` after the
+    stack is up (see the comment at the table), because pulumi_gcp exposes no such
+    resource;
   * a Google Workload Identity Federation pool + OIDC provider (accepting `jwt`
     subject tokens), so a subject's token can be verified and exchanged at Google
     STS (the (a) token path).
@@ -106,28 +108,16 @@ table = gcp.bigquery.Table(
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
 )
 
-# The isolation: principal A is granted rows where the grouping column equals A's
-# value, principal B where it equals B's. Disjoint by construction.
-# Two separate policies (one per principal) rather than one with both members in
-# the same filter, so each principal's grant is stated on its own line.
-gcp.bigquery.RowAccessPolicy(
-    "rap-a",
-    dataset_id=dataset.dataset_id,
-    table_id=table.table_id,
-    row_access_policy_id=sutura_name(cfg, "rap-a"),
-    members=[sa_a.member],
-    filter=f"{group_column} = '{principal_a_rows}'",
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
-)
-gcp.bigquery.RowAccessPolicy(
-    "rap-b",
-    dataset_id=dataset.dataset_id,
-    table_id=table.table_id,
-    row_access_policy_id=sutura_name(cfg, "rap-b"),
-    members=[sa_b.member],
-    filter=f"{group_column} = '{principal_b_rows}'",
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
-)
+# The two principals are meant to be granted DISJOINT row sets so the same question,
+# run under each, returns different rows. That isolation is a BigQuery ROW ACCESS POLICY,
+# and pulumi_gcp exposes NO such resource (checked against the pinned 7.38.0: there is no
+# `RowAccessPolicy` anywhere in `pulumi_gcp`, so no version bump reveals it while this crate
+# is in the `>=7,<8` band and the underlying Terraform provider has none). The grant is
+# therefore applied OUT-OF-BAND with `bq`/`gcloud` after this stack is up, using the two
+# exported principal emails and the grouping column; the program itself provisions the
+# principals, the key, the dataset and the table, which is everything pulumi CAN own.
+# principal_a_rows / principal_b_rows are not consumed by the program - they describe the
+# out-of-band grant, kept as config so the CI leg asserts against the same values.
 
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never
 # written into the repository.
@@ -160,7 +150,6 @@ key_b = gcp.serviceaccount.Key(
 
 workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
-    location="global",
     workload_identity_pool_id=cfg.require("workload_pool_id"),
     display_name="sutura identity test workload pool",
     opts=pulumi.ResourceOptions(provider=gcp_provider),
@@ -168,9 +157,8 @@ workload_pool = gcp.iam.WorkloadIdentityPool(
 
 workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
     "workload-provider",
-    location="global",
     workload_identity_pool_id=workload_pool.workload_identity_pool_id,
-    provider_id=cfg.require("workload_provider_id"),
+    workload_identity_pool_provider_id=cfg.require("workload_provider_id"),
     display_name="OIDC",
     attribute_mapping={
         "google.subject": "assertion.sub",
@@ -192,7 +180,7 @@ audience = pulumi.Output.concat(
     "/locations/global/workloadIdentityPools/",
     workload_pool.workload_identity_pool_id,
     "/providers/",
-    workload_provider.provider_id,
+    workload_provider.workload_identity_pool_provider_id,
 )
 
 
