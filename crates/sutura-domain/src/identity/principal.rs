@@ -478,10 +478,10 @@ impl PrincipalChain {
 /// Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
 /// body is the confused deputy this whole module refuses.
 ///
-/// **Not `PartialEq`/`Eq`, and the `Secret` is why.** Holds no assertion and
-/// [`crate::identity::Secret`] has no comparison, because `==` on credential material is a timing
-/// oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and `Clone`
-/// survive because `Secret` implements both (redacting and value-preserving respectively).
+/// **Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
+/// [`crate::identity::Secret`] implements no comparison, because `==` on credential material is a
+/// timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
+/// `Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
 #[derive(Debug, Clone)]
 pub struct RequestContext {
     chain: PrincipalChain,

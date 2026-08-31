@@ -207,7 +207,10 @@ impl VerifiedCaller {
     ///
     /// `assertion` is the token that JUST verified - the caller's own credential, retained so a broker
     /// that performs an exchange has the asker's token to exchange (`docs/adr/0008`'s `Caller` shape).
-    /// It is not `Clone`-free here on purpose, and `Secret`'s `Debug` redacts it.
+    /// Taken by value, because a verification that borrowed the token would tie this type's lifetime
+    /// to the request buffer it was read out of. It costs this type its `PartialEq`/`Eq`, which is the
+    /// same trade `RequestContext` makes and for the same reason: `==` on credential material is a
+    /// timing oracle. `Secret`'s `Debug` redacts it.
     pub(crate) const fn established(chain: PrincipalChain, scopes: Scopes, assertion: sutura_domain::identity::Secret) -> Self {
         Self {
             chain,

@@ -48,10 +48,10 @@
 //! `assertion()`, and `docs/adr/0014` Decision 3 is the reason it arrived with the first broker that
 //! exchanges rather than before it. What was gated by that decision and is STILL open is which token
 //! a given inbound mode hands to that field: the exchange chain differs per mode and needs different
-//! tokens in the direct one. The ~~`Secret` field~~ *presence* of the value is not the guess the port
-//! was delayed to avoid; the question of which document the transport retains to fill it is, and that
-//! remains a per-mode decision for the transport that verifies. The one implementor that ships mints
-//! from configuration and never reads the assertion.
+//! tokens in the direct one. Having the field is not the guess the port was delayed to avoid; WHICH
+//! document the transport retains to fill it is, and that remains a per-mode decision for the
+//! transport that verifies. The one implementor that ships mints from configuration and never reads
+//! the assertion.
 
 use std::collections::{BTreeMap, BTreeSet};
 
