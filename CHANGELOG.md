@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **ci**: A curated licence review, with the config written here rather than cloned (#102)
 - **release**: The SBOM comes out of the binary, not out of Cargo.lock (#98)
 - **federation**: Execute a two-source question end to end (#89)
 - **bigquery**: A BigQuery source executes as the asking subject (issue 87) (#93)
