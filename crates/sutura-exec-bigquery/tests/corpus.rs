@@ -13,8 +13,9 @@
 //!   really executed;
 //! - **the rows agree with the engine's for the same plan** - `crates/sutura-app/tests/differential.rs`
 //!   pointed at a second data source, comparing ROWS rather than batches for the reason that file
-//!   gives. **The CONTENT is compared exactly; the ORDER has one measured divergence, and it is
-//!   pinned rather than sorted away** - see *What its first real run FOUND* below.
+//!   gives. **The CONTENT and the ORDER are both compared exactly, with no tolerance for either** -
+//!   see *What its first real run FOUND* below for the one divergence this leg measured, and the
+//!   generator change that closed it.
 //!
 //! **So the constructs the smoke leg says nothing about are covered here, and they are the ones a live
 //! run is worth most for.** The corpus renders, for `BigQuery`: 12 `LEFT JOIN`s, 6 `COUNT(DISTINCT`, 4
@@ -36,13 +37,12 @@
 //!   default-off feature and no published artifact turns it on, so what this leg exercises is still
 //!   the adapter and not a deployment. AGENTS.md's *Layout* row is the authority on that distinction.
 //!
-//! # What its first real run FOUND, which is the point of having it
+//! # What its first real run FOUND, which is the point of having it - and what closed it
 //!
-//! **`ORDER BY x` does not say where a null goes, and the two sides disagree.** `DataFusion` orders
+//! **`ORDER BY x` did not say where a null goes, and the two sides disagreed.** `DataFusion` orders
 //! nulls LAST and `GoogleSQL` orders them FIRST, so every corpus question grouping by a dimension
 //! behind a `LEFT JOIN` - the example fact table holds a `customer_key` with no `dim_customer` row -
-//! returns the same rows in a different order. `NULL_PLACEMENT` carries the diagnosis and says why the
-//! divergence is PINNED here rather than sorted away or fixed here.
+//! returned the same rows in a different order.
 //!
 //! **Five of the 31 questions, measured in CI on 2026-08-31**, one of them at 61 rows:
 //!
@@ -54,6 +54,17 @@
 //! It is worth reading as evidence about the instrument rather than about `BigQuery`: no golden could
 //! see it, because a golden pins the statement TEXT and the text is the same on both sides. It is the
 //! class `crates/sutura-app/tests/differential.rs` was written for, found the first time this leg ran.
+//!
+//! **It is FIXED, in the generator rather than here, and this leg no longer tolerates it.** The plan's
+//! `ORDER BY` now states the placement - `sutura_sql::generate`'s `ordered_nulls_last`, emitted by
+//! both `generate` and `generate_leg` - so all four dialects converge on the engine's own order and
+//! `agreement_between` compares CONTENT and ORDER exactly, with no tolerance for either. The
+//! measurement that used to be asserted here (*at least one question diverges on null placement*) is
+//! gone rather than relaxed: a divergence in either now fails.
+//!
+//! `docs/adr/0017`'s THIRD amendment records the finding and its FOURTH records this closure. The
+//! numbering is worth getting right rather than approximating: the constant deleted from this file
+//! cited *the second amendment*, which is the registration record and says nothing about a null.
 //!
 //! # The one question that is EXCLUDED from the row comparison, and why
 //!
@@ -391,70 +402,41 @@ mod tests {
     /// rows in a different order changes the last place of an `f64`, and neither side promises an
     /// order. Twelve digits is far beyond any figure a metric reports and far short of the noise;
     /// integers, dates and text are untouched, so an exact count stays exactly compared.
-    fn rendered(rows: &RowSet) -> Vec<Row> {
+    fn rendered(rows: &RowSet) -> Vec<Vec<String>> {
         rows.rows()
             .iter()
-            .map(|row| Row {
-                // Read off the VALUE and never off the rendered text, because `Value::Null` and
-                // `Value::Text("null")` render identically - and the whole ordering check below turns
-                // on which rows hold a null.
-                holds_a_null: row.iter().any(|value| matches!(*value, Value::Null)),
-                cells: row
-                    .iter()
+            .map(|row| {
+                row.iter()
                     .map(|value| match *value {
                         Value::Real(v) => format!("{v:.12e}"),
                         ref other => other.render(),
                     })
-                    .collect(),
+                    .collect()
             })
             .collect()
     }
 
-    /// One result row: its cells as comparable text, and whether it holds a null.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-    struct Row {
-        /// First, so a derived `Ord` does not put it in the middle of the sort key. Nothing sorts on
-        /// this deliberately - the sort is only ever used to compare CONTENT, where the flag is a
-        /// function of the cells anyway.
-        holds_a_null: bool,
-        cells: Vec<String>,
-    }
-
-    /// The cells of the rows that hold no null, in the order the statement returned them.
-    ///
-    /// **The instrument for the finding below.** Two `ORDER BY` clauses that disagree only about where
-    /// a null goes produce identical sequences once the null-bearing rows are dropped; two that
-    /// disagree about anything else do not.
-    fn without_nulls(rows: &[Row]) -> Vec<&Vec<String>> {
-        rows.iter().filter(|row| !row.holds_a_null).map(|row| &row.cells).collect()
-    }
-
     /// The rows as a set, for comparing WHAT was answered rather than in what order.
-    fn as_a_set(rows: &[Row]) -> Vec<&Vec<String>> {
-        let mut out: Vec<&Vec<String>> = rows.iter().map(|row| &row.cells).collect();
+    ///
+    /// Kept even though the ORDER is now compared exactly, because it is what separates the two
+    /// diagnoses: *different rows* is a wrong number and *same rows, different order* is a generator
+    /// that stopped saying how to sort them. One assertion for both would report the first as the
+    /// second.
+    fn as_a_set(rows: &[Vec<String>]) -> Vec<&Vec<String>> {
+        let mut out: Vec<&Vec<String>> = rows.iter().collect();
         out.sort();
         out
-    }
-
-    /// How far two answers to one question agree.
-    ///
-    /// Two variants rather than a `bool`, because the second one is a MEASUREMENT this leg reports and
-    /// counts - see [`NULL_PLACEMENT`] - and a boolean at the call site would read as a tolerance.
-    #[derive(Debug, PartialEq, Eq)]
-    enum Agreement {
-        /// Same rows, same order.
-        Exactly,
-        /// Same rows, and an order that differs only in where a null went.
-        OnContentOnly,
     }
 
     /// The two sides of one question, compared - and it panics rather than reporting a disagreement,
     /// because a disagreement here is what this leg exists to fail on.
     ///
     /// A function rather than an arm inside the loop, for `clippy::too_many_lines`' reason and because
-    /// what it decides is worth reading in one place: the CONTENT is compared exactly, and the ORDER is
-    /// allowed exactly one divergence whose shape is checked rather than assumed.
-    fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) -> Agreement {
+    /// what it decides is worth reading in one place: **the CONTENT and the ORDER are both compared
+    /// exactly, and there is no tolerance for either.** It returns nothing, because there is no longer
+    /// a second degree of agreement for a caller to count - see *What its first real run FOUND* in the
+    /// module header for the one that used to be here and what closed it.
+    fn agreement_between(name: &str, from_engine: &RowSet, from_bigquery: &RowSet) {
         assert_eq!(
             from_engine.columns(),
             from_bigquery.columns(),
@@ -463,37 +445,24 @@ mod tests {
         let (here, over_there) = (rendered(from_engine), rendered(from_bigquery));
 
         // **The CONTENT, compared exactly.** A wrong number has to be produced twice, the same way, by
-        // two things that share nothing below the plan.
+        // two things that share nothing below the plan. First, so that a wrong number is not reported
+        // as a sort order.
         assert_eq!(
             as_a_set(&here),
             as_a_set(&over_there),
             "{name}: the engine and BigQuery returned different rows"
         );
 
-        if here == over_there {
-            println!("bigquery-corpus: {name} agrees, {} row(s)", here.len());
-            return Agreement::Exactly;
-        }
-
-        // **The ORDER, and this is where this leg's first real run found a defect.** The divergence is
-        // pinned rather than sorted away: the two orders have to be identical once the null-bearing
-        // rows are dropped, and at least one such row has to exist. So a difference for any OTHER
-        // reason fails here, and this one fails the day the generator says where a null goes.
+        // **The ORDER, compared exactly - which this leg's first real run could not do.** A plan that
+        // emits `ORDER BY` claims an order, so two data systems answering one plan in two orders is a
+        // defect whatever the reason. The reason it used to have was null placement, and the generator
+        // states it now.
         assert_eq!(
-            without_nulls(&here),
-            without_nulls(&over_there),
-            "{name}: the two sides ordered rows differently for a reason that is NOT null placement - \
-             which is what NULL_PLACEMENT says is the only such difference"
+            here, over_there,
+            "{name}: the engine and BigQuery returned the same rows in different orders, and the plan's \
+             ORDER BY claims one order"
         );
-        assert!(
-            here.iter().any(|row| row.holds_a_null) && over_there.iter().any(|row| row.holds_a_null),
-            "{name}: the two orders differ and a side holds no null, so NULL_PLACEMENT does not explain it"
-        );
-        println!(
-            "bigquery-corpus: {name} agrees on content, differs on NULL placement, {} row(s)",
-            here.len()
-        );
-        Agreement::OnContentOnly
+        println!("bigquery-corpus: {name} agrees, {} row(s)", here.len());
     }
 
     /// An error and every cause beneath it, as one string.
@@ -517,32 +486,6 @@ mod tests {
     /// The module header carries the argument. Named by stem so the exclusion is one literal a reviewer
     /// can grep for, rather than a condition spelled out at the assertion.
     const DIVIDES_BY_ZERO: &str = "revenue-per-churned-subscription-january";
-
-    /// **The defect this leg found on its first real run, and it is a defect in the GENERATOR rather
-    /// than in this test.**
-    ///
-    /// `ORDER BY x` does not say where a null goes, and the two sides answer differently:
-    /// `DataFusion` puts nulls LAST, `GoogleSQL` puts them FIRST. The example corpus reaches it
-    /// because `fct_subscription_monthly` holds a `customer_key` with no row in `dim_customer`, so
-    /// every question grouping by a dimension behind that `LEFT JOIN` returns one row with a null
-    /// dimension - and the two data systems put that row at opposite ends.
-    ///
-    /// **What it is and is not.** The CONTENT is identical, so no number is wrong; what differs is the
-    /// order of rows in a certified answer, which the plan does claim by emitting `ORDER BY`. It is
-    /// exactly the class `crates/sutura-app/tests/differential.rs` exists for - *a rendered statement
-    /// that is valid SQL with different semantics* - and it is invisible to every local check, because
-    /// a golden pins the text and the text is the same on both sides.
-    ///
-    /// **Why it is measured here rather than fixed here.** The fix is in `sutura-sql`: emit the null
-    /// placement explicitly, which all four dialects spell `NULLS LAST`, matching the engine's own
-    /// default. That rewrites every SQL golden in four dialects, which is a change of its own with its
-    /// own review - and this branch owns the acceptance leg. So the divergence is PINNED: the
-    /// comparison above requires the two orders to agree once the null-bearing rows are dropped, and
-    /// requires at least one to exist. A divergence for any other reason fails, and so does this one
-    /// on the day the generator states the placement.
-    ///
-    /// `docs/adr/0017`'s second amendment records it as this leg's first finding.
-    const NULL_PLACEMENT: &str = "DataFusion orders nulls last; GoogleSQL orders them first";
 
     #[test]
     #[ignore = "needs a real BigQuery project and dataset, named in the developer's own environment"]
@@ -640,7 +583,6 @@ mod tests {
         let mut compared = 0_usize;
         let mut refused = 0_usize;
         let mut excluded = 0_usize;
-        let mut diverged_on_null_placement = 0_usize;
         for path in questions() {
             let name = stem(&path);
             let question = read_question(&path);
@@ -682,12 +624,8 @@ mod tests {
 
             match (here, over_there) {
                 (ToolOutcome::Answer { rows: ref a, .. }, ToolOutcome::Answer { rows: ref b, .. }) => {
-                    match agreement_between(&name, a, b) {
-                        Agreement::Exactly => compared = compared.saturating_add(1),
-                        Agreement::OnContentOnly => {
-                            diverged_on_null_placement = diverged_on_null_placement.saturating_add(1);
-                        }
-                    }
+                    agreement_between(&name, a, b);
+                    compared = compared.saturating_add(1);
                 }
                 (ToolOutcome::Refusal { reason: ref a }, ToolOutcome::Refusal { reason: ref b }) => {
                     // A refusal is decided by the compiler, above both adapters, so the two must always
@@ -710,13 +648,10 @@ mod tests {
         // question is added. The sum is neither: it is a function of the directory.
         let total = questions().len();
         assert_eq!(
-            compared
-                .saturating_add(refused)
-                .saturating_add(excluded)
-                .saturating_add(diverged_on_null_placement),
+            compared.saturating_add(refused).saturating_add(excluded),
             total,
-            "{compared} agreed + {refused} refused + {excluded} excluded + \
-             {diverged_on_null_placement} null-ordered is not the {total} questions in the corpus"
+            "{compared} agreed + {refused} refused + {excluded} excluded is not the {total} questions \
+             in the corpus"
         );
         assert!(compared > 8, "only {compared} questions produced rows from both sides");
         assert!(
@@ -727,19 +662,9 @@ mod tests {
             excluded, 1,
             "the divide-by-zero question is the only exclusion and it has to be reached"
         );
-        // **The measurement, asserted so it cannot quietly stop being made.** `NULL_PLACEMENT` is a
-        // finding about the generator, not about this leg: if it reaches zero, either the corpus lost
-        // its outer join or the generator started saying where a null goes - and either way this
-        // constant and the record it points at need re-scoping rather than deleting.
-        assert!(
-            diverged_on_null_placement > 0,
-            "no question diverged on null placement, so {NULL_PLACEMENT} is no longer a measurement - \
-             re-scope it and `docs/adr/0017` rather than leaving a claim nothing checks"
-        );
         println!(
-            "bigquery-corpus: {compared} answers agreed exactly, {diverged_on_null_placement} agreed on \
-             content and differed on NULL placement, {refused} refusals agreed, {excluded} excluded, \
-             {total} in the corpus"
+            "bigquery-corpus: {compared} answers agreed exactly on content AND order, {refused} refusals \
+             agreed, {excluded} excluded, {total} in the corpus"
         );
     }
 
