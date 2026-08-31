@@ -9,8 +9,9 @@ cell from issue #81:
     row-level IAM; sutura's part is only that each job runs under its own bearer);
   * a dataset and a table with a grouping column, plus a row access policy gated
     on that column, granting the two principals disjoint rows;
-  * a Google Workforce Identity Federation pool + OIDC provider, so a workforce
-    subject can be verified and exchanged at Google STS (the (a) token path).
+  * a Google Workload Identity Federation pool + OIDC provider (accepting `jwt`
+    subject tokens), so a subject's token can be verified and exchanged at Google
+    STS (the (a) token path).
 
 NOTHING here is a real identifier: every value comes from Pulumi config, and the
 examples are placeholders. The exported private keys are secrets - capture them
@@ -144,47 +145,54 @@ key_b = gcp.serviceaccount.Key(
 )
 
 # --------------------------------------------------------------------------- #
-# (4a) Google Workforce Identity Federation - the (a) token path
+# (4a) Google Workload Identity Federation - the (a) token path
 # --------------------------------------------------------------------------- #
-# A workforce pool + OIDC provider. Google is the IdP, so the audience question
-# issue #81 names is settled by construction: Google mints the federation token
-# with the pool's STS audience. The audience output is what sutura declares as
-# sources.<alias>.workload_identity.audience.
+# A workload identity pool + OIDC provider. **Workload, not workforce** - this is
+# the shape sutura's broker (`StsOverHttp`) exchanges against: RFC 8693 with a `jwt`
+# subject token (`urn:ietf:params:oauth:token-type:jwt`), which workload-pool OIDC
+# providers accept and workforce pools do not (workforce takes `id_token`/`saml2` and
+# requires a `clientId` plus `webSsoConfig` - issue #87 draws that line). The exported
+# audience is what sutura declares as sources.<alias>.workload_identity.audience.
+#
+# The issuer is config, and so is the allowed audience: the JWTs the caller presents
+# must be signed by `issuer_uri` and carry an `aud` in `allowed_audiences`. Google as
+# the issuer means the audience is a Google OAuth client id the id_token was minted for.
 
-workforce_pool = gcp.iam.WorkforcePool(
-    "workforce-pool",
+workload_pool = gcp.iam.WorkloadIdentityPool(
+    "workload-pool",
     location="global",
-    parent=pulumi.Output.concat("projects/", project),
-    workforce_pool_id=cfg.require("workforce_pool_id"),
-    display_name="sutura identity test workforce pool",
+    workload_identity_pool_id=cfg.require("workload_pool_id"),
+    display_name="sutura identity test workload pool",
     opts=pulumi.ResourceOptions(provider=gcp_provider),
 )
 
-workforce_provider = gcp.iam.WorkforcePoolProvider(
-    "workforce-provider",
+workload_provider = gcp.iam.WorkloadIdentityPoolProvider(
+    "workload-provider",
     location="global",
-    workforce_pool_id=workforce_pool.workforce_pool_id,
-    provider_id=cfg.require("workforce_provider_id"),
-    display_name="Google",
+    workload_identity_pool_id=workload_pool.workload_identity_pool_id,
+    provider_id=cfg.require("workload_provider_id"),
+    display_name="OIDC",
     attribute_mapping={
         "google.subject": "assertion.sub",
         "attribute.principal": "assertion.sub",
     },
-    oidc=gcp.iam.WorkforcePoolProviderOidcArgs(
-        issuer_uri="https://accounts.google.com",
-        # The OIDC client id Google signed the sign-in against. Config value.
-        client_id=cfg.require("workforce_client_id"),
+    oidc=gcp.iam.WorkloadIdentityPoolProviderOidcArgs(
+        issuer_uri=cfg.require("workload_issuer_uri"),
+        allowed_audiences=cfg.require_object("workload_allowed_audiences"),
+        # Disabled: the test mints its own JWTs for the two subjects (different `sub`s)
+        # rather than holding a signing key Google could verify for issuing.
     ),
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workforce_pool]),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[workload_pool]),
 )
 
 audience = pulumi.Output.concat(
     "//iam.googleapis.com/",
-    workforce_pool.location,
-    "/workforcePools/",
-    workforce_pool.workforce_pool_id,
+    "projects/",
+    project,
+    "/locations/global/workloadIdentityPools/",
+    workload_pool.workload_identity_pool_id,
     "/providers/",
-    workforce_provider.provider_id,
+    workload_provider.provider_id,
 )
 
 
@@ -198,4 +206,4 @@ pulumi.export("principal_a_key", key_a.private_key)
 pulumi.export("principal_b_key", key_b.private_key)
 pulumi.export("dataset", dataset.dataset_id)
 pulumi.export("table", table.table_id)
-pulumi.export("workforce_audience", audience)
+pulumi.export("workload_audience", audience)
