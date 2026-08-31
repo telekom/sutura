@@ -4,6 +4,10 @@
 config:
   sutura-google-test-infra:project: "your-test-project-id"
   sutura-google-test-infra:region: "europe-west1"
+  # Optional - a concrete compute region/zone for the GCP provider, so it does not need
+  # compute.regions.list (which a BigQuery/IAM-only key lacks). Dataset location stays `region`.
+  sutura-google-test-infra:provider_region: "europe-west3"
+  sutura-google-test-infra:provider_zone: "europe-west3-a"
   sutura-google-test-infra:dataset: "sutura_identity"
   sutura-google-test-infra:table: "fact_events"
   sutura-google-test-infra:group_column: "segment"
