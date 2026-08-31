@@ -10,6 +10,11 @@ config:
   sutura-google-test-infra:provider_zone: "europe-west3-a"
   sutura-google-test-infra:dataset: "sutura_identity"
   sutura-google-test-infra:table: "fact_events"
+  # The dataset/table the CI BigQuery acceptance+corpus legs run against (the pre-existing,
+  # already-populated acceptance dataset). The stack grants its CI service account dataEditor
+  # here, and exports these two plus the CI key for the GitHub environment's secrets/vars.
+  sutura-google-test-infra:ci_dataset: "sutura_dev"
+  sutura-google-test-infra:ci_table: "acceptance"
   sutura-google-test-infra:group_column: "segment"
   sutura-google-test-infra:workload_pool_id: "sutura"
   sutura-google-test-infra:workload_provider_id: "oidc"
