@@ -1,0 +1,7 @@
+# Pin the provider and runtime to versions resolved on the day of install, and re-check
+# them against the pulumi and pulumi-gcp changelogs before each bump. The constraint is
+# "a recent pulumi-gcp with BigQuery RowAccessPolicy and WorkforcePool support" - pin the
+# newest that resolves together when this is first run, not a number from memory. Nothing
+# here ships; it provisions test infrastructure a developer applies.
+pulumi-gcp
+pulumi
