@@ -27,6 +27,11 @@ test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || { echo "config-from-env: set PULUMI_C
 STACK="dev"
 if [ "${1:-}" = "--stack" ]; then
   STACK="$2"
+else
+  # No --stack given: target the ACTIVE stack, so `just infra-preview` driven by the machine
+  # env needs no extra argument once a stack exists.
+  STACK="$(pulumi stack --show-name 2>/dev/null || true)"
+  test -n "$STACK" || { echo "config-from-env: no active stack - init/select one or pass --stack NAME" >&2; exit 1; }
 fi
 
 # With the file backend the state is keyed by stack name, so a stack that already exists must be
