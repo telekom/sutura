@@ -428,17 +428,29 @@ the `bq-test` environment's real dataset. Measured: 22 corpus statements accepte
 compiler before a statement existed, 16 answers agreeing exactly with the engine's, 9 refusals
 agreeing, 1 excluded, and 6 anchors reproduced by the endpoint.
 
-**And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` does not
+**And it earned its keep on the first run, which is the part worth carrying:** `ORDER BY x` did not
 say where a null goes, and `DataFusion` orders nulls LAST while `GoogleSQL` orders them FIRST - so
-every corpus question grouping by a dimension behind the example `LEFT JOIN` returns the same rows in a
-different order. **Five of the corpus's 31 questions, measured**, one of them at 61 rows. **No golden could see it**, and for a sharper reason than the `ISOWEEK` case: a golden
-pins the statement TEXT and the text is identical on both sides, so only two data systems executing it
-can disagree. No number is wrong; what differs is the order of a certified answer, which the plan
-claims by emitting `ORDER BY`. The fix belongs to `sutura-sql` - state the placement, which all four
-dialects spell `NULLS LAST` and which matches the engine's default - and it rewrites every SQL golden
-in four dialects, so it is **flagged as its own diff and PINNED here**: the comparison requires the two
-orders to agree once the null-bearing rows are dropped, so any other ordering difference fails and this
-one fails the day the generator states the placement.
+every corpus question grouping by a dimension behind the example `LEFT JOIN` returned the same rows in
+a different order. **Five of the corpus's 31 questions, measured**, one of them at 61 rows. **No golden
+could see it**, and for a sharper reason than the `ISOWEEK` case: a golden pins the statement TEXT and
+the text is identical on both sides, so only two data systems executing it can disagree. No number is
+wrong; what differs is the order of a certified answer, which the plan claims by emitting `ORDER BY`.
+
+**It is FIXED, and the finding's own paragraph is where the fix's one overstatement gets corrected.**
+`sutura_sql::generate`'s `ordered_nulls_last` wraps every `ORDER BY` expression in the dialect layer's
+`Ordered` node with `nulls_first: Some(false)`, from `generate` and `generate_leg` alike, and the
+corpus leg's tolerance is **deleted rather than relaxed** - `agreement_between` compares content and
+order exactly, and the `diverged_on_null_placement` counter, the `without_nulls` instrument and the
+`NULL_PLACEMENT` constant are gone. **What converges is BEHAVIOUR and not text, which is why "all four
+dialects spell `NULLS LAST`" is the wrong sentence:** the layer renders the keyword only for
+`BigQuery`, whose default is the other way, and collapses it for `DuckDb`, `Postgres` and `ClickHouse`
+where it already IS the default - so 30 `BigQuery` goldens moved (22 corpus, 5 legs, 3 qualified) and
+no other dialect's did. `every_order_by_states_nulls_last` is the measurement that keeps that honest,
+asserting the keyword for `BigQuery` and its ABSENCE for the other three, so a claim of four would
+have been red the day it was written. **The limit, and it is the one to read:** the exact-order
+comparison is asserted and **not yet measured green against the endpoint** - `just validate`'s sandbox
+has no network, so the run that decides it is the `bigquery-acceptance` job. `docs/adr/0017`'s FOURTH
+amendment is the record, including the tally it predicts.
 
 **What is still untouched by either leg is identity.** A service-account key is `SharedServiceUser` -
 one identity for everybody who asks - so what both legs establish is *accepted, and correct for that

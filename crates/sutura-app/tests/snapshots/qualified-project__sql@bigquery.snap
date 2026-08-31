@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/qualified.rs
 expression: query.sql()
 ---
-SELECT CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) AS `period`, sum(`orders`.`amount_cents`) AS `revenue` FROM `analytics-prod`.`sales`.`orders` WHERE `orders`.`order_date` >= ? AND `orders`.`order_date` < ? GROUP BY CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) ORDER BY CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) LIMIT 10001
+SELECT CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) AS `period`, sum(`orders`.`amount_cents`) AS `revenue` FROM `analytics-prod`.`sales`.`orders` WHERE `orders`.`order_date` >= ? AND `orders`.`order_date` < ? GROUP BY CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) ORDER BY CAST(DATE_TRUNC(`orders`.`order_date`, MONTH) AS DATE) NULLS LAST LIMIT 10001

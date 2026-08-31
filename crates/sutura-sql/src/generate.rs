@@ -53,7 +53,7 @@
 
 use polyglot_sql::DialectType;
 use polyglot_sql::builder::{self, Expr, SelectBuilder};
-use polyglot_sql::expressions::{Expression, Parameter, ParameterStyle, Placeholder, Raw};
+use polyglot_sql::expressions::{Expression, Ordered, Parameter, ParameterStyle, Placeholder, Raw};
 use sutura_domain::measure::ZeroDenominator;
 use sutura_domain::model::{Aggregate, Grain, JoinType, Qualification, QualifiedTable};
 use sutura_domain::plan::{LegPlan, PlanBucket, PlanColumn, PlanJoin, PlanMeasure, PlanPredicate, PlanTerm, QueryPlan};
@@ -455,6 +455,29 @@ fn table_path(table: &QualifiedTable, dialect: Dialect) -> Result<String, Genera
     Ok(table.to_string())
 }
 
+/// `expr`, ordered ascending, with nulls placed last.
+///
+/// **Why explicit, and why `NULLS LAST`:** a bare `ORDER BY` leaves null placement to the target,
+/// and the four dialects disagree about it - the engine orders nulls last, `BigQuery` orders them
+/// first. So the same metric was answering in a different order depending on which data system
+/// handled it, and no golden caught it, because a golden pins one dialect's text and both sides
+/// spell a bare `ORDER BY` identically - only two data systems EXECUTING it could disagree. Naming
+/// `NULLS LAST` states the intent and makes every target converge on the engine's own order: the
+/// layer renders the keyword for the target whose default is the other way and omits it where it is
+/// already the default (`DuckDB`, Postgres, `ClickHouse`), which is behaviour, not text, converging.
+///
+/// Rendered through the layer's own [`Ordered`] node, which `engine::ordered` unwraps rather than
+/// re-wrapping - `Expr(Expression::Ordered)` is how the uniform `NULLS LAST` reaches every dialect.
+fn ordered_nulls_last(expr: Expr) -> Expr {
+    Expr(Expression::Ordered(Box::new(Ordered {
+        this: expr.into_inner(),
+        desc: false,
+        nulls_first: Some(false),
+        explicit_asc: false,
+        with_fill: None,
+    })))
+}
+
 /// The statement, as this dialect writes it.
 ///
 /// Identifiers force-quoted, for the reason this module's header gives at length. One function, so
@@ -504,13 +527,14 @@ pub fn generate(plan: &QueryPlan, dialect: Dialect) -> Result<GeneratedQuery, Ge
     };
     let where_clause = clauses.fold(first, Expr::and);
 
-    let ordering: Vec<Expr> = grouping.clone();
+    let ordering: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
     let ast = statement
         .where_(where_clause)
         .group_by(grouping)
         // Ordered by what it groups by, so two runs of one question return rows in one order.
         // Without it row order is unspecified and a golden over results flaps for reasons that have
-        // nothing to do with the change under review.
+        // nothing to do with the change under review. Each ascending, nulls last - `ordered_nulls_last`
+        // carries why the placement is stated rather than left to each target's default.
         .order_by(ordering)
         .limit(usize::try_from(plan.row_limit()).unwrap_or(usize::MAX))
         .build();
@@ -597,9 +621,9 @@ pub fn generate_leg(leg: &LegPlan, dialect: Dialect) -> Result<GeneratedQuery, G
         statement = statement.where_(clauses.fold(first, Expr::and));
     }
 
-    let ordering: Vec<Expr> = grouping.clone();
+    let ordering: Vec<Expr> = grouping.iter().cloned().map(ordered_nulls_last).collect();
     // Ordered by what it groups by, for `generate`'s reason: without it a leg's row order is
-    // unspecified and a golden over it flaps.
+    // unspecified and a golden over it flaps. Each ascending, nulls last, like `generate`.
     let ast = statement.group_by(grouping).order_by(ordering).build();
 
     Ok(GeneratedQuery::new(
@@ -622,7 +646,7 @@ mod tests {
 
     use polyglot_sql::builder;
 
-    use super::{bucket_expression, render};
+    use super::{bucket_expression, ordered_nulls_last, render};
     use crate::dialect::{ALL, Dialect};
 
     fn bucket(grain: Grain) -> PlanBucket {
@@ -728,6 +752,45 @@ mod tests {
                  AGENTS.md rather than weakening this assertion: {:?}\n{sql}",
                 parsed.err()
             );
+        }
+    }
+
+    #[test]
+    fn every_order_by_states_nulls_last() {
+        // **The measurement behind the null-placement fix, pinned against the layer rather than
+        // taken from it.** The layer OMITS `NULLS LAST` where it is already the target's default
+        // (`DuckDB`, Postgres, `ClickHouse`), so those three keep rendering no keyword even though
+        // the generated AST carries `nulls_first: Some(false)` - and `BigQuery`'s default is the
+        // other way (nulls first), which is exactly why it is the one that must see the keyword.
+        // Saying "all four render `NULLS LAST`" would be false about the first three, and this
+        // test is what keeps the honest claim: the AST always names it, and `BigQuery` spells it.
+        let column = super::column(&PlanColumn::new(
+            TableName::parse("orders").expect("a test table is a table"),
+            ColumnName::parse("customer_key").expect("a test column is a column"),
+        ));
+        let ordered = ordered_nulls_last(column);
+        let ast = builder::select(vec![builder::col("customer_key")])
+            .from("orders")
+            .order_by(vec![ordered])
+            .build();
+        for &dialect in ALL {
+            let sql = render(&ast, dialect).expect("an ORDER BY renders");
+            assert!(sql.contains("ORDER BY"), "{dialect}: {sql}");
+            match dialect {
+                // The one whose default puts nulls first. The keyword is what makes it agree with
+                // the engine and the other three; absent it, this question answers in a different
+                // order on BigQuery than on every other data system.
+                Dialect::BigQuery => assert!(sql.contains("NULLS LAST"), "{dialect}: {sql}"),
+                // `NULLS LAST` is these three's own default, so the layer collapses it away. The
+                // placement is still stated in the AST (`ordered_nulls_last`) and this arm confirms
+                // the collapse is the layer's doing rather than our omission.
+                Dialect::DuckDb | Dialect::Postgres | Dialect::ClickHouse => {
+                    assert!(
+                        !sql.contains("NULLS"),
+                        "{dialect} unexpectedly spelled a null placement: {sql}"
+                    );
+                }
+            }
         }
     }
 

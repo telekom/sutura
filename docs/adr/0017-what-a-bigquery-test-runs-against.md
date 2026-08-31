@@ -420,7 +420,7 @@ than by an intention.
 | Bullet | Where it stands |
 | --- | --- |
 | the corpus's statements are **accepted** and return rows | **Answered**, and in two halves for a cost reason stated below: every question that compiles to a plan is put to the endpoint as a **dry run**, which is free, and separately **executed** by the row comparison. Measured: **22 accepted, 9 refused by the compiler before a statement existed** |
-| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured: **16 agreed exactly, 5 agreed on content and differed on null placement** |
+| the rows **agree with the engine's** for the same plan | **Answered** for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with **one measured divergence** the first run found - see *the finding* below. Measured on this amendment's run: **16 agreed exactly, 5 agreed on content and differed on null placement**. The divergence is **closed** by the fourth amendment, and the leg now compares order exactly |
 | the **bucket** is right | **Answered for `MONTH`, `DAY` and `ISOWEEK`**, which is every grain the corpus asks. `QUARTER` and `YEAR` are still rendered and never executed anywhere |
 | the result is the endpoint's **complete** answer | Already answered by the smoke leg, and answered again here on every question: the seam's `Incomplete` refusal not firing is the evidence |
 | *(not one of the four)* the **anchors** hold | Measured: **6 anchors reproduced by the endpoint**, the same verdict the engine reaches |
@@ -473,15 +473,20 @@ that is valid SQL with different semantics* - and it is invisible to every local
 reason than `ISOWEEK` was: a golden pins the statement TEXT, and **the text is identical on both
 sides**. There is no arm to get wrong. Only two data systems executing it can disagree.
 
-**Why it is pinned rather than fixed in the same diff.** The fix belongs to `sutura-sql`: state the
-placement, which all four dialects spell `NULLS LAST` and which matches the engine's own default. That
-rewrites every SQL golden in four dialects and is a change with its own review; the branch that found
-it owns the acceptance leg. So the divergence is pinned in a way that cannot rot:
-`the_corpus_rows_agree_with_the_engine` compares content as a SET and, where the two orders differ,
-**requires the orders to be identical once the null-bearing rows are dropped** and requires at least
-one such row to exist. A divergence for any other reason fails; a content difference fails; and this
-one fails on the day the generator states the placement, at which point this section and the
-`NULL_PLACEMENT` constant get re-scoped rather than deleted.
+**Why it was pinned rather than fixed in the same diff.** The fix belongs to `sutura-sql`: state the
+placement, which matches the engine's own default. That rewrites the `BigQuery` SQL goldens and is a
+change with its own review; the branch that found it owns the acceptance leg. So the divergence was
+pinned in a way that could not rot: `the_corpus_rows_agree_with_the_engine` compared content as a SET
+and, where the two orders differed, **required the orders to be identical once the null-bearing rows
+were dropped** and required at least one such row to exist. A divergence for any other reason failed; a
+content difference failed; and this one failed on the day the generator stated the placement - at which
+point this section and the `NULL_PLACEMENT` constant were to be re-scoped rather than deleted.
+
+**That day has come, and the fourth amendment below is the re-scoping.** This section stays as the
+record of the finding and of the instrument that caught it; what it says about the tolerance is now
+history rather than a description of the code. One claim in it is also **corrected** there: *"all four
+dialects spell `NULLS LAST`"* is false about the rendered text, and the correction matters because it
+is the difference between a claim about behaviour and a claim about bytes.
 
 **Whether `ClickHouse` and `Postgres` agree with the engine here is not answered by anything**, which
 is the same shape as this page's existing note about `ClickHouse`'s week. Both are rendered and
@@ -589,3 +594,61 @@ rather than anything this repository can carry.
   names, and a second concurrent job in the same dataset is a defect nothing here prevents. The names
   themselves are committed fixtures rather than resources, so unlike the project and the dataset they
   need no `::add-mask::` in a public log.
+
+## Fourth amendment, 2026-08-31: the finding is fixed, and the leg's tolerance is deleted rather than relaxed
+
+**Status of the amendment: accepted.** The third amendment's *finding* section ends by naming the
+condition under which it would be re-scoped - *the day the generator states the placement* - and this is
+that re-scoping. `sutura_sql::generate`'s `ordered_nulls_last` wraps every `ORDER BY` expression in the
+dialect layer's own `Ordered` node with `nulls_first: Some(false)`, from `generate` and `generate_leg`
+alike, so a plan no longer leaves null placement to whichever data system happens to run it.
+
+### The claim, stated as behaviour rather than as bytes
+
+The third amendment wrote that *all four dialects spell `NULLS LAST`*. **That is false about the text,
+and the difference is the whole reason this paragraph exists.** The layer renders the keyword only where
+it is not already the target's default:
+
+| Dialect | Its own default | What renders |
+| --- | --- | --- |
+| `BigQuery` | nulls **first** | `ORDER BY x NULLS LAST` - the keyword, because it is the one that would otherwise disagree |
+| `DuckDb`, `Postgres`, `ClickHouse` | nulls **last** | a bare `ORDER BY x` - the layer collapses a keyword that changes nothing |
+
+So what converges is the **behaviour** and not the statement, and only one dialect's goldens move.
+`every_order_by_states_nulls_last` in `crates/sutura-sql/src/generate.rs` is the measurement that keeps
+that honest: it asserts the keyword for `BigQuery` and asserts its **absence** for the other three, so a
+future layer version that started spelling it everywhere - or stopped spelling it for `BigQuery` - fails
+by name rather than by golden diff. A test asserting "all four render `NULLS LAST`" would have been red
+the day it was written.
+
+### What moved, and what deliberately did not
+
+- **30 `BigQuery` SQL goldens** gain the keyword: 22 in the main corpus, five leg shapes, and three
+  qualified-path statements. Reviewed as a diff, per this repository's rule that a golden is regenerated
+  and never typed.
+- **No other dialect's golden changes**, which is the table above holding rather than an omission.
+- **No plan golden changes.** Null placement is a rendering decision and the serialized `QueryPlan` and
+  `LegPlan` do not carry it, so the definition digest is unmoved and no anchor re-certifies.
+
+### The leg's tolerance is deleted, not relaxed
+
+`the_corpus_rows_agree_with_the_engine` now compares CONTENT and ORDER **exactly**, with no tolerance
+for either. Gone with it: the `Agreement` enum's second variant, the `diverged_on_null_placement`
+counter, the `without_nulls` instrument, the `Row::holds_a_null` flag and the `NULL_PLACEMENT` constant.
+The assertion that used to hold the measurement open - *at least one question diverges on null
+placement* - is **removed rather than inverted**, because a floor of zero is not a measurement of
+anything; what replaces it is the exact order comparison, which fails if the placement ever stops being
+stated.
+
+The set comparison stays, ahead of the order comparison, and that is deliberate: *different rows* is a
+wrong number and *same rows, different order* is a generator that stopped saying how to sort them. One
+assertion for both would report the first as the second.
+
+### What this amendment does NOT yet claim
+
+**The exact-order comparison has not been measured green against the endpoint from a developer's
+terminal.** `just validate`'s sandbox has no network, so the corpus leg compiles and is skipped there;
+the run that decides it is the `bigquery-acceptance` job. The prediction is that the five questions
+which differed on null placement now agree exactly and the tally reads *21 agreed exactly, 9 refusals
+agreed, 1 excluded, 31 in the corpus* - and a prediction is what it is until that job is green. Nothing
+else in the third amendment's measurements is re-opened by this change.
