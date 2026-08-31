@@ -86,6 +86,28 @@ docs-list = "mike list"
 # `-b <branch>`. Any extra argument reaches mike, since a pixi task appends what follows.
 mike = "mike"
 
+# -------------------------------------------------------------------- infra ---
+# The Pulumi Python runtime for the test infrastructure under `test-infra/`. Isolated,
+# the same shape as `docs`: no-default-feature, only `pixi run -e infra <cmd>` reaches it,
+# so the pulumi tree (its pypi deps included) never perturbs the default solve or a gate.
+#
+# Pinning is the major-ceiling style this file already uses for non-gate tooling: a different
+# pulumi-gcp within the major still provisions the same resources, and the exact number is
+# whatever the solve resolves on the day it is locked. Re-check the majors against the
+# changelogs before widening either ceiling.
+[feature.infra.dependencies]
+python = ">=3.13,<3.14"
+
+[feature.infra.pypi-dependencies]
+pulumi = ">=3,<4"
+pulumi-gcp = ">=7,<8"
+
+[feature.infra.tasks]
+# `pulumi` is a command, not a task, so these are thin 1:1 aliases a justfile can call with
+# the environment already attached. `--stack`/flags flow through as appended arguments.
+preview = "pulumi preview"
+up = "pulumi up"
+
 # -------------------------------------------------------------------- gcloud ---
 # The Google Cloud CLI, for the BigQuery steps of the plan. Reached as a CONTAINER and declared as
 # a task rather than as a package, and that is a decision rather than an implementation detail.
@@ -167,6 +189,8 @@ docs = { features = ["docs"], no-default-feature = true }
 # `gcloud` holds a task and no packages, so it resolves on all four platforms above by having
 # nothing to resolve. What it needs at run time is docker, and no manifest can pin that.
 gcloud = { features = ["gcloud"], no-default-feature = true }
+# The Pulumi test infrastructure. Isolated so its pypi tree never perturbs a gate's solve.
+infra = { features = ["infra"], no-default-feature = true }
 
 [tasks]
 # Refresh every imported skill and rewrite .agents/skills.lock.json. Mirrors are re-fetched

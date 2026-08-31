@@ -31,20 +31,46 @@ The real project/names live in your own `Pulumi.<stack>.yaml`, which is gitignor
 Nothing here requires (or permits) committing them.
 
 ```sh
+# authenticate to Google once, from this repo: both logins in one container
+just gl
 cd test-infra/pulumi/google
-python3 -m venv .venv && source .venv/bin/activate
-pip install -r requirements.txt
-# authenticate (ADC): gcloud auth application-default login, or a service account
 cp Pulumi.example.yaml Pulumi.dev.yaml   # then edit with REAL values
 pulumi stack init dev --copy-config-from=dev  # (adjust to your stack)
 ```
 
+No venv, no `requirements.txt`: the Pulumi runtime (Python + `pulumi` + `pulumi-gcp`) is a
+pixi environment (`infra`), so pixi owns the interpreter and everything in it - the same
+reasoning the docs environment uses. `just preview` and `just up` in this directory run
+Pulumi through it; anything you run with `pixi run -e infra` works too.
+
+## Logging in: ADC vs the normal login
+
+`just gl` (in this directory) runs pixi's `gl` task, and that task does **both** gcloud
+logins because doing one and forgetting the other is the failure that looks like a broken
+adapter:
+
+- **`gcloud auth login`** authorizes the **CLI** itself. It stores `credentials.db` in the
+  gcloud config directory, and `gcloud` commands and `bq` use it.
+- **`gcloud auth application-default login`** writes **ADC** (Application Default
+  Credentials), `~/.config/gcloud/application_default_credentials.json`. That file is what a
+  **client library** - the Pulumi GCP provider, Google client SDKs - reads automatically when
+  there is no `GOOGLE_APPLICATION_CREDENTIALS` env var. **The Pulumi provider uses ADC**, so
+  without this second login `pulumi preview` has no credentials to act under.
+
+Both land in `~/.config/gcloud`, which is bind-mounted into the login container; nothing is
+written into this repository. Everything that runs in this project afterwards - `pulumi
+preview`, `pulumi up` - runs as the ADC principal, so it can only create the resources that
+principal is allowed to create.
+
 Then preview before applying, because this program is a scaffold you run, not a proof:
 
 ```sh
-pulumi preview -s dev
-pulumi up -s dev --yes
+just preview -s dev
+just up -s dev --yes
 ```
+
+(`just preview` / `just up` resolve the stack and run Pulumi through the `infra` pixi env;
+flags after the task name flow straight through to `pulumi`.)
 
 The two service-account **private keys are secret outputs** - capture them and store them
 as environment secrets (e.g. GitHub `bq-test` secrets), never in the tree:
