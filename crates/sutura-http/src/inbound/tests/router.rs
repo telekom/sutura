@@ -25,8 +25,14 @@ use super::{ISSUER, KID, RESOURCE, a_token, claims, gate_over, jwks, key_pair, s
 fn app(declared: &str, document: Option<&str>) -> axum::Router {
     let settings =
         Settings::load(&Sources::defaults(Environment::Development).with_overlay(declared)).expect("the test settings load");
-    let service = LocalService::start(&catalog_of(bundle()), fake_warehouse(), sink(), crate::testing::broker())
-        .expect("the test bundle validates");
+    let service = LocalService::start(
+        &catalog_of(bundle()),
+        fake_warehouse(),
+        sink(),
+        crate::testing::broker(),
+        1 << 30,
+    )
+    .expect("the test bundle validates");
     let mut state = ServiceState::new(Arc::new(service), Arc::new(settings.clone()));
     if let Some(document) = document {
         let declaration = settings
@@ -235,8 +241,14 @@ fn a_declared_inbound_identity_with_no_gate_attached_assembles_no_router() {
     // startup line saying it establishes a caller identity.
     let settings = Settings::load(&Sources::defaults(Environment::Development).with_overlay(DIRECT_OVERLAY))
         .expect("the test settings load");
-    let service = LocalService::start(&catalog_of(bundle()), fake_warehouse(), sink(), crate::testing::broker())
-        .expect("the test bundle validates");
+    let service = LocalService::start(
+        &catalog_of(bundle()),
+        fake_warehouse(),
+        sink(),
+        crate::testing::broker(),
+        1 << 30,
+    )
+    .expect("the test bundle validates");
     let state = ServiceState::new(Arc::new(service), Arc::new(settings));
     let refused = crate::router(&state).expect_err("a declaration with no gate assembles no router");
     assert!(

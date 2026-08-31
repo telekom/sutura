@@ -34,11 +34,12 @@ use sutura_domain::identity::{
 };
 use sutura_domain::model::{Grain, MetricName, SourceName};
 use sutura_domain::pinned::{AnchorCheck, AnchorReport, NotExecutedReason, PinnedDefinitions};
-use sutura_domain::plan::{AnchorPlan, Executable};
+use sutura_domain::plan::{AnchorPlan, Executable, FederatedFailure};
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::warehouse::{RowSet, Warehouse};
 use sutura_semantic::{BundleInconsistent, Compiled, compile};
 
+use crate::federated::answer_federated;
 pub use crate::warehouses::{SourceAlreadyOpen, Warehouses};
 
 // The application-facing interface a transport consumes, with the ports' generics erased: a
@@ -213,6 +214,20 @@ pub enum ServiceError<E, M> {
         #[source]
         cause: E,
     },
+    /// The federated combiner could not assemble the two legs' rows.
+    ///
+    /// **An internal defect rather than a refusal, for every arm but the two `answer_federated`
+    /// maps by name.** A correctly split and certified question should not make the combiner fail: a
+    /// missing column or a malformed result is a bug in the splitter, an adapter or the combiner, so
+    /// it leaves as a failure the transport answers like a data-system outage. The two the answer
+    /// path turns into refusals are the two governance outcomes - [`FederatedFailure::ResourcesExhausted`],
+    /// refused as [`RefusalReason::ResourcesExhausted`], and the row cap, refused as
+    /// [`RefusalReason::ResultTooLarge`].
+    #[error("the combined answer could not be assembled")]
+    Federated {
+        #[source]
+        cause: FederatedFailure,
+    },
     /// The credential broker could not mint. Nothing about the question was wrong.
     ///
     /// **Its own variant rather than a refusal, and its own variant rather than sharing the one
@@ -285,7 +300,7 @@ pub enum ServiceError<E, M> {
 /// look passed, so an expiring credential is refused rather than presented. A machine whose clock says
 /// 1969 should not be executing anything as somebody else. Nothing that carries `Expiry::NothingExpires`
 /// is affected, which is every credential the shipping broker mints.
-fn now_in_unix_seconds() -> u64 {
+pub(crate) fn now_in_unix_seconds() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(u64::MAX, |since| since.as_secs())
@@ -401,12 +416,17 @@ impl Answered {
 /// guard un-skippable rather than merely conventional is on the domain side:
 /// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 /// `agreeing_with` is the only thing that builds one.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "six inputs is what a certified answer needs; naming each beats a struct nobody else reads"
+)]
 pub fn answer<W, B>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,
     context: &RequestContext,
     broker: &B,
     warehouses: &Warehouses<W>,
+    working_set_bytes: u64,
 ) -> Answering<W, B>
 where
     W: Warehouse,
@@ -419,15 +439,8 @@ where
     // the plan itself, for its own dialect.
     let plan = match compiled {
         Compiled::Refused { reason } => return Ok(Answered::declined_before_minting(ToolOutcome::Refusal { reason })),
-        Compiled::Federated { .. } => {
-            // The splitter and the combiner exist and are tested, but neither shipped adapter can
-            // execute a leg yet - both answer `Executable::Leg` with a typed refusal - so an answer
-            // that would need `combine` cannot be produced on this build. Executing it would surface
-            // the adapter's refusal as a 503, the status reserved for a retryable outage; refusing
-            // here first keeps a two-source question a clean 409 until an adapter executes a leg.
-            return Ok(Answered::declined_before_minting(ToolOutcome::Refusal {
-                reason: RefusalReason::FederationNotExecutable,
-            }));
+        Compiled::Federated { plan } => {
+            return answer_federated(pinned, &plan, context, broker, warehouses, working_set_bytes);
         }
         Compiled::Planned { plan } => plan,
     };
@@ -593,7 +606,7 @@ where
 /// Named rather than inline so the boundary is testable without a data system: the case that decides
 /// a certification is one row over the cap, and reaching it through [`answer`] means fabricating ten
 /// thousand rows through a validated bundle.
-fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
+pub(crate) fn exceeds_row_cap(returned: usize, max_rows: u32) -> bool {
     u64::try_from(returned).unwrap_or(u64::MAX) > u64::from(max_rows)
 }
 
@@ -806,6 +819,18 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
         .unwrap_or_default()
 }
 
+/// The two-source answer path - see the module for what came out of this file and why.
+///
+/// It carries its own `#[cfg(test)] mod tests` rather than having a suite file beside `tests`, and the
+/// module doc says why: a test module declared from HERE is orphaned when `test-causality` reverts
+/// this file, so the proof it produced was vacuous.
+mod federated;
+/// This crate's own unit suite, in its own file.
+///
+/// Moved out of this one when it reached the 1000-line gate. `cargo xtask max-lines` cannot exempt
+/// anything under `crates/`, which is what makes a split the only answer.
+#[cfg(test)]
+mod tests;
 /// The fakes this crate's own unit tests share, in their own file.
 ///
 /// One module rather than a copy per test module, because [`warehouses`] and the suite below both need
@@ -814,10 +839,3 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
 /// behaviour, so a test reads as a case rather than as a configuration.
 #[cfg(test)]
 mod tests_support;
-
-/// This crate's own unit suite, in its own file.
-///
-/// Moved out of this one when it reached the 1000-line gate. `cargo xtask max-lines` cannot exempt
-/// anything under `crates/`, which is what makes a split the only answer.
-#[cfg(test)]
-mod tests;

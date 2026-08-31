@@ -163,6 +163,17 @@ mod tests {
     /// pinned as correct: the column LABELS disagreed, because one engine took them from the driver's
     /// result schema and the other built them from the plan; and the two disagreed on row ORDER until
     /// both sorted by the grouped expressions.
+    // No `#[expect(clippy::too_many_lines)]` any more, and that is worth a line rather than a silent
+    // deletion, because neither half of the story is visible from here. This branch added the two
+    // working-set arguments to the `answer` calls below, which took the body from 99 code lines to 101
+    // and made the suppression correct against its own base. `main` then lifted the both-sides-refused
+    // assertions out into `refused_together`, which brought it back to 90 - so the cause is gone, and
+    // *a suppression cannot outlive its cause*.
+    //
+    // The lesson is about WHICH lint this was: a threshold lint's cause is a number, so two branches
+    // can each move it correctly and only the merge is wrong. Both were green alone. The next change
+    // that pushes this body over 100 is the one that decides whether more of it moves out the way
+    // `refused_together` did, or the expectation comes back.
     fn agrees_with_the_engine_on_every_question<W>()
     where
         W: DataSystemUnderTest,
@@ -196,6 +207,7 @@ mod tests {
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &engine,
+                1 << 30,
             );
             let from_other = answer(
                 &validated,
@@ -203,6 +215,7 @@ mod tests {
                 &crate::adapters::a_caller(),
                 &crate::adapters::shared_credential(),
                 &other,
+                1 << 30,
             );
 
             // A third outcome, and it is the one that used to be missing.

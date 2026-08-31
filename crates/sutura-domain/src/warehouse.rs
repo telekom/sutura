@@ -503,6 +503,19 @@ pub trait Warehouse {
     /// from. If that ever changes, it is an architecture decision and not a signature tweak.
     const IMPERSONATION: ImpersonationCapability;
 
+    /// Whether this adapter can run a [`LegPlan`](crate::plan::LegPlan) - one half of a two-source
+    /// [`FederatedPlan`](crate::plan::FederatedPlan) - rather than only a whole single-source plan.
+    ///
+    /// **Defaulted to `false`, and the default is the safe direction.** An adapter that forgets to
+    /// declare itself is treated as unable to federate, so a two-source question is refused as
+    /// [`RefusalReason::FederationNotExecutable`](crate::query::RefusalReason::FederationNotExecutable)
+    /// rather than half-answered under a certified metric name. Only an adapter with a combiner
+    /// above it to hand a leg's rows to opts in - `sutura_exec_duckdb` does, because the differential
+    /// suite runs the combiner above its two sources. This is a missed-optimisation default rather
+    /// than a missed-security one: the cost of being wrong is a refused question, never a wrong
+    /// number.
+    const EXECUTES_LEGS: bool = false;
+
     /// The name a plan uses to select this adapter.
     fn source(&self) -> &SourceName;
 

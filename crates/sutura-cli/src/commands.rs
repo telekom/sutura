@@ -334,7 +334,9 @@ pub(crate) fn query(args: &[String]) -> ExitCode {
         let context = RequestContext::of(PrincipalChain::of(Subject::TheDeploymentItself));
         // `into_outcome` because this command writes no audit record: the deadline `Answered` also
         // carries is for a sink, and this binary answers one question on a terminal and exits.
-        let outcome = sutura_app::answer(&validated, &question, &context, &broker, &engine)
+        // The working-set number is the config default: this command takes one data directory and
+        // never federates, so `answer` never reads it here.
+        let outcome = sutura_app::answer(&validated, &question, &context, &broker, &engine, 1 << 30)
             .map_err(|e| render(&e))?
             .into_outcome();
         print_outcome(&outcome)?;

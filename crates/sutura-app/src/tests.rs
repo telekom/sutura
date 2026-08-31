@@ -23,9 +23,29 @@ use sutura_domain::identity::{
 
 use super::tests_support::{AdapterFailure, CountingBroker, FixedBroker, FixedWarehouse};
 use super::{
-    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, answer, exceeds_row_cap,
+    AnchorCheck, MetricName, NotExecutedReason, PinnedDefinitions, RowSet, ServiceError, Warehouses, exceeds_row_cap,
     verify_anchors, verify_and_validate,
 };
+
+/// Bare `answer`, with the working-set ceiling pinned to 1 GiB for every unit answer here.
+///
+/// `answer` gained a sixth argument - the ceiling the federated combiner counts against - and no
+/// test in this module needs a different one, so this local wrapper keeps two dozen call sites on
+/// their original five arguments rather than touching each. Deliberately not imported as
+/// `super::answer`, or the wrapper below and the import would collide on the name.
+fn answer<W, B>(
+    definitions: &super::Validated<PinnedDefinitions>,
+    query: &sutura_domain::query::Query,
+    context: &RequestContext,
+    broker: &B,
+    warehouses: &Warehouses<W>,
+) -> super::Answering<W, B>
+where
+    W: sutura_domain::warehouse::Warehouse,
+    B: sutura_domain::identity::CredentialBroker,
+{
+    super::answer(definitions, query, context, broker, warehouses, 1 << 30)
+}
 
 /// The context a question arrives with, naming a person the transport verified.
 ///
@@ -33,13 +53,13 @@ use super::{
 /// for and because it must NOT change what a shared leg does: a deployment whose sources are all
 /// shared answers a named caller exactly as it answered before, which is the behaviour the
 /// `a_posture_is_recorded_in_provenance_per_leg` test above still asserts.
-fn asked_by_a_person() -> RequestContext {
+pub(crate) fn asked_by_a_person() -> RequestContext {
     RequestContext::of(PrincipalChain::of(Subject::Verified {
         id: SubjectId::parse("someone@example.com").expect("a test subject is a subject"),
     }))
 }
 
-fn metric() -> MetricName {
+pub(crate) fn metric() -> MetricName {
     MetricName::parse("revenue").expect("a test metric name is a name")
 }
 
@@ -53,13 +73,13 @@ fn source() -> SourceName {
 /// now compared against the posture the adapter was opened with, witness included - so a test that
 /// wrote its own acknowledgement prose would provoke that wiring defect rather than whatever it was
 /// about. `tests_support` owns the one witness both halves read.
-fn shared() -> SourcePosture {
+pub(crate) fn shared() -> SourcePosture {
     super::tests_support::shared_posture()
 }
 
 /// The June range the test bundle's anchor declares, which is also the only range a question
 /// against it can ask for and get one row back.
-fn june() -> TimeRange {
+pub(crate) fn june() -> TimeRange {
     TimeRange::new(
         Date::parse("2026-06-01").expect("a test date is a date"),
         Date::parse("2026-07-01").expect("a test date is a date"),
@@ -74,7 +94,7 @@ fn certified() -> RowSet {
 }
 
 /// A one-metric bundle whose metric declares an anchor, so there is exactly one check to make.
-fn bundle() -> PinnedDefinitions {
+pub(crate) fn bundle() -> PinnedDefinitions {
     let column = |raw: &str| ColumnName::parse(raw).expect("a test column is a column");
     let model = Model::new(
         ModelName::parse("orders").expect("a test model is a model"),
