@@ -37,35 +37,16 @@ jobs:
             fallback = true
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
-      # The `pulumi` CLI is a system binary - the pixi `infra` env only pins the Python SDK (the
-      # pypi `pulumi` package bundles no CLI, and conda-forge has no pulumi CLI for all four of
-      # this workspace's platforms), and a clean runner has none. So install the CLI with its
-      # VERSION TAKEN FROM pixi.lock, resolved to the exact pinned SDK (3.260.0) rather than a
-      # by-hand version or a float: the CLI and the SDK it drives must agree. pixi itself comes
-      # from nix (`nix run .#pixi` below), per the repository's rule that a tool whose version
-      # changes what it reports is pinned by nix - and this resolution keeps the CLI at that pin.
-      - name: Resolve the pulumi version from pixi.lock
-        run: |
-          # The `infra` env's entry is the exact `name: pulumi` (not pulumi-gcp); take the
-          # `version:` line that follows it. Hardcoding 3.260.0 here would drift on the next
-          # `just update`; reading the lock makes the CLI follow the SDK.
-          PULUMI_VERSION="$(awk '/  name: pulumi$/{getline; sub(/^  version: /, ""); print; exit}' pixi.lock)"
-          test -n "$PULUMI_VERSION" || { echo "pixi.lock resolves no pulumi SDK" >&2; exit 1; }
-          echo "PULUMI_VERSION=$PULUMI_VERSION" >> "$GITHUB_ENV"
-          echo "resolved pulumi from pixi.lock: $PULUMI_VERSION"
-
-      # Install the CLI at EXACTLY the pixi-locked SDK version (from the step above). The CLI
-      # is a system binary (the pypi `pulumi` is SDK-only and conda-forge has no CLI for all
-      # four of this workspace's platforms), so it is fetched by the official installer - but
-      # only at the version pixi.lock names, never a float, so CLI and SDK always agree. pixi
-      # itself comes from nix (`nix run .#pixi` below) per the repository's tool-pinning rule.
-      - name: Install the pulumi CLI at the pixi-locked version
+      # The `pulumi` CLI comes from NIX, not from the web: the pixi `infra` env only pins the
+      # Python SDK (the pypi `pulumi` package bundles no CLI, and conda-forge has no pulumi CLI
+      # for all four of this workspace's platforms), so a clean runner has none. Build the
+      # nix-pinned CLI (`packages.pulumi`) and put its bin on PATH for the rest of the job -
+      # nixpkgs pins its version, per the rule that a tool whose version changes what it reports
+      # is pinned by nix. Same for pixi (`nix run .#pixi` below).
+      - name: Put the nix-pinned pulumi on PATH
         run: |
           set -eu
-          curl -fsSL https://get.pulumi.com \
-            | sh -s -- --version "$PULUMI_VERSION"
-          echo "$HOME/.pulumi/bin" >> "$GITHUB_PATH"
-          pulumi version
+          echo "$(nix build .#pulumi --no-link --print-out-paths)/bin" >> "$GITHUB_PATH"
 
       # The Pulumi provider authenticates with the deployment's own service-account key, from a
       # secret, written OUTSIDE the checkout - the same discipline the bq-test job uses.

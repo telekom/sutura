@@ -178,6 +178,14 @@ in
     # Python lives behind pixi only; this is just the launcher.
     pixi
 
+    # The Pulumi CLI for the test-infra stack under `test-infra/pulumi/google`. It is the
+    # nix-pinned CLI (nixpkgs pins the version, per the rule that a tool whose version changes
+    # what it reports is pinned by nix); the Python SDK it drives lives in pixi's `infra` env.
+    # Given here so `pulumi` is on PATH in the dev shell AND reachable by name from the
+    # `infra` pixi tasks, and in CI via `nix run .#pulumi`. Note nixpkgs' pulumi may lag the
+    # pypi SDK by a patch release; the CLI/SDK pair stays within the 3.x series.
+    pulumi
+
     # For gh-axi (below) and any other npm-delivered tooling.
     nodejs_22
 
