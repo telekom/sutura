@@ -305,16 +305,18 @@ jobs:
       # In `build` and not in `publish`, for the reason the header gives: this is compute, and the
       # job holding the write tokens compiles and inspects nothing.
       #
-      # **WHAT IT COVERS, stated plainly because a green SBOM step invites a larger reading.** The
-      # image is the binary, `cacert` and `tzdata` and nothing else - no shell, no package manager
-      # - so this document inventories those, and the CRATE GRAPH IS NOT IN IT. `syft` reads a
-      # Rust dependency list out of a `Cargo.lock` on disk or out of a `cargo auditable` section in
-      # the ELF, and this image has neither: nothing ships a lock file and the release profile does
-      # not embed one. So what is published here is an accurate answer to "what files are in the
-      # image", and it is NOT an answer to "which crates is the binary built from". The second
-      # question is answered by the SBOM the build itself emits, which is a separate artefact
-      # arriving in a separate change; until it does, this file must not be cited as a dependency
-      # inventory.
+      # **WHAT IT COVERS.** The image's files - which is the binary, `cacert` and `tzdata`, since
+      # there is no shell and no package manager in there - AND the crate graph the binary was
+      # compiled from, because `nix/auditable.nix` builds it with `cargo auditable` and `syft`
+      # reads that ELF section back out with its `cargo-auditable-binary-cataloger`.
+      #
+      # **THE SECOND HALF IS NOT READ OUT OF A LOCK FILE, AND THAT IS THE POINT.** A document
+      # generated from `Cargo.lock` beside the binary is a CHECKED claim about it - the two can
+      # drift and neither says so - and it would also be the WRONG graph: `sutura-cli` links the
+      # engine only, while `libduckdb-sys` and the BigQuery wire put `ureq`, rustls and `ring` in
+      # the resolve for a binary that links none of them. What is inventoried here is what the
+      # compiler actually put in, from inside the bytes being scanned. `nix/auditable.nix` carries
+      # the argument; `docs/adr/0021`'s amendment is the decision.
       #
       # Two formats, because they have different consumers rather than because more is better.
       # CycloneDX is what `cosign attest --type cyclonedx` carries into the registry and what the
@@ -322,8 +324,12 @@ jobs:
       # generated from one scan, so they cannot disagree.
       #
       # ASSERTED rather than described, like the static-linking and manifest-list claims either
-      # side of it: an SBOM naming no packages is a well-formed JSON document that says nothing,
-      # and it would publish, attach and verify exactly like a real one.
+      # side of it, and the assertion is now about CONTENT rather than about the file existing.
+      # The failure this catches is specific and silent: if the embedded section stops being
+      # produced - a crane bump that drops `cargoBuildCommand`, a `cargo-auditable` that changes
+      # its wrapper - the scan still succeeds, still writes valid CycloneDX, and inventories three
+      # files. Nothing downstream can tell that apart from a correct run, so the count and one
+      # named crate are checked here.
       - name: SBOM
         env:
           TARGET: ${{ matrix.target }}
@@ -342,13 +348,25 @@ jobs:
               echo "::error::${sbom} was not written"
               exit 1
             fi
-            # No jq: it is not a pinned tool here, and the question is only whether the document
-            # names anything at all. CycloneDX spells an entry `"bom-ref"` and SPDX spells it
-            # `"SPDXID": "SPDXRef-Package-`, so one grep per format would need a case; counting
-            # the shared `"name":` key needs none and cannot pass on an empty inventory.
+            # No jq: it is not a pinned tool here, and neither question needs a JSON parser.
+            # CycloneDX spells an entry `"bom-ref"` and SPDX spells it `"SPDXID"`, so one grep per
+            # format would need a case; counting the shared `"name":` key needs none.
             named="$(grep -c '"name":' "$sbom" || true)"
-            if [ "${named:-0}" -lt 2 ]; then
-              echo "::error::${sbom} names ${named} thing(s): an SBOM with no inventory is not an SBOM"
+            # A FLOOR, not a fixed number. The exact count moves with every dependency bump, so
+            # pinning it would make `just update` fail on a correct tree - and this check is not
+            # about the count being right, it is about the embedded section being THERE. Without
+            # it the answer is three files; with it, the engine alone brings DataFusion, Arrow and
+            # tokio. Any floor between those two orders of magnitude separates the two cases, and
+            # 100 is low enough that dropping a whole adapter does not trip it.
+            if [ "${named:-0}" -lt 100 ]; then
+              echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
+              exit 1
+            fi
+            # AND the engine by name. The floor above would still pass on a document listing a
+            # hundred of the wrong things; DataFusion is the one crate `sutura-cli` cannot ship
+            # without, so its absence means the section describes something other than this binary.
+            if ! grep -q '"datafusion"' "$sbom"; then
+              echo "::error::${sbom} does not name datafusion, which the shipped binary links: this is not an inventory of the crates it was built from"
               exit 1
             fi
             printf '%s: %s named entries\n' "$sbom" "$named"
@@ -775,9 +793,10 @@ jobs:
                 "$target" "$cdx" "$base" "$cdx" "$spdx" "$base" "$spdx"
             done
             echo
-            echo "| Covers | Does not cover |"
+            echo "| Covers | Read from |"
             echo "| --- | --- |"
-            echo "| the files in the image: the binary, CA certificates, tzdata | the crate graph the binary was compiled from |"
+            echo "| the files in the image: the binary, CA certificates, tzdata | the image layers |"
+            echo "| the crates the binary was compiled from | a \`cargo auditable\` section inside the binary, not from \`Cargo.lock\` |"
           } >> notes.md
 
           {

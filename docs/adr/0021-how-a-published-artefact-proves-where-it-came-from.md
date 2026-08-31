@@ -5,10 +5,17 @@ description: Why a release is signed keylessly with Sigstore rather than with a 
 
 # How a published artefact proves where it came from
 
-Status: **accepted.** Built. A tagged release publishes a Sigstore bundle per asset, a `cosign`
-signature on all six image references, a CycloneDX attestation on each of the four leaf images, and
-SLSA provenance for every asset and for the two manifest lists. `.github/actions/attest-and-sign`
-is the sequence; `docs/verifying-a-release.md` is what a consumer reads.
+Status: **accepted, and amended once.** Built. A tagged release publishes a Sigstore bundle per
+asset, a `cosign` signature on all six image references, a CycloneDX attestation on each of the four
+leaf images, and SLSA provenance for every asset and for the two manifest lists.
+`.github/actions/attest-and-sign` is the sequence; `docs/verifying-a-release.md` is what a consumer
+reads.
+
+**The amendment closes the gap this record left open**, and it is at the bottom under *Amendment: the
+crate graph moved inside the binary*. The paragraph below it, and the section *The SBOM, and the
+question it does not answer*, are kept as written rather than corrected in place - they are the
+argument the amendment acts on, and rewriting them would leave a reader unable to tell which half
+was decided when.
 
 **Nothing here signs source, gates a merge, or says an artefact is good.** The scope is one
 question - *are these bytes the ones this pipeline emitted* - and the rest of this record is mostly
@@ -221,8 +228,11 @@ Claimed, and checkable:
 - Each leaf image carries an inventory of its own filesystem, in two formats, generated from one
   scan.
 - The counts are asserted rather than assumed - six signatures, four attestations, one bundle per
-  asset - because `grep` matching nothing is a successful command and a loop over an empty list
-  reports success.
+  asset. **What they catch is a PARTIAL set**, three leaves where four were built, which is silent:
+  the loop signs what it finds and reports success. An empty set is caught a layer earlier by
+  something else - `grep` with no match exits non-zero under `set -eu` - so the counts are for the
+  case where the file is present, well formed, and short. An earlier version of this line credited
+  them with the empty case, which `set -e` already had.
 
 Not claimed:
 
@@ -238,3 +248,68 @@ Not claimed:
   distinction is the most load-bearing sentence on this page.
 - **Not that a transparency log is honest.** `cosign` checks an inclusion proof against Rekor. Rekor's
   guarantees are Rekor's.
+
+## Amendment: the crate graph moved inside the binary
+
+**The four shipped binaries are built with `cargo auditable`, so the crate list the SBOM reports is
+read out of the artefact rather than assembled beside it.** `nix/auditable.nix` is the mechanism;
+`syft`'s `cargo-auditable-binary-cataloger` is what reads it back. The section *The SBOM, and the
+question it does not answer* above is superseded on its central claim and kept for its argument.
+
+### Why not a document generated from `Cargo.lock`
+
+That was the obvious option and it is wrong twice.
+
+**It is a checked claim rather than a construction.** A CycloneDX file generated beside a binary can
+drift from it - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
+document says so. A section *inside* the executable cannot drift from the executable. This
+repository's own rule is *prefer unrepresentable to checked*, and `Secret` and `TimeRange` are that
+rule applied to values; this is the same move applied to provenance.
+
+**And it would be the wrong list.** `Cargo.lock` records what cargo RESOLVED, not what the linker
+KEPT. `sutura-cli` links the engine only, while `libduckdb-sys` and the BigQuery `wire` feature put
+`ureq`, rustls and `ring` into the resolve graph for a binary that links none of them - an argument
+`deny.toml` has carried at length for longer than this record has existed. A workspace-wide document
+names all three, and errs in the direction that matters: it overstates what ships. Scoping it to
+`--package sutura-cli` narrows that and does not fix it, because a feature-gated dependency is still
+in the resolve.
+
+### What it cost
+
+**Nothing in `Cargo.lock` and nothing at run time.** `cargo-auditable` is a build-time tool from the
+locked nixpkgs, on `nativeBuildInputs` of the final build only. The section it adds is a compressed
+crate list - kilobytes.
+
+**The dependency closure is still shared.** The tool is deliberately NOT added to the args that feed
+`crane.buildDepsOnly`, because that derivation has to stay byte-identical to the one every check
+reuses. It does not need to be: `cargo auditable` works by setting `RUSTC_WORKSPACE_WRAPPER`, which
+by construction applies to workspace members and not to registry dependencies.
+
+**One correctness trap, found by reading crane rather than by a failed build.** crane's default build
+command is `cargoWithProfile build`, a shell helper that inserts the profile flag after the FIRST word
+of the command. `cargoWithProfile auditable build` emits `cargo auditable --release build`, which is
+not a command. So the profile flag is computed in Nix, where the profile is already a parameter.
+
+**Every shipped binary's digest changes**, and so does every image digest. That is a new release
+either way, and the builds stay reproducible: the embedded data is a function of the lock file.
+
+### What is now claimed, and what still is not
+
+Claimed: the SBOM attached to each leaf image, and to the release, names the crates the compiler
+actually put into that binary, and the release job **asserts** it rather than trusting it - at least
+100 named entries and `datafusion` present by name. That assertion exists because the failure is
+silent in a specific way: if the section stops being produced, the scan still succeeds and still
+writes valid CycloneDX inventorying three files, and nothing downstream can tell that apart from a
+correct run. The floor is a floor and not a fixed count, because pinning the count would make a
+dependency bump fail on a correct tree.
+
+Not claimed, and each is a real edge:
+
+- **Not complete for non-Rust code.** The list is what cargo compiled. C that a build script
+  compiled - the vendored allocator, for one - is linked into the executable and is not a crate.
+- **Not a statement about the crates.** It says which versions were compiled in, not whether any has
+  an advisory. That is `cargo-deny`, and its verdict is a CI run rather than a property of the
+  artefact. `cargo audit --bin` reads this section and answers that question against a file in hand.
+- **Not verified locally for the four cross targets.** The change was built and the section confirmed
+  present on the native build; the cross legs cannot be built on the machine this was written on -
+  they need a Linux builder - so what verifies them is CI, which builds all four on every push.

@@ -243,6 +243,14 @@
           buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
         } // duckdb.env;
 
+        # The shipped binary carries its own dependency list: `cargo auditable` adds one ELF
+        # section naming the crates it was really built from, and `syft` reads it back out - so the
+        # SBOM cannot drift from the artifact, because it is inside it. `nix/auditable.nix` carries
+        # the argument for embedding rather than generating a sidecar, and the two correctness
+        # notes: why the profile flag is computed rather than taken from crane's helper, and why
+        # the tool goes on the final build and never on the args `buildDepsOnly` reads.
+        auditable = import ./nix/auditable.nix { inherit pkgs; };
+
         # The two profiles we ship.
         #
         # `release` is the default and is cheap to build on purpose (thin LTO, 16 codegen
@@ -321,6 +329,8 @@
             cargoExtraArgs = "--package sutura-cli";
             # Tests run as their own check below, sharing the same artifacts.
             doCheck = false;
+          } // auditable.toolFor args // {
+            cargoBuildCommand = auditable.buildCommand profile;
           });
 
         sutura = nativeFor "release";
@@ -373,6 +383,12 @@
             cargoArtifacts = crossLib.buildDepsOnly args;
             # One package, and the target. Same reasoning as `nativeFor`.
             cargoExtraArgs = "--package sutura-cli --target ${target}";
+            # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
+            # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
+            # that RUNS during the build - `strictDeps = true` above makes that distinction
+            # load-bearing rather than stylistic.
+          } // auditable.toolFor args // {
+            cargoBuildCommand = auditable.buildCommand profile;
           });
 
         # Nix system -> Rust target triple. Needed because the alias below must be named
