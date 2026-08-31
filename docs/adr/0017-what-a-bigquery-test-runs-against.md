@@ -759,3 +759,42 @@ then the key is the cost of the evidence, and this paragraph is its expiry.
   record did not say so. The workforce cell's record must say enough that a second person can decide
   whether the claim is repeatable, and it must state the audience answer above as a finding, not as an
   assumption.
+
+## Sixth amendment, 2026-08-31: the two-principal cell's two prerequisites are now provisioned
+
+**Status of the amendment: accepted.** The fifth amendment said the two-principal cell was "decided
+and not built" because it needed two things "neither this repository nor an agent can provision,
+because both are live-account work with a human owner": a second (and third) service-account key, and
+a row-level grant at the source whose per-principal rows are written down. **The test-infrastructure
+PR ([#106](https://github.com/telekom/sutura/pull/106)) now provisions exactly those two, through the
+pulumi stack, so that paragraph's blocker is spent.**
+
+### What is provisioned, and the one sentence above it that stopped being true
+
+- **A second and third service-account key.** The stack creates two principals (`sa_a`, `sa_b`) and
+  exports their keys; `just infra-set` places them in the `bq-test` environment as
+  `SVC_SUTURUA_BQ_PRINCIPAL_A` and `SVC_SUTURUA_BQ_PRINCIPAL_B`, kept apart from the CI key the same
+  way every key here is kept apart from the tree.
+- **A row access policy whose per-principal rows are written down.** Two first-class
+  `RowAccessPolicy` resources on the stack's `fact_events` table grant `sa_a` the rows where the
+  grouping column equals principal A's value and `sa_b` the rows where it equals B's - disjoint by
+  construction, with the predicate spelling the entitlement so "entitled to" is a check against the
+  policy text and not a comparison of two numbers. The exact row values stay config (they are never a
+  committed identifier), which is the same rule the fifth amendment applied to the values.
+
+What the fifth amendment said the cell **needed to exist** therefore now exists, and the cell is no
+longer blocked on provisioning. What is still required is the cell itself: an `#[ignore]`d leg in the
+existing `bigquery-acceptance` suite that executes the same query as principal A and as principal B
+and asserts each reads exactly the rows its policy grants - the second row of the fifth amendment's
+table, made real. That leg is the subject of the follow-up PR on top of this one; it needs no new
+job, because the venue is already CI in-repo only.
+
+### What the workforce cell needs that this does not provide
+
+None of the above touches the workforce row of the table. Its blocker is not a missing credential but
+the **audience question** the fifth amendment carried: whether the identity provider will mint an ID
+token whose audience is a third party's provider at all. A service-account key and a workload pool
+cannot answer that - the subject is a person, not a key - so it stays the one venue with no gate and
+no run, owned by the enterprise-IdP half ([#105](https://github.com/telekom/sutura/issues/105)). This
+amendment changes nothing about it; it is recorded here so the two venues are not elided into one
+"identity is provisioned now".
