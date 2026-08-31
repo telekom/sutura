@@ -1,0 +1,8 @@
+# Real stack config carries project/pool/principal identifiers and OIDC client ids -
+# disclosure on this public repo. Only Pulumi.example.yaml is tracked.
+Pulumi.*.yaml
+!Pulumi.example.yaml
+!Pulumi.yaml
+
+# Never commit key material pulled from `pulumi stack output --show-secrets`.
+*.key.json
