@@ -2978,6 +2978,9 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 <h2 id="unreleased">Unreleased<a class="headerlink" href="#unreleased" title="Permanent link">&para;</a></h2>
 <h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
 <ul>
+<li>Answer every file's licence mechanically, per the REUSE specification (#101)</li>
+<li><strong>ci</strong>: A curated licence review, with the config written here rather than cloned (#102)</li>
+<li><strong>release</strong>: The SBOM comes out of the binary, not out of Cargo.lock (#98)</li>
 <li><strong>federation</strong>: Execute a two-source question end to end (#89)</li>
 <li><strong>bigquery</strong>: A BigQuery source executes as the asking subject (issue 87) (#93)</li>
 <li><strong>serve</strong>: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)</li>
@@ -3046,6 +3049,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 </ul>
 <h3 id="ci">CI<a class="headerlink" href="#ci" title="Permanent link">&para;</a></h3>
 <ul>
+<li><strong>release</strong>: Sign and attest every published artefact (#97)</li>
 <li>Run all workflows on the rust-mcp larger runner (#96)</li>
 <li><strong>docs</strong>: A text-only citation gate, so a prose-only PR stops paying 15m45s (#32)</li>
 </ul>

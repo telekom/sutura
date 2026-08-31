@@ -3446,6 +3446,109 @@ is decided, and the <code>data_systems:</code> axis of <code>crates/sutura-app/t
 entry for the reason the third amendment gives. <code>ClickHouse</code> and <code>Postgres</code> null placement is still
 answered by nothing: both are rendered and parse-checked and neither has ever executed, so their arm of
 the table above is read off documented behaviour rather than measured. And identity is untouched.</p>
+<h2 id="fifth-amendment-2026-08-31-where-each-identity-claim-is-proven">Fifth amendment, 2026-08-31: where each identity claim is proven<a class="headerlink" href="#fifth-amendment-2026-08-31-where-each-identity-claim-is-proven" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> What every earlier amendment here establishes - and it is worth
+saying once rather than scattered - is <em>accepted, and correct for one identity</em>: a service-account key
+is <code>SharedServiceUser</code>, so every acceptance run to date proves the product for a single identity and
+nothing about who asked. This amendment settles <strong>where each identity claim is proven</strong>, and it is the
+decision issue #81 records; it exists only in that conversation until now.</p>
+<p>It <strong>amends the first amendment's conclusion</strong> in the same way that amendment amended the original
+decision: CI is no longer the place the <em>two-subject</em> identity claim is refused from. The first
+amendment made room for a service-account key in CI; this one decides that a <em>second</em> key, and a genuine
+row-grant mechanism at the source, belong there too. What stays refused from CI is the thing no CI
+runner can supply - a <strong>workforce</strong> identity, which is a representation of a person and needs single
+sign-on. The venue for that is a developer's own machine, one-off, and recorded.</p>
+<h3 id="the-decision-four-venues-four-claims">The decision: four venues, four claims<a class="headerlink" href="#the-decision-four-venues-four-claims" title="Permanent link">&para;</a></h3>
+<table>
+<thead>
+<tr>
+<th>Venue</th>
+<th>What runs there</th>
+<th>What it is allowed to claim</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>CI, every run, every contributor</strong></td>
+<td><strong>Fakes</strong> at the port (the house rule - ports get fakes, not mocked HTTP)</td>
+<td>Every outcome the port can produce, including each refusal</td>
+</tr>
+<tr>
+<td><strong>CI, in-repo runs only</strong></td>
+<td>The acceptance leg, on a <strong>service-account key</strong> in an environment secret</td>
+<td><code>BigQuery</code> accepts what we generate, and the rows agree with the engine</td>
+</tr>
+<tr>
+<td><strong>CI, in-repo runs only</strong></td>
+<td>Two distinct principals against a row access policy</td>
+<td><em>Two principals, two answers</em> - the mechanism, not the identity class</td>
+</tr>
+<tr>
+<td><strong>A developer's machine, one-off</strong></td>
+<td><strong>Workforce</strong> impersonation with a real person</td>
+<td>That a human subject's own identity reaches the source</td>
+</tr>
+</tbody>
+</table>
+<h3 id="what-each-cell-required-and-which-are-now-true">What each cell required, and which are now true<a class="headerlink" href="#what-each-cell-required-and-which-are-now-true" title="Permanent link">&para;</a></h3>
+<p><strong>The fakes cell is the oldest and still holds.</strong> The wire is exercised against a fake
+[<code>transport::JobTransport</code>] and the broker against a fake [<code>StsExchange</code>] - a fake implements the port,
+never a documented HTTP layer, so a test can never assert our own request bytes back to us. Nothing in
+this amendment changes it; it is here because a decision about venues starts with the one venue already
+settled.</p>
+<p><strong>The acceptance cell is built.</strong> The first amendment's job, the third and fourth amendments' corpus,
+all green on 2026-08-31 in the <code>bq-test</code> environment. It is the second row of the table.</p>
+<p><strong>The two-principal cell is decided and not built.</strong> What it must show is not that two askers get
+<em>different</em> answers but that each reads <strong>what it is entitled to read</strong> - a row access policy grants the
+two principals differently, and each answer is checked against its principal's own entitlement. It
+needs two things neither this repository nor an agent can provision, because both are live-account work
+with a human owner:</p>
+<ul>
+<li>a <strong>second service-account key</strong> in the <code>bq-test</code> environment, kept apart from the first the way the
+  first is kept apart from the tree; and</li>
+<li>a <strong>row-level grant</strong> at the source - a <code>BigQuery</code> row access policy - whose per-principal rows are
+  known and written down, so "entitled to" is a check against a documented shape and not a comparison
+  of two numbers.</li>
+</ul>
+<p>Until those exist the cell has no subject: an <code>#[ignore]</code>d leg whose credentials no environment holds
+would be exactly the scaffolding this record exists not to build, and a row-grant mapping guessed at is
+a granted-nothing check. When the two key generations and the policy are in place, the cell lands as a
+second identity in the existing <code>bigquery-acceptance</code> leg and needs no new job - the venue is already
+CI in-repo only.</p>
+<p><strong>The workforce cell is local because it can only be local, and it has never run.</strong> A workforce
+identity provider requires a client id and single-sign-on configuration, takes <code>subject_token_type:
+id_token</code>, and exists to represent a person; no CI runner can supply one at any price, so this is the
+one venue that is deliberately not in any gate. <strong>What still blocks it is a question this record must
+carry rather than assume:</strong> whether the identity provider will mint an ID token whose audience is a
+third party's provider at all - a claim no code and no repository secret can test, and the deciding
+unknown for per-subject <code>BigQuery</code>. Until a run answers it, the whole workforce path is unproven.</p>
+<h3 id="the-service-account-key-is-accepted-and-its-expiry-is-written-down">The service-account key is accepted, and its expiry is written down<a class="headerlink" href="#the-service-account-key-is-accepted-and-its-expiry-is-written-down" title="Permanent link">&para;</a></h3>
+<p>Every in-repo acceptance - the corpus and, later, the two-principal cell - runs on a <strong>long-lived
+service-account bearer</strong> held as a repository secret. That is accepted as the <em>for now</em>, with the cost
+named: rotation somebody has to remember, and a credential that leaks if the environment secret does.</p>
+<p><strong>The condition that ends it, stated so it is not left to rot:</strong> when rotation becomes a chore, or when
+a second project needs a credential, move the acceptance leg to Workload Identity Federation - GitHub
+mints an OIDC JWT under <code>permissions: id-token: write</code>, Google STS exchanges it for a short-lived token,
+and <strong>there is no key at all</strong>. A workload pool accepts <code>subject_token_type: jwt</code> with an attribute
+condition pinning the repository. Neither <code>id-token</code> nor a Google auth action appears in any workflow
+today, so this is greenfield; the moment that changes is a workflow diff with no key to rotate. Until
+then the key is the cost of the evidence, and this paragraph is its expiry.</p>
+<h3 id="the-limit-each-venue-must-state">The limit each venue must state<a class="headerlink" href="#the-limit-each-venue-must-state" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A fork's pull request gets no secret</strong>, so the acceptance job is absent on exactly the
+  contributions least likely to have been run locally. That is the first amendment's original objection
+  surviving in reduced form - the environment is the mechanism that makes the fork skip rather than
+  leak, and it cannot do more.</li>
+<li><strong>A key proves <code>SharedServiceUser</code> only.</strong> Every green here answers <em>does the service accept this and
+  do the rows agree</em> for one identity, and nothing about who asked. The <code>data_systems:</code> golden axis
+  gaining an entry, and even a green two-principal cell, do not promote a key to a subject.</li>
+<li><strong>A local-only verification has no gate on any path</strong>, so the workforce run must leave a record - the
+  date, the versions, and what was run. This is not hypothetical: a claim that some tier made a cell
+  "newly answerable" was wrong precisely because the only measurement was one terminal run and the
+  record did not say so. The workforce cell's record must say enough that a second person can decide
+  whether the claim is repeatable, and it must state the audience answer above as a finding, not as an
+  assumption.</li>
+</ul>
 
 
 
