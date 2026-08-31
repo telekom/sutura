@@ -37,11 +37,26 @@ jobs:
             fallback = true
       - uses: DeterminateSystems/magic-nix-cache-action@908b263ff629f4cc17666315b7fd3ec127c6244d # v14
 
-      # The `pulumi` CLI is a system binary - the pixi `infra` env only pins the Python SDK. A
-      # clean runner has no CLI, so install it explicitly; the python SDK then interprets __main__.py.
+      # The `pulumi` CLI is a system binary - the pixi `infra` env only pins the Python SDK (the
+      # pypi `pulumi` package bundles no CLI, and conda-forge has no pulumi CLI for all four of
+      # this workspace's platforms), and a clean runner has none. So install the CLI with its
+      # VERSION TAKEN FROM pixi.lock, resolved to the exact pinned SDK (3.260.0) rather than a
+      # by-hand version or a float: the CLI and the SDK it drives must agree. pixi itself comes
+      # from nix (`nix run .#pixi` below), per the repository's rule that a tool whose version
+      # changes what it reports is pinned by nix - and this resolution keeps the CLI at that pin.
+      - name: Resolve the pulumi version from pixi.lock
+        run: |
+          # The `infra` env's entry is the exact `name: pulumi` (not pulumi-gcp); take the
+          # `version:` line that follows it. Hardcoding 3.260.0 here would drift on the next
+          # `just update`; reading the lock makes the CLI follow the SDK.
+          PULUMI_VERSION="$(awk '/  name: pulumi$/{getline; sub(/^  version: /, ""); print; exit}' pixi.lock)"
+          test -n "$PULUMI_VERSION" || { echo "pixi.lock resolves no pulumi SDK" >&2; exit 1; }
+          echo "PULUMI_VERSION=$PULUMI_VERSION" >> "$GITHUB_ENV"
+          echo "resolved pulumi from pixi.lock: $PULUMI_VERSION"
+
       - uses: pulumi/actions@9519177da243fd32cab6d36e4af4b3a67103a21c # v6.0.1
         with:
-          pulumi-version: "^3.0"
+          pulumi-version: ${{ env.PULUMI_VERSION }}
 
       # The Pulumi provider authenticates with the deployment's own service-account key, from a
       # secret, written OUTSIDE the checkout - the same discipline the bq-test job uses.
