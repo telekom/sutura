@@ -464,14 +464,21 @@ infra-gl:
     pixi run --frozen -e gcloud gl
 
 # `pulumi preview` over the `test-infra/pulumi/google` stack, through the `infra` pixi env.
-# `cd` into the project so pulumi finds Pulumi.yaml; extra flags (e.g. `--stack dev`) flow
-# through as appended arguments.
+# The pixi task carries its own `cwd` (see pixi.toml), so no `cd` is needed here and the task
+# is correct from any directory. Extra flags (e.g. `--stack dev`) flow through as appended args.
+#
+# The state backend is a PROJECT-LOCAL file (`PULUMI_BACKEND_URL=file://.../test-infra/pulumi/google`,
+# into which pulumi writes a gitignored `.pulumi/`)
+# and the stack-secrets passphrase comes from `PULUMI_CONFIG_PASSPHRASE` (set in the machine's
+# `~/.config/sutura/env.sh` locally; a secret in CI). Nothing here reaches pulumi cloud.
 infra-preview *flags:
-    cd '{{ justfile_directory() }}/test-infra/pulumi/google' && pixi run -e infra preview {{flags}}
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra preview {{flags}}
 
 # `pulumi up` - apply the stack. Sample/verify before applying: `just infra-preview`.
 infra-up *flags:
-    cd '{{ justfile_directory() }}/test-infra/pulumi/google' && pixi run -e infra up {{flags}}
+    test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || (echo "infra: set PULUMI_CONFIG_PASSPHRASE (machine env or secret)" >&2 && exit 1)
+    PULUMI_BACKEND_URL="file://{{ justfile_directory() }}/test-infra/pulumi/google" pixi run -e infra up {{flags}}
 
 # The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
 #

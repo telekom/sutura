@@ -16,10 +16,23 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
+# The state backend is the `file://` URL in `PULUMI_BACKEND_URL` (set by the justfile or the
+# workflow), never pulumi cloud, and `PULUMI_CONFIG_PASSPHRASE` supplies the stack secrets
+# passphrase - so neither a cloud account nor a committed secret is involved. `.pulumi/`
+# holds the state and is gitignored. Both are required: pulumi refuses a file backend without
+# a passphrase, and this script refusing loudly beats a half-configured stack.
+test -n "${PULUMI_BACKEND_URL:-}" || { echo "config-from-env: set PULUMI_BACKEND_URL (file://</path/to/.pulumi>)" >&2; exit 1; }
+test -n "${PULUMI_CONFIG_PASSPHRASE:-}" || { echo "config-from-env: set PULUMI_CONFIG_PASSPHRASE" >&2; exit 1; }
+
 STACK="dev"
 if [ "${1:-}" = "--stack" ]; then
   STACK="$2"
 fi
+
+# With the file backend the state is keyed by stack name, so a stack that already exists must be
+# SELECTED rather than re-initialised (a unique name, as CI uses, is a fresh init).
+pulumi stack select --stack "$STACK" 2>/dev/null \
+  || pulumi stack init --stack "$STACK"
 
 # The values the program requires, in human order, and the one config key each maps to.
 declare -a REQUIRED=(
@@ -35,11 +48,12 @@ declare -a REQUIRED=(
 )
 
 for pair in "${REQUIRED[@]}"; do
-  var="${pair%%:*}"
+  cap="${pair%%:*}"
   key="${pair##*:}"
+  var="SUTURA_GOOGLE_${cap}"
   value="${!var:-}"
   if [ -z "$value" ]; then
-    echo "e2e-gcp: no \$SUTURA_GOOGLE_${var} - this stack cannot be previewed/up'd without it" >&2
+    echo "e2e-gcp: no \$SUTURA_GOOGLE_${cap} - this stack cannot be previewed/up'd without it" >&2
     exit 1
   fi
   pulumi config set --stack "$STACK" "sutura-google-test-infra:${key}" "$value"

@@ -64,6 +64,18 @@ written into this repository. Everything that runs in this project afterwards - 
 preview`, `pulumi up` - runs as the ADC principal, so it can only create the resources that
 principal is allowed to create.
 
+## No pulumi cloud: the local file backend
+
+`preview`/`up` never talk to pulumi's cloud or a remote bucket. The state backbone is a
+**`file://` URL** the justfile/workflow sets (`PULUMI_BACKEND_URL` → `<project>/.pulumi`,
+gitignored) and stack-secrets are encrypted by a **`PULUMI_CONFIG_PASSPHRASE`** held in the
+machine's `~/.config/sutura/env.sh` locally and as a `secret` in the `e2e-gcp` environment in
+CI. Both are refused loudly when unset. `--local` as a CLI flag does not exist on the pinned
+pulumi, which is why the backend travels as an environment variable rather than a flag.
+
+CI mints a **per-run stack name** (`e2e-gcp-<run_id>-<run_attempt>`) so parallel runs never
+touch the same local state.
+
 Then preview before applying, because this program is a scaffold you run, not a proof:
 
 ```sh
