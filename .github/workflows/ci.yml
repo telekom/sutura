@@ -236,6 +236,13 @@ jobs:
       - name: Structural gates
         run: nix build .#checks.x86_64-linux.hygiene -L
 
+      # UNCONDITIONAL, like the structural gates above and for the same reason: it judges every
+      # file, so gating it on the `rust` classification would let a docs or workflow file arrive
+      # attributed to nobody. It is seconds - no cargo, no dependency closure - so there is
+      # nothing to save by skipping it.
+      - name: Licensing
+        run: nix build .#checks.x86_64-linux.reuse -L
+
 
       - name: Format
         if: steps.classify.outputs.rust == 'true'

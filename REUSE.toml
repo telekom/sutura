@@ -1,0 +1,96 @@
+# Licensing, per file, in the shape the REUSE specification defines.
+#
+# WHY THIS EXISTS. `LICENSE` says the project is Apache-2.0 and `VENDOR.md` says which trees are
+# not. Both are prose: a tool that has to answer "what licence governs this file" cannot read
+# either, and neither can a person who received one file rather than the repository. REUSE makes
+# that answerable mechanically, and `reuse lint` is what keeps the answer complete - a file added
+# with no licence is a failing check rather than a discovery made later by a compliance scan.
+#
+# WHY A `REUSE.toml` RATHER THAN A HEADER IN EVERY FILE, because that is the trade this file IS.
+#
+# A per-file header is REUSE's own preferred form, and its advantage is real: a file copied out of
+# this repository carries its licence with it, which a central table cannot do. It was declined
+# here, and not to save typing - three of the four largest file groups cannot take a header at all:
+#
+#   * 420 `.snap` files are `insta` snapshots. They open with a `---` block `insta` PARSES and
+#     REWRITES on every accepted change, so a comment above it is either deleted or breaks the
+#     parse. There is no comment syntax for the rest of the file.
+#   * 100 of 155 markdown files open with YAML frontmatter that mkdocs reads. An HTML comment
+#     before it stops it being frontmatter, and the page loses its title.
+#   * the vendored C and Rust already carry upstream's own headers, and rewriting those is the one
+#     thing a vendored tree must never do.
+#
+# So a header-everywhere policy would have needed three exceptions listed in a file exactly like
+# this one, plus a mechanical edit to 485 files. The annotations below are that file without the
+# edit. `reuse lint` treats both forms as compliant, and the specification is explicit that it is.
+#
+# WHAT IS LOST, stated because it is the cost and not nothing: a `.rs` file lifted out of
+# `crates/` into another repository arrives with no licence text in it. Anyone doing that is
+# already reading `VENDOR.md`'s rules for the reverse direction, and the answer is here.
+#
+# ORDER IS LOAD-BEARING. Where two annotations match one file, the LAST one wins - so the catch-all
+# comes first and every narrowing block comes after it. Adding a vendored tree means appending a
+# block, never editing the catch-all. VERIFIED rather than assumed, against `reuse` 6.2: a
+# three-file tree with `**`, `sub/**` and `sub/deep/back.md` resolves to Apache-2.0, MIT and
+# Apache-2.0 respectively, read back out of `reuse spdx`.
+#
+# **WHAT THE CATCH-ALL COSTS, and it is the one thing to know before trusting `checks.reuse`.**
+# Because `**` matches everything, no file can be unattributed - so the lint cannot fail on a new
+# file, and **a newly vendored third-party file is silently attributed to the sutura authors** until
+# somebody appends a block for it. The check holds this declaration complete and well formed; it
+# does not police whether what it says is true. `VENDOR.md` is where a copied tree gets recorded,
+# and keeping the two in step is a review question rather than a gate - the obvious gate, "every
+# path VENDOR.md names needs a block here", is wrong, because most of what that file lists is
+# recorded as rewritten rather than copied and is therefore correctly ours.
+version = 1
+
+SPDX-PackageName = "sutura"
+SPDX-PackageSupplier = "the sutura authors <https://github.com/telekom/sutura>"
+SPDX-PackageDownloadLocation = "https://github.com/telekom/sutura"
+
+# EVERYTHING, first. The project is Apache-2.0 and the overwhelming majority of these files are
+# first-party, so the default is the true statement and the exceptions below are the short list.
+#
+# `precedence = "aggregate"` means a file's OWN header wins where it has one. That is what makes
+# this block safe to point at the whole tree: it fills gaps rather than overriding statements, so
+# a vendored file's upstream header is still the authority on that file even before the narrowing
+# blocks below repeat it.
+[[annotations]]
+path = "**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the sutura authors"
+SPDX-License-Identifier = "Apache-2.0"
+
+# The vendored allocator wrapper: the two Rust crates around mimalloc. `VENDOR.md` records the
+# upstream, the commit, the date and the four local changes; this records the licence in the form a
+# tool reads. MIT, and the copyright line is upstream's own from `LICENSE.txt`, not a guess.
+[[annotations]]
+path = "vendor/mimalloc_rust/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2019 Octavian Oncescu"
+SPDX-License-Identifier = "MIT"
+
+# AFTER the block above, deliberately: the C amalgamation is a different upstream with a different
+# copyright holder inside that tree, and the last matching annotation is the one that applies.
+[[annotations]]
+path = "vendor/mimalloc_rust/libmimalloc-sys/c_src/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "2018-2025 Microsoft Corporation, Daan Leijen"
+SPDX-License-Identifier = "MIT"
+
+# The mirrored skill library: 20 skills imported as-is under the non-discoverable tier, each with
+# its own `## Provenance` block that `cargo xtask check-skills` requires. MIT, per `VENDOR.md`.
+#
+# The tier's own `README.md` is first-party and is put back below, which is the same
+# last-one-wins mechanism the two blocks above use.
+[[annotations]]
+path = ".agents/skill-library/**"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "Addy Osmani and the agent-skills contributors"
+SPDX-License-Identifier = "MIT"
+
+[[annotations]]
+path = ".agents/skill-library/README.md"
+precedence = "aggregate"
+SPDX-FileCopyrightText = "the sutura authors"
+SPDX-License-Identifier = "Apache-2.0"

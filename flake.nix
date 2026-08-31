@@ -251,6 +251,13 @@
         # the tool goes on the final build and never on the args `buildDepsOnly` reads.
         auditable = import ./nix/auditable.nix { inherit pkgs; };
 
+        # The licensing gate and the tool it runs, from one expression so `checks.reuse` and
+        # `apps.reuse` cannot resolve to two versions. `src = ./.` and NOT the filtered source:
+        # this gate judges every file, and crane's filter keeps only Cargo inputs - against it the
+        # check would pass having read a fraction of the tree. `nix/reuse.nix` carries the rest,
+        # including what the check cannot catch.
+        licensing = import ./nix/reuse.nix { inherit pkgs; src = ./.; };
+
         # The two profiles we ship.
         #
         # `release` is the default and is cheap to build on purpose (thin LTO, 16 codegen
@@ -647,6 +654,22 @@
             '';
           });
 
+          # Every file's licence, answerable by a tool. `nix/reuse.nix` carries the derivation and
+          # the argument - including, at length, the one thing this check CANNOT catch, which is a
+          # newly vendored file inheriting our licence from `REUSE.toml`'s catch-all.
+          #
+          # The NAME stays here rather than moving with the derivation: `xtask/src/workflows.rs`
+          # scans this file textually for the entries of this block, so a check whose name only
+          # exists in a module is a workflow reference that gate cannot verify.
+          #
+          # NOTE FOR WHOEVER EDITS A COMMENT IN THIS BLOCK, because it cost a debugging round:
+          # that scan counts braces PER LINE and does not skip comments when it does so. A comment
+          # containing an opening brace with no closing one - quoting this block's own header, for
+          # instance - pushes its depth accounting to 2, and every later entry then looks nested
+          # and is not collected. It fails loudly rather than silently, which is why this is a note
+          # and not a bug report, but the shape is worth knowing before writing an example here.
+          reuse = licensing.check;
+
           # The committed API reference pages under `docs/api/` are GENERATED from the library
           # crates' doc comments, and this FAILS when they fall behind: it regenerates them into a
           # temporary directory and byte-compares. The fix it names is `just api`.
@@ -895,6 +918,17 @@
         apps.rust-audit-info = {
           type = "app";
           program = "${pkgs.rust-audit-info}/bin/rust-audit-info";
+        };
+
+        # `reuse` on its own, so `just licences` and a host with nix but no dev shell reach the
+        # SAME pin `checks.reuse` uses - which is why the program comes off `licensing.tool` rather
+        # than off `pkgs` a second time: one expression, so the app and the check cannot resolve to
+        # two different versions. Not in pixi.toml - `cargo xtask check-pins` fails a tool named in
+        # both - and its version decides what it reports, which is this repo's stated reason for
+        # nix being the only pin for such a tool.
+        apps.reuse = {
+          type = "app";
+          program = "${licensing.tool}/bin/reuse";
         };
 
         # `just` itself, for the one workflow that needs the TASK LIST rather than a task.
