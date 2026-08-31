@@ -310,6 +310,31 @@ Not claimed, and each is a real edge:
 - **Not a statement about the crates.** It says which versions were compiled in, not whether any has
   an advisory. That is `cargo-deny`, and its verdict is a CI run rather than a property of the
   artefact. `cargo audit --bin` reads this section and answers that question against a file in hand.
-- **Not verified locally for the four cross targets.** The change was built and the section confirmed
-  present on the native build; the cross legs cannot be built on the machine this was written on -
-  they need a Linux builder - so what verifies them is CI, which builds all four on every push.
+- **Not complete for non-Rust code.** Repeated because it is the one most likely to be forgotten
+  when this list is quoted: the vendored allocator's C is in the executable and in no crate list.
+
+### What was measured, and the one thing that had to move to CI
+
+**The section is there.** `nix build .#sutura` on 2026-08-31, then `rust-audit-info` over the
+result: **263 crates**, `datafusion` among them. That is the reference reader, and it is what says
+`nix/auditable.nix` does anything at all.
+
+**`syft` could not be shown to read it locally, and the reason is worth writing down rather than
+hedging about.** On the machine this was written on the native binary is Mach-O, and `syft` named
+**one** component where `rust-audit-info` had just read 263 - including with the cataloger selected
+explicitly and with a directory scan rather than a file scan. The cause is in `go-rustaudit`, which
+`syft` uses: it locates the data by asking for a section named `.dep-v0`, and on Mach-O
+`cargo-auditable` does not put it under that name. **Nothing we ship is Mach-O**, so this is not a
+defect in the artefact - but it does mean the single thing `release.yml` depends on is observable
+only on a Linux target, and this machine cannot build one.
+
+**So the proof moved into CI, and specifically into the job that already builds those targets.**
+`ci.yml`'s `cross` job now runs both readers over each of the four shipped binaries on every pull
+request: `rust-audit-info` for *is the section there*, `syft` for *can the release path's reader
+parse it*, each with the same floor of 100 and the same named crate. Two tools because the
+interesting run is the one where the first passes and the second fails - and without both, that is
+indistinguishable from a build that stopped embedding.
+
+**That placement is the point rather than a detail.** Checking it only in `release.yml` means the
+same failure arrives as a red tag, after four cross builds and two manifest lists have been paid
+for, on a branch that has already merged.

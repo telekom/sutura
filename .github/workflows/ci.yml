@@ -832,3 +832,61 @@ jobs:
           file result-ci/bin/sutura
           # Not a silent cap: a green branch must not read as having validated what ships.
           echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary assertion and the container image are built on main, not here."
+
+      # DOES THE BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release path uses
+      # read it back out?
+      #
+      # `nix/auditable.nix` builds every shipped binary with `cargo auditable`, and `release.yml`
+      # depends on `syft` reading that section: the SBOM it publishes is a crate inventory only
+      # if this works. That dependency is the reason this check is HERE rather than only there.
+      # At release time the same failure is a red tag - after four cross builds and two manifest
+      # lists have been paid for - and the branch that broke it would already have merged.
+      #
+      # TWO TOOLS, because they answer two different questions and only the second one is what
+      # the release path needs:
+      #
+      #   * `rust-audit-info` proves the SECTION IS THERE. It is the reference reader, it is
+      #     format-agnostic, and if it fails the build stopped embedding.
+      #   * `syft` proves the section is there AND that the release path's reader can parse it.
+      #     `syft` goes through `go-rustaudit`, which finds the data by looking for a section
+      #     named `.dep-v0`, and that is an ELF-shaped question - these four targets are the
+      #     ELF ones that ship.
+      #
+      # **This check exists because the local equivalent could not be run.** On the machine this
+      # was written on the native binary is Mach-O: `rust-audit-info` read 263 crates out of it
+      # and `syft` read NONE, because `go-rustaudit`'s Mach-O path looks for a section name
+      # `cargo-auditable` spells differently there. That is not a defect in anything we ship - no
+      # Mach-O artefact is published - but it does mean the one thing `release.yml` relies on is
+      # only observable on a Linux target, which is what this job already builds four of.
+      #
+      # A FLOOR of 100 rather than a count, for the reason `release.yml` gives at its own
+      # assertion: the exact number moves with every dependency bump, and what is being checked
+      # is the difference between a list of crates and no list at all.
+      - name: The dependency list is embedded, and readable
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          set -eu
+          embedded="result-ci/bin/sutura"
+
+          # The reference reader first: if this fails, nothing downstream is worth checking.
+          nix run .#rust-audit-info -- "$embedded" > audit-info.json
+          crates="$(grep -c '"name":' audit-info.json || true)"
+          printf '%s: rust-audit-info read %s crate(s)\n' "$TARGET" "$crates"
+          if [ "${crates:-0}" -lt 100 ]; then
+            echo "::error::${TARGET}: rust-audit-info read ${crates} crate(s) from the binary, expected at least 100 - the cargo auditable section is missing, so nix/auditable.nix is not doing anything"
+            exit 1
+          fi
+
+          # And the reader the release path actually uses, against the same bytes.
+          nix run .#syft -- scan "file:${embedded}" -o "cyclonedx-json=binary.cdx.json"
+          named="$(grep -c '"name":' binary.cdx.json || true)"
+          printf '%s: syft named %s component(s)\n' "$TARGET" "$named"
+          if [ "${named:-0}" -lt 100 ]; then
+            echo "::error::${TARGET}: syft named ${named} component(s), expected at least 100 - the section is present (rust-audit-info read ${crates}) but syft cannot parse it, so release.yml would publish an SBOM that inventories files instead of crates"
+            exit 1
+          fi
+          if ! grep -q '"datafusion"' binary.cdx.json; then
+            echo "::error::${TARGET}: syft's inventory does not name datafusion, which this binary links"
+            exit 1
+          fi

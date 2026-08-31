@@ -886,6 +886,17 @@
           program = "${pkgs.syft}/bin/syft";
         };
 
+        # The REFERENCE reader for the dependency list `cargo auditable` embeds - see
+        # `nix/auditable.nix`. `ci.yml`'s cross job runs it beside `syft` on every shipped
+        # target, and it is a second tool rather than a redundant one: this one answers "is the
+        # section there", `syft` answers "can the release path's reader parse it". A run where
+        # the first passes and the second fails is the interesting one, and without both there
+        # is no way to tell it from a build that stopped embedding.
+        apps.rust-audit-info = {
+          type = "app";
+          program = "${pkgs.rust-audit-info}/bin/rust-audit-info";
+        };
+
         # `just` itself, for the one workflow that needs the TASK LIST rather than a task.
         #
         # `docs.yml` runs `.github/scripts/check-task-citations.sh`, which checks every
