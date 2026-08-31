@@ -1240,6 +1240,8 @@
       
         
       
+        
+      
     
     
     
@@ -1745,6 +1747,34 @@
     
   
     What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
   
 
     
@@ -2744,8 +2774,8 @@ internal that a stable surface can grow behind.</p>
 <tr>
 <td>15</td>
 <td><code>feat/bigquery-adapter</code></td>
-<td>8 - <strong>done</strong>; the fixture decision is <strong>made</strong>, <code>adr/0017</code></td>
-<td><strong>MOSTLY DONE</strong> - the fourth dialect, its 84 goldens, the adapter, the source declaration and the registry entry. <strong>The WIRE is not built</strong>: no <code>JobTransport</code> reaches the endpoint, nothing links the crate, and 0017 says the change that writes it is the change that can first verify it</td>
+<td>8 - <strong>done</strong>; the fixture decision is <strong>made</strong>, <code>adr/0017</code>; the dependency decision is <strong>made</strong>, <code>adr/0018</code></td>
+<td><strong>MOSTLY DONE</strong> - the fourth dialect, its 88 goldens, the adapter, the source declaration, the registry entry, and now the WIRE: <code>jobs.query</code> over <code>ureq</code> behind a default-off feature, plus a credential port. <strong>A statement generated here IS now accepted by BigQuery</strong> - three tests green on 2026-08-30 against a real dataset, and <code>adr/0017</code>'s amendment puts the repeat in CI on a GitHub environment. <strong>What is still missing is the WIDER leg</strong>: this is one hand-built <code>SUM</code>, not the corpus compared against the engine (#78's importer shape), and identity is untouched. Nothing links the crate, and <code>sutura-serve</code> still refuses <code>kind: bigquery</code></td>
 </tr>
 <tr>
 <td>16</td>

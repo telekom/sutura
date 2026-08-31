@@ -1224,6 +1224,8 @@
       
         
       
+        
+      
     
     
     
@@ -1729,6 +1731,34 @@
     
   
     What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
   
 
     
@@ -3782,14 +3812,19 @@ like.</p>
 <li><strong>No metrics or trace export.</strong> A span per request exists and is rendered into the log, which is
   what makes one request's lines findable. Exporting it is a decision about a backend, a sampling
   rate and an egress path, and none of those has been made.</li>
-<li><strong>No client TLS, and nothing to attach it to.</strong> Mutual TLS <em>to</em> a metadata provider or <em>to</em> a data
-  source is a real requirement and it has no consumer yet: the only <code>SemanticCatalog</code> adapter reads a
-  directory, both <code>Warehouse</code> adapters read local files, and no crate here holds an HTTP client, a
-  socket or a URI type. A configuration group for it would be a port with no adapter, which
-  <code>AGENTS.md</code> forbids for the reason it forbids a trait with no implementor. It arrives with the
-  first networked adapter - a <code>-postgres</code> or <code>-clickhouse</code> <code>Warehouse</code>, or a <code>-datahub</code>
-  <code>SemanticCatalog</code> - and the parsing and validation the inbound listener already does is what it
-  will be built out of.</li>
+<li><strong>No CONFIGURABLE client TLS, and this bullet is narrower than it used to be.</strong> It used to say no
+  crate here holds an HTTP client, and that stopped being true: <code>sutura-exec-bigquery</code>'s default-off
+  <code>wire</code> feature holds one - <code>ureq</code> over rustls, with a compiled-in root set and <code>https_only</code> - so
+  outbound TLS to a data source exists and works. What does not exist is any way for a deployment to
+  <em>configure</em> it: no trust-store setting, no client certificate, no pinning, and no configuration
+  group at all. Two reasons, and the second is why it is not simply an omission. There is nothing to
+  attach one to yet: no composition root links that crate, <code>sutura-serve</code> refuses <code>kind: bigquery</code>
+  by name, and the two adapters a shipped binary can open read local files. And for that endpoint
+  the <em>absence</em> of configuration is the safer default - a compiled-in root set means the same binary
+  trusts the same authorities on every machine, and a settable host is a settable place to send a
+  bearer token, which <code>docs/adr/0018</code> records as a deliberate trade against local testability. A
+  configuration group arrives with the first networked adapter a deployment can actually open, and
+  the parsing and validation the inbound listener already does is what it will be built out of.</li>
 <li><strong>No mutual TLS inbound either.</strong> The listener above presents a certificate and verifies no
   client. Client-certificate authentication would be an identity, and this service has none to
   attach one to - see the first section.</li>

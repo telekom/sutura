@@ -905,6 +905,8 @@
       
         
       
+        
+      
     
     
     
@@ -1410,6 +1412,34 @@
     
   
     What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
   
 
     
@@ -2034,18 +2064,26 @@ What it contains is everything this adapter DECIDES:</p>
 <code>transport::FieldType</code> reads <code>DATE</code> and refuses <code>TIMESTAMP</code> and <code>DATETIME</code> - a timestamp arrives
 as epoch-seconds text the <code>Date</code> arm cannot parse, so either comes back <code>Unmapped</code> and fails the
 answer, which is the correct and loud outcome. A time column therefore has to be a <code>DATE</code> here.</p>
-<p>What it does not contain is the <strong>wire</strong>: <code>transport::JobTransport</code> is the seam, and no
-implementor of it ships. Two reasons, and the second is the one that decides it:</p>
+<p>The <strong>wire</strong> - one <code>transport::JobTransport</code> that speaks to the endpoint - is <code>wire</code>, behind
+the default-off <code>wire</code> feature. <code>docs/adr/0018</code> is the decision that produced it and prices what
+it costs; the two reasons it was absent are answered rather than repealed:</p>
 <ol>
-<li>An outbound HTTP stack plus a credential library is a large dependency addition to a workspace
-   that cross-compiles to musl and holds an exact licence allowlist.</li>
-<li><strong>Nothing in this repository can verify it.</strong> There is no <code>BigQuery</code> in a container, and
-   <code>docs/adr/0017</code> records that the acceptance leg runs on a developer's own project or nowhere.
-   An unverified network client that looks like the feature is worse than a seam that says it is
-   one - which is this repository's own rule about an overstated claim, applied to itself.</li>
+<li>The dependency addition turned out to be <strong>zero new packages in <code>Cargo.lock</code></strong>, measured:
+   <code>ureq</code> at the resolved version and features is already in the graph under <code>libduckdb-sys</code>. The
+   feature is default-off anyway, so which side of the build its TLS stack is compiled on stays a
+   decision a composition root makes in a manifest line.</li>
+<li><strong>Nothing in CI can verify it; a developer's own project now has.</strong> On 2026-08-30 the three
+   <code>#[ignore]</code>d tests in <code>tests/acceptance.rs</code> passed against a real dataset under a
+   service-account key - the first statement this repository generated to be accepted by
+   <code>BigQuery</code>. <strong>What that is, exactly:</strong> one hand-built <code>SUM</code> over a two-column fixture, so it
+   says nothing about a join, <code>COUNT(DISTINCT</code>, <code>CASE WHEN</code>, a <code>NULLIF</code> ratio or <code>ISOWEEK</code> - and
+   the last is one of the two constructs <code>docs/adr/0017</code> measured the parse check to be blind
+   about. The corpus-wide leg that record specifies is not built.</li>
 </ol>
-<p>So this crate is in AGENTS.md's <em>Built And Not Wired</em> section, and nothing here may be cited as an
-invariant. <code>sutura-serve</code> links no <code>BigQuery</code> adapter and refuses <code>kind: bigquery</code> by name.</p>
+<p>So this crate is still in AGENTS.md's <em>Built And Not Wired</em> section, and nothing here may be cited
+as an invariant. <code>sutura-serve</code> links no <code>BigQuery</code> adapter and refuses <code>kind: bigquery</code> by name,
+and the <code>data_systems:</code> axis of the golden matrix still gains no entry - a cell that has never
+executed reads as coverage.</p>
 <h1 id="identity">Identity<a class="headerlink" href="#identity" title="Permanent link">&para;</a></h1>
 <p><code>BigQueryWarehouse::IMPERSONATION</code> is <code>NoPlaceForASubject</code>, and <strong>that is honest for today
 rather than permanent.</strong> A shared service account reaching the dataset for everybody who asks is
@@ -2117,9 +2155,12 @@ adapter, and it buys two things that matter more than the indirection costs:</p>
   the posture agreement, the leg refusal, the rendering and the whole value mapping are exercised
   against a fake that returns rows, which is what <em>ports get fakes, not mocked HTTP</em> asks for.</li>
 <li><strong>The dependency decision is isolated to one implementor.</strong> An outbound HTTP stack plus a
-  credential library is a large addition to a workspace that cross-compiles to musl and gates
-  licences exactly, and it belongs in the change that can first verify it against a real endpoint.
-  Nothing in this repository can do that - see the crate documentation.</li>
+  credential source is a real addition to a workspace that cross-compiles to musl and gates
+  licences exactly, and it arrives in exactly one place: <code>crate::wire</code>, behind the crate's
+  default-off <code>wire</code> feature. <code>docs/adr/0018</code> prices it. The sentence that kept this seam empty for
+  a release - <em>nothing in this repository can verify a network client</em> - is now half spent: nothing
+  in CI can, and a developer's own project has. Three tests passed against a real dataset on
+  2026-08-30, over one hand-built <code>SUM</code> rather than the corpus.</li>
 </ul>
 <p><strong>What is deliberately NOT here: a method that takes a string.</strong> The request carries a statement
 this crate rendered from a plan, and there is no entry point a caller could hand SQL to.</p>
@@ -2316,6 +2357,614 @@ data and is billed, and validating one does neither. The endpoint really does di
 its request body carries a dry-run flag, and a dry run uses no slots and is not charged - which is
 what makes <code>Warehouse::dry_run</code> able to answer <code>PreFlight::Accepted</code> honestly here rather than
 inheriting the port's <code>NotAsked</code> default.</p>
+<h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
+<p>The WIRE: one <code>JobTransport</code> that speaks to a <code>BigQuery</code> endpoint over HTTP.</p>
+<p><strong>This is the seam <code>docs/adr/0017</code> left open, filled in by the decision <code>docs/adr/0018</code> records.</strong>
+Behind the crate's default-off <code>wire</code> feature, because what arrives with it is an outbound TLS
+stack and two of the four release triples are musl; that manifest argument is on the <code>ureq</code> entry
+in the workspace root and is not repeated here.</p>
+<h1 id="what-this-module-claims-and-what-it-does-not">What this module claims, and what it does not<a class="headerlink" href="#what-this-module-claims-and-what-it-does-not" title="Permanent link">&para;</a></h1>
+<p><strong>This HAS now been run against a real project, and that is new.</strong> On 2026-08-30 the three tests
+in <code>crates/sutura-exec-bigquery/tests/acceptance.rs</code> passed against a real dataset from a
+developer's machine, under a service-account key: the endpoint accepted a statement this repository
+generated, answered it as one complete page, and the numbers were the fixture's. <strong>It is the first
+time anything here has had a statement accepted by <code>BigQuery</code>.</strong></p>
+<p><strong>What that does NOT establish, stated first because a green run invites the larger reading.</strong> It
+is ONE hand-built <code>SUM</code> over a two-column fixture - no join, no <code>COUNT(DISTINCT</code>, no <code>CASE WHEN</code>,
+no <code>NULLIF</code> ratio, no <code>CAST(... AS FLOAT64)</code>, no <code>ISOWEEK</code> - and <code>ISOWEEK</code> plus <code>DATE_TRUNC</code>'s
+argument order are precisely the two things <code>docs/adr/0017</code> MEASURED the parse check to be blind
+about. The leg that record specifies is the corpus compared against the engine, and it is not
+built. So: <em>one statement accepted</em>, not <em>the corpus accepted</em>.</p>
+<p>What the suite beside this module proves is separate and unchanged: that <em>this code builds the
+request it says it builds and reads the answer it says it reads</em>, over documents that are not the
+service's.</p>
+<p>So: still <em>Built And Not Wired</em> in AGENTS.md, two lines further along. <code>sutura-serve</code> links no
+<code>BigQuery</code> adapter and refuses <code>kind: bigquery</code> by name, and the <code>data_systems:</code> axis of the
+golden matrix still gains no entry - one live statement is not a registered data system.</p>
+<h1 id="what-this-module-decides-and-every-one-of-them-is-pinned-by-a-type-or-by-a-test">What this module decides, and every one of them is pinned by a TYPE or by a test<a class="headerlink" href="#what-this-module-decides-and-every-one-of-them-is-pinned-by-a-type-or-by-a-test" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>A job is bounded in TIME and in MONEY, and neither bound is a constant here.</strong> <code>JobBounds</code>
+  carries both, <code>WireAgent</code> carries the <code>JobBounds</code>, and <code>BigQueryWire</code> can only be built from
+  a <code>WireAgent</code> - so there is no way to submit a job this deployment did not bound. <code>jobTimeoutMs</code>
+  is what cancels a job at the service (<code>timeoutMs</code> alone does NOT: it bounds how long the client
+  waits, and an expired one leaves the job running and billing), and <code>maximumBytesBilled</code> is what
+  stops a question scanning a petabyte - neither the row cap nor the one-page refusal bounds bytes
+  scanned.</li>
+<li><strong>The time bound is ONE ABSOLUTE DEADLINE PER CALL, not a timeout per HTTP operation, and this
+  bullet exists because the earlier shape was the second thing while claiming the first.</strong> A single
+  call does a token exchange and then a job; <code>timeout_global</code> on the agent gave each of them a full
+  budget of its own, so a review measured one ANSWER - <code>dry_run</code> then <code>execute</code>, two exchanges and
+  two jobs - at four independent budgets against a transport whose own request timeout is thirty
+  seconds. <code>CallDeadline</code> is opened once in <code>submit</code> and every operation below it gets only what
+  is LEFT: the exchange's socket, the job's socket, and the <code>timeoutMs</code>/<code>jobTimeoutMs</code> the request
+  carries. A budget spent before the job is <code>WireError::DeadlineSpent</code> rather than a send.
+  <strong>The limit, because it is the half a type here cannot reach:</strong> neither <code>Warehouse</code> nor
+  <code>JobTransport</code> takes a deadline, so the two calls one answer makes cannot share one - an
+  answer's worst case is <code>QueryDeadline::CALLS_PER_ANSWER</code> budgets. That arithmetic is done once,
+  in <code>QueryDeadline::within_request_timeout</code>, so a composition root gets a deadline that already
+  fits inside the request timeout instead of a number it has to divide correctly.</li>
+<li><strong>One page or a refusal.</strong> <code>jobs.query</code> answers one page, and completeness is stated as
+  <code>totalRows</code> beside the rows rather than by the rows alone. A <code>pageToken</code>, an incomplete job or a
+  delivered count short of the reported total is refused here - see <code>WireError::MoreThanOnePage</code>
+  and <code>WireError::NotComplete</code> - because to <code>answer()</code> a first page would read as <em>under the
+  cap, not truncated</em>, which is the exact row the row-cap invariant exists to hold. <strong>The cost, and
+  it is a real one:</strong> a wide result reaches a caller as <code>BigQueryError::Endpoint</code>, which the
+  transports answer as a <code>503</code> - a status that invites a retry that will produce the same page.
+  <code>ResultTooLarge</code> is what it means, and the port cannot say it: <code>Warehouse::working_set_exhausted</code>
+  is a predicate returning a ceiling in bytes precisely so an adapter cannot mint an arbitrary
+  <code>RefusalReason</code>. Widening that port is an architecture decision, so this is flagged rather than
+  taken, and AGENTS.md's row says so out loud.</li>
+<li><strong>The service's own result cache is turned OFF.</strong> Not for cost: an anchor that reproduces from a
+  cache has reproduced the cache, which is <code>differential.rs</code>'s own argument. And a cached answer
+  under a <em>shared</em> identity is shared across every asker, so leaving it on would put the
+  cross-user leak this crate refuses one layer below the code the per-subject step has to change.</li>
+<li><strong>The bearer's DESTINATION is a compile-time constant; its ROUTE is not, and the difference is
+  worth stating precisely</strong> because an earlier version of this header overstated it.
+  <code>HOST</code> cannot be configured, <code>https_only</code> is on and <code>max_redirects</code> is <code>0</code>, so nothing a
+  deployment writes can change <em>which service</em> receives the credential. What a deployment CAN
+  change is the path: <code>ureq</code>'s default config is <code>Proxy::try_from_env()</code>, so <code>HTTPS_PROXY</code> routes
+  these requests through an egress proxy. That is left ON deliberately - an egress proxy is a real
+  deployment shape here, <code>docs/enterprise-mirrors.md</code> is the generic form of it - and it is safe
+  because the tunnel is still TLS to <code>HOST</code> verified against a compiled-in root set, so a proxy
+  sees a hostname and no bytes. It is written out in <code>WireAgent::pinned</code> rather than inherited,
+  so it is a
+  decision a reviewer can disagree with.</li>
+<li><strong>Failure is derived from the RESULT SHAPE and never from <code>errors</code> being non-empty.</strong> The
+  endpoint documents that array as <em>"the first errors or warnings encountered"</em> and says entries
+  <em>"do not necessarily mean that the job has completed or was unsuccessful"</em> - so refusing on it
+  would decline successful queries that merely warned. What refuses is <code>jobComplete</code>, a
+  <code>pageToken</code>, an absent <code>totalRows</code>, and a delivered count that is not the reported total; the
+  reported <code>reason</code> is folded into whichever of those fires, because it is the best diagnostic
+  available at that point. See <code>complete</code>, and the limit stated there.</li>
+<li><strong>Every foreign string that reaches an error is bounded and filtered.</strong> The endpoint's
+  <code>reason</code> is kept and its free-text <code>message</code> is not, because a reason is a fixed vocabulary an
+  operator can act on and a message is unbounded text from another service heading for a log.
+  <code>credential::bounded</code> is the one function that does it, shared with the credential module.</li>
+</ul>
+<h1 id="what-is-deliberately-absent">What is deliberately absent<a class="headerlink" href="#what-is-deliberately-absent" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>Paging.</strong> A result bigger than one page is refused rather than assembled. <code>getQueryResults</code>
+  needs the job's <code>location</code> for a dataset outside the two multi-regions, and
+  <code>SourcePlacement::BigQuery</code> declares no <code>location</code> - <code>docs/adr/0017</code> says why that field is not
+  in this repository yet and that the change adding the wire is the one that decides it. <strong>This
+  change decides it by not needing it</strong>, and the cost is the refusal above.</li>
+<li><strong>A <code>location</code> on the request.</strong> Same reason, one size smaller.</li>
+<li><strong>Retries.</strong> A refused job comes back as <code>WireError</code> and reaches a caller as
+  <code>BigQueryError::Endpoint</code>, whose transport-facing status is a <code>503</code>. Retrying inside an adapter
+  would spend a caller's request timeout on a decision the caller cannot see.</li>
+<li><strong>Surfacing a warning on a result that IS complete.</strong> There is nowhere to put it: <code>RowSet</code> has
+  no field for it and this crate has no logging dependency, so adding one for a line nobody has
+  ever seen is a dependency decision this change does not take. Stated because a dropped warning
+  is exactly the kind of absence that reads as "there were none".</li>
+</ul>
+<h3 id="struct-querydeadline"><code>struct QueryDeadline</code><a class="headerlink" href="#struct-querydeadline" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">QueryDeadline</span>
+</span></code></pre></div>
+<p>How long a job may run, and how long the client waits for its answer.</p>
+<p><strong>A newtype rather than a constant, because the value belongs to the deployment.</strong> The setting that
+decides it is the one the transport in front of this service already uses -
+<code>server.request_timeout_seconds</code>, which ships as 30 - and a constant in this file would be a second
+copy of it that drifts the day somebody changes the first.</p>
+<p><strong>It is a SHARE of that setting rather than the setting itself</strong>, which review had to point out:
+one answer makes <code>Self::CALLS_PER_ANSWER</code> calls and each pays <code>CONNECT_MARGIN</code> on top of its
+own budget, so filling this with 30 gives a caller who waits 30 seconds a query that may still be
+running. <code>Self::within_request_timeout</code> is the constructor that does the division, and it is the
+one a composition root should reach for; <code>Self::parse</code> stays for a deployment stating a budget
+outright.</p>
+<h4 id="methods_7">Methods<a class="headerlink" href="#methods_7" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">budget</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>The whole budget, as a duration.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-31-1"><a id="__codelineno-31-1" name="__codelineno-31-1" href="#__codelineno-31-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">milliseconds</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kt">u64</span>
+</span></code></pre></div>
+<p>The deadline in milliseconds, which is the unit both request fields take.</p>
+<p><code>saturating_mul</code> rather than <code>*</code>, and it cannot saturate: <code>Self::MAX_SECONDS</code> times a
+thousand is far inside <code>u64</code>. Written that way because a bound that could wrap is a bound that
+could become zero, and zero is the one value <code>Self::parse</code> refuses.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-32-1"><a id="__codelineno-32-1" name="__codelineno-32-1" href="#__codelineno-32-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a deadline in whole seconds.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-33-1"><a id="__codelineno-33-1" name="__codelineno-33-1" href="#__codelineno-33-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">socket</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>How long a socket may stay open for a call that has spent none of its budget yet.</p>
+<p><strong>The backstop on the agent rather than the bound that holds.</strong> What a single operation is
+really allowed is <code>CallDeadline::socket(left)</code> over what is LEFT of the call's budget - see
+<code>CallDeadline</code>, and see the module header for why a per-operation timeout was not enough. This
+value is what the agent is configured with, so an operation that somehow reached the client
+without an override is still bounded.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-34-1"><a id="__codelineno-34-1" name="__codelineno-34-1" href="#__codelineno-34-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">within_request_timeout</span><span class="p">(</span><span class="n">request_timeout_seconds</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The largest deadline that keeps one ANSWER inside a transport's own request timeout.</p>
+<p><strong>The arithmetic a composition root would otherwise have to remember, and get wrong.</strong> The
+number to fill this from is <code>server.request_timeout_seconds</code>, which ships as thirty; what a
+caller wants is not that number but the share of it one call may spend, because an answer makes
+<code>Self::CALLS_PER_ANSWER</code> calls and each pays <code>CONNECT_MARGIN</code> on top of its own budget. So
+<code>within_request_timeout(30)</code> is ten seconds, and two calls of ten plus five is the thirty a
+caller was promised.</p>
+<p>A request timeout too short to leave anything is <code>UnusableBound::NoBudget</code> rather than a
+silently clamped value, because a deployment whose timeout cannot fit a query wants to be told
+so at startup.</p>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-bytesbilledceiling"><code>struct BytesBilledCeiling</code><a class="headerlink" href="#struct-bytesbilledceiling" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-35-1"><a id="__codelineno-35-1" name="__codelineno-35-1" href="#__codelineno-35-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BytesBilledCeiling</span>
+</span></code></pre></div>
+<p>The most a single job may be billed for scanning.</p>
+<p><strong>Sent as <code>maximumBytesBilled</code>, which is enforced at the service and is what makes it worth
+more than a client-side check.</strong> A job that would exceed it FAILS and is not charged. Nothing else
+in this repository bounds bytes scanned: <code>LIMIT 10001</code> bounds rows RETURNED, the one-page refusal
+bounds a page, and <code>MAX_ANSWER_BYTES</code> bounds what is read into memory - a question can satisfy
+all three and still scan a partitioned table end to end.</p>
+<h4 id="methods_8">Methods<a class="headerlink" href="#methods_8" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-36-1"><a id="__codelineno-36-1" name="__codelineno-36-1" href="#__codelineno-36-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">as_text</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">String</span>
+</span></code></pre></div>
+<p>The ceiling, as the request body writes it.</p>
+<p><strong>Text, because the endpoint writes and reads 64-bit integers as JSON strings.</strong> A number here
+would be silently truncated to a double by a strict reader at the far end.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-37-1"><a id="__codelineno-37-1" name="__codelineno-37-1" href="#__codelineno-37-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="n">bytes</span><span class="p">:</span><span class="w"> </span><span class="kt">u64</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableBound</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Parses a ceiling in bytes.</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="enum-unusablebound"><code>enum UnusableBound</code><a class="headerlink" href="#enum-unusablebound" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-38-1"><a id="__codelineno-38-1" name="__codelineno-38-1" href="#__codelineno-38-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnusableBound</span>
+</span></code></pre></div>
+<p>Why a bound this adapter was handed is not usable.</p>
+<h4 id="variants_5">Variants<a class="headerlink" href="#variants_5" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Zero</code> - Zero, which would refuse every question rather than bounding one.</li>
+<li><code>TooLarge</code> - Above what the endpoint accepts, or above what a bound is for.</li>
+<li><code>NoBudget</code> - A transport's request timeout too short to leave a job any budget at all.</li>
+</ul>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h3 id="struct-calldeadline"><code>struct CallDeadline</code><a class="headerlink" href="#struct-calldeadline" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-39-1"><a id="__codelineno-39-1" name="__codelineno-39-1" href="#__codelineno-39-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CallDeadline</span>
+</span></code></pre></div>
+<p>The instant one call into this transport has to be finished by.</p>
+<p><strong>One absolute deadline for the whole of one call, rather than a timeout per HTTP operation - and
+that distinction is the correction this type exists to carry.</strong> The previous shape put
+<code>timeout_global</code> on the agent, so EVERY request through it got the full budget independently: a
+single <code>JobTransport::run</code> does a token exchange and then a job, and both were allowed
+<code>deadline + CONNECT_MARGIN</code> of their own. A review measured the consequence at the answer level -
+four HTTP operations, each with its own budget, against a transport whose own request timeout is
+thirty seconds - and the five-second overrun this module claimed was false.</p>
+<p>So the budget is opened once per call and every operation gets only what is LEFT of it: the token
+exchange, the socket the job waits on, and the <code>timeoutMs</code> and <code>jobTimeoutMs</code> the request carries -
+which is what keeps the service cancelling at the instant the client stops waiting even when the
+exchange spent half the budget first. When nothing is left, the refusal comes before the send.</p>
+<p><strong>A monotonic <code>std::time::Instant</code> and not a wall clock</strong>, because a wall clock can step and a
+stepped deadline is either a job abandoned early or one that outlives its caller.</p>
+<p><strong>The limit, and it is the half this type cannot reach:</strong> one ANSWER calls the port twice -
+<code>Warehouse::dry_run</code> and then <code>Warehouse::execute</code> - and neither <code>Warehouse</code> nor <code>JobTransport</code>
+takes a deadline, so the two calls cannot share one. An answer's worst case is therefore
+<code>CALLS_PER_ANSWER</code> budgets rather than one, which is exactly why
+<code>QueryDeadline::within_request_timeout</code> exists: it does that arithmetic once so a composition root
+cannot get it wrong. Carrying one deadline across the port is an architecture decision, not a
+signature tweak.</p>
+<h4 id="methods_9">Methods<a class="headerlink" href="#methods_9" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-40-1"><a id="__codelineno-40-1" name="__codelineno-40-1" href="#__codelineno-40-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">opened</span><span class="p">(</span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">QueryDeadline</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a budget now.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-41-1"><a id="__codelineno-41-1" name="__codelineno-41-1" href="#__codelineno-41-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">opened_at</span><span class="p">(</span><span class="n">started</span><span class="p">:</span><span class="w"> </span><span class="nc">std</span><span class="p">::</span><span class="n">time</span><span class="p">::</span><span class="n">Instant</span><span class="p">,</span><span class="w"> </span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">QueryDeadline</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a budget that started at a named instant.</p>
+<p><strong>The canonical constructor, with <code>Self::opened</code> delegating to it</strong>, and it is public for one
+reason: a caller cannot otherwise construct a budget that is already spent, so the refusal at
+the end of one could not be reached from a test without sleeping through a real one.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-42-1"><a id="__codelineno-42-1" name="__codelineno-42-1" href="#__codelineno-42-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">remaining</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">Duration</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>What is left of the budget, or <code>None</code> when it is spent.</p>
+<p><code>None</code> rather than a zero duration, because zero means <em>no timeout</em> to the client underneath -
+so handing it on would turn a spent budget into an unbounded wait, which is the opposite of what
+this type is for.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-43-1"><a id="__codelineno-43-1" name="__codelineno-43-1" href="#__codelineno-43-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">socket</span><span class="p">(</span><span class="n">left</span><span class="p">:</span><span class="w"> </span><span class="nc">Duration</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Duration</span>
+</span></code></pre></div>
+<p>How long a socket may stay open for an operation with <code>left</code> of the budget remaining: that,
+plus connection setup.</p>
+<h4 id="implements_14">Implements<a class="headerlink" href="#implements_14" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code></p>
+<h3 id="struct-jobbounds"><code>struct JobBounds</code><a class="headerlink" href="#struct-jobbounds" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-44-1"><a id="__codelineno-44-1" name="__codelineno-44-1" href="#__codelineno-44-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">JobBounds</span>
+</span></code></pre></div>
+<p>What every job this adapter submits is bounded by.</p>
+<p>Two bounds in one value, because they are one decision: <em>how much of a deployment's time and money
+may one question spend</em>. A struct rather than two arguments so a call site cannot supply one and
+forget the other, and so <code>WireAgent</code> can carry them both.</p>
+<h4 id="methods_10">Methods<a class="headerlink" href="#methods_10" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-45-1"><a id="__codelineno-45-1" name="__codelineno-45-1" href="#__codelineno-45-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">deadline</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">QueryDeadline</span>
+</span></code></pre></div>
+<p>How long a job may run.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-46-1"><a id="__codelineno-46-1" name="__codelineno-46-1" href="#__codelineno-46-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">max_bytes_billed</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">BytesBilledCeiling</span>
+</span></code></pre></div>
+<p>The most one job may be billed for scanning.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-47-1"><a id="__codelineno-47-1" name="__codelineno-47-1" href="#__codelineno-47-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">deadline</span><span class="p">:</span><span class="w"> </span><span class="nc">QueryDeadline</span><span class="p">,</span><span class="w"> </span><span class="n">max_bytes_billed</span><span class="p">:</span><span class="w"> </span><span class="nc">BytesBilledCeiling</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Names both bounds. Neither has a default, for the reason <code>BigQueryWarehouse::new</code> gives about
+its own arguments: a defaulted deadline is a promise nobody made, and a defaulted ceiling is
+money somebody else pays.</p>
+<h4 id="implements_15">Implements<a class="headerlink" href="#implements_15" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h3 id="struct-wireagent"><code>struct WireAgent</code><a class="headerlink" href="#struct-wireagent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-48-1"><a id="__codelineno-48-1" name="__codelineno-48-1" href="#__codelineno-48-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">WireAgent</span>
+</span></code></pre></div>
+<p>The client every request in this crate goes through, with the four settings that matter PINNED BY
+THE TYPE rather than by a call site.</p>
+<p><strong>This newtype is the whole mechanism, and it exists because the previous shape was a convention.</strong>
+The settings below used to live in a free function returning a bare <code>ureq::Agent</code>, and both
+<code>BigQueryWire::new</code> and <code>credential::ApplicationDefault::read</code> accepted any agent - so a
+composition root writing <code>ureq::Agent::new_with_defaults()</code> got redirects on, plaintext allowed
+and no timeout, while every test passed because the tests all called the right function. A private
+field with one constructor is what <em>a newtype parses rather than validates</em> asks for: if an
+instance of this exists, the pins hold.</p>
+<p>It also carries the <code>JobBounds</code>, so the deadline that shapes the socket timeout and the deadline
+that goes into the request body are <strong>the same value</strong>. Two arguments could have disagreed.</p>
+<h4 id="methods_11">Methods<a class="headerlink" href="#methods_11" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-49-1"><a id="__codelineno-49-1" name="__codelineno-49-1" href="#__codelineno-49-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">bounds</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">JobBounds</span>
+</span></code></pre></div>
+<p>What every job through this client is bounded by.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-50-1"><a id="__codelineno-50-1" name="__codelineno-50-1" href="#__codelineno-50-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">pinned</span><span class="p">(</span><span class="n">bounds</span><span class="p">:</span><span class="w"> </span><span class="nc">JobBounds</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>The one constructor, and every non-default setting below is a decision:</p>
+<ul>
+<li><code>http_status_as_error(false)</code>, because the client's default turns a <code>4xx</code> into an error and
+  discards the body - and the body is where the endpoint says <em>which</em> refusal this is. Status is
+  read explicitly instead, in <code>refusal</code>.</li>
+<li><code>https_only(true)</code>, so a bearer token cannot leave over plaintext even if a URL somewhere
+  loses its scheme. <code>HOST</code> is already <code>https</code>; this is the second lock.</li>
+<li><code>max_redirects(0)</code>, so the credential has no second host to reach. <code>ureq-proto</code> also strips
+  <code>authorization</code> on a redirect, which was verified rather than assumed - so this is belt and
+  braces, and the belt is ours.</li>
+<li><code>timeout_global</code>, at the job's deadline plus <code>CONNECT_MARGIN</code>, so the socket cannot outlive
+  the job it is waiting for by more than connection setup.</li>
+<li><code>max_response_header_size</code>, because headers are read before the body's own limit applies.</li>
+<li><code>proxy(Proxy::try_from_env())</code>, which is the client's own default WRITTEN OUT rather than
+  inherited. An egress proxy is a legitimate deployment shape and the tunnel is still TLS to
+  <code>HOST</code> against a compiled-in root set, so what the environment chooses is the route and not
+  the destination. The module header states that distinction, because a previous version of it
+  claimed the stronger thing.</li>
+</ul>
+<h4 id="implements_16">Implements<a class="headerlink" href="#implements_16" title="Permanent link">&para;</a></h4>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h3 id="enum-wireerror"><code>enum WireError</code><a class="headerlink" href="#enum-wireerror" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-51-1"><a id="__codelineno-51-1" name="__codelineno-51-1" href="#__codelineno-51-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">WireError</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Why the endpoint did not answer with rows.</p>
+<p>Generic in the credential source's own error, for the reason <code>crate::BigQueryError</code> is generic
+in this one: a caller that knows which credential source is installed can still tell a missing
+file from a refused refresh, and erasing it here would be the information this whole chain of
+generics exists to keep.</p>
+<p><strong><code>ureq::Error</code> appears as a <code>#[source]</code> and never as a variant this type re-exports</strong>, which is
+the shape <em>Structured Errors</em> asks for at a boundary: the variant is ours, the chain still walks,
+and a caller who knows the transport can downcast. It is boxed because it is much larger than
+every other variant and <code>clippy::result_large_err</code> is on.</p>
+<h4 id="variants_6">Variants<a class="headerlink" href="#variants_6" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Credential</code> - No token could be produced, so nothing was sent.</li>
+<li><code>Expired</code> - A token was produced and its deadline had already passed.</li>
+<li><code>NoClock</code> - This process could not read a wall clock.</li>
+<li><code>DeadlineSpent</code> - This call's budget was gone before the job could be submitted.</li>
+<li><code>RequestNotSerializable</code> - The request could not be serialized.</li>
+<li><code>Unreachable</code> - The endpoint was not reached.</li>
+<li><code>Unreadable</code> - The endpoint answered and the answer could not be read.</li>
+<li><code>Refused</code> - The endpoint refused.</li>
+<li><code>NotADocument</code> - The answer was not the document a query response is.</li>
+<li><code>NotComplete</code> - The job had not finished when the endpoint answered.</li>
+<li><code>MoreThanOnePage</code> - The answer is one page of more than one.</li>
+<li><code>NoTotal</code> - A complete job that stated no total.</li>
+<li><code>NotATotal</code> - The total was not a number.</li>
+<li><code>NoSchema</code> - A complete job with rows and no schema to read them against.</li>
+<li><code>NotAScalar</code> - A cell that is neither a string nor a null.</li>
+</ul>
+<h4 id="implements_17">Implements<a class="headerlink" href="#implements_17" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="struct-bigquerywire"><code>struct BigQueryWire</code><a class="headerlink" href="#struct-bigquerywire" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-52-1"><a id="__codelineno-52-1" name="__codelineno-52-1" href="#__codelineno-52-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">BigQueryWire</span><span class="o">&lt;</span><span class="n">C</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>A <code>BigQuery</code> endpoint, reached over HTTP.</p>
+<p>Generic in its credential source rather than holding a boxed one, for the reason
+<code>crate::BigQueryWarehouse</code> is generic in its transport: there is one per process, it is chosen
+at composition, and a generic keeps the source's own error type visible in <code>WireError</code>.</p>
+<p>It holds a <code>WireAgent</code> and not a <code>ureq::Agent</code>, which is what makes the module header's claims
+properties of this type rather than of whichever function a composition root happened to call.</p>
+<h4 id="methods_12">Methods<a class="headerlink" href="#methods_12" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-53-1"><a id="__codelineno-53-1" name="__codelineno-53-1" href="#__codelineno-53-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">WireAgent</span><span class="p">,</span><span class="w"> </span><span class="n">credentials</span><span class="p">:</span><span class="w"> </span><span class="nc">C</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Opens a transport.</p>
+<p>The <code>WireAgent</code> is a parameter rather than something built here so it can be the same one
+the credential source refreshes through - one connection pool, one set of pins, and one
+<code>JobBounds</code> shared by the socket timeout and the request body.</p>
+<h4 id="implements_18">Implements<a class="headerlink" href="#implements_18" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>JobTransport</code></p>
+<h3 id="module-credential">Module <code>credential</code><a class="headerlink" href="#module-credential" title="Permanent link">&para;</a></h3>
+<p>Where the bearer token a job is submitted with comes from.</p>
+<p><strong>A second narrow port, for the reason <a href="crate::transport::JobTransport"><code>JobTransport</code></a> is one.</strong>
+The wire needs two things from a credential - a token that is usable right now, and whether a
+request carrying it has to name a quota project - and everything else about how a deployment
+authenticates is somebody else's decision. So <code>AccessTokens</code> is those two things, and the
+transport is generic in it.</p>
+<p>It is a port on the first day rather than a <code>String</code> field, so <em>which</em> credential shape a
+deployment holds is a choice of implementor. <code>Bearer</code> carries the deadline because a minted token
+has one, and <code>crate::BigQueryWarehouse</code>'s <code>IMPERSONATION</code> still says <code>NoPlaceForASubject</code> because
+nothing mints one.</p>
+<p><strong>What this is NOT, and the correction is review's rather than a hedge:</strong> this port is not yet the
+seam at which per-subject execution arrives as <em>merely another implementor</em>. Three signatures say
+so - <code>Warehouse::execute</code> takes a <code>&amp;Presented</code> and <code>BigQueryWarehouse</code> reads it only to call
+<code>deliverable</code>; <code>JobTransport::run</code> takes a <code>JobRequest</code> and nothing else; and <code>AccessTokens::bearer</code>
+takes a clock and a budget. So an implementation behind this port <strong>cannot select a credential for
+the presented subject and cannot tell two concurrent subjects apart.</strong> The step that builds
+per-subject execution has to carry the leg's subject or its credential context through one of those
+three interfaces, and which one is part of that change rather than something anticipated here.
+<code>docs/adr/0018</code> records it in the same words.</p>
+<h1 id="two-credential-kinds-as-one-closed-shape">Two credential kinds, as one closed shape<a class="headerlink" href="#two-credential-kinds-as-one-closed-shape" title="Permanent link">&para;</a></h1>
+<p><code>Credential</code> reads either of the two files a deployment can actually have, and <strong>which one it is
+is a closed two-variant shape rather than a struct of <code>Option</code>s.</strong> That matters for a reason
+stronger than tidiness: a document carrying <em>both</em> a refresh token and a private key is
+unrepresentable here, so there is no state in which it is ambiguous which flow will run or which
+credential material was used.</p>
+<table>
+<thead>
+<tr>
+<th>Kind</th>
+<th>Who holds it</th>
+<th>The exchange</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>authorized_user</code></td>
+<td>a developer, from <code>just gcloud-login</code></td>
+<td>trade a refresh token</td>
+</tr>
+<tr>
+<td><code>service_account</code></td>
+<td>CI, and a deployment</td>
+<td>sign an assertion and trade that</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Both are <code>SharedServiceUser</code> and neither is a step towards per-subject execution.</strong> One identity
+reaches the dataset for everybody who asks; on a laptop that identity is the developer and in CI it
+is a service account. <code>docs/adr/0017</code>'s amendment is where the decision to run the acceptance leg
+in CI on the second kind lives.</p>
+<p><strong>The signing costs no new dependency, which was verified rather than assumed.</strong> <code>ring</code> is already
+in the graph - it is <code>ureq</code>'s and <code>tokio-rustls</code>'s crypto provider - and it carries
+<code>RsaKeyPair::from_pkcs8</code> plus <code>RSA_PKCS1_SHA256</code>, which is exactly the primitive and exactly the
+key encoding a service-account key uses. <code>base64</code> is already resolved too. So <code>docs/adr/0018</code>'s
+446-to-446 measurement survives this, and the alternative that would have cost a package -
+<code>jsonwebtoken</code>'s <code>use_pem</code>, which pulls <code>simple_asn1</code> because its DER path wants <code>PKCS#1</code> while a
+service-account key is <code>PKCS#8</code> - was priced and refused.</p>
+<p><strong>What IS first-party here is the JWT's text, and that boundary is deliberate.</strong> <code>ring</code> computes the
+signature; this module base64url-encodes two JSON documents and joins them with dots.
+<code>docs/adr/0014</code> draws exactly that line when it argues for hand-writing a metrics exposition format
+and against hand-writing signature verification in the same breath: one is a text format, the other
+is cryptography. And this side SIGNS rather than verifies, which is where algorithm confusion does
+not live - the algorithm is a constant, not a field read off somebody else's document.</p>
+<h1 id="two-credential-shapes-exist-and-neither-is-built">Two credential shapes exist and neither is built<a class="headerlink" href="#two-credential-shapes-exist-and-neither-is-built" title="Permanent link">&para;</a></h1>
+<ul>
+<li>the <strong>metadata server</strong>, which is how a deployment on the provider's own compute gets a token
+  with no key at all. It is a plain unauthenticated <code>GET</code> and would cost nothing in dependencies -
+  the cheapest option available. It is out because <strong>nothing in this repository can verify it</strong>: it
+  exists only inside that provider's network, so building it would add an unexercised code path to
+  a module whose whole point is that it does not claim more than it has.</li>
+<li><strong>workload or workforce identity federation</strong>, which is the per-subject step and an architecture
+  decision with an owner outside this repository.</li>
+</ul>
+<h1 id="nothing-is-cached-and-both-the-decision-and-its-reason-were-wrong-once">Nothing is cached, and both the decision and its REASON were wrong once<a class="headerlink" href="#nothing-is-cached-and-both-the-decision-and-its-reason-were-wrong-once" title="Permanent link">&para;</a></h1>
+<p>A token is minted for every call into the endpoint. <strong>The decision stands; the paragraph that
+justified it did not, in two ways a review caught, and both are corrected here because the
+per-subject step will read this as the argument it inherits.</strong></p>
+<p><strong>The cost, counted properly.</strong> <code>sutura_app::answer</code> calls <code>Warehouse::dry_run</code> and then
+<code>Warehouse::execute</code>; each goes through the wire's <code>submit</code>, and each calls
+<code>AccessTokens::bearer</code>. So one question is <strong>two</strong> token exchanges before its two job round
+trips, and <strong>every anchor verified at boot is one more</strong>. The earlier wording - <em>"one extra round
+trip per job"</em> - was half the real number and counted the wrong unit.</p>
+<p><strong>The reason, corrected.</strong> The earlier version said a token cache keyed by nothing is the
+credential-shaped version of the result cache this crate refuses. That is true of a cache shared
+across SUBJECTS and false here: a <code>Credential</code> <strong>is</strong> one identity, so a token held until its
+<code>not_after</code> is keyed by exactly the thing that matters and leaks to nobody. The
+<code>std::sync::Mutex</code> ban in <code>clippy.toml</code> is not an argument either - <code>sutura-http</code>'s own key-set
+cache holds a lock.</p>
+<p><strong>So the honest reason is the small one: it is not needed until it is measured.</strong> Minting is one
+<code>HTTPS</code> round trip against a query that costs seconds and money, and the shape with nothing to
+reuse is the shape that cannot get <em>a credential is not reused past its expiry</em> wrong - which is one
+of the assertions the per-subject step owes. <strong>What that step must NOT inherit is a prohibition</strong>,
+because caching per subject, keyed by subject, is a different question this paragraph does not
+answer.</p>
+<h4 id="struct-bearer"><code>struct Bearer</code><a class="headerlink" href="#struct-bearer" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-54-1"><a id="__codelineno-54-1" name="__codelineno-54-1" href="#__codelineno-54-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Bearer</span>
+</span></code></pre></div>
+<p>A token usable now, and when it stops being usable.</p>
+<p><strong>The deadline travels with the token rather than beside it</strong>, so a caller cannot present one and
+forget the other. <code>Expiry</code> is the domain's own vocabulary for this, which matters because the
+per-subject step reports the same value through <code>sutura_domain::audit::CallRecord</code>.</p>
+<h5 id="methods_13">Methods<a class="headerlink" href="#methods_13" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-55-1"><a id="__codelineno-55-1" name="__codelineno-55-1" href="#__codelineno-55-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">not_after</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Expiry</span>
+</span></code></pre></div>
+<p>When it stops being usable.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-56-1"><a id="__codelineno-56-1" name="__codelineno-56-1" href="#__codelineno-56-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">of</span><span class="p">(</span><span class="n">token</span><span class="p">:</span><span class="w"> </span><span class="nc">Secret</span><span class="p">,</span><span class="w"> </span><span class="n">not_after</span><span class="p">:</span><span class="w"> </span><span class="nc">Expiry</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Names a token and its deadline.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-57-1"><a id="__codelineno-57-1" name="__codelineno-57-1" href="#__codelineno-57-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">token</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Secret</span>
+</span></code></pre></div>
+<p>The token, still opaque. A caller has to reach <code>Secret::expose</code> to write it into a header, and
+that call is greppable.</p>
+<h5 id="implements_19">Implements<a class="headerlink" href="#implements_19" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code></p>
+<h4 id="enum-quotaproject"><code>enum QuotaProject</code><a class="headerlink" href="#enum-quotaproject" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-58-1"><a id="__codelineno-58-1" name="__codelineno-58-1" href="#__codelineno-58-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">QuotaProject</span>
+</span></code></pre></div>
+<p>Whether a request has to name the project whose quota and billing it is attributed to.</p>
+<p>Two variants and no <code>Option</code>, because "the credential already says" is a real answer rather than a
+missing one - which is the same argument <code>Expiry</code> makes for having no <code>Option</code>.</p>
+<h5 id="variants_7">Variants<a class="headerlink" href="#variants_7" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Required</code> - State it on the request. An application-default credential is an END-USER credential, and the endpoint's own direct-REST guidance requires a quota project for one - without it a perfectly valid token is refused, with a message about user credentials not being supported that reads as an authentication fault and is not one.</li>
+<li><code>FromTheCredential</code> - The credential carries its own project, so stating one would add a permission requirement - <code>serviceusage.services.use</code> on that project - that a service account holding only dataset grants does not have. <strong>So the header that MAKES the first kind work BREAKS the second</strong>, which is why this is a two-variant answer and not a constant on the request.</li>
+</ul>
+<h5 id="implements_20">Implements<a class="headerlink" href="#implements_20" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="trait-accesstokens"><code>trait AccessTokens</code><a class="headerlink" href="#trait-accesstokens" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-59-1"><a id="__codelineno-59-1" name="__codelineno-59-1" href="#__codelineno-59-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">trait</span><span class="w"> </span><span class="n">AccessTokens</span>
+</span></code></pre></div>
+<p>Where the token a job is submitted with comes from.</p>
+<p>The clock is a parameter for the reason <code>Expiry::passed_by</code> takes one: an implementor that reads
+the wall clock itself cannot be tested against a deadline, and the expiry logic is the half of a
+credential source most likely to be wrong in the direction nobody notices. Who reads the real clock
+is the transport, once.</p>
+<h4 id="struct-credentialfile"><code>struct CredentialFile</code><a class="headerlink" href="#struct-credentialfile" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-60-1"><a id="__codelineno-60-1" name="__codelineno-60-1" href="#__codelineno-60-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CredentialFile</span>
+</span></code></pre></div>
+<p>The file a credential lives in.</p>
+<p>A newtype rather than a <code>PathBuf</code> argument, because <code>Self::well_known</code> and <code>Self::at</code> are two
+different claims - <em>wherever this machine keeps it</em> and <em>this exact file</em> - and a function taking a
+path cannot tell which one it was handed.</p>
+<h5 id="methods_14">Methods<a class="headerlink" href="#methods_14" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-61-1"><a id="__codelineno-61-1" name="__codelineno-61-1" href="#__codelineno-61-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">at</span><span class="p">(</span><span class="n">path</span><span class="p">:</span><span class="w"> </span><span class="nc">impl</span><span class="w"> </span><span class="nb">Into</span><span class="o">&lt;</span><span class="n">PathBuf</span><span class="o">&gt;</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>This exact file.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-62-1"><a id="__codelineno-62-1" name="__codelineno-62-1" href="#__codelineno-62-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">path</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">Path</span>
+</span></code></pre></div>
+<p>The path, for reading it and for a message that says which file was wrong.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-63-1"><a id="__codelineno-63-1" name="__codelineno-63-1" href="#__codelineno-63-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">well_known</span><span class="p">()</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">NoWellKnownLocation</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Wherever this machine keeps it.</p>
+<p>Three places, in the order the tooling itself uses: the explicit variable, then the relocated
+configuration directory, then the default under the user's home. <strong><code>HOME</code> is read and no
+fallback is invented</strong> - a process with no home directory has no well-known location, and
+guessing one would be reading a credential from a path nobody chose.</p>
+<h5 id="implements_21">Implements<a class="headerlink" href="#implements_21" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Eq</code>, <code>PartialEq</code></p>
+<h4 id="struct-nowellknownlocation"><code>struct NoWellKnownLocation</code><a class="headerlink" href="#struct-nowellknownlocation" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-64-1"><a id="__codelineno-64-1" name="__codelineno-64-1" href="#__codelineno-64-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">NoWellKnownLocation</span>
+</span></code></pre></div>
+<p>Why the well-known location could not be worked out.</p>
+<p>One variant, and it carries no path: the refusal is that this machine named no home directory, and
+the fix is to say where the file is with <code>CredentialFile::at</code>.</p>
+<h5 id="implements_22">Implements<a class="headerlink" href="#implements_22" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="enum-unusablecredential"><code>enum UnusableCredential</code><a class="headerlink" href="#enum-unusablecredential" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-65-1"><a id="__codelineno-65-1" name="__codelineno-65-1" href="#__codelineno-65-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">UnusableCredential</span>
+</span></code></pre></div>
+<p>Why the file could not become a credential.</p>
+<p><strong>Every variant names what is wrong and none of them quotes a value from the file.</strong> A path is
+carried where the fix is <em>which file</em>, a field NAME where the fix is <em>what is missing</em>, and the
+credential's own <code>type</code> only after <code>crate::wire::bounded</code> has cut it to a fixed character set -
+because a 16 KiB file can put 16 KiB of newlines there and this string reaches a log.</p>
+<h5 id="variants_8">Variants<a class="headerlink" href="#variants_8" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Unreadable</code> - The file could not be opened or read.</li>
+<li><code>TooLarge</code> - The file is larger than any credential document is.</li>
+<li><code>NotADocument</code> - The file is not the JSON document this expects.</li>
+<li><code>UnknownKind</code> - The file names a credential shape this build does not implement.</li>
+<li><code>Incomplete</code> - A document missing one of the fields its own kind needs.</li>
+<li><code>AnotherUniverse</code> - The credential was minted against a different service universe than the one this build talks to.</li>
+<li><code>UnreadableKey</code> - The private key is not a <code>PKCS#8</code> PEM block holding a key this build can sign with.</li>
+</ul>
+<h5 id="implements_23">Implements<a class="headerlink" href="#implements_23" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h4 id="enum-keyunusable"><code>enum KeyUnusable</code><a class="headerlink" href="#enum-keyunusable" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-66-1"><a id="__codelineno-66-1" name="__codelineno-66-1" href="#__codelineno-66-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">KeyUnusable</span>
+</span></code></pre></div>
+<p>How far a private key got before it was refused.</p>
+<p><strong>Three stages rather than one boolean, because the fix for each is a different thing.</strong> A missing
+delimiter is a truncated or wrongly-encoded file; a body that is not base64 is a corrupted one; a
+body that decodes and is not a key is a key of the wrong kind - a <code>PKCS#1</code> block whose delimiters
+somebody rewrote, an EC key, or a truncated DER. None of the three quotes anything.</p>
+<h5 id="variants_9">Variants<a class="headerlink" href="#variants_9" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>NotAPemBlock</code> - The <code>PKCS#8</code> delimiters are absent, or there is nothing between them.</li>
+<li><code>NotBase64</code> - The body between the delimiters is not base64.</li>
+<li><code>NotAKey</code> - The body decodes and is not a <code>PKCS#8</code> RSA key this build can sign with.</li>
+</ul>
+<h5 id="implements_24">Implements<a class="headerlink" href="#implements_24" title="Permanent link">&para;</a></h5>
+<p><code>Clone</code>, <code>Copy</code>, <code>Debug</code>, <code>Display</code>, <code>Eq</code>, <code>Error</code>, <code>PartialEq</code></p>
+<h4 id="enum-tokenunavailable"><code>enum TokenUnavailable</code><a class="headerlink" href="#enum-tokenunavailable" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-67-1"><a id="__codelineno-67-1" name="__codelineno-67-1" href="#__codelineno-67-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">TokenUnavailable</span>
+</span></code></pre></div>
+<p>Why no token came back.</p>
+<h5 id="variants_10">Variants<a class="headerlink" href="#variants_10" title="Permanent link">&para;</a></h5>
+<ul>
+<li><code>Unreachable</code> - The token endpoint did not answer.</li>
+<li><code>Unreadable</code> - The token endpoint answered, and the answer could not be read.</li>
+<li><code>Refused</code> - The token endpoint refused.</li>
+<li><code>NotADocument</code> - The answer was not the JSON document a token response is.</li>
+<li><code>NoToken</code> - The answer carried no token.</li>
+<li><code>AlreadyExpired</code> - The answer's own deadline had already passed when it arrived.</li>
+<li><code>DeadlineSpent</code> - The call's budget was gone before the exchange could be attempted.</li>
+<li><code>Unsigned</code> - The assertion could not be signed.</li>
+<li><code>NotSigned</code> - The signature itself failed.</li>
+</ul>
+<h5 id="implements_25">Implements<a class="headerlink" href="#implements_25" title="Permanent link">&para;</a></h5>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h4 id="struct-credential"><code>struct Credential</code><a class="headerlink" href="#struct-credential" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-68-1"><a id="__codelineno-68-1" name="__codelineno-68-1" href="#__codelineno-68-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">Credential</span>
+</span></code></pre></div>
+<p>A credential this build can present, read from a file.</p>
+<p><strong>One type for both kinds, so a caller does not have to know which file it has.</strong> CI points
+<code>GOOGLE_APPLICATION_CREDENTIALS</code> at a service-account key and a laptop has an
+application-default login; both reach the endpoint through this.</p>
+<h5 id="methods_15">Methods<a class="headerlink" href="#methods_15" title="Permanent link">&para;</a></h5>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-69-1"><a id="__codelineno-69-1" name="__codelineno-69-1" href="#__codelineno-69-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>Which kind this is, for a banner or a test. A fixed word, never the file's own text.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-70-1"><a id="__codelineno-70-1" name="__codelineno-70-1" href="#__codelineno-70-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">project</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;&amp;</span><span class="nb">String</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Which project this credential names, where it names one.</p>
+<p><code>Some</code> for a service-account key and <code>None</code> for an application-default login, which is the
+difference the two files actually have. <strong>This is why CI configures no project variable:</strong> the
+key carries it, so a second declaration would be a second answer to <em>who pays</em> that can
+disagree with the first.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-71-1"><a id="__codelineno-71-1" name="__codelineno-71-1" href="#__codelineno-71-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">read</span><span class="p">(</span><span class="n">file</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">CredentialFile</span><span class="p">,</span><span class="w"> </span><span class="n">agent</span><span class="p">:</span><span class="w"> </span><span class="nc">WireAgent</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="bp">Self</span><span class="p">,</span><span class="w"> </span><span class="n">UnusableCredential</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Reads a credential file, whichever of the two kinds it holds.</p>
+<p><strong>The agent is a <code>WireAgent</code> and not a <code>ureq::Agent</code>, which is the point of that newtype:</strong>
+the exchange and the job then share one connection pool and one set of pins by construction,
+rather than because two call sites happened to call the same builder. A previous version took
+any agent, so a composition root could have exchanged a credential over a client with redirects
+on and no timeout.</p>
+<p><strong>The two doctests below are the mechanism, not decoration.</strong> The first is the mistake the
+newtype exists to make impossible; the second is its compiling twin, so the failure is the
+missing pin rather than a typo in the example.</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-72-1"><a id="__codelineno-72-1" name="__codelineno-72-1" href="#__codelineno-72-1"></a>use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+</span><span id="__span-72-2"><a id="__codelineno-72-2" name="__codelineno-72-2" href="#__codelineno-72-2"></a>
+</span><span id="__span-72-3"><a id="__codelineno-72-3" name="__codelineno-72-3" href="#__codelineno-72-3"></a>// A client with redirects on, plaintext allowed and no timeout. There is no way to hand it in.
+</span><span id="__span-72-4"><a id="__codelineno-72-4" name="__codelineno-72-4" href="#__codelineno-72-4"></a>let _ = Credential::read(&amp;CredentialFile::at("/nonexistent"), ureq::Agent::new_with_defaults());
+</span></code></pre></div>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-73-1"><a id="__codelineno-73-1" name="__codelineno-73-1" href="#__codelineno-73-1"></a>use sutura_exec_bigquery::wire::credential::{Credential, CredentialFile};
+</span><span id="__span-73-2"><a id="__codelineno-73-2" name="__codelineno-73-2" href="#__codelineno-73-2"></a>use sutura_exec_bigquery::wire::{BytesBilledCeiling, JobBounds, QueryDeadline, WireAgent};
+</span><span id="__span-73-3"><a id="__codelineno-73-3" name="__codelineno-73-3" href="#__codelineno-73-3"></a>
+</span><span id="__span-73-4"><a id="__codelineno-73-4" name="__codelineno-73-4" href="#__codelineno-73-4"></a>let bounds = JobBounds::of(
+</span><span id="__span-73-5"><a id="__codelineno-73-5" name="__codelineno-73-5" href="#__codelineno-73-5"></a>    QueryDeadline::parse(30).expect("a deadline"),
+</span><span id="__span-73-6"><a id="__codelineno-73-6" name="__codelineno-73-6" href="#__codelineno-73-6"></a>    BytesBilledCeiling::parse(1024 * 1024).expect("a ceiling"),
+</span><span id="__span-73-7"><a id="__codelineno-73-7" name="__codelineno-73-7" href="#__codelineno-73-7"></a>);
+</span><span id="__span-73-8"><a id="__codelineno-73-8" name="__codelineno-73-8" href="#__codelineno-73-8"></a>// Compiles, and refuses at run time because the path is not there - which is the point: what
+</span><span id="__span-73-9"><a id="__codelineno-73-9" name="__codelineno-73-9" href="#__codelineno-73-9"></a>// the first example cannot get past is the TYPE, before any file is read.
+</span><span id="__span-73-10"><a id="__codelineno-73-10" name="__codelineno-73-10" href="#__codelineno-73-10"></a>let refused = Credential::read(&amp;CredentialFile::at("/nonexistent"), WireAgent::pinned(bounds));
+</span><span id="__span-73-11"><a id="__codelineno-73-11" name="__codelineno-73-11" href="#__codelineno-73-11"></a>assert!(refused.is_err());
+</span></code></pre></div>
+<h5 id="implements_26">Implements<a class="headerlink" href="#implements_26" title="Permanent link">&para;</a></h5>
+<p><code>AccessTokens</code>, <code>Debug</code></p>
 
 
 

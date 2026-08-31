@@ -1002,6 +1002,8 @@
       
         
       
+        
+      
     
     
     
@@ -1507,6 +1509,34 @@
     
   
     What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
   
 
     
@@ -2316,13 +2346,40 @@ whatever the first test happened to do.</p>
 regenerated and reviewed as a diff, and the decision is
 <a href="../adr/0017-what-a-bigquery-test-runs-against/">0017</a>. The adapter, the source declaration and the
 registry entry landed with them.</p>
-<p><strong>What did NOT land, deliberately: the wire.</strong> <code>sutura-exec-bigquery</code> implements <code>Warehouse</code> and is
-tested against a fake transport; <code>transport::JobTransport</code> has no implementor that speaks to the
-endpoint, and no composition root links the crate. 0017 decides that the change adding one is the
-change that can first verify it against a real project - which is also where the dependency decision
-belongs, because an outbound HTTP stack and a credential library reach the musl release builds and the
-licence gate. So the honest summary today is: <strong>the statement is right as far as four mechanisms can
-tell, and nobody has run one.</strong> That sentence is what the per-subject step below inherits.</p>
+<p><strong>What did NOT land with the adapter, deliberately: the wire.</strong> <code>sutura-exec-bigquery</code> implemented
+<code>Warehouse</code> and was tested against a fake transport; <code>transport::JobTransport</code> had no implementor that
+spoke to the endpoint. 0017 decided that the change adding one is the change that can first verify it
+against a real project - which is also where the dependency decision belongs, because an outbound HTTP
+stack and a credential source reach the musl release builds and the licence gate.</p>
+<p><strong>The wire landed next, and the dependency decision is
+<a href="../adr/0018-what-the-bigquery-wire-is-built-from/">0018</a>.</strong> <code>jobs.query</code> called directly over <code>ureq</code>,
+behind a default-off <code>wire</code> feature, plus a second narrow port - <code>wire::credential::AccessTokens</code> -
+whose one implementor reads the file <code>just gcloud-login</code> writes. What decided it was not API surface:
+every wrapper crate, the official preview one included, pulls <strong><code>anyhow</code></strong> transitively through
+<code>prost</code>, which is a claim this workspace makes in writing and enforces with a gate. Two of them pull
+an Arrow major that is not the engine's and one pulls <code>openssl</code>. The chosen client costs <strong>zero new
+packages in <code>Cargo.lock</code></strong> - measured, 446 before and 446 after - because <code>libduckdb-sys</code> already
+resolves exactly that version and feature set, and it therefore costs the licence allowlist nothing
+either.</p>
+<p><strong>And 0017's prediction about itself did not come true, which is the part to read before believing
+any of this.</strong> The change that wrote the wire could NOT run it: the machine had no <code>gcloud</code>, no
+application-default credential and no project. So a leg exists at
+<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, three <code>#[ignore]</code>d tests behind
+<code>just bigquery-acceptance</code>, and <strong>it is unexecuted</strong>. <strong>It is also narrower than what 0017 specifies</strong>
+- one hand-built <code>SUM</code> over a two-column table, exercising none of the constructs the parse check was
+measured to be blind about, so a green run of it would close a smaller gap than the records first
+claimed; the wider leg is #78's importer shape pointed at a dataset. No composition root links the
+crate,
+<code>sutura-serve</code> still refuses <code>kind: bigquery</code> by name, and the <code>data_systems:</code> axis still gains no
+entry. The honest summary is 0017's sentence with one word moved: <strong>the statement is right as far as
+five mechanisms can tell, and ONE has now been run.</strong> On 2026-08-30 the leg passed against a real
+dataset under a service-account key - a statement generated here accepted by <code>BigQuery</code>, answered as one
+complete page, with the fixture's own numbers - and <code>docs/adr/0017</code>'s amendment puts the repeat of it in
+CI, in its own job, against a GitHub environment whose secrets a fork's pull request cannot see.</p>
+<p><strong>What the per-subject step below inherits is therefore narrower and more useful than before.</strong> The
+credential path works and reads both kinds; what is still absent is the corpus-wide comparison against
+the engine (#78's importer shape), and per-subject identity is untouched - a service-account key is
+<code>SharedServiceUser</code>, one identity for everybody who asks.</p>
 <h2 id="bigquery-per-subject">BigQuery, per subject<a class="headerlink" href="#bigquery-per-subject" title="Permanent link">&para;</a></h2>
 <p><strong>Goal.</strong> The first real impersonation, and the one that matters most. A query executes as the
 subject who asked it, and two subjects get different rows.</p>
