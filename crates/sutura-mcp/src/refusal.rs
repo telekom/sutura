@@ -37,12 +37,6 @@ use sutura_domain::query::RefusalReason;
 ///
 /// The match is exhaustive with no wildcard arm, and it decides both at once rather than in two
 /// matches that could drift apart.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive match over every refusal, deciding code and sentence together - so it \
-              grows by one arm per domain variant and splitting it would need a wildcard arm, which \
-              is exactly the gap the exhaustiveness exists to close"
-)]
 pub(crate) fn refused(reason: &RefusalReason) -> (&'static str, String) {
     match *reason {
         RefusalReason::MetricUnknown { ref metric } => {

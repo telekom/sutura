@@ -490,10 +490,6 @@ fn documentation(state: &ServiceState, settings: &Settings, key: &ClientAddress)
 /// unreachable - `sutura-config` refuses to start there - and it is kept because the configuration
 /// is what decides, and an `error` for a state that cannot happen costs nothing while a missing one
 /// would cost the diagnosis.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "every arm is a tracing macro expanding into branches; the control flow is one match"
-)]
 fn announce_rate_limiting(environment: Environment, enabled: bool) {
     match (environment, enabled) {
         (Environment::Development | Environment::Test, true) => {
@@ -518,10 +514,6 @@ fn announce_rate_limiting(environment: Environment, enabled: bool) {
 ///
 /// Worth a line of its own: peer keying behind an ingress controller is one bucket for every caller
 /// there has ever been, which reads in a graph exactly like a limit that is working.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "both arms are a tracing macro expanding into branches; the control flow is one branch"
-)]
 fn announce_keying(limits: &sutura_config::RateLimitSettings) {
     if limits.client_address().reads_a_header() {
         tracing::info!(

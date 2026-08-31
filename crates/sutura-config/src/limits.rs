@@ -132,13 +132,6 @@ pub struct RateLimitSettings {
 
 impl RateLimitSettings {
     #[inline]
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "six settings with no sub-grouping that is not arbitrary; `clippy.toml` sets the \
-                  threshold to five, and the alternative - a wrapper type for the switch and its \
-                  flag - would be a third spelling of the pattern `api.docs` and `telemetry.format` \
-                  already share"
-    )]
     pub const fn new(
         enabled: bool,
         enabled_was_explicit: bool,

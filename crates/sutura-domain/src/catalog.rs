@@ -162,11 +162,6 @@ pub struct Relationship {
 }
 
 impl Relationship {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a relationship is six facts and all six are required together; a builder would \
-                  add a half-built state that this type cannot currently have"
-    )]
     pub const fn new(
         name: RelationshipName,
         origin_model: ModelName,
@@ -357,11 +352,6 @@ pub struct Metric {
 }
 
 impl Metric {
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a metric is nine facts and all nine are decided together; a builder for a value \
-                  this immutable would add a partially-built state this type cannot have"
-    )]
     pub const fn new(
         name: MetricName,
         model: ModelName,

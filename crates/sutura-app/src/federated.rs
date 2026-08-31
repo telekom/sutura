@@ -28,10 +28,6 @@ pub(crate) fn source_unavailable(source: &SourceName) -> ToolOutcome {
 /// without repeating the two-generic `ServiceError` inline (which trips `type_complexity`).
 pub(crate) type FederatedLeg<W, B> = Result<RowSet, ServiceError<<W as Warehouse>::Error, <B as CredentialBroker>::Error>>;
 
-#[expect(
-    clippy::too_many_arguments,
-    reason = "six inputs is what a federated answer needs; naming each beats a struct nobody else reads"
-)]
 /// Executes a two-source question: one leg per data system, combined above them.
 ///
 /// Reached only from [`Compiled::Federated`]. Every data system the plan reads must be open AND be

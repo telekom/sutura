@@ -164,10 +164,6 @@ impl FederatedPlan {
     // The constructor takes the shape of the question as the splitter decided it; a bundle of named
     // fields is the alternative, and a `Vec` would let a caller omit or duplicate a leg - the two
     // instantiations it exists to forbid.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a federated plan is shaped by the splitter in one place"
-    )]
     pub fn new(
         metric: MetricName,
         measure_label: String,
@@ -538,10 +534,6 @@ impl FederatedPlan {
     ///
     /// This is the join and the grouping, kept out of [`FederatedPlan::combine`] so one function does
     /// not carry both the whole loop and the budget.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "the grouping reads both link maps, the resolved indexes and the running budget together"
-    )]
     fn group_facts(
         &self,
         fact_by_link: &FactByLink<'_>,

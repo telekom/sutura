@@ -375,11 +375,6 @@ impl QueryPlan {
     /// them do not answer to one identifier happens where that set is parsed, so a plan holding the
     /// ambiguous pair does not exist to be rendered. [`crate::plan::tables`] is where the defect, the
     /// measurement and the choice of a refusal over an alias are argued.
-    #[expect(
-        clippy::too_many_arguments,
-        reason = "a plan is what the compiler decided, and every field is decided in one place; a \
-                  builder would add a half-built state that this type cannot currently have"
-    )]
     pub fn new(
         source: SourceName,
         metric: MetricName,

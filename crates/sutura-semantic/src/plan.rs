@@ -176,10 +176,6 @@ fn mono_plan(resolution: &Resolution<'_>) -> Result<QueryPlan, RefusalReason> {
 // The splitter builds both legs, their keys, their filters and the link in one pass over the
 // resolution; it is a single act of splitting a resolved question, and it returns Err from several
 // places that far apart to make a reviewer see the splitter's refusals together.
-#[expect(
-    clippy::too_many_lines,
-    reason = "the splitter builds both legs and all their parts in one pass over the resolution"
-)]
 fn federated_plan(resolution: &Resolution<'_>) -> Result<FederatedPlan, RefusalReason> {
     let metric = resolution.metric;
     let model = resolution.model;

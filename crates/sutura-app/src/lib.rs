@@ -416,10 +416,6 @@ impl Answered {
 /// guard un-skippable rather than merely conventional is on the domain side:
 /// `sutura_domain::identity::BoundToTheRequest` is the only type that hands out a `Presented`, and
 /// `agreeing_with` is the only thing that builds one.
-#[expect(
-    clippy::too_many_arguments,
-    reason = "six inputs is what a certified answer needs; naming each beats a struct nobody else reads"
-)]
 pub fn answer<W, B>(
     definitions: &Validated<PinnedDefinitions>,
     query: &Query,

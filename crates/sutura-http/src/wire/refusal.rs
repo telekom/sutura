@@ -63,12 +63,6 @@ use super::RefusalBody;
 /// to compile here until it is given a status, a code and a sentence.
 // Kept as one match so a new refusal cannot be given a status without a code or a sentence: splitting
 // these three by concern is the exact drift this function exists to forbid.
-#[expect(
-    clippy::too_many_lines,
-    reason = "one exhaustive match over every refusal, deciding status, code and detail together - so \
-              it grows by one arm per domain variant and splitting it would need a wildcard arm, which \
-              is exactly the gap the exhaustiveness exists to close"
-)]
 pub(crate) fn refused(reason: &RefusalReason) -> (StatusCode, RefusalBody) {
     let (status, code, detail) = match *reason {
         // 404. The name does not resolve in this snapshot, which is the plainest thing a status can
@@ -321,10 +315,6 @@ mod tests {
     /// A list rather than one test per variant, and it is the same list the exhaustive match above
     /// is checked against: a variant added to `RefusalReason` breaks the compile in `refused`, and
     /// this is where somebody then writes down what they decided.
-    #[expect(
-        clippy::too_many_lines,
-        reason = "this is the exhaustive enum's table of status and code per refusal"
-    )]
     fn every_reason() -> Vec<Expected> {
         vec![
             (
