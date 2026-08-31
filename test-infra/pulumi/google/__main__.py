@@ -56,11 +56,19 @@ gcp_provider = gcp.Provider(
 # --------------------------------------------------------------------------- #
 # Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`) is turned
 # on as a Pulumi resource first, and every consumer below waits on the enabling call via
-# `depends_on`. serviceusage.googleapis.com powers the enabling calls themselves and is on by
-# default in a new project, so it is not listed here. The applying credential still needs
-# `serviceusage.services.enable` - self-bootstrapping moves that ONE grant into the credential,
-# which is the same class of trust the provider key already is.
-API_BOOTSTRAP = []
+# `depends_on`. serviceusage.googleapis.com powers the ENABLING call itself, so it is enabled
+# FIRST and bigquery/iam depend on it - without it, `up` fails on a fresh project with
+# `SERVICE_DISABLED` on the enable call, which is exactly what a disabled Service Usage API
+# produces. The applying credential still needs `serviceusage.services.enable`; self-bootstrapping
+# moves that ONE grant into the credential, which is the same class of trust the provider key is.
+_usage = gcp.projects.Service(
+    "api-serviceusage.googleapis.com",
+    project=project,
+    service="serviceusage.googleapis.com",
+    disable_on_destroy=False,
+    opts=pulumi.ResourceOptions(provider=gcp_provider),
+)
+API_BOOTSTRAP = [_usage]
 for _api in ["bigquery.googleapis.com", "iam.googleapis.com"]:
     API_BOOTSTRAP.append(
         gcp.projects.Service(
@@ -68,7 +76,7 @@ for _api in ["bigquery.googleapis.com", "iam.googleapis.com"]:
             project=project,
             service=_api,
             disable_on_destroy=False,
-            opts=pulumi.ResourceOptions(provider=gcp_provider),
+            opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
         )
     )
 
