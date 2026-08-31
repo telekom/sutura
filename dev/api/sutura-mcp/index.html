@@ -1,0 +1,2695 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Answers questions about data as the person or agent asking, using metric definitions somebody certified.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/dev/api/sutura-mcp/">
+      
+      
+        <link rel="prev" href="../sutura-http/">
+      
+      
+        <link rel="next" href="../sutura-dev/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>sutura-mcp - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#sutura-mcp" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              sutura-mcp
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0018-what-the-bigquery-wire-is-built-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../adr/0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<!-- GENERATED FILE - do not edit.
+     Written by docs/.tools/rustdoc_to_markdown.py from rustdoc JSON.
+     Edit the doc comments in the crate source instead, then regenerate.
+     The commands are on the API reference landing page. -->
+
+<h1 id="sutura-mcp">sutura-mcp<a class="headerlink" href="#sutura-mcp" title="Permanent link">&para;</a></h1>
+<p>The public API of <code>sutura-mcp</code>, rendered from rustdoc JSON.</p>
+<p>The agent-facing surface: one governed tool, over the Model Context Protocol.</p>
+<p><strong>Transport only.</strong> It parses the wire shape, translates it into a domain <code>Query</code>, calls
+<code>sutura_app::surface::Surface</code>, and maps the outcome back. Nothing here decides what a question
+may ask: no predicate is assembled, no dimension is checked, no bound is applied. Every rule is
+on the other side of that call, which is what makes this crate reviewable by reading its
+translation rather than its judgement.</p>
+<p><code>Query</code>: sutura_domain::query::Query</p>
+<h1 id="what-this-crate-is">What this crate is<a class="headerlink" href="#what-this-crate-is" title="Permanent link">&para;</a></h1>
+<p><strong>One crate, one transport, and the whole tool set</strong> - which is two tools, because
+<code>sutura_app::surface::Surface</code> has two operations: list what this deployment measures, and answer
+one governed question about one metric. <code>sutura_app::Capability</code> is the one source for which those
+are, so <strong>the two transports cannot disagree about what this deployment offers</strong>; each of them
+renders that source and each has a <code>both_transports_describe_the_same_tools</code> test asserting it did
+not deviate.</p>
+<p>Four properties are load-bearing and each has a test rather than a paragraph:</p>
+<ul>
+<li><strong>The schema is generated.</strong> <code>tool::input_schema</code> is <code>schemars::schema_for!</code> over a wire type
+  in <code>wire</code> - there is no hand-written JSON object in this crate - and every tool's generated
+  bytes are committed as a snapshot, so a new or widened tool input lands in a reviewer's diff.
+  That byte-compare is a mechanism <code>AGENTS.md</code> describes as owed rather than standing; this crate
+  is what owes it.</li>
+<li><strong>A tool a caller may not invoke is neither advertised nor answered.</strong>
+  <code>AgentSurface::new</code> requires a <code>sutura_app::Permitted</code>, <code>tools/list</code> filters on it and
+  <code>tools/call</code> refuses on it. The filtering is presentation and the refusal is the control - see
+  <code>server</code>, which says so in a table, and says plainly that nothing over standard input and
+  output narrows the set today.</li>
+<li><strong>A refusal is a RESULT.</strong> It comes back inside a tool result with the error flag unset, not as
+  a JSON-RPC error and not as <code>isError</code>. See <code>server</code> for the three channels and why they are
+  three.</li>
+<li><strong><code>deny_unknown_fields</code> survives the transport.</strong> An argument named <code>sql</code>, <code>table</code> or
+  <code>predicate</code> is a named parse error, asserted through a real client rather than assumed.</li>
+</ul>
+<h1 id="why-the-protocol-comes-from-a-dependency">Why the protocol comes from a dependency<a class="headerlink" href="#why-the-protocol-comes-from-a-dependency" title="Permanent link">&para;</a></h1>
+<p>MCP is JSON-RPC with a handshake, and framing it by hand is a few hundred lines. It was
+considered and rejected on evidence rather than on effort: a server we framed ourselves could be
+tested only against our own parser, and <em>"a test asserting on source text proves nothing"</em> is a
+rule this repository already holds. <code>rmcp</code> is the protocol's own Rust SDK, so the tests in
+<code>server</code> drive this handler with <strong>its</strong> client over an in-memory pipe - which is the only shape
+of evidence that says an agent client can actually ask.</p>
+<p><strong>What the dependency costs, measured rather than waved at:</strong> <code>rmcp</code> with <code>server</code> and
+<code>transport-io</code>, plus <code>schemars</code>, adds <strong>eight</strong> packages to <code>Cargo.lock</code> that were not there -
+<code>rmcp</code>, <code>pastey</code>, <code>schemars</code>, <code>schemars_derive</code>, <code>dyn-clone</code>, <code>ref-cast</code>, <code>ref-cast-impl</code> and
+<code>serde_derive_internals</code> - counted by diffing the package names against the base branch rather
+than read off a dependency tree. Everything else it wants was already in the lock: <code>tokio-util</code>,
+<code>uuid</code>, <code>chrono</code> and <code>futures</code> arrive here through this crate for the first time, but they are
+nobody's new supply-chain surface. No shipped artifact grows, because <strong>no binary links this
+crate yet</strong>. <code>macros</code> is off, so no attribute of theirs writes code into this crate, and the
+handler is three methods written by hand.</p>
+<h1 id="what-is-deliberately-absent">What is deliberately absent<a class="headerlink" href="#what-is-deliberately-absent" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>A row cap of this transport's own.</strong> The answer cap is <code>max_rows + 1</code> and a result that hits
+  it is refused rather than truncated. Whether an agent surface wants a lower advisory cap - and
+  what number - is a real question <strong>nobody has measured</strong>, so the bound is left exactly where it
+  is rather than guessed at here.</li>
+<li><strong>Any notion of who is asking.</strong> <code>crate::principal</code> still answers
+  <code>sutura_domain::identity::Subject::TheDeploymentItself</code>, truthfully: this transport speaks over a
+  pipe, where there is no header a token could arrive in. <code>sutura_http::inbound</code> is where leg 1
+  lives and it is unreachable from here - an adapter never calls another adapter - so a caller
+  identity on this surface needs the two decisions <code>docs/adr/0014</code>'s closing section names: how it
+  is reached at all, and which crate the validator moves to.</li>
+</ul>
+<p><strong>The consequence for what a scope gates here is stated rather than left implicit:</strong> the
+  capability set this surface offers is narrowable, and over standard input and output nothing
+  narrows it. <code>server</code> carries that limit beside the mechanism.
+* <strong>Resources and prompts.</strong> A gateway of the shape this product runs behind surfaces tools and
+  ignores both, so anything load-bearing has to be a tool. The glossary and the catalog prose stay
+  where they are - in <code>sutura_app::prompt</code>, advisory, for a cooperative client.
+* <strong>A composition root.</strong> Nothing links this crate yet: <code>serve_stdio</code> is the entry point a
+  binary would call, and which binary gets it - and how a deployment configures it - is a
+  composition decision this slice does not take.</p>
+<h2 id="enum-notserved"><code>enum NotServed</code><a class="headerlink" href="#enum-notserved" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">NotServed</span>
+</span></code></pre></div>
+<p>Why the agent surface stopped, when it was not the peer going away.</p>
+<p><strong>Both variants re-export a third-party error type as a <code>#[source]</code>, and that is a deliberate
+exception worth naming in review.</strong> <code>AGENTS.md</code> allows only our own or standard-library errors
+across a crate boundary and records that a variant carrying somebody else's type is a review
+question rather than a gate. It is carried here because the alternative is worse: the handshake
+failure is the SDK's own account of what the peer sent, and flattening it to a sentence would
+throw away the only description of the fault that exists.</p>
+<h3 id="variants">Variants<a class="headerlink" href="#variants" title="Permanent link">&para;</a></h3>
+<ul>
+<li><code>Handshake</code> - The peer never completed the protocol handshake.</li>
+<li><code>Interrupted</code> - The task driving the session did not finish.</li>
+</ul>
+<h3 id="implements">Implements<a class="headerlink" href="#implements" title="Permanent link">&para;</a></h3>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h2 id="fn-serve_stdio"><code>fn serve_stdio</code><a class="headerlink" href="#fn-serve_stdio" title="Permanent link">&para;</a></h2>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">async</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">serve_stdio</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">S</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Result</span><span class="o">&lt;</span><span class="p">(),</span><span class="w"> </span><span class="n">NotServed</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>Serves the agent surface over standard input and output, until the client disconnects.</p>
+<p>The transport an agent client launches a server over: it spawns the process and speaks the
+protocol on its pipes. There is no socket, no port and no listener, which is also why there is no
+authentication here - the process boundary is the boundary, and a deployment that needs a
+network-reachable agent surface needs the identity leg <code>docs/adr/0014</code> designs first.</p>
+<p>Consumes the service, wraps it in an <code>Arc</code>, and returns when the peer closes or is cancelled.</p>
+<h1 id="errors">Errors<a class="headerlink" href="#errors" title="Permanent link">&para;</a></h1>
+<p><code>NotServed::Handshake</code> if the client never completes <code>initialize</code>, and
+<code>NotServed::Interrupted</code> if the task driving the session did not finish - a panic, or a runtime
+shutting down underneath it.</p>
+<h2 id="use-none"><code>use None</code><a class="headerlink" href="#use-none" title="Permanent link">&para;</a></h2>
+<h2 id="module-server">Module <code>server</code><a class="headerlink" href="#module-server" title="Permanent link">&para;</a></h2>
+<p>The handler: <code>tools/list</code>, <code>tools/call</code>, and the three channels a caller has to be able to tell
+apart.</p>
+<h1 id="three-outcomes-three-channels-and-the-middle-one-is-the-property-that-matters">Three outcomes, three channels, and the middle one is the property that matters<a class="headerlink" href="#three-outcomes-three-channels-and-the-middle-one-is-the-property-that-matters" title="Permanent link">&para;</a></h1>
+<table>
+<thead>
+<tr>
+<th>What happened</th>
+<th>How it comes back</th>
+<th>Why</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The question was answered</td>
+<td>a tool result, <code>isError</code> absent, <code>outcome: "answer"</code></td>
+<td>rows inline, provenance beside them</td>
+</tr>
+<tr>
+<td>The question was <strong>refused</strong></td>
+<td>a tool result, <code>isError</code> absent, <code>outcome: "refusal"</code></td>
+<td>it is a governance <em>result</em>, and nothing about it went wrong</td>
+</tr>
+<tr>
+<td>The arguments were not a question</td>
+<td>a JSON-RPC error, <code>-32602</code></td>
+<td>a parse failure, named, before the service is reached</td>
+</tr>
+<tr>
+<td>The service could not answer</td>
+<td>a tool result with <code>isError: true</code>, and no detail</td>
+<td>something went wrong, and the detail is a path or a table</td>
+</tr>
+</tbody>
+</table>
+<p><strong>A refusal is not an error and must not look like one.</strong> <code>sutura_app::surface::Surface::answer</code>
+is where a transport inherits that, and its own doc comment says why: a caller must not be able to
+mistake "you may not ask that" for a hiccup and retry until something works. An <code>isError: true</code>
+refusal would be exactly that mistake, in the one place a model is most likely to act on it - a
+model told a call errored retries, and a model told the answer is "no, because the catalog defines
+no such metric" asks something else.</p>
+<h1 id="why-a-malformed-argument-is-a-json-rpc-error-rather-than-iserror">Why a malformed argument is a JSON-RPC error rather than <code>isError</code><a class="headerlink" href="#why-a-malformed-argument-is-a-json-rpc-error-rather-than-iserror" title="Permanent link">&para;</a></h1>
+<p>Because it is not a tool <em>execution</em> failure - the tool never ran. <code>-32602</code> is the name JSON-RPC
+already has for it, <code>MalformedQuestion</code> names the field, and it is the one channel a caller cannot
+read as either an answer or a refusal.</p>
+<p><strong>The limit, stated with the claim:</strong> rmcp's own documentation notes that clients typically render
+a protocol error opaquely, so a model may see less than the message carries. <code>Ok(isError: true)</code>
+was the alternative and was rejected: it would put "your arguments were wrong" in the same channel
+as "the data system is down", and the first is fixable by the caller while the second is not.</p>
+<h1 id="why-the-port-call-leaves-the-async-worker">Why the port call leaves the async worker<a class="headerlink" href="#why-the-port-call-leaves-the-async-worker" title="Permanent link">&para;</a></h1>
+<p><code>Surface::answer</code> is synchronous, and the engine behind it drives its own runtime - entering a
+runtime from within a runtime panics. So the call goes to the blocking pool through
+<code>sutura_runtime::spawn_carrying_span</code>, which is the one call <code>clippy.toml</code> permits for this,
+because a bare <code>spawn_blocking</code> loses the request's span on a pool thread.</p>
+<h1 id="what-this-slice-does-not-do-on-purpose">What this slice does NOT do, on purpose<a class="headerlink" href="#what-this-slice-does-not-do-on-purpose" title="Permanent link">&para;</a></h1>
+<ul>
+<li><strong>No row cap of its own.</strong> The answer cap is <code>max_rows + 1</code> and a result that hits it is
+  refused rather than truncated; whether an <em>agent</em> surface wants a lower advisory cap - and what
+  number - is a real question nobody has measured, so the bound is left exactly where it is.</li>
+<li><strong>No <code>get_tool</code>.</strong> Implementing it would have rmcp validate arguments against the advertised
+  schema before this handler sees them, which is defence in depth and also a second enforcement
+  point whose message is not ours. One gate, and it is <code>crate::wire::AskArgs</code>'s own
+  <code>deny_unknown_fields</code>.</li>
+</ul>
+<h1 id="what-a-scope-gates-here-and-where-the-control-actually-is">What a scope gates here, and where the control actually is<a class="headerlink" href="#what-a-scope-gates-here-and-where-the-control-actually-is" title="Permanent link">&para;</a></h1>
+<p><code>AgentSurface::new</code> <strong>requires</strong> a <code>Permitted</code>, so a composition root cannot forget to say what
+the peer may do - the same reason <code>sutura_app::surface::LocalService::start</code> requires an audit
+sink. Given one, this handler does two things with it and only the second is a control:</p>
+<table>
+<thead>
+<tr>
+<th>Where</th>
+<th>What it does</th>
+<th>What it is</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>tools/list</code></td>
+<td>drops a tool the peer may not invoke</td>
+<td><strong>presentation</strong></td>
+</tr>
+<tr>
+<td><code>tools/call</code></td>
+<td>refuses a capability the peer was not granted, advertised or not</td>
+<td><strong>the control</strong></td>
+</tr>
+</tbody>
+</table>
+<p>Both read the same set, so they cannot disagree - <code>sutura_app::capability</code> holds that argument and
+the test for it. A caller that guessed <code>ask_metric</code> without ever being shown it is refused by the
+second row, which is why the first is described as presentation rather than as security.</p>
+<p><strong>And the honest limit, which is not small:</strong> nothing that ships narrows the set here.
+<code>crate::serve_stdio</code> passes <code>Permitted::every_capability</code>, because this transport speaks over
+standard input and output and there is no header a token could arrive in - <code>docs/adr/0014</code>'s
+closing section says as much, and says that deciding how this surface is reached at all is an
+architecture decision rather than a refactor. So the narrowing here is exercised by this module's
+own tests and by no request path, and the parameter is in place so that the decision arrives as a
+composition change rather than as a redesign of this handler.</p>
+<h3 id="struct-agentsurface"><code>struct AgentSurface</code><a class="headerlink" href="#struct-agentsurface" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AgentSurface</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The agent-facing surface over one <code>Surface</code>.</p>
+<p>Holds the service behind an <code>Arc</code> because a tool call is answered on the blocking pool, so the
+port has to outlive the future that started the call.</p>
+<h4 id="methods">Methods<a class="headerlink" href="#methods" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">new</span><span class="p">(</span><span class="n">service</span><span class="p">:</span><span class="w"> </span><span class="nc">Arc</span><span class="o">&lt;</span><span class="n">S</span><span class="o">&gt;</span><span class="p">,</span><span class="w"> </span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="nc">Permitted</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">Self</span>
+</span></code></pre></div>
+<p>Wraps a service, and states what the peer may do.</p>
+<p>Takes the <code>Arc</code> rather than making one, so a composition root serving two transports shares
+one bundle and one data system rather than opening a second of each.</p>
+<p><strong><code>permitted</code> is required rather than defaulted, and that is the point of the signature.</strong> A
+default here would be a posture chosen by this file for every deployment that ever links it;
+<code>Permitted::every_capability</code> is the right answer over standard input and output and would be
+the wrong answer the moment this surface is reachable over a network, and only a composition
+root knows which it is building. See the module documentation for what the value then gates.</p>
+<h4 id="implements_1">Implements<a class="headerlink" href="#implements_1" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>ServerHandler</code></p>
+<h2 id="module-tool">Module <code>tool</code><a class="headerlink" href="#module-tool" title="Permanent link">&para;</a></h2>
+<p>The tools this surface advertises, and the schemas they are described by.</p>
+<h1 id="there-is-one-source-for-which-tools-exist-and-it-is-not-this-file">There is one source for WHICH tools exist, and it is not this file<a class="headerlink" href="#there-is-one-source-for-which-tools-exist-and-it-is-not-this-file" title="Permanent link">&para;</a></h1>
+<p><code>sutura_app::Capability</code> is the tool set. This module decides how each capability is <em>described</em>
+to a model and nothing else: the name comes from <code>Capability::id</code>, the gate comes from
+<code>Capability::scope</code>, and <code>every</code> is a walk over <code>Capability::every()</code> with no second list to
+keep in step with it.</p>
+<p>That is the shape <code>docs/implementation-plan.md</code>'s <code>both_transports_describe_the_same_tools</code> asks
+for. It could not be a comparison between the two transports - <code>sutura-mcp</code> and <code>sutura-http</code>
+cannot see each other - so it is one source in the crate that owns the driving port, plus a test
+in each transport asserting it did not deviate from that source. Two tests, one source, and
+<code>tests::both_transports_describe_the_same_tools</code> is this crate's half.</p>
+<p><strong>The prose is deliberately NOT shared.</strong> A tool description is written for a model choosing
+whether to call it; an <code>OpenAPI</code> summary is written for a person reading an interface description.
+<code>AGENTS.md</code> already draws that line for the two refusal vocabularies - <em>"Nothing compares the two
+sentences, and nothing should"</em> - and the same reasoning applies here.</p>
+<h1 id="the-schema-is-generated">The schema is GENERATED<a class="headerlink" href="#the-schema-is-generated" title="Permanent link">&para;</a></h1>
+<p><code>input_schema</code> is <code>schemars::schema_for!</code> over a wire type and nothing else. There is no
+hand-written JSON object anywhere in this crate, which is the property that had to be true from
+the first line: a hand-written schema and a hand-written parser drift, and the drift is invisible
+until a caller trusts the schema. Here the description a client reads and the deserializer that
+enforces it come from one type - <code>additionalProperties: false</code> included, because <code>schemars</code> reads
+the same <code>deny_unknown_fields</code> serde reads.</p>
+<h1 id="the-dump-and-why-it-is-a-gate-rather-than-a-convenience">The dump, and why it is a gate rather than a convenience<a class="headerlink" href="#the-dump-and-why-it-is-a-gate-rather-than-a-convenience" title="Permanent link">&para;</a></h1>
+<p><code>AGENTS.md</code>'s <em>changing the query path or the tool surface</em> table wants a widened tool input to be
+caught by something a reviewer cannot miss. <code>tests::the_advertised_tool_schemas_are_the_committed_ones</code>
+is that byte-compare: <strong>every</strong> capability's generated schema is snapshotted, so a new or widened
+field changes a snapshot and the test fails until somebody re-accepts it. That puts the new surface
+in the diff, which is the whole mechanism - <code>deny_unknown_fields</code> stops an <em>undeclared</em> field from
+being answered, and this stops a <em>declared</em> one from arriving unreviewed.</p>
+<p>Beside it, <code>tests::the_question_tool_takes_exactly_the_five_fields_a_question_has</code> asserts the
+property rather than the bytes: a field named <code>sql</code>, <code>table</code>, <code>where</code>, <code>predicate</code> or <code>rows</code> is not
+merely a snapshot change but a named failure. A snapshot can be re-accepted without thought; that
+one cannot.</p>
+<h3 id="fn-input_schema"><code>fn input_schema</code><a class="headerlink" href="#fn-input_schema" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">input_schema</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">JsonObject</span>
+</span></code></pre></div>
+<p>One capability's input schema, generated from its wire type.</p>
+<p>Built on demand rather than cached: it is computed once per <code>tools/list</code>, which is once per session
+for every client that exists, and a <code>LazyLock</code> would buy nothing measurable while adding a static
+nobody can see the value of in a test.</p>
+<p><strong>The match is what ties a capability to a wire type</strong>, and it is exhaustive: a capability with no
+arguments type does not compile.</p>
+<h3 id="fn-tool"><code>fn tool</code><a class="headerlink" href="#fn-tool" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">tool</span><span class="p">(</span><span class="n">capability</span><span class="p">:</span><span class="w"> </span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nc">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span>
+</span></code></pre></div>
+<p>One capability, as <code>tools/list</code> returns it.</p>
+<h3 id="fn-every"><code>fn every</code><a class="headerlink" href="#fn-every" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">every</span><span class="p">(</span><span class="n">permitted</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="nc">sutura_app</span><span class="p">::</span><span class="n">Permitted</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Vec</span><span class="o">&lt;</span><span class="n">rmcp</span><span class="p">::</span><span class="n">model</span><span class="p">::</span><span class="n">Tool</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The tools this caller is advertised, in capability order.</p>
+<p><strong>Presentation, and the module documentation says so plainly.</strong> A caller that names a tool absent
+from this list is refused by <code>crate::server::AgentSurface::call_tool</code> asking
+<code>Permitted::includes</code> again, so filtering here is what a cooperative client is <em>shown</em> and not
+what stops an uncooperative one.</p>
+<h3 id="fn-named"><code>fn named</code><a class="headerlink" href="#fn-named" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">named</span><span class="p">(</span><span class="n">name</span><span class="p">:</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="nb">Option</span><span class="o">&lt;</span><span class="n">sutura_app</span><span class="p">::</span><span class="n">Capability</span><span class="o">&gt;</span>
+</span></code></pre></div>
+<p>The capability a tool name refers to, if this surface has one under that name.</p>
+<p><strong>Independent of what was advertised</strong>, which is the point: this answers <em>does this deployment
+have such a tool</em> and the caller's permission is a separate question the server then asks. Folding
+the two together is how a caller ends up told "no such tool" for one it holds the scope for.</p>
+<h2 id="module-wire">Module <code>wire</code><a class="headerlink" href="#module-wire" title="Permanent link">&para;</a></h2>
+<p>The tool's arguments and its result, and the conversions to and from the domain.</p>
+<h1 id="why-this-crate-has-its-own-wire-type">Why this crate has its own wire type<a class="headerlink" href="#why-this-crate-has-its-own-wire-type" title="Permanent link">&para;</a></h1>
+<p><code>sutura-http</code> already holds one - <code>QuestionBody</code>, with the same five fields and the same
+<code>TryFrom&lt;..&gt; for Query</code>. Sharing it would mean this adapter depending on that one, and <em>an
+adapter never calls another adapter</em> is the rule the whole layout rests on: a shape owned by one
+transport is a shape every other transport has to reach through it. <code>CatalogContent</code> is the
+same story against <code>sutura_http::wire::CatalogBody</code>.</p>
+<p><strong>So the duplication is deliberate, and it is a cost rather than an oversight.</strong> Nothing in the
+compiler makes two wire types stay equal. What guards them is
+<code>AskArgs</code>'s own <code>deny_unknown_fields</code>, asserted through the transport in <code>crate::server</code>, plus
+the committed schema dump in <code>crate::tool</code> - a widened input changes a snapshot and the
+byte-compare fails until somebody re-accepts it, which is what puts a new field in a reviewer's
+diff.</p>
+<p><strong>What is now mechanical across the two transports is the TOOL SET, and not these shapes.</strong>
+<code>sutura_app::Capability</code> is the one source both of them render, and
+<code>both_transports_describe_the_same_tools</code> in <code>crate::tool</code> is the assertion. The field lists of
+two wire types with the same job are still kept equal by review, and that limit is worth keeping
+in front of a reader rather than letting the tool-set test read as covering it.</p>
+<h1 id="why-the-derive-is-here-and-not-on-query">Why the derive is here and not on <code>Query</code><a class="headerlink" href="#why-the-derive-is-here-and-not-on-query" title="Permanent link">&para;</a></h1>
+<p>The schema has to be generated - a hand-written tool schema and a hand-written parser drift, and
+the drift is invisible until a caller trusts the schema. The derive that generates it is
+<code>schemars</code>, and <code>sutura-domain</code>'s whole transitive tree is walked by <code>cargo xtask
+check-boundaries</code> against an allowlist, so putting a macro crate on a domain type is an
+architecture decision rather than a convenience. The derive goes on the wire type, which is
+where a wire format belongs anyway.</p>
+<p>A wire type is also allowed to be <em>worse</em> than a domain type, and should be. Every field of
+<code>AskArgs</code> is a plain string, because that is what arrives; each one is then parsed into the
+newtype that establishes its invariant, and a failure names the field.</p>
+<h1 id="deny_unknown_fields-and-what-it-is-for-here"><code>deny_unknown_fields</code>, and what it is for here<a class="headerlink" href="#deny_unknown_fields-and-what-it-is-for-here" title="Permanent link">&para;</a></h1>
+<p>The governance boundary, across a JSON parser. Without it an arguments object carrying <code>sql:</code> or
+<code>table:</code> deserializes cleanly with the extra key dropped on the floor, and a model that believes
+it sent SQL is answered as though it had asked the modelled question instead. With it, the
+attempt is a named parse error. <code>sutura_domain::query::Query</code> has no field for any of that; this
+is what keeps that true on the way in.</p>
+<p>It is also what <code>schemars</code> reads to emit <code>additionalProperties: false</code>, so the advertised schema
+and the enforcement come from the same attribute rather than from two decisions that could
+disagree.</p>
+<h3 id="struct-askargs"><code>struct AskArgs</code><a class="headerlink" href="#struct-askargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">AskArgs</span>
+</span></code></pre></div>
+<p>One governed question, as a tool call carries it.</p>
+<p>The five fields are the whole input surface of this deployment. There is no field for SQL, a
+table, a filter expression or a row-id list, and an argument naming one is a parse error rather
+than a key that gets ignored.</p>
+<h4 id="implements_2">Implements<a class="headerlink" href="#implements_2" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h3 id="struct-rangeargs"><code>struct RangeArgs</code><a class="headerlink" href="#struct-rangeargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RangeArgs</span>
+</span></code></pre></div>
+<p>A half-open period: <code>start</code> is included, <code>end</code> is not.</p>
+<p>Half-open at every grain, which is what makes a month <code>[2026-06-01, 2026-07-01)</code> rather than a
+last day that differs per month. Both dates are ISO <code>YYYY-MM-DD</code>.</p>
+<h4 id="implements_3">Implements<a class="headerlink" href="#implements_3" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h3 id="struct-filterargs"><code>struct FilterArgs</code><a class="headerlink" href="#struct-filterargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">FilterArgs</span>
+</span></code></pre></div>
+<p>One equality filter.</p>
+<h4 id="implements_4">Implements<a class="headerlink" href="#implements_4" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h3 id="enum-malformedquestion"><code>enum MalformedQuestion</code><a class="headerlink" href="#enum-malformedquestion" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">MalformedQuestion</span>
+</span></code></pre></div>
+<p>Why an arguments object is not a question.</p>
+<p>Every variant names the field, and none of them echoes the caller's value back except where the
+value is the thing that failed to parse as an identifier - which is a bounded character set, not
+free text.</p>
+<h4 id="variants_1">Variants<a class="headerlink" href="#variants_1" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>NotAnObject</code> - The arguments object did not deserialize at all: a missing field, a wrong type, or - the case this crate cares about most - a field the tool surface does not declare.</li>
+<li><code>Metric</code></li>
+<li><code>Grain</code></li>
+<li><code>Date</code></li>
+<li><code>Range</code></li>
+<li><code>Dimension</code></li>
+<li><code>FilterDimension</code></li>
+<li><code>FilterValue</code> - The value is not one a catalog could have declared: nothing, more than one line, a control character, an invisible or direction-changing code point, spacing a reader cannot see, or longer than <code>sutura_domain::catalog::MAX_DIMENSION_VALUE_CHARS</code>.</li>
+</ul>
+<h4 id="implements_5">Implements<a class="headerlink" href="#implements_5" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Display</code>, <code>Error</code></p>
+<h3 id="enum-outcomecontent"><code>enum OutcomeContent</code><a class="headerlink" href="#enum-outcomecontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">enum</span><span class="w"> </span><span class="nc">OutcomeContent</span>
+</span></code></pre></div>
+<p>What a question produced, as the tool's structured content.</p>
+<p><strong>One shape, and the rows are IN it.</strong> A handle-plus-fetch result was considered and withdrawn:
+the rule it came from is that a federated join is done by the engine rather than by the model,
+which <code>docs/adr/0007</code> already decides above this port, and read as a context-window rule it would
+have cost an agent the ability to answer a question about a number without a second call.</p>
+<p>The <code>outcome</code> discriminator is what a client branches on, and it is the same tag and the same
+<code>reason</code> object the HTTP surface serializes - deliberately, so the two transports describe one
+answer even though the types are separate.</p>
+<h4 id="variants_2">Variants<a class="headerlink" href="#variants_2" title="Permanent link">&para;</a></h4>
+<ul>
+<li><code>Answer</code> - The question was answered.</li>
+<li><code>Refusal</code> - The question was refused. <strong>Still an <code>Ok</code>, and still a tool RESULT</strong> - see <code>crate::server::AgentSurface::call_tool</code>.</li>
+</ul>
+<h4 id="implements_6">Implements<a class="headerlink" href="#implements_6" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-provenancecontent"><code>struct ProvenanceContent</code><a class="headerlink" href="#struct-provenancecontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">ProvenanceContent</span>
+</span></code></pre></div>
+<p>Which definitions produced this answer.</p>
+<p>Always present on an answer, and it is the reason an answer can be trusted at all: the version
+names the snapshot and the digest is over its canonical form, so the same question against a
+different bundle is visibly a different answer.</p>
+<h4 id="implements_7">Implements<a class="headerlink" href="#implements_7" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-legcontent"><code>struct LegContent</code><a class="headerlink" href="#struct-legcontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">LegContent</span>
+</span></code></pre></div>
+<p>One leg of an answer: which source it ran on, and which identity it ran as.</p>
+<p><strong>The posture is a word, and the operator's acknowledgement reason is not here.</strong> The reason is
+prose an operator wrote for a reviewer and the startup log prints it; sending it to an agent on
+every answer would be a channel from a configuration file into a model's context that nobody asked
+for. What an agent needs is which of the two postures produced the rows.</p>
+<p>Reading it is not a control: it reaches the agent after the rows did.</p>
+<h4 id="implements_8">Implements<a class="headerlink" href="#implements_8" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-refusalcontent"><code>struct RefusalContent</code><a class="headerlink" href="#struct-refusalcontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">RefusalContent</span>
+</span></code></pre></div>
+<p>Why a question was refused: a stable code a caller branches on, and a sentence a person reads.</p>
+<p><strong>Nothing here echoes a value the caller sent.</strong> The domain's refusal variants already stop short
+of that - a rejected filter value names the dimension and not the value, because reflecting
+caller text into a message that reaches a log and a model's context is how a rejected value
+becomes somebody else's input.</p>
+<h4 id="methods_1">Methods<a class="headerlink" href="#methods_1" title="Permanent link">&para;</a></h4>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">const</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">code</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="o">'</span><span class="nb">static</span><span class="w"> </span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The code, for a test that asserts on the contract rather than on the prose.</p>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">fn</span><span class="w"> </span><span class="nf">detail</span><span class="p">(</span><span class="o">&amp;</span><span class="bp">self</span><span class="p">)</span><span class="w"> </span><span class="p">-&gt;</span><span class="w"> </span><span class="kp">&amp;</span><span class="kt">str</span>
+</span></code></pre></div>
+<p>The sentence. A test asserts it is not empty; nothing asserts its wording.</p>
+<h4 id="implements_9">Implements<a class="headerlink" href="#implements_9" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-describecatalogargs"><code>struct DescribeCatalogArgs</code><a class="headerlink" href="#struct-describecatalogargs" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DescribeCatalogArgs</span>
+</span></code></pre></div>
+<p>This tool takes no arguments. It returns the whole of what this deployment measures, and there is
+nothing to filter or select: send an empty object.</p>
+<h4 id="implements_10">Implements<a class="headerlink" href="#implements_10" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Deserialize&lt;'de&gt;</code>, <code>JsonSchema</code></p>
+<h3 id="struct-catalogcontent"><code>struct CatalogContent</code><a class="headerlink" href="#struct-catalogcontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">CatalogContent</span>
+</span></code></pre></div>
+<p>What this deployment measures, as the catalog tool's structured content.</p>
+<p><strong>A second wire type beside <code>sutura_http::wire::CatalogBody</code>, with the same fields, and that is
+the same deliberate cost <code>AskArgs</code> already pays.</strong> An adapter never calls another adapter, so
+this crate cannot import that shape; what keeps the two equal is review plus the fact that both
+are built from the one <code>sutura_domain::pinned::PinnedDefinitions</code> accessor set, which is where a
+missing field would show up as a missing call rather than as a silent divergence.</p>
+<p>Descriptive content only. <code>sutura_domain::pinned::SemanticCatalog::load</code> takes no request context
+and cannot be given one, so nothing a caller sends selects, widens or parameterizes what this
+returns: it is the <em>pinned</em> bundle, the same one every answer is computed from.</p>
+<h4 id="implements_11">Implements<a class="headerlink" href="#implements_11" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-metriccontent"><code>struct MetricContent</code><a class="headerlink" href="#struct-metriccontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">MetricContent</span>
+</span></code></pre></div>
+<p>One metric, as much of it as a caller needs to ask a valid question.</p>
+<h4 id="implements_12">Implements<a class="headerlink" href="#implements_12" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+<h3 id="struct-dimensioncontent"><code>struct DimensionContent</code><a class="headerlink" href="#struct-dimensioncontent" title="Permanent link">&para;</a></h3>
+<div class="language-rust highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="k">pub</span><span class="w"> </span><span class="k">struct</span><span class="w"> </span><span class="nc">DimensionContent</span>
+</span></code></pre></div>
+<p>One dimension of one metric.</p>
+<h4 id="implements_13">Implements<a class="headerlink" href="#implements_13" title="Permanent link">&para;</a></h4>
+<p><code>Debug</code>, <code>Serialize</code></p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>

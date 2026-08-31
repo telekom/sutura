@@ -1,0 +1,3163 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="The dependency decision the BigQuery transport was gated on - four community and official clients priced against what each costs the release, the licence gate and Arrow, why every wrapper crate is refused on one transitive dependency, why the REST endpoint over a client already in the graph costs zero new packages, and the consequence that a wire now exists which nobody has run against a real project.">
+      
+      
+      
+        <link rel="canonical" href="https://telekom.github.io/sutura/dev/adr/0018-what-the-bigquery-wire-is-built-from/">
+      
+      
+        <link rel="prev" href="../0017-what-a-bigquery-test-runs-against/">
+      
+      
+        <link rel="next" href="../0019-a-table-outside-the-connections-dataset/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/favicon.svg">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.7">
+    
+    
+      
+        <title>What the BigQuery wire is built from - sutura</title>
+      
+    
+    
+      <link rel="stylesheet" href="../../assets/stylesheets/main.ec1eaa64.min.css">
+      
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+    
+    
+      <link rel="stylesheet" href="../../css/telekom.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#what-the-bigquery-wire-is-built-from" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="sutura" class="md-header__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            sutura
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              What the BigQuery wire is built from
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m14.3 16-.7-2h-3.2l-.7 2H7.8L11 7h2l3.2 9zM20 8.69V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12zm-9.15 3.96h2.3L12 9z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_2" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="m17.75 4.09-2.53 1.94.91 3.06-2.63-1.81-2.63 1.81.91-3.06-2.53-1.94L12.44 4l1.06-3 1.06 3zm3.5 6.91-1.64 1.25.59 1.98-1.7-1.17-1.7 1.17.59-1.98L15.75 11l2.06-.05L18.5 9l.69 1.95zm-2.28 4.95c.83-.08 1.72 1.1 1.19 1.85-.32.45-.66.87-1.08 1.27C15.17 23 8.84 23 4.94 19.07c-3.91-3.9-3.91-10.24 0-14.14.4-.4.82-.76 1.27-1.08.75-.53 1.93.36 1.85 1.19-.27 2.86.69 5.83 2.89 8.02a9.96 9.96 0 0 0 8.02 2.89m-1.64 2.02a12.08 12.08 0 0 1-7.8-3.47c-2.17-2.19-3.33-5-3.49-7.82-2.81 3.14-2.7 7.96.31 10.98 3.02 3.01 7.84 3.12 10.98.31"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_2">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 7a5 5 0 0 1 5 5 5 5 0 0 1-5 5 5 5 0 0 1-5-5 5 5 0 0 1 5-5m0 2a3 3 0 0 0-3 3 3 3 0 0 0 3 3 3 3 0 0 0 3-3 3 3 0 0 0-3-3m0-7 2.39 3.42C13.65 5.15 12.84 5 12 5s-1.65.15-2.39.42zM3.34 7l4.16-.35A7.2 7.2 0 0 0 5.94 8.5c-.44.74-.69 1.5-.83 2.29zm.02 10 1.76-3.77a7.131 7.131 0 0 0 2.38 4.14zM20.65 7l-1.77 3.79a7.02 7.02 0 0 0-2.38-4.15zm-.01 10-4.14.36c.59-.51 1.12-1.14 1.54-1.86.42-.73.69-1.5.83-2.29zM12 22l-2.41-3.44c.74.27 1.55.44 2.41.44.82 0 1.63-.17 2.37-.44z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+        <div class="md-search__suggest" data-md-component="search-suggest"></div>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+<nav class="md-nav md-nav--primary" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="sutura" class="md-nav__button md-logo" aria-label="sutura" data-md-component="logo">
+      
+  <img src="../../assets/sutura.svg" alt="logo">
+
+    </a>
+    sutura
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/telekom/sutura" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    telekom/sutura
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Introduction
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <label class="md-nav__link" for="__nav_2" id="__nav_2_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guide
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guide
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../concepts/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Concepts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting started
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../qa/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Questions and answers
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../agent-prompt/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The agent prompt
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <label class="md-nav__link" for="__nav_3" id="__nav_3_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Development
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Development
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../contributing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Contributing
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../crap/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The CRAP gate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../enterprise-mirrors/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Building without direct egress
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../publishing/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Publishing the docs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4" id="__nav_4_label" tabindex="">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../serving/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Serving over HTTP
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../verifying-a-release/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Verifying a release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The implementation plan
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, BigQuery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../implementation-plan-identity-and-services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, identity and services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_7" checked>
+        
+          
+          <label class="md-nav__link" for="__nav_4_7" id="__nav_4_7_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Decisions
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_7_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Decisions
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0001-first-party-semantic-models/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    First-party semantic models
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0002-a-closed-vocabulary-for-measures/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A closed vocabulary for measures
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0003-datafusion-for-local-execution/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    DataFusion for local execution
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0004-a-named-escape-hatch-for-authored-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A named escape hatch for authored SQL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0005-a-refusal-carries-a-status/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A refusal carries a status
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0006-several-databases-behind-one-data-system/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Several databases behind one data system, declined
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0007-federating-across-different-data-systems/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Federating across different data systems
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0008-a-credential-per-leg-for-the-calling-subject/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential per leg, for the calling subject
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0009-the-plan-from-one-source-to-many/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    The plan, from one source to many and one user to many
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0010-transport-security-for-a-source/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Transport security for a source
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0011-pluggable-by-declaration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Pluggable by declaration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0012-conformance-packs-for-inputs-and-adapters/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Conformance packs for inputs and adapters
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0013-a-raw-sql-tool-off-by-default/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A raw SQL tool, off by default
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0014-how-a-caller-proves-who-it-is/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a caller proves who it is
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0015-an-authenticated-metrics-endpoint/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    An authenticated metrics endpoint
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0016-what-datahub-can-carry/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What DataHub can carry
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0017-what-a-bigquery-test-runs-against/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What a BigQuery test runs against
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="./" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    What the BigQuery wire is built from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-has-to-be-priced-and-why-an-unpriced-option-is-not-an-option" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What has to be priced, and why an unpriced option is not an option
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-options-priced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The options, priced
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The options, priced">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-ureq-and-not-reqwest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why ureq and not reqwest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-shipped-artifact-links-what-per-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which shipped artifact links what, per target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs the licence gate: nothing, and one thing changes anyway
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-costs-arrow-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs Arrow: nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-deliberately-not-built-each-refused-by-name-rather-than-mishandled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is deliberately not built, each refused by name rather than mishandled
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is claimed, and what is not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is claimed, and what is not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-service-account-flow-and-what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The service-account flow, and what it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-finding-the-live-run-produced-that-no-local-check-could-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One finding the live run produced that no local check could have
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-claimed-and-by-what-mechanism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not claimed, and by what mechanism
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0019-a-table-outside-the-connections-dataset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A table outside the connection's own dataset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0020-a-credential-the-compiler-refuses-to-print/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    A credential the compiler refuses to print
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../0021-how-a-published-artefact-proves-where-it-came-from/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    How a published artefact proves where it came from
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_8" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../api/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    API
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4_8" id="__nav_4_8_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_8_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_8">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    API
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-domain/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-domain
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-catalog-local/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-catalog-local
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-semantic/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-semantic
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-sql/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-sql
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-datafusion/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-datafusion
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-duckdb/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-duckdb
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-bigquery/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-bigquery
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-exec-postgres/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-exec-postgres
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-app/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-app
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-config/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-runtime/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-runtime
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-http/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-http
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-mcp/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-mcp
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../api/sutura-dev/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    sutura-dev
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-has-to-be-priced-and-why-an-unpriced-option-is-not-an-option" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What has to be priced, and why an unpriced option is not an option
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-options-priced" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The options, priced
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The options, priced">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#why-ureq-and-not-reqwest" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why ureq and not reqwest
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-decision" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The decision
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="The decision">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#which-shipped-artifact-links-what-per-target" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Which shipped artifact links what, per target
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs the licence gate: nothing, and one thing changes anyway
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-it-costs-arrow-nothing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What it costs Arrow: nothing
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-built" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is built
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is built">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-is-deliberately-not-built-each-refused-by-name-rather-than-mishandled" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is deliberately not built, each refused by name rather than mishandled
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#what-is-claimed-and-what-is-not" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is claimed, and what is not
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="What is claimed, and what is not">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-service-account-flow-and-what-it-cost" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The service-account flow, and what it cost
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#one-finding-the-live-run-produced-that-no-local-check-could-have" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        One finding the live run produced that no local check could have
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#what-is-still-not-claimed-and-by-what-mechanism" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What is still not claimed, and by what mechanism
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#consequences" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Consequences
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="what-the-bigquery-wire-is-built-from">What the BigQuery wire is built from<a class="headerlink" href="#what-the-bigquery-wire-is-built-from" title="Permanent link">&para;</a></h1>
+<p>Status: <strong>accepted.</strong> The transport is built, feature-gated, linted, tested and audited - and since
+2026-08-30 it has been <strong>run against a real project</strong>, which is the first time anything in this
+repository has had a statement accepted by <code>BigQuery</code>. <em>What is claimed, and what is not</em> is the
+section at the end, and it is the one to read before taking a green run for more than it is:
+<strong>one hand-built <code>SUM</code> was accepted, not the corpus.</strong></p>
+<p><a href="../0017-what-a-bigquery-test-runs-against/">0017</a> decided what a <code>BigQuery</code> test runs against and
+left one seam deliberately empty: <code>sutura_exec_bigquery::transport::JobTransport</code>, with the sentence
+that <em>the change that implements it is the change that can first run it against a project - which is
+also where the dependency decision belongs.</em> This record is that dependency decision.</p>
+<p><strong>It is a decision before it is code</strong>, because the option that looks best on API surface is refused
+on a transitive dependency, and an option priced only on "does the crate do what we need" would have
+picked it. All four costs below are measured against this workspace on <strong>2026-08-30</strong> and the
+commands are named, because a version number in a design record is stale before anybody builds from
+it.</p>
+<h2 id="what-has-to-be-priced-and-why-an-unpriced-option-is-not-an-option">What has to be priced, and why an unpriced option is not an option<a class="headerlink" href="#what-has-to-be-priced-and-why-an-unpriced-option-is-not-an-option" title="Permanent link">&para;</a></h2>
+<table>
+<thead>
+<tr>
+<th>Cost</th>
+<th>The mechanism that would fail</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>The release</strong></td>
+<td><code>sutura-cli</code> is the only crate any release package builds - <code>flake.nix</code> sets <code>cargoExtraArgs = "--package sutura-cli"</code> on both the native and the cross paths - across four target triples, two of which are musl. nixpkgs has no musl <code>libduckdb</code>, which is why a data system's driver is a dev-dependency here. A client with a native library repeats that problem in a source that is not optional</td>
+</tr>
+<tr>
+<td><strong>The licence gate</strong></td>
+<td><code>deny.toml</code> runs an exact allowlist with <code>unused-allowed-license = "deny"</code>, so an allowed licence nothing uses is itself a failure. Every addition is a deliberate entry</td>
+</tr>
+<tr>
+<td><strong>Arrow</strong></td>
+<td><code>cargo xtask check-arrow</code> fails when the <code>arrow-*</code> family spans more than one major without a dated, reasoned entry in <code>devco/arrow-majors-allow</code>. The engine sets the type vocabulary and adapters conform</td>
+</tr>
+<tr>
+<td><strong><code>anyhow</code></strong></td>
+<td>Not on the issue's list and it is the one that decides this. <code>AGENTS.md</code> states that <em><code>anyhow</code> appears nowhere in this workspace - <code>Cargo.lock</code> included, so not even transitively</em>, and <code>cargo xtask check-boundaries</code> fails a dynamic-error crate in a library. A dependency that pulls it transitively spends a claim this repository makes in writing</td>
+</tr>
+</tbody>
+</table>
+<h2 id="the-options-priced">The options, priced<a class="headerlink" href="#the-options-priced" title="Permanent link">&para;</a></h2>
+<p>There is <strong>no stable official Google <code>BigQuery</code> SDK for Rust.</strong> There is an official repository -
+<code>googleapis/google-cloud-rust</code> - whose <code>google-cloud-auth</code> is GA, and whose <strong>query</strong> client
+<code>google-cloud-bigquery</code> is published as <code>0.16.1-preview</code> with its own documentation warning that it
+is a preview release. Checked on 2026-08-30 against crates.io rather than recalled.</p>
+<p><strong>And the obvious spelling resolves to the wrong crate.</strong> <code>google-cloud-bigquery</code>'s highest <em>stable</em>
+version is <code>0.15.0</code>, published in February 2025 by the crate's previous owner before the name was
+handed to Google; that release pulls <code>openssl</code> and <code>arrow 53.4.1</code>. So <code>cargo add
+google-cloud-bigquery</code> gets an eighteen-month-old release that breaks two of the four costs at once.
+Written down because it is a trap a reader would otherwise walk into.</p>
+<table>
+<thead>
+<tr>
+<th>Option</th>
+<th>Packages added</th>
+<th><code>anyhow</code></th>
+<th><code>openssl</code></th>
+<th>Arrow</th>
+<th>Native build</th>
+<th>Verdict</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>gcp-bigquery-client</code> 0.28.0</td>
+<td>+71</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+<td><code>zstd-sys</code> (<code>links = "zstd"</code>)</td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td><code>google-cloud-bigquery</code> 0.15.0 (what the name resolves to)</td>
+<td>not counted</td>
+<td><strong>yes</strong></td>
+<td><strong>yes</strong></td>
+<td><strong>53.4.1</strong></td>
+<td><code>openssl-sys</code></td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td><code>gcloud-bigquery</code> 1.7.0 (the same family, renamed)</td>
+<td>not counted</td>
+<td><strong>yes</strong> (twice over)</td>
+<td>no</td>
+<td><strong>58.4.0</strong></td>
+<td><code>aws-lc-sys</code>, cmake</td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td><code>google-cloud-bigquery</code> 0.16.1-preview (official)</td>
+<td>+92</td>
+<td><strong>yes</strong></td>
+<td>no</td>
+<td>no</td>
+<td><code>aws-lc-sys</code>, cmake</td>
+<td><strong>refused</strong></td>
+</tr>
+<tr>
+<td><code>reqwest</code> + <code>gcp_auth</code>, calling <code>jobs.query</code></td>
+<td>+68</td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td><code>ring</code> only</td>
+<td>viable</td>
+</tr>
+<tr>
+<td><strong><code>ureq</code>, calling <code>jobs.query</code></strong></td>
+<td><strong>+0</strong></td>
+<td>no</td>
+<td>no</td>
+<td>no</td>
+<td><code>ring</code> only</td>
+<td><strong>chosen</strong></td>
+</tr>
+</tbody>
+</table>
+<p><strong>Every wrapper crate is refused on <code>anyhow</code>, and it is unavoidable rather than a feature flag.</strong> It
+arrives through <code>prost-derive</code> → <code>prost</code>, which every one of them pulls because they all bundle the
+gRPC Storage and Write APIs beside the REST query surface. So the crate that would save us writing a
+request body costs a claim this repository enforces with a gate.</p>
+<p>Two of them are independently disqualified as well, which is worth recording because it means the
+<code>anyhow</code> finding is not load-bearing on its own: <code>gcloud-bigquery</code> and the stale
+<code>google-cloud-bigquery</code> each pull an Arrow major that is not the engine's, and the latter pulls
+<code>openssl</code> into a workspace whose musl targets have no system OpenSSL.</p>
+<h3 id="why-ureq-and-not-reqwest">Why <code>ureq</code> and not <code>reqwest</code><a class="headerlink" href="#why-ureq-and-not-reqwest" title="Permanent link">&para;</a></h3>
+<p>Two reasons, and the first is the port's shape rather than a preference.</p>
+<p><strong><code>JobTransport::run</code> is synchronous, because <code>Warehouse</code> is.</strong> The service reaches it through
+<code>sutura_runtime::spawn_carrying_span</code>, on a blocking-pool thread. <code>reqwest::blocking</code> satisfies that
+signature by starting a runtime of its own inside a call that is already on a blocking thread;
+<code>ureq</code> is natively blocking and needs none.</p>
+<p><strong>And it costs nothing, which was measured rather than argued.</strong> <code>ureq 3.4.0</code> with exactly the two
+features this needs is <strong>already resolved in <code>Cargo.lock</code></strong>: it arrives as a build-dependency of
+<code>libduckdb-sys</code>, whose <code>build.rs</code> downloads a prebuilt library when nothing else supplied one -
+<code>deny.toml</code> describes that at length and notes that the downloader never runs here, because
+<code>nix/duckdb.nix</code> sets <code>DUCKDB_LIB_DIR</code> and the build sandbox has no network.</p>
+<p>The measurement, reproducible with <code>cargo metadata --format-version 1 --all-features</code>:</p>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a>packages in Cargo.lock before:  446
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>packages in Cargo.lock after:   446
+</span></code></pre></div>
+<p>The only change to <code>Cargo.lock</code> is three dependency <strong>names</strong> added to <code>sutura-exec-bigquery</code>'s own
+stanza - <code>serde</code>, <code>serde_json</code>, <code>ureq</code>. No package, no version, no licence.</p>
+<p><code>cargo tree -p sutura-exec-bigquery --features wire</code> says what the <em>compiled closure</em> of that crate
+gains, which is the number that actually matters and is not zero: <strong>33 packages to 52</strong>, the
+nineteen being <code>ureq</code>, <code>ureq-proto</code>, <code>rustls</code>, <code>rustls-webpki</code>, <code>rustls-pki-types</code>, <code>webpki-roots</code>,
+<code>ring</code>, <code>untrusted</code>, <code>subtle</code>, <code>zeroize</code>, <code>http</code>, <code>httparse</code>, <code>bytes</code>, <code>base64</code>, <code>log</code>, <code>once_cell</code>,
+<code>percent-encoding</code>, <code>getrandom</code> and <code>utf8-zero</code>. <strong>Every one of them is already in the lock</strong> - which
+is the claim the +0 rests on and the one that was measured. How many are also already <em>compiled</em> by
+some other crate is not counted here, because the number differs per feature set and per target and a
+figure with neither attached would be the kind of stale number this repository's own dependency rule
+tells a record not to write.</p>
+<h2 id="the-decision">The decision<a class="headerlink" href="#the-decision" title="Permanent link">&para;</a></h2>
+<p><strong><code>jobs.query</code> over <code>ureq</code>, behind a default-off <code>wire</code> feature on <code>sutura-exec-bigquery</code>, with a
+second narrow port for the credential.</strong></p>
+<p>Four parts, each with its own reason:</p>
+<ol>
+<li><strong>The REST endpoint, called directly.</strong> <code>0017</code> already established what the call needs and the
+   corpus already renders it: a <code>jobs.query</code>-shaped submission, <code>parameterMode</code> positional with an
+   ordered array whose entries omit <code>name</code>, <code>defaultDataset</code> on the request, and an explicitly
+   declared billing project. A <code>GeneratedQuery</code> is a statement plus an ordered parameter list, which
+   is a closer fit to that request body than to any wrapper's typed builder.</li>
+<li><strong><code>ureq</code> with <code>default-features = false</code> and exactly <code>rustls</code> and <code>rustls-webpki-roots</code></strong>, chosen
+   to match what <code>libduckdb-sys</code> already resolves so that nothing is added. No <code>platform-verifier</code>
+   (the same binary would trust different roots on different machines), no <code>json</code> (<code>serde_json</code> is
+   already a dependency), no <code>gzip</code>, <code>brotli</code>, <code>charset</code>, <code>cookies</code> or <code>socks-proxy</code> - a cookie jar
+   on a client that presents a bearer token is a second credential store nobody asked for.</li>
+<li><strong>A default-off feature</strong>, so which side of the build the TLS stack is compiled on stays a
+   decision a composition root makes in a manifest line a reviewer can see. It is not hidden from
+   any gate: <code>just lint</code>, <code>just test</code>, the doctests and <code>deny.toml</code>'s <code>[graph] all-features = true</code>
+   all compile it.</li>
+<li><strong><code>wire::credential::AccessTokens</code>, a second port.</strong> The wire needs two things from a credential -
+   a token usable now with the instant it stops being usable, and whether a request carrying it has to
+   name a quota project - and everything else about how a deployment authenticates is somebody else's
+   decision. A port on the first day rather than a <code>String</code> field, so that <em>which</em> credential shape a
+   deployment holds is a choice of implementor.</li>
+</ol>
+<p><strong>What this is NOT, corrected by review because the first version of this bullet claimed it:</strong> it
+   is not yet the seam at which per-subject execution arrives as <em>merely another implementor</em>. Three
+   signatures say so, and all three are in this repository rather than in a plan:
+   <code>Warehouse::execute</code> receives a <code>&amp;Presented</code>, and <code>BigQueryWarehouse</code> reads it only to call
+   <code>deliverable</code> and then drops it; <code>JobTransport::run</code> receives a <code>JobRequest</code> and nothing else;
+   and <code>AccessTokens::bearer</code> receives a clock and a <code>CallDeadline</code>. <strong>So an implementation behind
+   this port cannot select a credential for the presented subject, and cannot tell two concurrent
+   subjects apart.</strong> Per-subject identity is correctly out of scope here - <code>IMPERSONATION</code> is
+   <code>NoPlaceForASubject</code> and the crate says so in four places - and the honest record of it is this
+   paragraph rather than speculative API added now: <strong>the step that builds it has to carry the leg's
+   subject or its credential context through one of those three interfaces, and deciding which is
+   part of that change.</strong> Nothing here is a step towards it, which the <em>Consequences</em> section below
+   also states.</p>
+<h3 id="which-shipped-artifact-links-what-per-target">Which shipped artifact links what, per target<a class="headerlink" href="#which-shipped-artifact-links-what-per-target" title="Permanent link">&para;</a></h3>
+<p><strong>The answer today is: none of them link either half of this crate</strong>, and that is checkable rather
+than asserted.</p>
+<table>
+<thead>
+<tr>
+<th>Artifact</th>
+<th>Built from</th>
+<th>Links <code>sutura-exec-bigquery</code>?</th>
+<th>Links <code>ureq</code>?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>sutura</code> (<code>x86_64-unknown-linux-gnu</code>, native)</td>
+<td><code>--package sutura-cli</code></td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>sutura</code> (<code>aarch64-unknown-linux-gnu</code>, cross)</td>
+<td><code>--package sutura-cli --target …</code></td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>sutura</code> (<code>x86_64-unknown-linux-musl</code>, cross)</td>
+<td><code>--package sutura-cli --target …</code></td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>sutura</code> (<code>aarch64-unknown-linux-musl</code>, cross)</td>
+<td><code>--package sutura-cli --target …</code></td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>oci-&lt;triple&gt;</code> for each of those four</td>
+<td>the unsuffixed cross package</td>
+<td>no</td>
+<td>no</td>
+</tr>
+<tr>
+<td><code>sutura-serve</code></td>
+<td>nothing - <strong>it is built by no release package at all</strong>, because the flake's release derivations name <code>sutura-cli</code> only</td>
+<td>no</td>
+<td>no</td>
+</tr>
+</tbody>
+</table>
+<p><code>crates/sutura-cli/Cargo.toml</code> declares no edge to <code>sutura-exec-bigquery</code>, and the root manifest
+keeps the crate out of <code>[workspace.dependencies]</code> on purpose - <code>cargo xtask unused-deps</code> is what
+keeps it out, because no member inherits it. So the four cross builds are byte-identical in their
+dependency requirements before and after this change, and the <code>wire</code> feature is off in every
+resolution any of them performs.</p>
+<p><strong>What it would cost when a composition root does link it</strong>, stated now so the diff that does is not
+the one working it out: <code>ureq</code> plus the eighteen crates above, compiled for that target. The musl
+question is <code>ring</code>, which is the only one with a native component - and <code>ring</code> ships <strong>pregenerated
+assembly</strong> for <code>linux64</code> on both <code>x86_64</code> and <code>aarch64</code>, so it needs a C compiler for its shims and
+neither Perl nor nasm. <code>rustls</code> needs no system library at all, which is the same argument
+<code>tokio-rustls</code> already carries in the root manifest for the inbound side. <strong>Not proved by a build
+here:</strong> no musl cross build was run on this machine, and no shipped artifact links the feature, so
+this paragraph is a prediction with its mechanism named rather than a measurement.</p>
+<h3 id="what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway">What it costs the licence gate: nothing, and one thing changes anyway<a class="headerlink" href="#what-it-costs-the-licence-gate-nothing-and-one-thing-changes-anyway" title="Permanent link">&para;</a></h3>
+<p><strong>Zero new entries.</strong> <code>deny.toml</code>'s allowlist already carries <code>ISC</code> (<code>rustls-webpki</code>, <code>untrusted</code>,
+and the ISC half of <code>ring</code>'s <code>Apache-2.0 AND ISC</code>), <code>BSD-3-Clause</code> (<code>subtle</code>) and
+<code>CDLA-Permissive-2.0</code> (<code>webpki-roots</code>), and its own comment says where they came from: <em>five of them
+arrive under <code>libduckdb-sys</code>'s <code>ureq</code>.</em></p>
+<p>What changes is <strong>why they are there.</strong> Until now those five were justified by a build-script
+downloader that never runs, under a dev-dependency. They are now justified by first-party code as
+well, which makes them harder to remove by accident and easier to reason about - and it removes a
+latent trap: had DuckDB ever been dropped as a dev-dependency, <code>unused-allowed-license = "deny"</code>
+would have failed on five entries at once. The comment in <code>deny.toml</code> is updated to say both, because
+a canonical comment that names one of two owners is the shape of thing that rots.</p>
+<h3 id="what-it-costs-arrow-nothing">What it costs Arrow: nothing<a class="headerlink" href="#what-it-costs-arrow-nothing" title="Permanent link">&para;</a></h3>
+<p><code>ureq</code> names no Arrow crate, and neither does anything in its closure. <code>cargo xtask check-arrow</code>
+reports the same two majors it reported before - 59 from the engine, 58 from the <code>duckdb</code> crate,
+both explained in <code>devco/arrow-majors-allow</code> - and this change adds no third.</p>
+<p><strong>This is also the reason the Storage Read API stays out of scope</strong>, beyond the reason <code>0017</code> and the
+issue both give. It returns Arrow, so it would put a third Arrow consumer in the graph and the
+engine's major would have to win; and it <em>never submits the statement</em>, so it cannot answer a
+semantic query, only read a table. If it has a role it is a later optimisation over a table we
+already trust, not this wire.</p>
+<h2 id="what-is-built">What is built<a class="headerlink" href="#what-is-built" title="Permanent link">&para;</a></h2>
+<p>Everything below the socket, and one thing at it.</p>
+<ul>
+<li><strong><code>wire::BigQueryWire</code></strong>, the one <code>JobTransport</code> implementor. <code>submit</code> builds the request, presents
+  the bearer, reads the status and parses the answer; <code>validate</code> and <code>run</code> are the two callers with
+  the two different conclusions.</li>
+<li><strong><code>wire::WireAgent</code></strong>, which is what makes every claim on this page a property of a TYPE rather than
+  of a call site. The client's settings used to live in a free function returning a bare
+  <code>ureq::Agent</code>, and both the transport and the credential source accepted any agent - so a
+  composition root writing <code>ureq::Agent::new_with_defaults()</code> got redirects on, plaintext allowed and
+  no timeout, while every test passed because the tests all called the right builder. Private field,
+  one constructor, a <code>compile_fail</code> doctest with a compiling twin. <em>A newtype parses rather than
+  validates</em> is the rule; this was the gap.</li>
+<li><strong><code>wire::JobBounds</code></strong>, and it is not a tidy-up. A job is bounded in <strong>time</strong> by <code>jobTimeoutMs</code> and in
+  <strong>money</strong> by <code>maximumBytesBilled</code>, both required, both carried by the <code>WireAgent</code> so the socket
+  timeout and the request body read the same value. Two corrections are folded in here, and each was a
+  real defect:<ul>
+<li><strong><code>timeoutMs</code> bounds nothing at the service.</strong> The endpoint documents it as how long the CLIENT
+  waits; when it expires the answer carries <code>jobComplete: false</code> with a <code>jobReference</code> and <strong>the
+  job keeps running and keeps billing.</strong> The first version of this wire sent <code>timeoutMs: 55000</code>,
+  returned <code>NotComplete</code>, discarded the reference and walked away from a live billable job.
+  <code>jobTimeoutMs</code> is the field that is actually a deadline, and the two are now the same number so
+  the client stops waiting at the instant the service cancels.</li>
+<li><strong>Nothing in this repository bounded bytes SCANNED.</strong> <code>LIMIT 10001</code> bounds rows returned, the
+  one-page refusal bounds a page, and the 32 MiB response cap bounds what is read into memory - a
+  question can satisfy all three and scan a partitioned table end to end. <code>maximumBytesBilled</code> is
+  enforced at the service, which is why it beats comparing a dry run's estimate: a job that would
+  exceed it fails <strong>and is not charged.</strong></li>
+<li>And the numbers reconcile now. <code>server.request_timeout_seconds</code> ships as <strong>30</strong>; the first
+  version asked the endpoint to hold a job for 55 s behind a 70 s socket, so a blocking-pool
+  thread could be held for up to <strong>40 s after the request it served had gone.</strong> The deadline is a
+  parameter a composition root fills from that same setting, and the socket is the deadline plus
+  five seconds of connection setup.</li>
+</ul>
+</li>
+<li><strong>The quota project on every request.</strong> <code>x-goog-user-project</code>, carrying the source's declared billing
+  project. An application-default credential is an END-USER credential, and the endpoint's own
+  direct-REST guidance requires a quota project for one - without it a valid token comes back refused
+  with a message about user credentials not being supported, which reads as an authentication fault
+  and is not one. The credential file's own <code>quota_project_id</code> is deliberately not read: two answers
+  to <em>who pays</em> that can disagree silently is worse than one a reviewer can see in a settings file.</li>
+<li><strong><code>wire::credential::ApplicationDefault</code></strong>, one <code>AccessTokens</code> implementor: it reads the file
+  <code>gcloud auth application-default login</code> writes and exchanges its refresh token. That is exactly the
+  fixture <code>0017</code> decided, and <code>just gcloud-login</code> is what produces it.</li>
+<li><strong>The decisions the module header states and the suite pins.</strong> One page or a refusal - a
+  <code>pageToken</code>, an incomplete job or a total the delivered count does not equal is refused, because to
+  <code>answer()</code> a first page would read as <em>under the cap, not truncated</em>. The service's own result
+  cache <strong>off</strong> - an anchor that reproduces from a cache has reproduced the cache, and a cached
+  answer under a shared identity is shared across every asker. <code>max_redirects(0)</code>, so the bearer has
+  no second host to follow a redirect to. And every foreign string that reaches an error is bounded
+  and character-filtered through <strong>one</strong> shared function - the endpoint's <code>reason</code> and the credential
+  file's <code>type</code> are kept, the free-text <code>message</code> is not a field on the error type at all, and there
+  used to be two copies of the bounding that had drifted by one character in their allowed set.</li>
+<li><strong>Failure is derived from the RESULT SHAPE, never from <code>errors</code> being non-empty</strong>, and the first
+  version got this wrong in the direction that matters. The endpoint documents that array as <em>"the
+  first errors or warnings encountered"</em> and says entries <em>"do not necessarily mean that the job has
+  completed or was unsuccessful"</em> - so refusing on it <strong>declined successful queries that merely
+  warned</strong>, and answered a caller a <code>503</code> for a result the service had produced. What refuses is
+  <code>jobComplete</code>, a <code>pageToken</code>, an absent <code>totalRows</code> and a delivered count that is not the reported
+  total; the reported reason is folded into whichever of those fires, which is also where a genuinely
+  failed job lands, because the endpoint reports one as complete with no total.</li>
+<li><strong>The bearer's DESTINATION is a constant; its ROUTE is not.</strong> <code>HOST</code> cannot be configured,
+  <code>https_only</code> is on, <code>max_redirects</code> is <code>0</code> - so nothing a deployment writes changes which service
+  receives the credential. What a deployment <em>can</em> change is the path: <code>ureq</code>'s default config is
+  <code>Proxy::try_from_env()</code>, so <code>HTTPS_PROXY</code> routes these requests. That is left on deliberately, an
+  egress proxy being a real deployment shape here, and it is safe because the tunnel is still TLS to
+  the pinned host against a compiled-in root set - a proxy sees a hostname and no bytes. It is written
+  out rather than inherited so it is a decision a reviewer can disagree with. <strong>An earlier version of
+  this record and of the module header claimed the stronger thing</strong>, and <em>no deployment can choose
+  where this goes</em> is true of the destination only.</li>
+<li><strong>The bearer does not reach a log through the client</strong>, which was checked rather than assumed:
+  <code>ureq 3.4.0</code> redacts every header outside its own <code>NON_SENSITIVE_HEADERS</code> allowlist, and
+  <code>ureq-proto</code> strips <code>authorization</code> on a redirect. Recorded because <code>tracing-log</code> bridges <code>log</code>
+  here, so the client's diagnostics land in the same stream as everything else.</li>
+</ul>
+<h3 id="what-is-deliberately-not-built-each-refused-by-name-rather-than-mishandled">What is deliberately not built, each refused by name rather than mishandled<a class="headerlink" href="#what-is-deliberately-not-built-each-refused-by-name-rather-than-mishandled" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>A service-account key.</strong> It needs an <code>RS256</code> assertion signed with a private key. The signing is
+  the dependency question, not the flow: <code>jsonwebtoken</code> is already here but with <code>use_pem</code> off, so a
+  PEM key has nothing to parse it, and turning that on adds <code>pem</code> and <code>simple_asn1</code>. Deferred to the
+  change that has a key to test against.</li>
+<li><strong>The metadata server</strong>, which is how a deployment on the provider's own compute gets a token with
+  no key at all. It is a plain unauthenticated <code>GET</code> and would cost <strong>nothing</strong> in dependencies -
+  the cheapest option on this whole page. It is out because <strong>nothing in this repository can verify
+  it</strong>: it exists only inside that provider's network, so building it would be adding an unexercised
+  code path to a module whose whole point is that it does not claim more than it has.</li>
+<li><strong>Identity federation</strong>, which is the per-subject step and an architecture decision with an owner
+  outside this repository.</li>
+<li><strong>Paging.</strong> <code>getQueryResults</code> needs the job's <code>location</code> for a dataset outside the two
+  multi-regions, and <code>SourcePlacement::BigQuery</code> declares none. <code>0017</code> said the change adding the
+  wire is the one that decides that field; <strong>this change decides it by not needing it</strong>, and the cost
+  is that a result larger than one page is refused rather than assembled.</li>
+<li><strong>Retries.</strong> A refused job arrives as <code>BigQueryError::Endpoint</code>, which is a <code>503</code> on the transport.
+  Retrying inside an adapter spends a caller's request timeout on a decision the caller cannot see.</li>
+<li><strong>A token cache</strong> - and both the cost of not having one and the reason for not having one were
+  written wrongly here first, so both are corrected rather than quietly fixed.<ul>
+<li><strong>The cost is two exchanges per question, plus one per anchor.</strong> <code>sutura_app::answer</code> calls
+  <code>dry_run</code> and then <code>execute</code>; each goes through <code>submit</code> and each mints a token. The earlier
+  wording, <em>"one extra round trip per job"</em>, was half the number and counted the wrong unit.</li>
+<li><strong>The reason was wrong, and wrong in a way row 16 would have inherited.</strong> This page said a token
+  cache keyed by nothing is the credential-shaped version of the result cache this crate refuses.
+  That is true of a cache shared across SUBJECTS and false for this implementor:
+  <code>ApplicationDefault</code> <strong>is</strong> one identity, so a token held until its <code>not_after</code> is keyed by
+  exactly the thing that matters and leaks to nobody. The <code>std::sync::Mutex</code> ban is not an
+  argument either - <code>sutura-http</code>'s own key-set cache holds a lock.</li>
+<li><strong>The honest reason is the small one: it is not needed until it is measured.</strong> Nothing here has
+  run against a real endpoint, minting is one round trip against a query that costs seconds and
+  money, and the shape with nothing to reuse cannot get <em>a credential is not reused past its
+  expiry</em> wrong - which is an assertion the per-subject step owes. <strong>What that step must not
+  inherit is a prohibition</strong>, because caching per subject, keyed by subject, is a different
+  question this decision does not answer.</li>
+</ul>
+</li>
+</ul>
+<h2 id="what-is-claimed-and-what-is-not">What is claimed, and what is not<a class="headerlink" href="#what-is-claimed-and-what-is-not" title="Permanent link">&para;</a></h2>
+<p><strong>A statement this repository generated was accepted by <code>BigQuery</code> on 2026-08-30</strong>, answered as one
+complete page, and the numbers it returned were the fixture's - two bucketed sums, 42 and 99, over four
+rows chosen so a wrong plan could not also produce them. Three tests green: a dry run accepted, a real
+run whose values match, and a negative control (a table the dataset does not hold, refused rather than
+panicking). Run from a developer's machine under a service-account key; <code>docs/adr/0017</code>'s amendment is
+where the CI job that repeats it is decided.</p>
+<p><strong>Two things that run did not establish, and the first is the one a badge would overstate.</strong></p>
+<p><strong>It is ONE statement, not the corpus.</strong> No join, no <code>COUNT(DISTINCT</code>, no <code>CASE WHEN</code>, no <code>NULLIF</code>
+ratio, no <code>CAST(... AS FLOAT64)</code> and no <code>ISOWEEK</code> - and <code>ISOWEEK</code> plus <code>DATE_TRUNC</code>'s argument order
+are precisely the two constructs <code>0017</code> MEASURED a parse check to be blind about, which makes them what
+a live run is worth most for. The corpus-wide leg <code>0017</code> specifies - load the fixtures, run the 21
+questions, compare rows with the engine - is #78's importer shape and is not built. Every sentence in
+this repository that promised the corpus has been narrowed to what the leg does.</p>
+<p><strong>It says nothing about identity.</strong> A service-account key is <code>SharedServiceUser</code>: one identity for
+everybody who asks. So what is established is <em>accepted, and correct for that identity</em>.
+<code>BigQueryWarehouse::IMPERSONATION</code> still reads <code>NoPlaceForASubject</code>, and nothing here is a step towards
+per-subject execution.</p>
+<h3 id="the-service-account-flow-and-what-it-cost">The service-account flow, and what it cost<a class="headerlink" href="#the-service-account-flow-and-what-it-cost" title="Permanent link">&para;</a></h3>
+<p><code>0017</code>'s fixture decision named a developer's own login, and CI can only hold a key - so the credential
+module reads <strong>both</strong> kinds, as a closed two-variant shape rather than a struct of <code>Option</code>s: a document
+carrying both a refresh token and a private key is unrepresentable, so which flow runs is never
+ambiguous. The service-account flow signs an assertion (<code>RS256</code>) and trades it under
+<code>grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer</code>.</p>
+<p><strong>It cost zero new packages, and that was verified rather than assumed.</strong> <code>ring</code> is already in the
+graph as <code>ureq</code>'s and <code>tokio-rustls</code>'s crypto provider, and it carries <code>RsaKeyPair::from_pkcs8</code> plus
+<code>RSA_PKCS1_SHA256</code> - exactly the primitive and exactly the key encoding a service-account key uses, so
+no <code>ASN.1</code> conversion is needed anywhere. <code>base64</code> was already resolved as a dev-dependency at the same
+version and is now a real one. <code>Cargo.lock</code> is still <strong>446 packages</strong>.</p>
+<p><strong>The alternative was priced and refused</strong>, which is why this paragraph exists rather than a
+<code>cargo add</code>: <code>jsonwebtoken</code> is already here for the inbound side and could sign, but only with its
+<code>use_pem</code> feature - its DER path wants <code>PKCS#1</code> while a service-account key is <code>PKCS#8</code>. That was
+measured at <strong>one</strong> new package (<code>simple_asn1</code> 0.6.4, ISC, already allowed) and would also have switched
+the feature on for <code>sutura-http</code>, undoing half of a decision the workspace manifest states. So the
+licence allowlist still needs no entry and <code>check-arrow</code> still reports the same two majors.</p>
+<p><strong>What is first-party is the JWT's text and not the cryptography</strong>, which is the line <code>docs/adr/0014</code>
+draws when it argues for hand-writing a metrics exposition format and against hand-writing signature
+verification in the same breath. <code>ring</code> computes the signature; this module base64url-encodes two JSON
+documents and joins them with dots. And this side SIGNS rather than verifies, so the algorithm is a
+constant rather than a field read off somebody else's document.</p>
+<h3 id="one-finding-the-live-run-produced-that-no-local-check-could-have">One finding the live run produced that no local check could have<a class="headerlink" href="#one-finding-the-live-run-produced-that-no-local-check-could-have" title="Permanent link">&para;</a></h3>
+<p>The first submission came back <code>400 invalidQuery</code>: <em>"Cannot access field day on a value with type
+INT64"</em>. The fault was in the FIXTURE - the plan's metric label was the same word as the table name, and
+<code>GoogleSQL</code> resolved the qualifier to the select-list alias instead of the table. Two consequences:</p>
+<ol>
+<li><strong><code>Definitions::assemble</code> refuses a dimension named after its metric; nothing refuses a metric label
+   equal to the TABLE name</strong>, and on this dialect that produces a statement the service rejects.
+   Flagged rather than fixed, because it is a domain change.</li>
+<li><strong>The endpoint's <code>message</code> is now carried on the refusal, bounded to 400 printable-ASCII
+   characters.</strong> It had been dropped on the argument that what is not read cannot be logged by accident,
+   and a status plus a reason code that together say <em>your SQL is wrong</em> turned out to be
+   undiagnosable. A bound answers the original concern; dropping the field answered it by removing the
+   diagnostic too.</li>
+</ol>
+<h3 id="what-is-still-not-claimed-and-by-what-mechanism">What is still not claimed, and by what mechanism<a class="headerlink" href="#what-is-still-not-claimed-and-by-what-mechanism" title="Permanent link">&para;</a></h3>
+<p>The leg is a <strong>smoke leg</strong>, and it is:
+<code>crates/sutura-exec-bigquery/tests/acceptance.rs</code>, five <code>#[ignore]</code>d tests, reached by
+<code>just bigquery-acceptance</code>, needing three variables a developer names in their own environment.</p>
+<p><strong>And it is narrower than what 0017 and issue #70 ask for, which is stated here because a record that
+promises the corpus over a test submitting one statement is the overstated-claim defect this
+repository treats as a defect.</strong> Those records ask for <em>the corpus's statements accepted and returning
+rows</em> and <em>the rows agreeing with the engine's for the same plan</em>. This leg submits one hand-built
+<code>SUM</code> over a two-column table a developer supplies. It therefore exercises no join, no
+<code>COUNT(DISTINCT</code>, no <code>CASE WHEN</code>, no <code>NULLIF</code> ratio, no <code>CAST(... AS FLOAT64)</code> and no <code>ISOWEEK</code> - and
+<code>ISOWEEK</code> and <code>DATE_TRUNC</code>'s argument order are precisely the two things 0017 MEASURED the parse check
+to be blind about, which makes them what a live run is worth most for.</p>
+<p>What it does prove on the day it runs: the endpoint accepts a statement this repository generated,
+answers it as one complete page, the answer maps into domain values, and the composition fits
+together - which no local test can show. <strong>The leg the records ask for is #78's importer shape pointed
+at a dataset</strong> - load the example fixtures, run the 21 questions, compare rows with the engine - and it
+is not built. Every sentence in this repository that promised the corpus has been narrowed to that:
+0017's amendment, <code>AGENTS.md</code>, <code>docs/architecture.md</code>, both plan pages, the justfile recipe and the
+leg's own header.</p>
+<p><strong>Its own range was also wrong, and the fix is worth a line because of what it says about the claim.</strong>
+The first version asked for a hundred-year span, which this surface refuses as <code>TimeRangeTooLong</code>
+before an adapter ever sees it - so it was asking a real endpoint a question no caller could ask.</p>
+<p><strong>An unconfigured run of it FAILS rather than skipping, which is a reversal worth recording because
+the first version got it wrong - and which earned its keep on its first real use, reporting
+<code>0 passed, 3 failed</code> against a key the wire could not then read rather than three green ticks.</strong> That version printed <code>SKIPPED - ... is not set</code> and
+returned, and all three tests then reported PASS with no project anywhere - a green nobody asked for,
+over exactly the claim the file exists to make. The compose tier does skip, correctly, because its
+cells run inside <code>just test</code> and failing would break the suite on every machine with no docker; these
+tests are <code>#[ignore]</code>d, so the only way to reach one is to ask for it by name. <strong>That asymmetry is the
+general rule and not a special case: skip where the runner had no choice, fail where somebody typed
+the command.</strong></p>
+<p>So the honest summary of <code>BigQuery</code> support in this repository is <code>0017</code>'s sentence with one word
+changed once and then twice: <strong>the statement is right as far as five mechanisms can tell, and one of
+them is now a real endpoint.</strong> The fifth mechanism is the wire's own suite, and it is worth being exact
+about what it proves - because it is the part that still holds for the twenty statements nobody has
+submitted:</p>
+<ul>
+<li>the request this adapter builds is the document it says it builds - asserted on the <strong>serialized</strong>
+  body, so it is bytes and not a struct;</li>
+<li>the answer this adapter reads is read the way it says it is - asserted over response documents
+  written here.</li>
+</ul>
+<p><strong>Those documents are not the service's</strong>, which is the same gap <code>0017</code> refuses to paper over one
+size smaller: a response document written by the same person who wrote the decoder is not evidence
+that the service sends that shape. The contract came from the endpoint's published reference.</p>
+<p><strong>And the HTTP exchange itself is untested, deliberately.</strong> The host is a compile-time constant and
+the agent is built <code>https_only</code>, so there is no way to point the wire at a loopback listener. That is
+a security property - no deployment can redirect the credential - paid for with a coverage hole, and
+the trade is recorded rather than resolved: making the host configurable in order to test it would
+remove the property the test would be checking around.</p>
+<h2 id="consequences">Consequences<a class="headerlink" href="#consequences" title="Permanent link">&para;</a></h2>
+<ul>
+<li><code>sutura-exec-bigquery</code> stays in AGENTS.md's <em>Built And Not Wired</em> section, one line further along.
+  Nothing in it may be cited as an invariant.</li>
+<li>The <code>data_systems:</code> axis of <code>crates/sutura-app/tests/adapters/mod.rs</code> still gains <strong>no</strong> entry.
+  That registry's rule is that an entry is something somebody could deploy, and a cell that has never
+  executed reads as coverage. It gains one in the change that pastes a green acceptance run.</li>
+<li><code>sutura-serve</code> still refuses <code>kind: bigquery</code> by name, and correctly: it links no <code>BigQuery</code>
+  adapter. Un-refusing it is a composition change that also has to answer where the deployment's
+  credential comes from, and the only source built today reads a developer's own login.</li>
+<li><strong><code>just validate</code> does not cover the acceptance leg and cannot.</strong> The nix check sandbox has no
+  network, this repository is public so a workflow secret is unavailable to a fork's pull request,
+  and a gate that fails for an environment reason gets disabled. The acceptance evidence for this
+  dialect lives in a developer's terminal and nowhere else.</li>
+<li><strong>A future <code>just update</code> that moves <code>ureq</code> past what <code>libduckdb-sys</code> resolves would turn the +0 into
+  a real number, and that is now a gate rather than this sentence.</strong> <code>cargo xtask
+  check-shared-client</code> reads <code>Cargo.lock</code> and fails on two things: more than one <code>ureq</code> version, and
+  <code>libduckdb-sys</code> no longer depending on <code>ureq</code> - the second being the PREMISE of the measurement,
+  which can stop holding without anything else breaking. It runs in <code>just hygiene</code>, it has its own
+  unit tests, and both rules were proved red by breaking the lock deliberately before they were
+  proved green. <strong>What it deliberately does not check is the feature sets:</strong> 0018's stronger claim -
+  <em>same version, same features</em> - needs <code>cargo metadata</code>'s resolve graph rather than the lock, which
+  is a process invocation and a JSON parser in a crate with one dependency. That absence is written
+  in the gate's own header, because a gate that reads as if it covered something it does not is the
+  failure this repository names as its canonical example.</li>
+</ul>
+
+
+
+
+
+
+
+  
+  
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M13 20h-2V8l-5.5 5.5-1.42-1.42L12 4.16l7.92 7.92-1.42 1.42L13 8z"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+      
+      
+    
+    <a href="https://github.com/telekom/sutura" target="_blank" rel="noopener" title="github.com" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "../..", "features": ["content.code.copy", "content.tooltips", "navigation.instant", "navigation.tracking", "navigation.sections", "navigation.top", "navigation.indexes", "search.suggest", "search.highlight", "toc.follow"], "search": "../../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": {"default": "latest", "provider": "mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.d7400e89.min.js"></script>
+      
+    
+  </body>
+</html>
