@@ -116,6 +116,17 @@ fn entry(alias: &str, posture: &str, extra: &str) -> String {
     )
 }
 
+/// The `workload_identity` block an `impersonation-at-source` source must now declare.
+///
+/// Issue 87 made the declaration required (an exchanging broker has to know which provider it hands
+/// a subject's token to), and these fixtures thread it through so the test reaches the refusal it is
+/// actually about rather than stopping at the settings tree.
+fn wif() -> &'static str {
+    "    workload_identity:\n      audience: \
+     \"//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/\
+     providers/sso\"\n      scope: \"https://www.googleapis.com/auth/bigquery.readonly\"\n"
+}
+
 /// The ordinary declaration: the engine source, shared, over the example data.
 fn engine_declared() -> sutura_config::SourceRegistry {
     registry(&entry(ENGINE_SOURCE, "shared-service-user", ""))
@@ -478,26 +489,28 @@ fn a_bigquery_source_reaches_the_credential_the_deployment_declared() {
 fn a_bigquery_source_configured_to_impersonate_refuses_before_the_credential_is_read() {
     // The same cross-check the file engine gets, against a DIFFERENT adapter's constant - which is the
     // whole point of `deliverable_by` being called per adapter rather than per deployment.
-    // `sutura-exec-bigquery` declares `NoPlaceForASubject` honestly for today: a service account
-    // reaching the dataset for everybody who asks is the shared posture, and per-subject execution
-    // needs a token exchange that does not exist. So an `impersonation-at-source` entry against it is
-    // a deployment that believes it impersonates and would read every row as one identity.
+    // The adapter's own constant changed with issue 87:
+    // `sutura-exec-bigquery` declares `PerSubjectCredential` honestly now, so the capability
+    // cross-check below PASSES for an `impersonation-at-source` entry. What still cannot happen is
+    // the composition's half: this build does not attach a broker that exchanges a subject's
+    // credential to a served `BigQuery` source, so serving one would read every row as this process
+    // while the declaration promised a subject's authorization was evaluated.
     //
     // **Refused BEFORE the credential file is read**, and the assertions below are what pin that
-    // order: a posture nobody can deliver is not worth a filesystem read, and an operator told about
-    // a missing file would fix the wrong thing.
+    // order: a posture the composition cannot honour is not worth a filesystem read, and an operator
+    // told about a missing file would fix the wrong thing.
     let error = refusal(
         opened_bigquery(&bigquery_entry(
             "warehouse",
             "impersonation-at-source",
-            "    verification_identity: \"sutura_anchor_reader\"\n",
+            &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
         )),
-        "an impersonating posture on an adapter with nowhere to put a subject must not start",
+        "an impersonating posture on a source this build has no exchanging broker for must not start",
     );
     assert!(error.contains("warehouse"), "the refusal must name the source: {error}");
     assert!(
-        error.contains("per-subject credential"),
-        "the refusal must say what the adapter cannot do: {error}"
+        error.contains("does not attach a broker"),
+        "the refusal must say the composition is the gap, not the adapter: {error}"
     );
     assert!(
         error.contains("no fallback"),
@@ -574,7 +587,7 @@ fn an_anchor_on_a_bigquery_source_is_held_to_the_same_verification_rule() {
     let error = refusal(
         open_engine(
             &bundle_with_an_anchor("warehouse"),
-            &registry(&bigquery_entry("warehouse", "impersonation-at-source", "")),
+            &registry(&bigquery_entry("warehouse", "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
         ),
@@ -663,7 +676,7 @@ fn a_source_configured_to_impersonate_on_an_adapter_that_cannot_refuses_at_boot(
     let error = refusal(
         open_engine(
             &bundle_over(&[("customers", ENGINE_SOURCE, "dim_customer")]),
-            &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", "")),
+            &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
         ),
@@ -713,7 +726,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
     let error = refusal(
         open_engine(
             &bundle_with_an_anchor(ENGINE_SOURCE),
-            &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", "")),
+            &registry(&entry(ENGINE_SOURCE, "impersonation-at-source", wif())),
             one_worker(),
             default_timeout(),
         ),
@@ -739,7 +752,7 @@ fn an_anchor_on_a_source_with_no_declared_verification_identity_does_not_boot() 
             &registry(&entry(
                 ENGINE_SOURCE,
                 "impersonation-at-source",
-                "    verification_identity: \"sutura_anchor_reader\"\n",
+                &format!("{}    verification_identity: \"sutura_anchor_reader\"\n", wif()),
             )),
             one_worker(),
             default_timeout(),

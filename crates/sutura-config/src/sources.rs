@@ -39,17 +39,19 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use crate::security::DeploymentIdentity;
+use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
+use crate::sources::workload_identity::{InvalidWorkloadIdentity, WorkloadIdentityConfig};
 use sutura_domain::model::{InvalidIdentifier, SourceName};
 use sutura_domain::source::{
     AcknowledgementReason, ConflictingSourceIdentity, InvalidOperatorText, SharedIdentityDeclared, SourceIdentity, SourcePosture,
     VerificationIdentity,
 };
 
-use crate::security::DeploymentIdentity;
-use crate::sources::placement::{BillingProject, DatasetId, InvalidResourceName, SourcePlacement};
-
 /// Where a source's data is, per kind, plus the two `BigQuery` resource newtypes.
 pub mod placement;
+/// The token-exchange setup one `impersonation-at-source` source declares.
+pub mod workload_identity;
 
 /// What kind of data system a source is.
 ///
@@ -131,6 +133,7 @@ impl SourceKind {
 pub struct ConfiguredSource {
     placement: SourcePlacement,
     identity: Option<SourceIdentity>,
+    workload_identity: Option<WorkloadIdentityConfig>,
 }
 
 impl ConfiguredSource {
@@ -170,6 +173,17 @@ impl ConfiguredSource {
     #[must_use]
     pub fn posture(&self) -> Option<&SourcePosture> {
         self.identity.as_ref().map(SourceIdentity::posture)
+    }
+
+    /// The token-exchange setup this `impersonation-at-source` source declared.
+    ///
+    /// `Some` exactly when the source is impersonating: the parse refuses an impersonating entry with
+    /// none, and refuses a non-impersonating entry with one, so an accessor's shape and a deployment's
+    /// posture cannot disagree about which sources exchange a subject's token.
+    #[inline]
+    #[must_use]
+    pub const fn workload_identity(&self) -> Option<&WorkloadIdentityConfig> {
+        self.workload_identity.as_ref()
     }
 }
 
@@ -308,6 +322,30 @@ pub enum InvalidSourceRegistry {
         #[source]
         cause: InvalidResourceName,
     },
+    /// An `impersonation-at-source` source declared no token-exchange setup.
+    ///
+    /// A source that executes as the asking subject has to say WHICH provider exchanges the subject's
+    /// token - there is nothing this build could guess, and a per-caller credential has to come out of
+    /// a declaration rather than a default that pretends one exists.
+    #[error(
+        "`sources.{alias}` is `impersonation-at-source` and declares no `workload_identity` block - write the audience and scope the asker's credential is exchanged against"
+    )]
+    MissingWorkloadIdentity { alias: SourceName },
+    /// A workload-identity block was declared on a source that is not impersonating.
+    ///
+    /// Refused rather than ignored, for the reason every key a kind has no use for is refused: a
+    /// declaration that does nothing is a configuration nobody can see.
+    #[error(
+        "`sources.{alias}` declares `workload_identity` and is not `impersonation-at-source`, so no request will be exchanged against it - remove the block, or write the posture you meant"
+    )]
+    WorkloadIdentityNotImpersonating { alias: SourceName },
+    /// The declared workload-identity value is not usable.
+    #[error("`sources.{alias}.workload_identity` is not usable")]
+    WorkloadIdentity {
+        alias: SourceName,
+        #[source]
+        cause: InvalidWorkloadIdentity,
+    },
 }
 
 /// Every source this deployment declares, keyed by the alias a model's `source:` names.
@@ -347,6 +385,7 @@ pub(crate) struct RawSourceEntry<'raw> {
     pub(crate) posture: &'raw str,
     pub(crate) acknowledged_because: Option<&'raw str>,
     pub(crate) verification_identity: Option<&'raw str>,
+    pub(crate) workload_identity: Option<crate::raw::RawWorkloadIdentity>,
 }
 
 impl SourceRegistry {
@@ -476,7 +515,30 @@ fn parse_entry(
             )
         }
     };
-    Ok(ConfiguredSource { placement, identity })
+
+    // The token-exchange setup follows the POSTURE and not the identity's presence: it belongs to the
+    // impersonating shape, and only it. An impersonating entry must name the provider and scope its
+    // subject's credential is exchanged against; a non-impersonating entry may not carry one at all.
+    let workload_identity = match entry.workload_identity.as_ref() {
+        None if matches!(entry.posture.trim(), "impersonation-at-source") => {
+            return Err(InvalidSourceRegistry::MissingWorkloadIdentity { alias: alias.clone() });
+        }
+        None => None,
+        Some(_) if !matches!(entry.posture.trim(), "impersonation-at-source") => {
+            return Err(InvalidSourceRegistry::WorkloadIdentityNotImpersonating { alias: alias.clone() });
+        }
+        Some(raw) => Some(WorkloadIdentityConfig::parse(&raw.audience, &raw.scope).map_err(|cause| {
+            InvalidSourceRegistry::WorkloadIdentity {
+                alias: alias.clone(),
+                cause,
+            }
+        })?),
+    };
+    Ok(ConfiguredSource {
+        placement,
+        identity,
+        workload_identity,
+    })
 }
 
 /// Reads the fields that belong to this entry's kind, and refuses the ones that do not.

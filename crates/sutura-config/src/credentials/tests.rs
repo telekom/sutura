@@ -32,6 +32,16 @@ fn shared(written: &str) -> RawSourceEntry<'_> {
         posture: "shared-service-user",
         acknowledged_because: Some("one process reading a directory of files as itself"),
         verification_identity: None,
+        workload_identity: None,
+    }
+}
+
+fn wif() -> crate::raw::RawWorkloadIdentity {
+    crate::raw::RawWorkloadIdentity {
+        audience: String::from(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+        ),
+        scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
     }
 }
 
@@ -47,6 +57,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         posture: "impersonation-at-source",
         acknowledged_because: None,
         verification_identity: None,
+        workload_identity: Some(wif()),
     }
 }
 

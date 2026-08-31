@@ -60,16 +60,27 @@ runs inside `just test` and this one cannot: the nix sandbox has no network, so 
 
 # Identity
 
-`BigQueryWarehouse::IMPERSONATION` is `NoPlaceForASubject`, and **that is honest for today
-rather than permanent.** A shared service account reaching the dataset for everybody who asks is
-the `SharedServiceUser` posture, and it is the posture a developer's own application-default
-credential provides - which is the whole of what the login task in this repository serves.
-Per-subject execution needs a credential minted per leg through a token exchange, and the
-`docs/implementation-plan-bigquery.md` step that builds it is where this constant changes.
+`BigQueryWarehouse::IMPERSONATION` is `PerSubjectCredential`, which is what makes a source
+executed as the asking subject representable here: the credential a broker mints for the asker is
+carried as a `Presented::SubjectToken` and sent as this job's bearer, so the dataset evaluates
+the statement under whoever that token is. The `wire`'s own credential source stays for the
+shared posture. Per-subject execution still needs a broker that mints a per-leg credential through
+a token exchange - this crate performs no exchange, it presents one - and that broker lives beside
+the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
+describes as not wired.
 
-Declaring it the other way round to "leave room" would be the exact failure the port's own
-documentation warns about: an adapter that accepted subject material it cannot use would report a
-leg as impersonated that ran shared.
+**ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+`Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
+DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
+subject token, so `Presented::agrees_with` passes it and only this adapter can say it has
+nowhere to put it. `BigQueryError::NoPrincipalSwitch` is that refusal, and the reason it is a
+refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
+here would be submitted under the transport's own credential while provenance, read off this
+source's posture, reported the answer as impersonated.
+
+**What no version of this is:** a deployment where a served source executes as its asker.
+`sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
+that exchanges is attached to a served source yet - see that crate's `build_bigquery`.
 
 # Two things this adapter deliberately does not offer
 
@@ -101,7 +112,7 @@ an owned `#[source]`.
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
 - `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
-- `NoPlaceForASubject` - Credential material this adapter has nowhere to put.
+- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and there is no such mechanism here.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `UnmappedType` - A column came back as a type this adapter does not map.
 - `NotAnInteger` - A cell declared `INT64` did not parse as one.
@@ -173,6 +184,14 @@ of its own.
 ### Implements
 
 `Debug`, `Warehouse`
+
+## `use None`
+
+## `use None`
+
+## `use None`
+
+## `use None`
 
 ## `use None`
 
@@ -272,6 +291,18 @@ pub const fn statement(&self) -> &str
 ```
 
 The statement, with its values still absent from it.
+
+```rust
+pub const fn subject_bearer(&self) -> Option<&Secret>
+```
+
+The asking subject's own credential, where the leg carried one.
+
+**This is the half that makes a `BigQuery` source execute as the asker.** A
+`Presented::SubjectToken` carries the credential a broker minted for the asking subject - an
+exchanged Google access token scoped to that subject - and the transport sends it as its bearer
+for THIS job, so the endpoint evaluates the statement under whoever the token says. `None` for
+the shared posture, whose leg runs under the identity the transport itself already holds.
 
 #### Implements
 
@@ -994,6 +1025,8 @@ the credential source refreshes through - one connection pool, one set of pins, 
 #### Implements
 
 `Debug`, `JobTransport`
+
+### `use None`
 
 ### Module `credential`
 

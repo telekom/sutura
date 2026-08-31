@@ -458,10 +458,18 @@ impl PrincipalChain {
 
 /// What a request carries besides the question.
 ///
-/// One field today, and it is the chain - which is the point rather than an oversight: everything a
-/// question is answered *for* rather than *about* belongs here, so the credential an execution leg
-/// will need and the deadline it will carry have a place to arrive that is not a widened
-/// [`crate::query::Query`]. The tool surface stays a question and nothing else.
+/// Two fields: who the call is attributed to, and - where the transport established one - the
+/// caller's own credential assertion. The second is what lets a [`crate::identity::CredentialBroker`]
+/// that exchanges a token have the caller's token to exchange: `docs/adr/0008` part 2 sketched a
+/// `Caller { subject, assertion }` for exactly this, and `docs/adr/0014`'s open Decision 3 is why the
+/// assertion field was absent until a broker existed that performs an exchange. It is an `Option`
+/// because the two shapes that reach this value are genuinely different: a deployment's own identity,
+/// which has no credential, and a verified caller, whose transport retained the token it verified.
+/// `None` is "there is no per-caller credential to exchange", not an oversight.
+///
+/// Everything a question is answered *for* rather than *about* belongs here, so the credential an
+/// execution leg will need and the deadline it will carry have a place to arrive that is not a
+/// widened [`crate::query::Query`]. The tool surface stays a question and nothing else.
 ///
 /// **Here rather than in `sutura-app`.** The application is where a context enters the service, but
 /// the domain is what names it: a `CredentialBroker` port declared here takes the caller, and a port
@@ -469,21 +477,55 @@ impl PrincipalChain {
 ///
 /// Not `Deserialize`, for the reason the chain is not: a request context assembled from the request
 /// body is the confused deputy this whole module refuses.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// **Not `PartialEq`/`Eq`, and the `Secret` is why.** This type now holds credential material, and
+/// [`crate::identity::Secret`] implements no comparison, because `==` on credential material is a
+/// timing oracle; a derived equality would have compared the two secrets byte-wise. `Debug` and
+/// `Clone` survive because `Secret` implements both (redacting and value-preserving respectively).
+#[derive(Debug, Clone)]
 pub struct RequestContext {
     chain: PrincipalChain,
+    assertion: Option<crate::identity::Secret>,
 }
 
 impl RequestContext {
-    /// The only constructor. A context is a chain the transport established, and nothing else yet.
+    /// A context carrying only the chain, for the caller that has no credential to present - the
+    /// deployment's own identity, and every non-verified surface that reaches this value.
     #[inline]
     pub const fn of(chain: PrincipalChain) -> Self {
-        Self { chain }
+        Self { chain, assertion: None }
+    }
+
+    /// The same context, with the caller's own credential assertion the transport retained.
+    ///
+    /// **This is the port change `docs/adr/0008` part 2 asked for and `docs/adr/0014` gated.** A
+    /// broker that performs an exchange could not read the caller's token from the [`RequestContext`]
+    /// it was handed, because nothing named what the caller presented - only who. This constructor is
+    /// the thing that carries it, and it appears next to the first broker that exchanges rather than
+    /// before it.
+    #[inline]
+    #[must_use]
+    pub const fn with_assertion(chain: PrincipalChain, assertion: crate::identity::Secret) -> Self {
+        Self {
+            chain,
+            assertion: Some(assertion),
+        }
     }
 
     #[inline]
     pub const fn chain(&self) -> &PrincipalChain {
         &self.chain
+    }
+
+    /// The caller's own credential assertion, where the transport established and retained one.
+    ///
+    /// `None` for the deployment's own identity and for every surface with no credential to verify.
+    /// A broker that only mints from configuration returns a credential without reading it; one that
+    /// performs an exchange refuses a request whose caller presented nothing to exchange, as
+    /// [`crate::query::RefusalReason::CredentialUnavailable`].
+    #[inline]
+    pub const fn assertion(&self) -> Option<&crate::identity::Secret> {
+        self.assertion.as_ref()
     }
 
     /// The task this request belongs to, if one was named.

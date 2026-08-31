@@ -54,13 +54,16 @@ pub(crate) const fn established() -> RequestContext {
 
 /// The request context for one call whose caller proved who it is.
 ///
-/// **Borrows the chain the verification produced rather than assembling one.** Nothing is added here
-/// and nothing is decided here: the subject came out of a `sub` claim, the actors out of an `act`
-/// claim, and both were parsed by `sutura_domain::identity` so a control character cannot reach the
-/// audit line this context is recorded under. If this function ever grows a second parameter, that is
-/// the moment to ask what request data it is letting in.
+/// **Borrows the chain AND the assertion the verification produced rather than assembling one.**
+/// Nothing is added here and nothing is decided here: the subject came out of a `sub` claim, the
+/// actors out of an `act` claim, and both were parsed by `sutura_domain::identity` so a control
+/// character cannot reach the audit line this context is recorded under. The caller's own assertion
+/// rides along as a [`sutura_domain::identity::Secret`] - the value a broker that performs a token
+/// exchange hands to an authorization server - which is the whole reason `RequestContext` gained the
+/// field in `docs/adr/0008`'s `Caller` shape. A deployment that verifies nothing keeps [`established`]
+/// and no assertion, because the deployment's own identity has no credential of its own to exchange.
 pub(crate) fn of_verified(caller: &VerifiedCaller) -> RequestContext {
-    RequestContext::of(caller.chain().clone())
+    RequestContext::with_assertion(caller.chain().clone(), caller.assertion().clone())
 }
 
 #[cfg(test)]
@@ -96,7 +99,11 @@ mod tests {
         // Asserted through `Attribution` rather than by reading a field, because that is the accessor
         // the domain makes a reader go through.
         let actor = ActorChain::of(sutura_domain::identity::Actor::parse("query_agent").expect("a test actor is an actor"));
-        let caller = VerifiedCaller::established(PrincipalChain::of(a_person()).acting(actor), Scopes::none());
+        let caller = VerifiedCaller::established(
+            PrincipalChain::of(a_person()).acting(actor),
+            Scopes::none(),
+            sutura_domain::identity::Secret::new("the-assertion-the-gate-verified"),
+        );
         let context = of_verified(&caller);
         assert_eq!(context.chain().subject().established(), "verified");
         let Attribution::ActingFor { subject, actors } = context.chain().attribution() else {
@@ -105,8 +112,16 @@ mod tests {
         assert_eq!(subject, &a_person());
         assert_eq!(actors.immediate().as_str(), "query_agent");
         // And the two answers are different values, which is the distinction the whole chain exists to
-        // carry: nothing about a record from this path can be confused with one from the other.
-        assert_ne!(context, established());
+        // carry: nothing about a record from this path can be confused with one from the other. The
+        // comparison is on the CHAIN because `RequestContext` carries a `Secret` and so compares
+        // `==`-free by design.
+        assert_ne!(context.chain(), established().chain());
+        // The verified caller's assertion is the token that passed the gate, retained for a broker
+        // that exchanges it.
+        assert_eq!(
+            context.assertion().map(sutura_domain::identity::Secret::expose_secret),
+            Some("the-assertion-the-gate-verified")
+        );
         // The task position stays absent even here: no claim names one - see the module documentation.
         assert!(context.task().is_none(), "no token claim names a task");
     }

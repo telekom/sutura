@@ -21,6 +21,16 @@ fn single_user() -> DeploymentIdentity {
         .expect("a declared single-user mode parses")
 }
 
+/// A declared workload-identity block an impersonating source needs.
+fn wif() -> crate::raw::RawWorkloadIdentity {
+    crate::raw::RawWorkloadIdentity {
+        audience: String::from(
+            "//iam.googleapis.com/projects/acme-analytics/locations/global/workloadIdentityPools/analysts/providers/sso",
+        ),
+        scope: String::from("https://www.googleapis.com/auth/bigquery.readonly"),
+    }
+}
+
 /// An entry with everything an impersonating source needs, so a test changes one field at a time.
 fn impersonating(written: &str) -> RawSourceEntry<'_> {
     RawSourceEntry {
@@ -34,6 +44,7 @@ fn impersonating(written: &str) -> RawSourceEntry<'_> {
         posture: "impersonation-at-source",
         acknowledged_because: None,
         verification_identity: None,
+        workload_identity: Some(wif()),
     }
 }
 
@@ -89,6 +100,7 @@ fn a_missing_file_location_is_refused_at_parse() {
             data_dir: absent,
             billing_project: None,
             dataset: None,
+            credential_file: None,
             ..impersonating("local")
         }];
         let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a source has to say where it is");
@@ -106,6 +118,7 @@ fn a_relative_path_is_refused_at_parse() {
             data_dir: Some(relative),
             billing_project: None,
             dataset: None,
+            credential_file: None,
             ..impersonating("local")
         }];
         let error = SourceRegistry::parse(&entries, Some(&single_user())).expect_err("a relative path is not a location");
@@ -205,6 +218,7 @@ fn a_word_that_is_not_a_posture_is_refused_and_the_two_that_are_parse() {
         impersonating("warehouse"),
         RawSourceEntry {
             posture: "shared-service-user",
+            workload_identity: None,
             ..impersonating("local")
         },
     ];
@@ -232,6 +246,7 @@ fn a_shared_source_with_no_witness_anywhere_parses_without_an_identity_so_the_re
     // first.
     let entries = [RawSourceEntry {
         posture: "shared-service-user",
+        workload_identity: None,
         ..impersonating("local")
     }];
     let registry = SourceRegistry::parse(&entries, Some(&DeploymentIdentity::SubjectPerRequest)).expect("it parses");
@@ -245,6 +260,7 @@ fn a_shared_source_with_no_witness_anywhere_parses_without_an_identity_so_the_re
     let entries = [RawSourceEntry {
         posture: "shared-service-user",
         acknowledged_because: Some("a read-only reporting replica every caller is entitled to see"),
+        workload_identity: None,
         ..impersonating("local")
     }];
     let registry = SourceRegistry::parse(&entries, Some(&DeploymentIdentity::SubjectPerRequest)).expect("it parses");
@@ -269,6 +285,7 @@ fn a_verification_identity_is_carried_on_an_impersonating_source_and_refused_on_
     // reads as a control that is in place.
     let entries = [RawSourceEntry {
         verification_identity: Some("sutura_anchor_reader"),
+        workload_identity: Some(wif()),
         ..impersonating("warehouse")
     }];
     let registry = SourceRegistry::parse(&entries, Some(&single_user())).expect("an impersonating source may declare one");
@@ -285,6 +302,7 @@ fn a_verification_identity_is_carried_on_an_impersonating_source_and_refused_on_
         posture: "shared-service-user",
         acknowledged_because: Some("a directory of CSVs this deployment owns"),
         verification_identity: Some("sutura_anchor_reader"),
+        workload_identity: None,
         ..impersonating("local")
     }];
     let error =
@@ -339,6 +357,7 @@ fn the_mode_decides_where_a_shared_witness_may_come_from() {
     // to be written against the source that would be shared.
     let shared = [RawSourceEntry {
         posture: "shared-service-user",
+        workload_identity: None,
         ..impersonating("local")
     }];
     assert!(
@@ -382,6 +401,7 @@ fn bigquery(written: &str) -> RawSourceEntry<'_> {
         posture: "shared-service-user",
         acknowledged_because: Some("one service account reaching the dataset for everybody who asks"),
         verification_identity: None,
+        workload_identity: None,
     }
 }
 
@@ -577,4 +597,37 @@ fn bigquery_is_a_kind_the_vocabulary_names() {
     let rendered = err.to_string();
     assert!(rendered.contains("bigquery"), "{rendered}");
     assert!(rendered.contains("files"), "{rendered}");
+}
+
+#[test]
+fn a_workload_identity_block_belongs_to_impersonation_and_nowhere_else() {
+    // The token-exchange setup is the impersonating shape's own: an impersonating source must name
+    // the provider its subject's credential is exchanged against, and a non-impersonating source must
+    // not carry one at all - a declaration nothing will hand a token to is a configuration nobody can
+    // see.
+    let missing = [RawSourceEntry {
+        workload_identity: None,
+        ..impersonating("warehouse")
+    }];
+    let error = SourceRegistry::parse(&missing, Some(&single_user())).expect_err("an impersonating source needs a provider");
+    assert!(matches!(error, InvalidSourceRegistry::MissingWorkloadIdentity { .. }));
+
+    let on_shared = [RawSourceEntry {
+        posture: "shared-service-user",
+        workload_identity: Some(wif()),
+        ..impersonating("local")
+    }];
+    let error = SourceRegistry::parse(&on_shared, Some(&single_user())).expect_err("a shared source may not carry one");
+    assert!(matches!(
+        error,
+        InvalidSourceRegistry::WorkloadIdentityNotImpersonating { .. }
+    ));
+
+    // And the good shape carries it, so the broker the composition root builds has somewhere to read
+    // it from.
+    let parsed = SourceRegistry::parse(&[impersonating("warehouse")], Some(&single_user()))
+        .expect("an impersonating source with a workload identity parses");
+    let source = parsed.get(&alias("warehouse")).expect("it was registered");
+    let workload = source.workload_identity().expect("the block was carried");
+    assert_eq!(workload.scope().as_str(), "https://www.googleapis.com/auth/bigquery.readonly");
 }

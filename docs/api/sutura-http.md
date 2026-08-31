@@ -877,6 +877,16 @@ fn read(caller: &sutura_http::inbound::VerifiedCaller) -> bool {
 ##### Methods
 
 ```rust
+pub const fn assertion(&self) -> &sutura_domain::identity::Secret
+```
+
+The caller's own credential this verification accepted.
+
+The token that passed the signature, class, issuer, audience and lifetime checks - the only
+way a token enters the request path. A broker that performs an exchange reads it; everything
+else ignores it and, on the shared posture, never sees a value that would change a leg.
+
+```rust
 pub const fn chain(&self) -> &PrincipalChain
 ```
 
@@ -893,7 +903,7 @@ accessor is what keeps a call to it from reading as a check.
 
 ##### Implements
 
-`Clone`, `Debug`, `Eq`, `PartialEq`
+`Clone`, `Debug`
 
 ### Module `gate`
 

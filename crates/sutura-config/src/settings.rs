@@ -795,6 +795,7 @@ fn parse_sources(raw: &RawSettings, mode: Option<&DeploymentIdentity>) -> Result
             posture: &source.posture,
             acknowledged_because: source.acknowledged_because.as_deref(),
             verification_identity: source.verification_identity.as_deref(),
+            workload_identity: source.workload_identity.clone(),
         })
         .collect();
     SourceRegistry::parse(&entries, mode).map_err(|cause| SettingsError::Sources { cause })
