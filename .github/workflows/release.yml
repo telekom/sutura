@@ -349,15 +349,29 @@ jobs:
               exit 1
             fi
             # No jq: it is not a pinned tool here, and neither question needs a JSON parser.
-            # CycloneDX spells an entry `"bom-ref"` and SPDX spells it `"SPDXID"`, so one grep per
-            # format would need a case; counting the shared `"name":` key needs none.
-            named="$(grep -c '"name":' "$sbom" || true)"
+            #
+            # **`grep -o ... | wc -l`, NEVER `grep -c`.** `grep -c` counts matching LINES, and
+            # syft writes JSON on ONE line - so it returns 1 for a document naming 241 packages
+            # and 1 for a document naming none. This step shipped with `grep -c` and would have
+            # failed every release; `ci.yml`'s cross job is what caught it, on the pull request,
+            # which is the argument for that check existing at all.
+            #
+            # COUNTED PER FORMAT rather than through a shared key. `"name":` also appears in tool
+            # blocks, properties and metadata, so it is a proxy rather than a count; CycloneDX
+            # gives every component a `"bom-ref"` and SPDX gives every package an `"SPDXID"`, and
+            # a two-line case buys an exact number.
+            case "$sbom" in
+              *.cdx.json) key='"bom-ref"' ;;
+              *) key='"SPDXID"' ;;
+            esac
+            named="$(grep -o "$key" "$sbom" | wc -l)"
             # A FLOOR, not a fixed number. The exact count moves with every dependency bump, so
             # pinning it would make `just update` fail on a correct tree - and this check is not
             # about the count being right, it is about the embedded section being THERE. Without
             # it the answer is three files; with it, the engine alone brings DataFusion, Arrow and
-            # tokio. Any floor between those two orders of magnitude separates the two cases, and
-            # 100 is low enough that dropping a whole adapter does not trip it.
+            # tokio. MEASURED on 2026-08-31: 241 CycloneDX components and 242 SPDX ids, against
+            # three files without the section - so 100 sits between the two by an order of
+            # magnitude and a dropped adapter cannot trip it.
             if [ "${named:-0}" -lt 100 ]; then
               echo "::error::${sbom} names ${named} thing(s), expected at least 100 - the cargo auditable section is missing, so this inventories the image's files and not the crates the binary was built from"
               exit 1

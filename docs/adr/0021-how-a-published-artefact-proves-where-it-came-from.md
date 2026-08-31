@@ -313,28 +313,62 @@ Not claimed, and each is a real edge:
 - **Not complete for non-Rust code.** Repeated because it is the one most likely to be forgotten
   when this list is quoted: the vendored allocator's C is in the executable and in no crate list.
 
-### What was measured, and the one thing that had to move to CI
+### What was measured
 
-**The section is there.** `nix build .#sutura` on 2026-08-31, then `rust-audit-info` over the
-result: **263 crates**, `datafusion` among them. That is the reference reader, and it is what says
-`nix/auditable.nix` does anything at all.
+Measured on 2026-08-31 against `nix build .#sutura`, the native release binary:
 
-**`syft` could not be shown to read it locally, and the reason is worth writing down rather than
-hedging about.** On the machine this was written on the native binary is Mach-O, and `syft` named
-**one** component where `rust-audit-info` had just read 263 - including with the cataloger selected
-explicitly and with a directory scan rather than a file scan. The cause is in `go-rustaudit`, which
-`syft` uses: it locates the data by asking for a section named `.dep-v0`, and on Mach-O
-`cargo-auditable` does not put it under that name. **Nothing we ship is Mach-O**, so this is not a
-defect in the artefact - but it does mean the single thing `release.yml` depends on is observable
-only on a Linux target, and this machine cannot build one.
+| Reader | Result |
+| --- | --- |
+| `rust-audit-info` | **263 packages**, `datafusion` among them |
+| `syft`, CycloneDX | **241 components** |
+| `syft`, SPDX | **242 ids** - the 241 packages plus the document itself |
 
-**So the proof moved into CI, and specifically into the job that already builds those targets.**
-`ci.yml`'s `cross` job now runs both readers over each of the four shipped binaries on every pull
-request: `rust-audit-info` for *is the section there*, `syft` for *can the release path's reader
-parse it*, each with the same floor of 100 and the same named crate. Two tools because the
-interesting run is the one where the first passes and the second fails - and without both, that is
-indistinguishable from a build that stopped embedding.
+So the section is embedded and the reader the release path uses turns it into an inventory. Both
+halves are observed rather than argued.
 
-**That placement is the point rather than a detail.** Checking it only in `release.yml` means the
-same failure arrives as a red tag, after four cross builds and two manifest lists have been paid
-for, on a branch that has already merged.
+### The measurement that was wrong, and what it cost
+
+**This is the part worth reading, because the mistake was not in the code under test - it was in
+the check, and it produced a confident false conclusion that reached three files before anything
+caught it.**
+
+The first version of both assertions counted with **`grep -c '"name":'`**. `grep -c` counts
+matching **lines**, and syft and `rust-audit-info` both write JSON on **one line** - so it returns
+`1` for a document naming 241 packages and `1` for a document naming none. It cannot distinguish
+the two cases it exists to distinguish.
+
+What that produced was not a useless number but a misleading one. Locally it read as *"syft named
+one component where `rust-audit-info` read 263"*, and a whole explanation was built on it: that
+`go-rustaudit` locates the data by asking for a section named `.dep-v0` and that `cargo-auditable`
+spells it differently on Mach-O. That explanation is **false**. Counted properly, the same file has
+2259 occurrences of `"name":` and 241 components. syft reads Mach-O fine. The claim was written
+into a workflow comment, this record and a pull request body before the real count was taken.
+
+Three things follow, and they are the reason this section exists rather than a silent correction:
+
+- **Count occurrences, never lines.** `grep -o ... | wc -l`. Both assertions now do.
+- **Count the thing that is the inventory, not a proxy for it.** `"name":` also appears in tool
+  blocks, properties and metadata. CycloneDX gives every component a `"bom-ref"` and SPDX gives
+  every package an `"SPDXID"`; a two-line case on the format buys an exact number, and the earlier
+  comment claiming that avoiding the case was a virtue is what produced the fragile proxy.
+- **A plausible mechanism is not evidence.** The Mach-O story was coherent, checked against
+  `go-rustaudit`'s actual source, and wrong - because the number it was explaining was an artefact
+  of the measurement. Reading upstream source confirmed that the explanation *could* be true; it
+  could not confirm that it *was*.
+
+### Why the check lives in `ci.yml` as well
+
+`ci.yml`'s `cross` job runs both readers over each of the four shipped binaries on every pull
+request. **It earned its place immediately: it is what caught the broken assertion**, on the pull
+request, before a release depended on it - and `release.yml`'s own version of that check would have
+failed every release with the counting bug in it.
+
+Two readers rather than one, because they answer different questions: `rust-audit-info` says *is the
+section there*, `syft` says *can the release path's reader turn it into an inventory*. The run where
+the first passes and the second fails is the interesting one, and without both it is
+indistinguishable from a build that stopped embedding. Both syft formats are checked, so a format
+rendered differently cannot pass here and fail at the tag.
+
+**The placement is the point.** Checking only in `release.yml` means the same failure arrives as a
+red tag, after four cross builds and two manifest lists have been paid for, on a branch that has
+already merged.
