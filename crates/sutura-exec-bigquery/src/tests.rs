@@ -342,6 +342,38 @@ fn two_subjects_each_run_their_statement_under_the_bearer_minted_for_them() {
 }
 
 #[test]
+fn a_principal_to_switch_to_is_refused_rather_than_run_under_this_deployments_own_identity() {
+    // **The shape this adapter declares it can carry a subject and still cannot deliver.** A
+    // `SubjectPrincipal` is the SAME POSTURE as a subject token to the domain, so `agrees_with` passes
+    // it at an `impersonation-at-source` source and only this adapter can say `BigQuery` has no
+    // proxy-user mechanism to resolve it. Accepting it would submit the job under the credential the
+    // transport already holds - `subject_bearer` has no material to send - while provenance, read off
+    // this source's posture, reported the answer as impersonated: every row as the process, recorded
+    // as the asker. Both credential-taking methods are asked, because `deliverable` is shared and the
+    // pre-flight is where a missing check would be noticed least.
+    let warehouse = open(Recording::empty(), impersonating_posture());
+    let plan = plan();
+    let presented = Presented::SubjectPrincipal {
+        name: sutura_domain::identity::PrincipalName::parse("analyst_role").expect("a test name is a name"),
+    };
+    let refused = warehouse
+        .execute(Executable::Query(&plan), &presented)
+        .expect_err("a principal switch is not a bearer this adapter can send");
+    assert!(matches!(refused, BigQueryError::NoPrincipalSwitch { .. }), "{refused:?}");
+    let pre_flight = warehouse
+        .dry_run(Executable::Query(&plan), &presented)
+        .expect_err("the pre-flight refuses the same shape");
+    assert!(
+        matches!(pre_flight, BigQueryError::NoPrincipalSwitch { .. }),
+        "{pre_flight:?}"
+    );
+    assert!(
+        warehouse.transport.seen.borrow().is_empty(),
+        "a leg this adapter cannot deliver may not reach the endpoint under any identity"
+    );
+}
+
+#[test]
 fn a_subjects_own_credential_on_a_shared_source_is_refused_by_the_posture_check() {
     // A source opened shared has nowhere for a subject's credential - it is the wrong SHAPE for the
     // posture, not a value this adapter cannot carry. Refused before the transport is reached, which

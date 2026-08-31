@@ -60,6 +60,19 @@
 //! the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
 //! describes as not wired.
 //!
+//! **ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+//! [`Presented::SubjectPrincipal`] is a principal the data system switches to on a connection the
+//! DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
+//! subject token, so [`Presented::agrees_with`] passes it and only this adapter can say it has
+//! nowhere to put it. [`BigQueryError::NoPrincipalSwitch`] is that refusal, and the reason it is a
+//! refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
+//! here would be submitted under the transport's own credential while provenance, read off this
+//! source's posture, reported the answer as impersonated.
+//!
+//! **What no version of this is:** a deployment where a served source executes as its asker.
+//! `sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
+//! that exchanges is attached to a served source yet - see that crate's `build_bigquery`.
+//!
 //! # Two things this adapter deliberately does not offer
 //!
 //! **No arbitrary SQL entry point.** [`BigQueryWarehouse::execute`] takes an [`Executable`] and
@@ -137,6 +150,21 @@ where
     /// which is a wrong number under a certified name.
     #[error("a leg of a federated plan over {table} arrived, and there is no combiner above it")]
     LegWithoutCombiner { table: String },
+    /// The leg presents a principal for the data system to switch to, and there is no such
+    /// mechanism here.
+    ///
+    /// **The narrow half of what `NoPlaceForASubject` used to refuse wholesale, and it has to stay
+    /// refused for the reason the wholesale version existed.** This adapter declares
+    /// `PerSubjectCredential` and delivers exactly one of the two subject shapes: a
+    /// [`Presented::SubjectToken`] rides as this job's bearer, so the dataset evaluates the
+    /// statement under whoever the token is. `BigQuery` has no proxy-user or `SET ROLE` equivalent
+    /// for a [`Presented::SubjectPrincipal`], so a leg carrying one has no material to send - and
+    /// [`Presented::agrees_with`] passes it, because the two shapes are the same POSTURE. Accepting
+    /// it would submit the job under the credential the transport already holds while provenance,
+    /// read off this source's posture, reported the answer as impersonated: every row as the
+    /// process, recorded as the asker.
+    #[error("{presented} was minted for {at}, and this adapter can only send a subject's own bearer token")]
+    NoPrincipalSwitch { at: String, presented: &'static str },
     /// The leg's credential and this source's declared posture do not agree.
     #[error("the credential presented for this source does not agree with the posture it was opened under")]
     PresentedDisagreesWithPosture {
@@ -271,16 +299,28 @@ where
     /// `sutura-exec-duckdb` gives: a copy per method is two places for the arms to disagree, and the
     /// pre-flight is the call where a missing check would matter least and be noticed least.
     ///
-    /// **The whole of the match is [`Presented::agrees_with`]** - a subject's credential for a source
-    /// opened impersonating passes, a shared leg for one passes, and the two shapes on the opposite
-    /// posture (and a shared witness that is another source's) are refused with the typed
-    /// [`PresentedDisagreesWithPosture`]. This adapter declares it can carry a subject, so
-    /// `agrees_with` decides which shape, and no arm here refuses subject material a this-adapter
-    /// used to invent.
+    /// **Two questions in order, and they are different questions.** The first is *can this adapter
+    /// deliver the SHAPE it was handed*, which [`Presented::agrees_with`] cannot answer: a
+    /// [`Presented::SubjectPrincipal`] and a [`Presented::SubjectToken`] are the same posture to the
+    /// domain, and this adapter can send only the second - see
+    /// [`BigQueryError::NoPrincipalSwitch`] for what accepting the first would report. The second is
+    /// *does the shape agree with how the source was DECLARED*, which is `agrees_with`'s exhaustive
+    /// match over the pair.
+    ///
+    /// The order is the point rather than an accident: a principal switch at a source declared
+    /// shared is refused as the disagreement it is, because that is what an operator would fix,
+    /// which is why the shape check reads the posture too rather than the variant alone.
     fn deliverable(&self, presented: &Presented) -> Mapped<(), T::Error> {
         presented
             .agrees_with(&self.posture, &self.source)
-            .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })
+            .map_err(|cause| BigQueryError::PresentedDisagreesWithPosture { cause })?;
+        match *presented {
+            Presented::SubjectToken { .. } | Presented::SharedServiceUser { .. } => Ok(()),
+            Presented::SubjectPrincipal { .. } => Err(BigQueryError::NoPrincipalSwitch {
+                at: String::from(self.source.as_str()),
+                presented: presented.as_str(),
+            }),
+        }
     }
 
     /// The plan, rendered as one `GoogleSQL` statement.
@@ -299,9 +339,10 @@ where
 
     /// The credential one leg presents, as a bearer this job may send.
     ///
-    /// `None` for every shape but the asker's own token: a principal-name switch is a value the
-    /// endpoint resolves on a connection the deployment authenticated, and the shared posture has no
-    /// material to send - each is the transport's business discussed above.
+    /// `None` for the shared posture, which carries no material: that leg runs under the identity the
+    /// transport already holds. The principal-switch shape never reaches here - [`Self::deliverable`]
+    /// refuses it as [`BigQueryError::NoPrincipalSwitch`] - and its arm stays exhaustive rather than
+    /// wildcarded so a fourth presented shape is a compile error at this line.
     const fn subject_bearer(presented: &Presented) -> Option<&sutura_domain::identity::Secret> {
         match presented {
             Presented::SubjectToken { material } => Some(material),

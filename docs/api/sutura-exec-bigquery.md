@@ -69,6 +69,19 @@ a token exchange - this crate performs no exchange, it presents one - and that b
 the composition root that links this adapter, which is the half `docs/implementation-plan-bigquery.md`
 describes as not wired.
 
+**ONE of the two subject shapes, and the other is refused rather than degraded.** The domain's
+`Presented::SubjectPrincipal` is a principal the data system switches to on a connection the
+DEPLOYMENT authenticated, and `BigQuery` has no such mechanism; it is the same POSTURE as a
+subject token, so `Presented::agrees_with` passes it and only this adapter can say it has
+nowhere to put it. `BigQueryError::NoPrincipalSwitch` is that refusal, and the reason it is a
+refusal is the reason the whole-shape `NoPlaceForASubject` it replaced existed: a leg accepted
+here would be submitted under the transport's own credential while provenance, read off this
+source's posture, reported the answer as impersonated.
+
+**What no version of this is:** a deployment where a served source executes as its asker.
+`sutura-serve` refuses an `impersonation-at-source` `bigquery` entry by name, because no broker
+that exchanges is attached to a served source yet - see that crate's `build_bigquery`.
+
 # Two things this adapter deliberately does not offer
 
 **No arbitrary SQL entry point.** `BigQueryWarehouse::execute` takes an `Executable` and
@@ -99,6 +112,7 @@ an owned `#[source]`.
 - `Endpoint` - The endpoint did not answer.
 - `Render` - The plan would not render.
 - `LegWithoutCombiner` - A federated leg arrived, and there is nothing above it to combine legs.
+- `NoPrincipalSwitch` - The leg presents a principal for the data system to switch to, and there is no such mechanism here.
 - `PresentedDisagreesWithPosture` - The leg's credential and this source's declared posture do not agree.
 - `UnmappedType` - A column came back as a type this adapter does not map.
 - `NotAnInteger` - A cell declared `INT64` did not parse as one.
