@@ -1,20 +1,32 @@
-# Two jobs in one file, split by how it was started.
+# One job, two behaviours, split by WHICH BRANCH it ran on.
 #
-#   push to main         -> write CHANGELOG.md and nothing else.
-#   workflow_dispatch    -> also work out the next version, tag it, and ask release.yml AND
-#                           docs.yml to run on that tag.
+#   push to dev          -> write CHANGELOG.md and nothing else.
+#   push to main         -> work out the next version, tag it, and ask release.yml AND docs.yml
+#                           to run on that tag. Then put the release commit back on dev.
+#   workflow_dispatch    -> the same, decided by the ref it was dispatched on.
 #
 # This file publishes nothing itself.
 #
-# RELEASING IS MANUAL, and that is a deliberate reversal: it used to tag on every push whose
-# commits moved the version, which meant a single `feat` merge cut a release. Four releases in
-# one day, and the cost is not the tag - it is that the release commit edits the workspace
-# version, the version reaches crane's dependency derivation, and every release therefore
-# recompiles and re-caches the whole dependency closure for all four targets. Measured: bumping
-# the version changes `sutura-deps-<target>`, while editing a source file does not. The build
-# cache went over its quota on that alone, and past the quota GitHub evicts continuously, so
-# every job gets slower. Releasing when there is something to release fixes the cause; making
-# the dependency build blind to the version would too, and the two are independent.
+# RELEASING IS AUTOMATIC AGAIN, and the shape is what makes that affordable. `dev` is the trunk
+# and `main` is the release ref, so a release happens once per PROMOTION rather than once per
+# `feat` merge.
+#
+# The history matters here, because this reverses `7f30597`. Releasing used to be automatic on
+# every push whose commits moved the version, which meant a single `feat` merge cut a release -
+# four in one day. The cost is not the tag: the release commit edits the workspace version, the
+# version reaches crane's dependency derivation, and every release therefore recompiles and
+# re-caches the whole dependency closure for all four targets. The build cache went over its
+# quota on that alone, and past the quota GitHub evicts continuously, so every job gets slower.
+#
+# THAT COST IS UNCHANGED, and was re-measured rather than assumed before reversing anything:
+# workspace version `0.2.4` gives `sutura-deps` the derivation `bzcl79gg...`, `0.2.5` gives
+# `vdh9v71g...`. A one-line version bump still invalidates the closure.
+#
+# What changed is the FREQUENCY. That reversal's own note said "releasing when there is
+# something to release fixes the cause", and a promotion is exactly that - somebody decided.
+# The second fix it named, making the dependency build blind to the version, is still available
+# and still independent; it is the thing to do if promotions ever get frequent enough to hurt,
+# and it is not needed to make this safe.
 #
 # It asks, rather than leaving the tag to do it. A push made with GITHUB_TOKEN does not start
 # a workflow run - GitHub suppresses that so a workflow cannot trigger itself - so `git push
@@ -42,7 +54,9 @@ name: version-bump
 
 on:
   push:
-    branches: [main]
+    # Both, and they do DIFFERENT jobs - see the header. `dev` refreshes the changelog and never
+    # tags; `main` is the release ref and a push to it cuts the release.
+    branches: [dev, main]
   workflow_dispatch:
 
 permissions:
@@ -61,18 +75,28 @@ jobs:
       contents: write   # commit the changelog, push the tag
       actions: write    # ask release.yml to run; the tag push cannot (see the note above)
     steps:
-      # A `workflow_dispatch` on any branch would otherwise reach `git push origin HEAD:main`
-      # below, putting unreviewed commits on main - which then tags and publishes. The ref is
-      # checked before anything is fetched.
-      - name: Refuse to run outside main
+      # A `workflow_dispatch` on any branch would otherwise reach the pushes below, putting
+      # unreviewed commits on a protected branch - which on `main` then tags and publishes. The
+      # ref is checked before anything is fetched.
+      #
+      # TWO refs now, and which one it is decides what happens: `dev` refreshes the changelog,
+      # `main` releases. `TRUNK` is exported for the pushes below so no step has to re-derive it,
+      # and so a third branch cannot be reached by adding one to the trigger list without also
+      # coming through here.
+      - name: Refuse to run outside dev or main
+        id: ref
         env:
           REF: ${{ github.ref }}
         run: |
           set -eu
-          if [ "$REF" != "refs/heads/main" ]; then
-            echo "::error::version-bump only runs on main; got $REF"
-            exit 1
-          fi
+          case "$REF" in
+            refs/heads/dev)  echo "branch=dev"  >> "$GITHUB_OUTPUT" ;;
+            refs/heads/main) echo "branch=main" >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "::error::version-bump only runs on dev or main; got $REF"
+              exit 1
+              ;;
+          esac
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,8 +116,10 @@ jobs:
       - name: Compute the next version
         id: next
         env:
-          # A push refreshes the changelog and stops; only an explicit dispatch releases.
-          EVENT: ${{ github.event_name }}
+          # WHICH BRANCH decides, not which event. A push to `dev` refreshes the changelog and
+          # stops; a push to `main` releases. Read from the guard step above rather than from
+          # `github.ref` again, so there is one place that maps a ref to a role.
+          BRANCH: ${{ steps.ref.outputs.branch }}
         run: |
           set -eu
           # git-cliff prints a bare version (0.2.0). release.yml triggers on `v*`, so the
@@ -109,16 +135,35 @@ jobs:
           if [ -z "$next_raw" ] || [ "$next" = "$prev" ]; then
             echo "no version change: nothing to release"
             echo "release=false" >> "$GITHUB_OUTPUT"
-          elif [ "$EVENT" != "workflow_dispatch" ]; then
-            # The version WOULD move, and we are not releasing anyway. Gated in this one place
-            # rather than on the three steps below, so the no-release path is the same path a
-            # chore-only push already took: the changelog is rendered with an `## Unreleased`
-            # heading and committed, and nothing is tagged. Accumulating commits under that
-            # heading is the point - the next dispatch derives one version from all of them.
-            echo "$next is available; not releasing on a push - dispatch this workflow to cut it"
-            echo "::notice::${next} is ready to release. Run version-bump manually on main to cut it."
+          elif [ "$BRANCH" != "main" ]; then
+            # THE TRUNK NEVER RELEASES. The version would move, and this is `dev`: the changelog
+            # is rendered with an `## Unreleased` heading and committed, and nothing is tagged.
+            # Accumulating commits under that heading is the point - one promotion to `main`
+            # later derives one version from all of them.
+            #
+            # Gated in this one place rather than on the four steps below, so the no-release path
+            # is the same path a chore-only push already took.
+            echo "$next is available; the trunk does not release - promote dev to main to cut it"
+            echo "::notice::${next} is ready to release. Promote dev to main, or dispatch version-bump on main."
             echo "release=false" >> "$GITHUB_OUTPUT"
           else
+            # A PUSH TO `main` IS A RELEASE, and that is the whole of the automation - no
+            # dispatch, no second decision. `$EVENT` is deliberately not consulted: a promotion
+            # and a manual dispatch on `main` mean the same thing, and treating them differently
+            # is how a release ends up depending on which button somebody pressed.
+            #
+            # THIS REVERSES `7f30597`, which made releasing manual because a `feat` merge cut a
+            # release - four in one day - and each one moved the workspace version, which moves
+            # crane's dependency derivation and re-caches the whole closure for four targets.
+            # MEASURED again before reversing it: version `0.2.4` gives `sutura-deps` the drv
+            # `bzcl79gg...` and `0.2.5` gives `vdh9v71g...`, so that cost is real and unchanged.
+            #
+            # What changed is the FREQUENCY, not the cost. Releases now happen once per
+            # promotion rather than once per `feat` merge, which is what that reversal's own
+            # note asked for: "releasing when there is something to release fixes the cause".
+            # The other fix it names - making the dependency build blind to the version - is
+            # still available and still independent, and is worth doing if promotions ever get
+            # frequent enough to hurt.
             echo "release=true" >> "$GITHUB_OUTPUT"
             echo "version=$next" >> "$GITHUB_OUTPUT"
           fi
@@ -149,8 +194,10 @@ jobs:
       # right response is to say so and move on rather than redden a run nobody can act on.
       # The release path below deliberately does NOT get that leniency: a release that
       # silently did not happen is a real problem.
-      - name: Refresh the changelog on main
+      - name: Refresh the changelog on the trunk
         if: steps.next.outputs.release != 'true'
+        env:
+          BRANCH: ${{ steps.ref.outputs.branch }}
         run: |
           set -eu
           if git diff --quiet -- CHANGELOG.md; then
@@ -163,7 +210,12 @@ jobs:
           # `chore` is skipped by cliff.toml, so this commit never shows up as an entry about
           # itself - and a chore moves no version, so it cannot trigger a release either.
           git commit -m 'chore(changelog): refresh the unreleased section'
-          git push origin HEAD:main || echo "::warning::main moved; the next push rewrites it"
+          # Back to the branch this ran on. It used to be a hardcoded `HEAD:main`, which after the
+          # trunk moved would have pushed a `dev` changelog onto the release ref - a commit on
+          # `main` that no promotion put there, and on a repository where a push to `main` cuts a
+          # release, the worst possible place for a stray commit.
+          git push origin "HEAD:${BRANCH}" \
+            || echo "::warning::${BRANCH} moved; the next push rewrites it"
 
       # The manifest version must match the tag, or a built binary reports one version
       # while the release says another.
@@ -199,6 +251,10 @@ jobs:
         if: steps.next.outputs.release == 'true'
         env:
           VERSION: ${{ steps.next.outputs.version }}
+          # The trunk, so the release commit can be put back on it. A literal rather than the
+          # guard's output, because this step only ever runs on `main` and the branch it pushes
+          # BACK to is the other one - deriving it from `steps.ref` would name `main` twice.
+          TRUNK: dev
         run: |
           set -eu
           git config user.name  'github-actions[bot]'
@@ -210,6 +266,20 @@ jobs:
           git tag -a "${VERSION}" -m "${VERSION}"
           git push origin HEAD:main
           git push origin "${VERSION}"
+
+          # AND BACK ONTO THE TRUNK, because the release commit is the one thing that lands on
+          # `main` without going through `dev`. Left alone, `dev`'s `Cargo.toml` stays a version
+          # behind for ever and every later promotion carries a manifest conflict.
+          #
+          # A fast-forward: `dev` is an ancestor of this commit, since `main` only moves by
+          # promotion from it. If `dev` has moved on in the seconds since, the push is refused
+          # and the WARNING names the fix rather than failing the release - the tag is already
+          # pushed by this point, so aborting here would leave a released version with no
+          # changelog on the trunk, which is worse than a manifest one commit behind.
+          git push origin "HEAD:${TRUNK}" || {
+            echo "::warning::${TRUNK} moved; it is now one release commit behind main."
+            echo "::warning::Fix with: git switch ${TRUNK} && git merge --ff-only main && git push"
+          }
 
       # The tag is pushed; nothing has started. See the note at the top of this file: a push
       # made with GITHUB_TOKEN does not start a workflow run, so release.yml has to be asked.

@@ -14,7 +14,10 @@ name: security-audit
 
 on:
   push:
-    branches: [main]
+    # `dev` is the trunk; `main` is the release ref and is listed because an advisory against a
+    # dependency is worth knowing about at the moment something is about to be published, not
+    # only when it was merged.
+    branches: [dev, main]
     paths:
       - "Cargo.lock"
       - "Cargo.toml"
