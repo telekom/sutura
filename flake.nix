@@ -243,6 +243,14 @@
           buildInputs = [ duckdb.package ] ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
         } // duckdb.env;
 
+        # The shipped binary carries its own dependency list: `cargo auditable` adds one ELF
+        # section naming the crates it was really built from, and `syft` reads it back out - so the
+        # SBOM cannot drift from the artifact, because it is inside it. `nix/auditable.nix` carries
+        # the argument for embedding rather than generating a sidecar, and the two correctness
+        # notes: why the profile flag is computed rather than taken from crane's helper, and why
+        # the tool goes on the final build and never on the args `buildDepsOnly` reads.
+        auditable = import ./nix/auditable.nix { inherit pkgs; };
+
         # The two profiles we ship.
         #
         # `release` is the default and is cheap to build on purpose (thin LTO, 16 codegen
@@ -321,6 +329,8 @@
             cargoExtraArgs = "--package sutura-cli";
             # Tests run as their own check below, sharing the same artifacts.
             doCheck = false;
+          } // auditable.toolFor args // {
+            cargoBuildCommand = auditable.buildCommand profile;
           });
 
         sutura = nativeFor "release";
@@ -373,6 +383,12 @@
             cargoArtifacts = crossLib.buildDepsOnly args;
             # One package, and the target. Same reasoning as `nativeFor`.
             cargoExtraArgs = "--package sutura-cli --target ${target}";
+            # The embedded dependency list, per target. Same reasoning as `nativeFor`, and
+            # `cargo-auditable` comes from `pkgs` rather than `crossPkgs` because it is a tool
+            # that RUNS during the build - `strictDeps = true` above makes that distinction
+            # load-bearing rather than stylistic.
+          } // auditable.toolFor args // {
+            cargoBuildCommand = auditable.buildCommand profile;
           });
 
         # Nix system -> Rust target triple. Needed because the alias below must be named
@@ -868,6 +884,17 @@
         apps.syft = {
           type = "app";
           program = "${pkgs.syft}/bin/syft";
+        };
+
+        # The REFERENCE reader for the dependency list `cargo auditable` embeds - see
+        # `nix/auditable.nix`. `ci.yml`'s cross job runs it beside `syft` on every shipped
+        # target, and it is a second tool rather than a redundant one: this one answers "is the
+        # section there", `syft` answers "can the release path's reader parse it". A run where
+        # the first passes and the second fails is the interesting one, and without both there
+        # is no way to tell it from a build that stopped embedding.
+        apps.rust-audit-info = {
+          type = "app";
+          program = "${pkgs.rust-audit-info}/bin/rust-audit-info";
         };
 
         # `just` itself, for the one workflow that needs the TASK LIST rather than a task.

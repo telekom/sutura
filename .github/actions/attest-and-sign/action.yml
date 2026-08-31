@@ -23,9 +23,11 @@ inputs:
     default: dist
   expected-leaves:
     description: >
-      How many `leaf` references must be present. A gate rather than a wish: `grep` matching
-      nothing is a successful command, so a loop over an empty list signs nothing and reports
-      success - which is the one failure that would publish an unsigned release quietly.
+      How many `leaf` references must be present. What this catches is a PARTIAL set - three
+      leaves where four were built - which is silent: the loop signs what it finds and reports
+      success. An EMPTY set is caught one layer earlier and by something else, because `grep`
+      with no match exits non-zero and `set -eu` aborts the step; so this is the check for the
+      case where the file is present, well formed, and short.
     required: false
     default: "4"
   expected-lists:

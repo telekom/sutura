@@ -14,9 +14,9 @@ about whether the code is correct, whether a dependency has an advisory against 
 release is fit for what you want to do with it. The gates say the first, `cargo-deny` says the
 second, and nothing says the third.
 
-**And the SBOM published today inventories the image's files, not the crate graph.** That
-distinction is spelled out under [What the SBOM covers](#what-the-sbom-covers) and it is the one
-thing on this page most likely to be read as more than it is.
+**The SBOM does inventory the crate graph, and it is read out of the binary rather than out of a
+lock file.** Why that distinction is worth the sentence is under
+[What the SBOM covers](#what-the-sbom-covers).
 
 ## What is signed
 
@@ -122,15 +122,33 @@ cosign verify-attestation --type cyclonedx \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
 
-**What it covers is the files in the image**, which is the binary, the CA certificate bundle and
-tzdata - there is no shell and no package manager in there, so that list is short and complete.
+It covers two things, and they come from two places.
 
-**What it does not cover is the crate graph the binary was compiled from.** The scanner reads a Rust
-dependency list out of a `Cargo.lock` on disk or out of a `cargo auditable` section in the
-executable, and the shipped image has neither: nothing ships a lock file, and the release profile
-does not embed one. So this document is an accurate answer to *"what files are in the image"* and it
-is **not** an answer to *"which crates is this built from"*. Do not cite it as a dependency
-inventory; a release that can answer the second question will say so on this page.
+**The files in the image** - the binary, the CA certificate bundle and tzdata. There is no shell and
+no package manager in there, so that list is short and complete.
+
+**The crates the binary was compiled from**, read out of a `cargo auditable` section inside the
+executable. That is worth a sentence, because the obvious way to produce this list is the wrong one:
+
+- A document generated from `Cargo.lock` beside the binary is a *checked* claim about it. The two
+  can drift - a rebuild, a re-tag, a file swapped in a mirror - and neither the binary nor the
+  document says so.
+- It would also be the **wrong list**. `Cargo.lock` records what cargo *resolved*, not what the
+  linker *kept*: `sutura-cli` links the engine only, while `libduckdb-sys` and the BigQuery wire put
+  `ureq`, rustls and `ring` into the resolve graph for a binary that links none of them. A
+  workspace-wide document names all three and is wrong in the direction that matters, which is
+  overstating what ships.
+
+So the list is put **inside the artefact at build time** and read back out of the bytes being
+scanned. It cannot drift from the binary, because it is the binary. The release job checks that the
+section is actually there rather than trusting it: if it ever stops being produced, the scan still
+succeeds and still writes valid CycloneDX naming three files, and nothing downstream could tell that
+apart from a correct run.
+
+**What the list is not is a statement about those crates.** It says which versions were compiled in.
+Whether any of them has an advisory against it is `cargo-deny` against the RustSec database, which
+runs in CI on every dependency change and weekly regardless - a run, not a property of the artefact.
+`cargo audit --bin` will read this section and answer that question against the file you have.
 
 ## What none of this establishes
 
@@ -144,6 +162,9 @@ Stated plainly, because a page full of green checkmarks invites the larger readi
   rather than an artefact you can check offline.
 - **Not that the licence obligations of the dependency set are discharged.** `deny.toml` holds an
   exact allowlist of SPDX identifiers, which is a policy check and not an attribution document.
+- **Not that the crate list covers everything in the binary.** It is what `cargo` compiled in. C
+  that a build script compiled - the allocator, for one - is linked into the executable and is not
+  a crate, so it appears in the image inventory as a file and not in the crate list as a package.
 - **Not that a transparency-log entry proves the log was honest.** Rekor's guarantees are Rekor's,
   and `cosign` checks an inclusion proof against it rather than auditing it.
 - **Not that a verified image is one you should run.** It is the image this pipeline built. Whether
