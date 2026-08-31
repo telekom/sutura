@@ -1,0 +1,210 @@
+# The curated licence review: OSS Review Toolkit, on a schedule and on every tag.
+#
+# WHAT THIS IS FOR, and it is not the licence gate. `cargo deny check` is the gate - an exact
+# allowlist of SPDX identifiers with `unused-allowed-license = "deny"`, run on every dependency
+# change and weekly, and it is ours. What it cannot produce is an ATTRIBUTION document: it answers
+# "is this identifier allowed" and says nothing about the notices an Apache-2.0 dependency's own
+# NOTICE file obliges a distributor to carry. `NOTICE` in this repository still says nothing about
+# third-party crates, and that is the gap this fills.
+#
+# So: ORT reads the dependency graph, renders CycloneDX, SPDX, a NOTICE file and a browsable
+# report, and asks OSV about advisories. The output is EVIDENCE. The thing that consumes it is a
+# person.
+#
+# NO EXTERNAL CONFIG REPOSITORY, and that is a decision with evidence rather than a shortcut. The
+# conventional setup points ORT at `github.com/telekom/ort-config`; checked at revision `3863658b`,
+# nothing in it applies here - zero curations for the `Crate` package type, and the one change that
+# repository documents as its own configures the ScanCode scanner, which this workflow does not
+# run. `.ort.yml` in the repository root carries the four exclusions that DO apply, written for
+# this repository, and its header records that check in full.
+#
+# NO EVALUATOR, for the same reason and one more. ORT's policy rules live in that repository as 76
+# kB of Kotlin plus 330 kB of licence classifications; vendoring them would duplicate `deny.toml`,
+# rot, and make us the maintainer of a copy. Without them there is nothing to evaluate against, so
+# the step is absent rather than disabled - which also removes the failure mode where a rule added
+# upstream turns a scheduled job red on a tree nobody touched.
+#
+# NO SCANNER. A source-code licence scan of this dependency closure is hours of work and wants a
+# shared result cache to be worth running at all; without one it would re-scan the same crates
+# every week. What this job uses is the analyzer's DECLARED licences, which is what crate metadata
+# carries.
+#
+# NOT ON PULL REQUESTS, and that is cost rather than principle. The ORT image is tens of gigabytes
+# and the sequence is minutes; paying that per pull request buys a slower version of a check
+# `cargo-deny` already ran. The schedule is what catches a world that changed under a lock nobody
+# touched - the argument `security-audit.yml` makes for its own weekly run.
+#
+# THE ONE UNPINNED TOOLCHAIN IN THIS REPOSITORY, stated because it is a real exception. ORT is a
+# JVM application and is not in nixpkgs, so it cannot come from `flake.lock` like everything else.
+# It is pinned by IMAGE DIGEST, it produces reports no build reads, and this job holds nothing but
+# `contents: read`.
+name: licence-review
+
+on:
+  schedule:
+    # Tuesday 05:23 UTC. Off the hour for `security-audit.yml`'s reason - jobs on the hour queue
+    # behind everyone else's - and a different day, so the two heavy weekly jobs do not contend.
+    - cron: "23 5 * * 2"
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned by DIGEST and labelled by tag. Docker validates both, so the tag is documentation that
+  # cannot be a lie: if the publisher moves `92.5.0`, the pull fails rather than silently running
+  # something else. The digest was read with `crane digest` and cross-checked against
+  # `skopeo inspect --raw | sha256sum` - two tools, same answer.
+  ORT_IMAGE: ghcr.io/oss-review-toolkit/ort:92.5.0@sha256:eab01e27069abd0b18c1509b8d639c8b3cc30f44d1eed654e4a3cb6d29cdcc42
+
+jobs:
+  ort:
+    runs-on: rust-mcp
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # ORT labels its result with the project's VCS metadata, so a shallow clone would leave
+          # the reports describing an unknown revision.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # `.github/actions/reclaim-disk` for the reason release.yml gives, and here it is not
+      # optional: this image is the largest thing this repository pulls anywhere.
+      - uses: ./.github/actions/reclaim-disk
+        with:
+          minimum-gb: "25"
+
+      # A COPY, and this is the important part of this file.
+      #
+      # ORT's Cargo analyzer shells out to `cargo metadata`, and the cargo it uses is the one
+      # inside that image - not `rust-toolchain.toml`'s. `cargo metadata` can REWRITE `Cargo.lock`,
+      # and a second toolchain resolving our lock file is exactly the drift this repository's flake
+      # exists to remove. So the container never sees the checkout: it gets a copy, and if
+      # anything in there rewrites a lock file it rewrites the copy's.
+      #
+      # Asserted rather than assumed at the end of this job, because a silently modified lock file
+      # is the kind of thing that would be noticed three commits later.
+      - name: Stage a copy for the container
+        run: |
+          set -eu
+          mkdir -p ort-input ort-output
+          # `.git` included: ORT reads VCS metadata to label the result. Everything else is the
+          # tree as checked out.
+          tar -cf - --exclude=./ort-input --exclude=./ort-output . | tar -xf - -C ort-input
+          sha256sum Cargo.lock > lock-before.sha256
+          du -sh ort-input
+
+      # Analyze, then advise, then report. Written out rather than driven by the composite action
+      # `oss-review-toolkit/ort-ci-github-action`, because that action's main job is cloning the
+      # configuration repository this file establishes does not apply - and it would be a third
+      # party in the loop for no gain.
+      #
+      # `--user`, so the reports are owned by the runner user rather than by root and the upload
+      # step can read them.
+      #
+      # `-P ort.forceOverwrite=true` so a re-run does not abort on its own previous output.
+      - name: ORT
+        run: |
+          set -eu
+          run_ort() {
+            docker run --rm \
+              --user "$(id -u):$(id -g)" \
+              -e JDK_JAVA_OPTIONS=-Xmx5g \
+              -v "${PWD}/ort-input:/project" \
+              -v "${PWD}/ort-output:/out" \
+              "$ORT_IMAGE" "$@"
+          }
+
+          echo "::group::analyzer"
+          run_ort --info -P ort.forceOverwrite=true \
+            analyze -i /project -o /out/analyzer -f JSON
+          echo "::endgroup::"
+
+          # OSV rather than every advisor: it needs no API key, covers crates.io, and an advisory
+          # source that needs a secret cannot run on a schedule without one.
+          echo "::group::advisor"
+          run_ort --info -P ort.forceOverwrite=true \
+            advise -i /out/analyzer/analyzer-result.json -o /out/advisor -a OSV
+          echo "::endgroup::"
+
+          # `PlainTextTemplate` is the one that matters and the least obvious: it renders the
+          # NOTICE file, which is the attribution text this repository does not currently carry.
+          # The other three are for machines, for ingestion pipelines, and for a human
+          # respectively.
+          echo "::group::reporter"
+          run_ort --info -P ort.forceOverwrite=true \
+            report -i /out/advisor/advisor-result.json -o /out/reports \
+            -f CycloneDx,SpdxDocument,PlainTextTemplate,WebApp
+          echo "::endgroup::"
+
+      # The lock file the CONTAINER could have touched is the copy's; this proves the real one is
+      # untouched. Cheap, and it is the whole reason the copy exists.
+      - name: The real Cargo.lock is unchanged
+        if: always()
+        run: |
+          set -eu
+          if ! sha256sum -c lock-before.sha256; then
+            echo "::error::Cargo.lock changed during the licence review. The container was supposed to see a copy - check the 'Stage a copy' step."
+            exit 1
+          fi
+          echo "Cargo.lock unchanged"
+
+      # `if: always()`, because a failed run still leaves partial results and those are exactly
+      # what somebody debugging it needs. The whole directory rather than named files: which
+      # reports exist is decided by the `-f` list above, and a hardcoded list here would silently
+      # drop one the day that changes.
+      - name: Keep the reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: licence-review-${{ github.sha }}
+          path: ort-output/
+          if-no-files-found: error
+          retention-days: 90
+
+      # What a reader sees without downloading an artifact. An index and nothing more: the numbers
+      # that matter are in the reports, and a summary that extracted them would be a second place
+      # for them to be wrong.
+      - name: Say what was produced
+        if: always()
+        run: |
+          set -eu
+          {
+            echo "## Licence review"
+            echo
+            echo "Image: \`${ORT_IMAGE}\`"
+            echo
+            echo "| Report | Bytes |"
+            echo "| --- | --- |"
+          } >> "$GITHUB_STEP_SUMMARY"
+          # Globbed, so a reporter added to the `-f` list above appears here without a second list
+          # agreeing to it.
+          found=0
+          for f in ort-output/reports/*; do
+            [ -f "$f" ] || continue
+            # Double-quoted with an escaped backtick, matching the tables in release.yml. A
+            # single-quoted format string is the obvious way to write a literal backtick, and
+            # SC2016 fires on it - reasonably, since inside single quotes a backtick is as inert
+            # as it looks and a linter cannot tell that from a mistake. Note the wording: a
+            # comment whose first word after `#` is the linter's own name is read as a DIRECTIVE,
+            # which is how this line first failed the lint it is explaining.
+            printf "| \`%s\` | %s |\n" "$(basename "$f")" "$(wc -c < "$f")" >> "$GITHUB_STEP_SUMMARY"
+            found=$((found + 1))
+          done
+          if [ "$found" -eq 0 ]; then
+            echo "| none - the reporter produced nothing | |" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          {
+            echo
+            printf "Downloadable as the \`licence-review-%s\` artifact.\n" "$GITHUB_SHA"
+          } >> "$GITHUB_STEP_SUMMARY"
+          find ort-output -maxdepth 2 -type f -printf '%P\t%s bytes\n' | sort || true
