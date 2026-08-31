@@ -119,7 +119,7 @@ concurrency:
 
 jobs:
   ci:
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     # 120 rather than 60, and the reason is a dependency rather than a slow test. The engine
     # brought DataFusion and Arrow in, so the closure the `nextest` check compiles is now one of
     # the largest in the ecosystem. A COLD run - the first on a new dependency set, before
@@ -566,7 +566,7 @@ jobs:
       github.event_name == 'pull_request' &&
       needs.ci.outputs.crap_delta == 'true' &&
       github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 5
     permissions:
       # Posting or editing the one comment. Nothing else is granted: `contents` is absent because
@@ -661,7 +661,7 @@ jobs:
   # path; whether it becomes required is a branch-protection decision rather than one this file makes.
   bigquery-acceptance:
     if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     # The endpoint answers in seconds; what takes the time is compiling the crate under the pinned
     # toolchain on a cold cache.
     timeout-minutes: 60
@@ -779,7 +779,7 @@ jobs:
     needs: [ci]
     # Same `== 'true'` test the main-only steps use, against the classification `ci` published.
     if: needs.ci.outputs.build == 'true' && github.ref != 'refs/heads/main'
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     # 120 for the same reason as `ci`, with more of it: each target in the matrix compiles that
     # same large closure again for its own triple, and none of them shares the host's artifacts.
     timeout-minutes: 120

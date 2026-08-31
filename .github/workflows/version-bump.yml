@@ -55,7 +55,7 @@ concurrency:
 
 jobs:
   bump:
-    runs-on: ubuntu-latest
+    runs-on: rust-mcp
     timeout-minutes: 60
     permissions:
       contents: write   # commit the changelog, push the tag
