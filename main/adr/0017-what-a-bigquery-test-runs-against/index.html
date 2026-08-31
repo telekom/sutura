@@ -3147,7 +3147,7 @@ than by an intention.</p>
 </tr>
 <tr>
 <td>the rows <strong>agree with the engine's</strong> for the same plan</td>
-<td><strong>Answered</strong> for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with <strong>one measured divergence</strong> the first run found - see <em>the finding</em> below. Measured: <strong>16 agreed exactly, 5 agreed on content and differed on null placement</strong></td>
+<td><strong>Answered</strong> for CONTENT, exactly, with one stated exclusion below. For ORDER, answered with <strong>one measured divergence</strong> the first run found - see <em>the finding</em> below. Measured on this amendment's run: <strong>16 agreed exactly, 5 agreed on content and differed on null placement</strong>. The divergence is <strong>closed</strong> by the fourth amendment, and the leg now compares order exactly</td>
 </tr>
 <tr>
 <td>the <strong>bucket</strong> is right</td>
@@ -3200,15 +3200,19 @@ it is the class this record already names as the thing a parse check cannot see 
 that is valid SQL with different semantics</em> - and it is invisible to every local check for a sharper
 reason than <code>ISOWEEK</code> was: a golden pins the statement TEXT, and <strong>the text is identical on both
 sides</strong>. There is no arm to get wrong. Only two data systems executing it can disagree.</p>
-<p><strong>Why it is pinned rather than fixed in the same diff.</strong> The fix belongs to <code>sutura-sql</code>: state the
-placement, which all four dialects spell <code>NULLS LAST</code> and which matches the engine's own default. That
-rewrites every SQL golden in four dialects and is a change with its own review; the branch that found
-it owns the acceptance leg. So the divergence is pinned in a way that cannot rot:
-<code>the_corpus_rows_agree_with_the_engine</code> compares content as a SET and, where the two orders differ,
-<strong>requires the orders to be identical once the null-bearing rows are dropped</strong> and requires at least
-one such row to exist. A divergence for any other reason fails; a content difference fails; and this
-one fails on the day the generator states the placement, at which point this section and the
-<code>NULL_PLACEMENT</code> constant get re-scoped rather than deleted.</p>
+<p><strong>Why it was pinned rather than fixed in the same diff.</strong> The fix belongs to <code>sutura-sql</code>: state the
+placement, which matches the engine's own default. That rewrites the <code>BigQuery</code> SQL goldens and is a
+change with its own review; the branch that found it owns the acceptance leg. So the divergence was
+pinned in a way that could not rot: <code>the_corpus_rows_agree_with_the_engine</code> compared content as a SET
+and, where the two orders differed, <strong>required the orders to be identical once the null-bearing rows
+were dropped</strong> and required at least one such row to exist. A divergence for any other reason failed; a
+content difference failed; and this one failed on the day the generator stated the placement - at which
+point this section and the <code>NULL_PLACEMENT</code> constant were to be re-scoped rather than deleted.</p>
+<p><strong>That day has come, and the fourth amendment below is the re-scoping.</strong> This section stays as the
+record of the finding and of the instrument that caught it; what it says about the tolerance is now
+history rather than a description of the code. One claim in it is also <strong>corrected</strong> there: <em>"all four
+dialects spell <code>NULLS LAST</code>"</em> is false about the rendered text, and the correction matters because it
+is the difference between a claim about behaviour and a claim about bytes.</p>
 <p><strong>Whether <code>ClickHouse</code> and <code>Postgres</code> agree with the engine here is not answered by anything</strong>, which
 is the same shape as this page's existing note about <code>ClickHouse</code>'s week. Both are rendered and
 parse-checked and neither has ever executed.</p>
@@ -3306,6 +3310,70 @@ rather than anything this repository can carry.</p>
   themselves are committed fixtures rather than resources, so unlike the project and the dataset they
   need no <code>::add-mask::</code> in a public log.</li>
 </ul>
+<h2 id="fourth-amendment-2026-08-31-the-finding-is-fixed-and-the-legs-tolerance-is-deleted-rather-than-relaxed">Fourth amendment, 2026-08-31: the finding is fixed, and the leg's tolerance is deleted rather than relaxed<a class="headerlink" href="#fourth-amendment-2026-08-31-the-finding-is-fixed-and-the-legs-tolerance-is-deleted-rather-than-relaxed" title="Permanent link">&para;</a></h2>
+<p><strong>Status of the amendment: accepted.</strong> The third amendment's <em>finding</em> section ends by naming the
+condition under which it would be re-scoped - <em>the day the generator states the placement</em> - and this is
+that re-scoping. <code>sutura_sql::generate</code>'s <code>ordered_nulls_last</code> wraps every <code>ORDER BY</code> expression in the
+dialect layer's own <code>Ordered</code> node with <code>nulls_first: Some(false)</code>, from <code>generate</code> and <code>generate_leg</code>
+alike, so a plan no longer leaves null placement to whichever data system happens to run it.</p>
+<h3 id="the-claim-stated-as-behaviour-rather-than-as-bytes">The claim, stated as behaviour rather than as bytes<a class="headerlink" href="#the-claim-stated-as-behaviour-rather-than-as-bytes" title="Permanent link">&para;</a></h3>
+<p>The third amendment wrote that <em>all four dialects spell <code>NULLS LAST</code></em>. <strong>That is false about the text,
+and the difference is the whole reason this paragraph exists.</strong> The layer renders the keyword only where
+it is not already the target's default:</p>
+<table>
+<thead>
+<tr>
+<th>Dialect</th>
+<th>Its own default</th>
+<th>What renders</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>BigQuery</code></td>
+<td>nulls <strong>first</strong></td>
+<td><code>ORDER BY x NULLS LAST</code> - the keyword, because it is the one that would otherwise disagree</td>
+</tr>
+<tr>
+<td><code>DuckDb</code>, <code>Postgres</code>, <code>ClickHouse</code></td>
+<td>nulls <strong>last</strong></td>
+<td>a bare <code>ORDER BY x</code> - the layer collapses a keyword that changes nothing</td>
+</tr>
+</tbody>
+</table>
+<p>So what converges is the <strong>behaviour</strong> and not the statement, and only one dialect's goldens move.
+<code>every_order_by_states_nulls_last</code> in <code>crates/sutura-sql/src/generate.rs</code> is the measurement that keeps
+that honest: it asserts the keyword for <code>BigQuery</code> and asserts its <strong>absence</strong> for the other three, so a
+future layer version that started spelling it everywhere - or stopped spelling it for <code>BigQuery</code> - fails
+by name rather than by golden diff. A test asserting "all four render <code>NULLS LAST</code>" would have been red
+the day it was written.</p>
+<h3 id="what-moved-and-what-deliberately-did-not">What moved, and what deliberately did not<a class="headerlink" href="#what-moved-and-what-deliberately-did-not" title="Permanent link">&para;</a></h3>
+<ul>
+<li><strong>30 <code>BigQuery</code> SQL goldens</strong> gain the keyword: 22 in the main corpus, five leg shapes, and three
+  qualified-path statements. Reviewed as a diff, per this repository's rule that a golden is regenerated
+  and never typed.</li>
+<li><strong>No other dialect's golden changes</strong>, which is the table above holding rather than an omission.</li>
+<li><strong>No plan golden changes.</strong> Null placement is a rendering decision and the serialized <code>QueryPlan</code> and
+  <code>LegPlan</code> do not carry it, so the definition digest is unmoved and no anchor re-certifies.</li>
+</ul>
+<h3 id="the-legs-tolerance-is-deleted-not-relaxed">The leg's tolerance is deleted, not relaxed<a class="headerlink" href="#the-legs-tolerance-is-deleted-not-relaxed" title="Permanent link">&para;</a></h3>
+<p><code>the_corpus_rows_agree_with_the_engine</code> now compares CONTENT and ORDER <strong>exactly</strong>, with no tolerance
+for either. Gone with it: the <code>Agreement</code> enum's second variant, the <code>diverged_on_null_placement</code>
+counter, the <code>without_nulls</code> instrument, the <code>Row::holds_a_null</code> flag and the <code>NULL_PLACEMENT</code> constant.
+The assertion that used to hold the measurement open - <em>at least one question diverges on null
+placement</em> - is <strong>removed rather than inverted</strong>, because a floor of zero is not a measurement of
+anything; what replaces it is the exact order comparison, which fails if the placement ever stops being
+stated.</p>
+<p>The set comparison stays, ahead of the order comparison, and that is deliberate: <em>different rows</em> is a
+wrong number and <em>same rows, different order</em> is a generator that stopped saying how to sort them. One
+assertion for both would report the first as the second.</p>
+<h3 id="what-this-amendment-does-not-yet-claim">What this amendment does NOT yet claim<a class="headerlink" href="#what-this-amendment-does-not-yet-claim" title="Permanent link">&para;</a></h3>
+<p><strong>The exact-order comparison has not been measured green against the endpoint from a developer's
+terminal.</strong> <code>just validate</code>'s sandbox has no network, so the corpus leg compiles and is skipped there;
+the run that decides it is the <code>bigquery-acceptance</code> job. The prediction is that the five questions
+which differed on null placement now agree exactly and the tally reads <em>21 agreed exactly, 9 refusals
+agreed, 1 excluded, 31 in the corpus</em> - and a prediction is what it is until that job is green. Nothing
+else in the third amendment's measurements is re-opened by this change.</p>
 
 
 
