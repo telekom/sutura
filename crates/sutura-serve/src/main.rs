@@ -696,13 +696,28 @@ fn build_bigquery(
         .identity()
         .ok_or_else(|| format!("`sources.{source}` declares no identity a query could run under"))?;
     // The same cross-check `open_files` makes and against a DIFFERENT constant, which is the point of
-    // it being per adapter rather than per deployment: this adapter declares `NoPlaceForASubject`
-    // honestly for today, so an `impersonation-at-source` entry against it is a refusal at boot and
-    // not a leg that runs shared and is reported as impersonated.
+    // it being per adapter rather than per deployment: this adapter declares `PerSubjectCredential`,
+    // so a `shared-service-user` entry is deliverable and an `impersonation-at-source` entry passes
+    // the adapter's capability half - which is the change issue 87 landed. Passing the adapter's half
+    // is not the whole story, and the composition's half is below.
     identity
         .posture()
         .deliverable_by(<BigQuerySource as sutura_domain::warehouse::Warehouse>::IMPERSONATION, source)
         .map_err(flatten)?;
+    // **The adapter can carry a subject, and this composition does not yet wire a broker that mints
+    // one.** The port, the `WorkloadIdentityBroker` and the real `StsExchange` all exist and are
+    // tested; attaching a broker to a served source is the step that awaits a deployable GCP project.
+    // Until then an `impersonation-at-source` entry would be opened and served under the credential
+    // the deployment declared - every row as this process while a reviewer believed a subject's
+    // authorization was evaluated - which is the confusion `docs/adr/0014` names. Refuse it before
+    // the credential file is read, so an operator fixes the posture rather than a file.
+    if identity.posture() == &sutura_domain::source::SourcePosture::ImpersonationAtSource {
+        return Err(format!(
+            "`sources.{source}` is `impersonation-at-source`, and this build does not attach a broker \
+             that exchanges a subject's credential to a served `BigQuery` source - refusing rather than \
+             reading every row as this process; no fallback"
+        ));
+    }
     // **`within_request_timeout` and NOT `parse`, and the difference is a bug that would only show up
     // under load.** What a job may spend is not the request timeout: an answer makes
     // `QueryDeadline::CALLS_PER_ANSWER` calls and each pays a connect margin on top of its own budget,

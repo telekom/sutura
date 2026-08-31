@@ -262,7 +262,7 @@ mod tests {
         type Error = std::convert::Infallible;
 
         fn exchange(&self, _audience: &str, _scope: &str, subject_token: &Secret) -> Result<StsCredential, Self::Error> {
-            let raw = String::from(subject_token.expose());
+            let raw = String::from(subject_token.expose_secret());
             self.exchanged.borrow_mut().insert(raw.clone(), raw.clone());
             Ok(StsCredential::of(
                 Secret::new(format!("exchanged-for-{raw}")),
@@ -312,7 +312,7 @@ mod tests {
         let Presented::SubjectToken { material } = credentials.presented_for(&source("warehouse")).expect("a leg") else {
             panic!("an impersonating source gets a subject token");
         };
-        assert_eq!(material.expose(), "exchanged-for-caller-token");
+        assert_eq!(material.expose_secret(), "exchanged-for-caller-token");
         assert_eq!(
             credentials.not_after(),
             Expiry::At {
@@ -361,7 +361,7 @@ mod tests {
             let Presented::SubjectToken { material } = credentials.presented_for(&source("warehouse")).expect("a leg") else {
                 panic!("expected a subject token");
             };
-            String::from(material.expose())
+            String::from(material.expose_secret())
         };
         let first = ask("subject-a");
         let second = ask("subject-b");

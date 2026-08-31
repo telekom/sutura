@@ -85,7 +85,7 @@ impl Recording {
             dataset: String::from(request.default_dataset().as_str()),
             // Exposed only here, in a test, where the whole point is to assert the exact bearer the
             // adapter forwarded. Production code never reads it as text.
-            subject: request.subject_bearer().map(|secret| String::from(secret.expose())),
+            subject: request.subject_bearer().map(|secret| String::from(secret.expose_secret())),
         });
     }
 }

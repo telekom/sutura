@@ -120,7 +120,7 @@ impl StsExchange for StsOverHttp {
             subject_token_type: SUBJECT_JWT,
             target_audience: audience,
             scope,
-            subject_token: String::from(subject_token.expose()),
+            subject_token: String::from(subject_token.expose_secret()),
         })
         .map_err(|cause| StsError::NotADocument { cause })?;
         let left = call.remaining().ok_or(StsError::DeadlineSpent)?;
@@ -174,7 +174,7 @@ mod tests {
             subject_token_type: SUBJECT_JWT,
             target_audience: "//iam.googleapis.com/.../providers/sso",
             scope: "https://www.googleapis.com/auth/bigquery.readonly",
-            subject_token: String::from(Secret::new("the-askers-own-id-token").expose()),
+            subject_token: String::from(Secret::new("the-askers-own-id-token").expose_secret()),
         };
         let json = serde_json::to_value(&request).expect("serializes");
         assert_eq!(json["grant_type"], "urn:ietf:params:oauth:grant-type:token-exchange");

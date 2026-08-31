@@ -770,7 +770,7 @@ where
         // the asker's, and blending the deployment's identity into the same header would be the
         // cross-subject leak this crate refuses.
         let sending_bearer: String = if let Some(subject) = request.subject_bearer() {
-            format!("Bearer {}", subject.expose())
+            format!("Bearer {}", subject.expose_secret())
         } else {
             let bearer = self
                 .credentials
@@ -783,7 +783,7 @@ where
             if let Some(at) = bearer.not_after().passed_by(now) {
                 return Err(WireError::Expired { at, now });
             }
-            format!("Bearer {}", bearer.token().expose())
+            format!("Bearer {}", bearer.token().expose_secret())
         };
         // What the exchange left. Every number below reads THIS rather than the whole budget: the two
         // timeout fields in the request body and the socket the answer is waited for on.

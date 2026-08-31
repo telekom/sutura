@@ -119,7 +119,7 @@ mod tests {
         // The verified caller's assertion is the token that passed the gate, retained for a broker
         // that exchanges it.
         assert_eq!(
-            context.assertion().map(sutura_domain::identity::Secret::expose),
+            context.assertion().map(sutura_domain::identity::Secret::expose_secret),
             Some("the-assertion-the-gate-verified")
         );
         // The task position stays absent even here: no claim names one - see the module documentation.
