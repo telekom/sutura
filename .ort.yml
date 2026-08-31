@@ -1,0 +1,70 @@
+# What the licence review should and should not look at.
+#
+# `.github/workflows/licence-review.yml` runs the OSS Review Toolkit against this repository on a
+# schedule and on every tag. This file is the repository's own configuration for it, and it exists
+# because the default answer to "what is in this project" is the whole dependency graph - which is
+# not the same set as "what we distribute", and the attribution document is only worth having if it
+# describes the second one.
+#
+# WRITTEN HERE RATHER THAN CLONED, and that is a decision with evidence behind it.
+#
+# The conventional setup points ORT at a shared configuration repository - for this organisation,
+# `github.com/telekom/ort-config`. Checked at revision `3863658b`, and none of it applies to this
+# project:
+#
+#   * it holds ZERO curations for the `Crate` package type. The `curations/` tree is thousands of
+#     Maven, NuGet, Gem and Go entries; the Cargo count is 0.
+#   * its `config.yml` - the one change that repository documents as its own - configures the
+#     ScanCode SCANNER, with `--license-score,70` to cut false positives. We do not run the
+#     scanner: a source scan of this dependency closure is hours of work and wants a shared result
+#     cache to be worth running at all.
+#   * `copyright-garbage.yml` filters copyright statements the scanner finds. Same reason.
+#
+# So the honest inventory of "relevant upstream config" is empty, and cloning a 400 MB repository
+# per run to read nothing from it is worse than writing the four things that DO apply here. The
+# other two files - `evaluator.rules.kts` at 76 kB and `license-classifications.yml` at 330 kB -
+# are policy, and they are deliberately not vendored either: `deny.toml` is this repository's
+# licence policy, it is exact, it is ours, and it runs on every dependency change. A second
+# opinion assembled from 400 kB of somebody else's Kotlin would duplicate it, rot, and make us the
+# maintainer of a copy - `AGENTS.md` says what a vendored copy costs, permanently.
+#
+# THIS FILE IS THEREFORE NOT A COPY OF ANYTHING. It is four exclusions about this repository.
+
+excludes:
+  # Scope names for Cargo are `dependencies`, `dev-dependencies` and `build-dependencies` -
+  # read off `plugins/package-managers/cargo/src/main/kotlin/Cargo.kt` rather than guessed,
+  # because a pattern that matches no scope excludes nothing and reports nothing.
+  #
+  # Patterns are regular expressions, anchored by ORT.
+  scopes:
+    - pattern: "dev-dependencies"
+      reason: "DEV_DEPENDENCY_OF"
+      comment: >-
+        Not distributed. This is where the DuckDB and Postgres adapters live - both are
+        dev-dependencies on purpose, so `sutura-cli` links the engine only and the musl artifacts
+        keep building. Including them would attribute a TLS stack and a database driver to a
+        binary that contains neither.
+
+  # `build-dependencies` is deliberately NOT excluded, and it is the one omission worth a note.
+  # A build script's own code is not shipped, but what it PRODUCES can be: the vendored allocator
+  # is C compiled at build time and linked into every Linux binary. Attribution errs safely by
+  # crediting too much rather than too little, so the scope stays in.
+
+  paths:
+    - pattern: "xtask/**"
+      reason: "BUILD_TOOL_OF"
+      comment: >-
+        The repository's own gates. `publish = false`, never shipped, and its dependencies are
+        not in any artifact.
+    - pattern: "crates/*/tests/**"
+      reason: "TEST_OF"
+      comment: >-
+        Golden suites, corpora and their committed snapshots. Test material, not distributed.
+    - pattern: "examples/**"
+      reason: "EXAMPLE_OF"
+      comment: >-
+        The example catalog two test targets read. Not part of any artifact.
+    - pattern: "dev/**"
+      reason: "BUILD_TOOL_OF"
+      comment: >-
+        Local development tooling. Not shipped.
