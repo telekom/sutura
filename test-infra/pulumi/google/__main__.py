@@ -7,10 +7,13 @@ cell from issue #81:
     so the same question answered under each principal returns different rows -
     the mechanism issue #81 wants proven in CI (the isolation itself is BigQuery
     row-level IAM; sutura's part is only that each job runs under its own bearer);
-  * a dataset and a table with a grouping column. The disjoint row ACCESS POLICY
-    the two principals rely on is applied OUT-OF-BAND with `bq`/`gcloud` after the
-    stack is up (see the comment at the table), because pulumi_gcp exposes no such
-    resource;
+  * a dataset and a table with a grouping column, plus two BigQuery ROW ACCESS
+    POLICIES on that column granting the two principals disjoint rows - a
+    first-class `RowAccessPolicy` resource since pulumi_gcp 9.x, no separate gcp
+    CLI;
+  * the APIs the stack needs are ENABLED as Pulumi `Service` resources first, so
+    `up` self-bootstraps a fresh project (the credential still holds
+    `serviceusage.services.enable`);
   * a Google Workload Identity Federation pool + OIDC provider (accepting `jwt`
     subject tokens), so a subject's token can be verified and exchanged at Google
     STS (the (a) token path).
@@ -48,6 +51,27 @@ gcp_provider = gcp.Provider(
     region=region,
 )
 
+# --------------------------------------------------------------------------- #
+# API bootstrap - `up` enables what it needs on a fresh project, no separate gcloud CLI.
+# --------------------------------------------------------------------------- #
+# Each API the stack touches (identities on `iam`, the dataset/table on `bigquery`) is turned
+# on as a Pulumi resource first, and every consumer below waits on the enabling call via
+# `depends_on`. serviceusage.googleapis.com powers the enabling calls themselves and is on by
+# default in a new project, so it is not listed here. The applying credential still needs
+# `serviceusage.services.enable` - self-bootstrapping moves that ONE grant into the credential,
+# which is the same class of trust the provider key already is.
+API_BOOTSTRAP = []
+for _api in ["bigquery.googleapis.com", "iam.googleapis.com"]:
+    API_BOOTSTRAP.append(
+        gcp.projects.Service(
+            "api-" + _api,
+            project=project,
+            service=_api,
+            disable_on_destroy=False,
+            opts=pulumi.ResourceOptions(provider=gcp_provider),
+        )
+    )
+
 
 def sutura_name(cfg: pulumi.Config, leaf: str) -> str:
     """A deterministic resource id built from config, so nothing hardcoded enters the tree.
@@ -72,13 +96,13 @@ sa_a = gcp.serviceaccount.Account(
     "sa-a",
     account_id=sutura_name(cfg, "sa-a"),
     display_name="sutura identity test principal A",
-    opts=pulumi.ResourceOptions(provider=gcp_provider),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
 sa_b = gcp.serviceaccount.Account(
     "sa-b",
     account_id=sutura_name(cfg, "sa-b"),
     display_name="sutura identity test principal B",
-    opts=pulumi.ResourceOptions(provider=gcp_provider),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
 
 # The dataset and the table. The schema carries a DATE column (for the time
@@ -105,19 +129,32 @@ table = gcp.bigquery.Table(
     table_id=table_id,
     schema=schema,
     deletion_protection=False,
-    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset]),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[dataset, *API_BOOTSTRAP]),
 )
 
-# The two principals are meant to be granted DISJOINT row sets so the same question,
-# run under each, returns different rows. That isolation is a BigQuery ROW ACCESS POLICY,
-# and pulumi_gcp exposes NO such resource (checked against the pinned 7.38.0: there is no
-# `RowAccessPolicy` anywhere in `pulumi_gcp`, so no version bump reveals it while this crate
-# is in the `>=7,<8` band and the underlying Terraform provider has none). The grant is
-# therefore applied OUT-OF-BAND with `bq`/`gcloud` after this stack is up, using the two
-# exported principal emails and the grouping column; the program itself provisions the
-# principals, the key, the dataset and the table, which is everything pulumi CAN own.
-# principal_a_rows / principal_b_rows are not consumed by the program - they describe the
-# out-of-band grant, kept as config so the CI leg asserts against the same values.
+# The isolation: principal A is granted rows where the grouping column equals A's value,
+# principal B where it equals B's. Disjoint by construction. Two separate policies (one per
+# principal) so each grant is stated on its own line. `grantees` is the IAM member shape
+# (`serviceAccount:<email>`), taken from the SA's own `member` output; the SQL filter is the
+# row predicate. This is a first-class resource since pulumi_gcp 9.x - no separate gcp CLI.
+gcp.bigquery.RowAccessPolicy(
+    "rap-a",
+    dataset_id=dataset.dataset_id,
+    table_id=table.table_id,
+    policy_id=sutura_name(cfg, "rap-a"),
+    grantees=[sa_a.member],
+    filter_predicate=f"{group_column} = '{principal_a_rows}'",
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
+)
+gcp.bigquery.RowAccessPolicy(
+    "rap-b",
+    dataset_id=dataset.dataset_id,
+    table_id=table.table_id,
+    policy_id=sutura_name(cfg, "rap-b"),
+    grantees=[sa_b.member],
+    filter_predicate=f"{group_column} = '{principal_b_rows}'",
+     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
+)
 
 # Keys are the long-lived bearer each CI run uses. Exported as secrets; never
 # written into the repository.
@@ -152,7 +189,7 @@ workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
     workload_identity_pool_id=cfg.require("workload_pool_id"),
     display_name="sutura identity test workload pool",
-    opts=pulumi.ResourceOptions(provider=gcp_provider),
+    opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
 
 workload_provider = gcp.iam.WorkloadIdentityPoolProvider(

@@ -105,7 +105,10 @@ pip = "*"
 
 [feature.infra.pypi-dependencies]
 pulumi = ">=3,<4"
-pulumi-gcp = ">=7,<8"
+# >=9 : 7.x shipped no bigquery.RowAccessPolicy, so the two-principal isolation could only be
+# applied with a SEPARATE gcp CLI. 9.x exposes it as a first-class resource, keeping `up`
+# self-contained. `gcp.projects.Service` (also used for API bootstrap) exists in both.
+pulumi-gcp = ">=9,<10"
 
 [feature.infra.tasks]
 # `pulumi` is a command, not a task, so these are thin 1:1 aliases a justfile can call with
