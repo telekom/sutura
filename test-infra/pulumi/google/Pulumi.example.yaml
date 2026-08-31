@@ -7,6 +7,12 @@ config:
   sutura-google-test-infra:dataset: "sutura_identity"
   sutura-google-test-infra:table: "fact_events"
   sutura-google-test-infra:group_column: "segment"
-  sutura-google-test-infra:workforce_pool_id: "sutura-workforce"
-  sutura-google-test-infra:workforce_provider_id: "google"
-  sutura-google-test-infra:workforce_client_id: "your-oidc-client-id.apps.googleusercontent.com"
+  sutura-google-test-infra:workload_pool_id: "sutura"
+  sutura-google-test-infra:workload_provider_id: "oidc"
+  # An OIDC issuer whose JWKS Google STS can fetch, minting the JWT subject tokens
+  # the caller presents. `accounts.google.com` means the JWTs are Google id_tokens
+  # (aud = the OAuth client id below); a self-hosted IdP names its own issuer.
+  sutura-google-test-infra:workload_issuer_uri: "https://accounts.google.com"
+  # One or more audiences the subject JWTs' `aud` may carry. Placeholder.
+  sutura-google-test-infra:workload_allowed_audiences: '["your-oidc-client-id.apps.googleusercontent.com"]'
+

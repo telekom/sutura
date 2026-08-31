@@ -20,9 +20,11 @@ owns the enterprise-IdP half. This project is the (a) Google half.
   policy - so the same question answered under each principal returns different rows.
   The isolation is BigQuery's row-level IAM; sutura's part is only that each job runs
   under its own bearer;
-- a Google Workforce Identity Federation **pool + OIDC provider**, so a Google identity
-  can be verified and exchanged at Google STS (the (a) token path). The exported
-  `workforce_audience` is what a deployment declares as
+- a Google Workload Identity Federation **pool + OIDC provider**, so a subject's own token
+  can be exchanged at Google STS (the (a) token path). **Workload, not workforce** - the
+  broker that performs sutura's exchange (`StsOverHttp`) sends an RFC 8693 `jwt` subject
+  token, which is exactly the shape workload-pool OIDC providers accept (and workforce pools
+  do not). The exported `workload_audience` is what a deployment declares as
   `sources.<alias>.workload_identity.audience`.
 
 ## Setup (one time, per developer or CI)
@@ -86,8 +88,24 @@ pulumi stack output --show-secrets -s dev principal_b_key > /dev/null
   secrets, consumed by the `bigquery-acceptance` job;
 - `principal_a_email` / `principal_b_email` and the row-grant mapping are what the
   two-principal acceptance cell asserts against;
-- `workforce_audience` (and the pool provider) is the (a) end of a served
+- `workload_audience` (and the pool provider) is the (a) end of a served
   `impersonation-at-source` source, once the exchanging broker is attached to one.
+
+## The `e2e-gcp` GitHub environment
+
+CI provisions this from `.github/workflows/e2e-gcp.yml` using a GitHub **environment
+`e2e-gcp`** - no identifier is committed. Variables hold the resource names and secrets hold
+the provider key:
+
+| Kind | Names (`vars` / `secrets`) |
+| --- | --- |
+| `vars` | `E2E_GCP_PROJECT`, `E2E_GCP_REGION`, `E2E_GCP_DATASET`, `E2E_GCP_TABLE`, `E2E_GCP_GROUP_COLUMN`, `E2E_GCP_WORKLOAD_POOL_ID`, `E2E_GCP_WORKLOAD_PROVIDER_ID`, `E2E_GCP_WORKLOAD_ISSUER_URI`, `E2E_GCP_WORKLOAD_ALLOWED_AUDIENCES` |
+| `secrets` | `E2E_GCP_ADMIN_KEY` (the provider's own service-account key) |
+
+Since a fork's pull request cannot see an environment's secrets, the job skips there and runs
+in-repo, the same `docs/adr/0017` rule as `bigquery-acceptance`. `config-from-env.sh` maps the
+`SUTURA_GOOGLE_*` variables into stack config and refuses to run on anything missing, so a
+half-configured environment fails loudly instead of previewing a broken stack.
 
 ## Caveats
 
