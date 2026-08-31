@@ -820,6 +820,10 @@ pub fn grains_coarsest_first(pinned: &PinnedDefinitions, metric: &MetricName) ->
 }
 
 /// The two-source answer path - see the module for what came out of this file and why.
+///
+/// It carries its own `#[cfg(test)] mod tests` rather than having a suite file beside `tests`, and the
+/// module doc says why: a test module declared from HERE is orphaned when `test-causality` reverts
+/// this file, so the proof it produced was vacuous.
 mod federated;
 /// This crate's own unit suite, in its own file.
 ///
@@ -827,9 +831,6 @@ mod federated;
 /// anything under `crates/`, which is what makes a split the only answer.
 #[cfg(test)]
 mod tests;
-/// The federated answer orchestration suite - split out of `tests` for the line cap.
-#[cfg(test)]
-mod tests_fed;
 /// The fakes this crate's own unit tests share, in their own file.
 ///
 /// One module rather than a copy per test module, because [`warehouses`] and the suite below both need
