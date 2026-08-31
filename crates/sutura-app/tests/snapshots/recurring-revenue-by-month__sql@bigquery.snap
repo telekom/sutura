@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.sql()
 ---
-SELECT CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) AS `period`, sum(`fct_subscription_monthly`.`mrr_cents`) AS `recurring_revenue` FROM `fct_subscription_monthly` WHERE `fct_subscription_monthly`.`month` >= ? AND `fct_subscription_monthly`.`month` < ? AND `fct_subscription_monthly`.`status` = ? GROUP BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) ORDER BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) LIMIT 10001
+SELECT CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) AS `period`, sum(`fct_subscription_monthly`.`mrr_cents`) AS `recurring_revenue` FROM `fct_subscription_monthly` WHERE `fct_subscription_monthly`.`month` >= ? AND `fct_subscription_monthly`.`month` < ? AND `fct_subscription_monthly`.`status` = ? GROUP BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) ORDER BY CAST(DATE_TRUNC(`fct_subscription_monthly`.`month`, MONTH) AS DATE) NULLS LAST LIMIT 10001

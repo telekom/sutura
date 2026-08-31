@@ -2,4 +2,4 @@
 source: crates/sutura-app/tests/golden/dialects.rs
 expression: query.sql()
 ---
-SELECT CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) AS `period`, CAST(sum(`fct_usage_daily`.`data_gb`) AS FLOAT64) / NULLIF(COUNT(DISTINCT `fct_usage_daily`.`subscription_key`), 0) AS `data_per_subscription` FROM `fct_usage_daily` WHERE `fct_usage_daily`.`usage_date` >= ? AND `fct_usage_daily`.`usage_date` < ? GROUP BY CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) ORDER BY CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) LIMIT 10001
+SELECT CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) AS `period`, CAST(sum(`fct_usage_daily`.`data_gb`) AS FLOAT64) / NULLIF(COUNT(DISTINCT `fct_usage_daily`.`subscription_key`), 0) AS `data_per_subscription` FROM `fct_usage_daily` WHERE `fct_usage_daily`.`usage_date` >= ? AND `fct_usage_daily`.`usage_date` < ? GROUP BY CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) ORDER BY CAST(DATE_TRUNC(`fct_usage_daily`.`usage_date`, ISOWEEK) AS DATE) NULLS LAST LIMIT 10001
