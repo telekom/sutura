@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- Answer every file's licence mechanically, per the REUSE specification (#101)
 - **ci**: A curated licence review, with the config written here rather than cloned (#102)
 - **release**: The SBOM comes out of the binary, not out of Cargo.lock (#98)
 - **federation**: Execute a two-source question end to end (#89)
