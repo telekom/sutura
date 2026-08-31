@@ -157,7 +157,7 @@ gcp.bigquery.RowAccessPolicy(
     "rap-a",
     dataset_id=dataset.dataset_id,
     table_id=table.table_id,
-    policy_id=sutura_name(cfg, "rap-a"),
+    policy_id="rap_a",
     grantees=[sa_a.member],
     filter_predicate=f"{group_column} = '{principal_a_rows}'",
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
@@ -166,7 +166,7 @@ gcp.bigquery.RowAccessPolicy(
     "rap-b",
     dataset_id=dataset.dataset_id,
     table_id=table.table_id,
-    policy_id=sutura_name(cfg, "rap-b"),
+    policy_id="rap_b",
     grantees=[sa_b.member],
     filter_predicate=f"{group_column} = '{principal_b_rows}'",
      opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=[table]),
@@ -204,7 +204,7 @@ key_b = gcp.serviceaccount.Key(
 workload_pool = gcp.iam.WorkloadIdentityPool(
     "workload-pool",
     workload_identity_pool_id=cfg.require("workload_pool_id"),
-    display_name="sutura identity test workload pool",
+    display_name="sutura identity test pool",
     opts=pulumi.ResourceOptions(provider=gcp_provider, depends_on=API_BOOTSTRAP),
 )
 
