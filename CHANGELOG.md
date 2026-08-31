@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **bigquery**: The wire, and the client decision that had to come first (#80)
 - **postgres**: A Warehouse adapter over Postgres, on a static credential (#78)
 - **federation**: Split, combine and serve a two-source question (#72) (#76)
 - **catalog**: Split the catalog matrix by adapter kind (#77)
