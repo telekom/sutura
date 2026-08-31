@@ -668,3 +668,94 @@ is decided, and the `data_systems:` axis of `crates/sutura-app/tests/adapters/mo
 entry for the reason the third amendment gives. `ClickHouse` and `Postgres` null placement is still
 answered by nothing: both are rendered and parse-checked and neither has ever executed, so their arm of
 the table above is read off documented behaviour rather than measured. And identity is untouched.
+
+## Fifth amendment, 2026-08-31: where each identity claim is proven
+
+**Status of the amendment: accepted.** What every earlier amendment here establishes - and it is worth
+saying once rather than scattered - is *accepted, and correct for one identity*: a service-account key
+is `SharedServiceUser`, so every acceptance run to date proves the product for a single identity and
+nothing about who asked. This amendment settles **where each identity claim is proven**, and it is the
+decision issue #81 records; it exists only in that conversation until now.
+
+It **amends the first amendment's conclusion** in the same way that amendment amended the original
+decision: CI is no longer the place the *two-subject* identity claim is refused from. The first
+amendment made room for a service-account key in CI; this one decides that a *second* key, and a genuine
+row-grant mechanism at the source, belong there too. What stays refused from CI is the thing no CI
+runner can supply - a **workforce** identity, which is a representation of a person and needs single
+sign-on. The venue for that is a developer's own machine, one-off, and recorded.
+
+### The decision: four venues, four claims
+
+| Venue | What runs there | What it is allowed to claim |
+| --- | --- | --- |
+| **CI, every run, every contributor** | **Fakes** at the port (the house rule - ports get fakes, not mocked HTTP) | Every outcome the port can produce, including each refusal |
+| **CI, in-repo runs only** | The acceptance leg, on a **service-account key** in an environment secret | `BigQuery` accepts what we generate, and the rows agree with the engine |
+| **CI, in-repo runs only** | Two distinct principals against a row access policy | *Two principals, two answers* - the mechanism, not the identity class |
+| **A developer's machine, one-off** | **Workforce** impersonation with a real person | That a human subject's own identity reaches the source |
+
+### What each cell required, and which are now true
+
+**The fakes cell is the oldest and still holds.** The wire is exercised against a fake
+[`transport::JobTransport`] and the broker against a fake [`StsExchange`] - a fake implements the port,
+never a documented HTTP layer, so a test can never assert our own request bytes back to us. Nothing in
+this amendment changes it; it is here because a decision about venues starts with the one venue already
+settled.
+
+**The acceptance cell is built.** The first amendment's job, the third and fourth amendments' corpus,
+all green on 2026-08-31 in the `bq-test` environment. It is the second row of the table.
+
+**The two-principal cell is decided and not built.** What it must show is not that two askers get
+*different* answers but that each reads **what it is entitled to read** - a row access policy grants the
+two principals differently, and each answer is checked against its principal's own entitlement. It
+needs two things neither this repository nor an agent can provision, because both are live-account work
+with a human owner:
+
+- a **second service-account key** in the `bq-test` environment, kept apart from the first the way the
+  first is kept apart from the tree; and
+- a **row-level grant** at the source - a `BigQuery` row access policy - whose per-principal rows are
+  known and written down, so "entitled to" is a check against a documented shape and not a comparison
+  of two numbers.
+
+Until those exist the cell has no subject: an `#[ignore]`d leg whose credentials no environment holds
+would be exactly the scaffolding this record exists not to build, and a row-grant mapping guessed at is
+a granted-nothing check. When the two key generations and the policy are in place, the cell lands as a
+second identity in the existing `bigquery-acceptance` leg and needs no new job - the venue is already
+CI in-repo only.
+
+**The workforce cell is local because it can only be local, and it has never run.** A workforce
+identity provider requires a client id and single-sign-on configuration, takes `subject_token_type:
+id_token`, and exists to represent a person; no CI runner can supply one at any price, so this is the
+one venue that is deliberately not in any gate. **What still blocks it is a question this record must
+carry rather than assume:** whether the identity provider will mint an ID token whose audience is a
+third party's provider at all - a claim no code and no repository secret can test, and the deciding
+unknown for per-subject `BigQuery`. Until a run answers it, the whole workforce path is unproven.
+
+### The service-account key is accepted, and its expiry is written down
+
+Every in-repo acceptance - the corpus and, later, the two-principal cell - runs on a **long-lived
+service-account bearer** held as a repository secret. That is accepted as the *for now*, with the cost
+named: rotation somebody has to remember, and a credential that leaks if the environment secret does.
+
+**The condition that ends it, stated so it is not left to rot:** when rotation becomes a chore, or when
+a second project needs a credential, move the acceptance leg to Workload Identity Federation - GitHub
+mints an OIDC JWT under `permissions: id-token: write`, Google STS exchanges it for a short-lived token,
+and **there is no key at all**. A workload pool accepts `subject_token_type: jwt` with an attribute
+condition pinning the repository. Neither `id-token` nor a Google auth action appears in any workflow
+today, so this is greenfield; the moment that changes is a workflow diff with no key to rotate. Until
+then the key is the cost of the evidence, and this paragraph is its expiry.
+
+### The limit each venue must state
+
+- **A fork's pull request gets no secret**, so the acceptance job is absent on exactly the
+  contributions least likely to have been run locally. That is the first amendment's original objection
+  surviving in reduced form - the environment is the mechanism that makes the fork skip rather than
+  leak, and it cannot do more.
+- **A key proves `SharedServiceUser` only.** Every green here answers *does the service accept this and
+  do the rows agree* for one identity, and nothing about who asked. The `data_systems:` golden axis
+  gaining an entry, and even a green two-principal cell, do not promote a key to a subject.
+- **A local-only verification has no gate on any path**, so the workforce run must leave a record - the
+  date, the versions, and what was run. This is not hypothetical: a claim that some tier made a cell
+  "newly answerable" was wrong precisely because the only measurement was one terminal run and the
+  record did not say so. The workforce cell's record must say enough that a second person can decide
+  whether the claim is repeatable, and it must state the audience answer above as a finding, not as an
+  assumption.
