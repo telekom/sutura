@@ -7,6 +7,7 @@ rewrites this file. Fix a wrong entry by fixing the commit message convention, n
 
 ### Features
 
+- **federation**: Execute a two-source question end to end (#89)
 - **bigquery**: A BigQuery source executes as the asking subject (issue 87) (#93)
 - **serve**: Register the BigQuery adapter so a deployment can serve kind: bigquery (#88)
 - **identity**: A credential the compiler refuses to print (#86)
