@@ -33,9 +33,13 @@
 # process refuses to start. With `--network host` the container's loopback IS the runner's, so this
 # runs the single-player posture the example documents rather than a shape nobody would deploy.
 #
-# THE ENVIRONMENT IS MEASURED, not copied from a page. `SUTURA__CATALOG__DATA_DIR` is deliberately
-# absent: a `sources.<alias>` entry replaced it, and a catalog naming a source nobody declared is a
-# startup refusal. `docs/serving.md` was stale on exactly that key when this was written.
+# THE ENVIRONMENT IS MEASURED, not copied from a page. Only ONE thing needs a file rather than a
+# variable, and it is the one reason this can no longer be all-env: `catalogs` is now a LIST, so the
+# variable layer has no way to name one entry - `SUTURA__CATALOGS__0__DIR` deserializes as a map and
+# the config crate refuses it where the raw tree expects a sequence (verified against config 0.15.25).
+# A catalog is a declared thing, so this writes `SUTURA_CONFIG_DIR`/base.yaml naming the one it reads.
+# `SUTURA__CATALOG__DATA_DIR` is deliberately absent still: a `sources.<alias>` entry replaced it, and
+# a catalog naming a source nobody declared is a startup refusal.
 set -euo pipefail
 
 image="${1:?usage: serve-smoke.sh <image-ref> [port]}"
@@ -48,10 +52,27 @@ if [ ! -d "$examples" ]; then
   exit 1
 fi
 
+# The one config file the deployment needs. Everything else layers on by variable, later beating
+# earlier, so `base.yaml` sets the catalog alone and the `SUTURA__*` variables beside it set the
+# server, the identity and the source.
+config="$(mktemp -d)"
+# `mktemp -d` defaults to 0700, and the container runs as uid 65532: without a loosened directory
+# the mount would present a catalog the process cannot read and the smoke would fail on startup,
+# which would be a smoke-test defect, not a deployment one.
+chmod a+rX "$config"
+cat > "$config/base.yaml" <<'YAML'
+catalogs:
+  - name: model
+    kind: markdown
+    dir: /examples/catalog
+    data_dir: /examples/data
+    version: smoke
+YAML
+
 id="$(docker run -d --network host --user 65532:65532 \
   -v "${examples}:/examples:ro" \
-  -e SUTURA__CATALOG__DIR=/examples/catalog \
-  -e SUTURA__CATALOG__VERSION=smoke \
+  -v "${config}:/config:ro" \
+  -e SUTURA_CONFIG_DIR=/config \
   -e "SUTURA__SERVER__PORT=${port}" \
   -e SUTURA__SECURITY__IDENTITY=single-user \
   -e SUTURA__SECURITY__SINGLE_USER_BECAUSE="the release smoke test reads its own example files" \
@@ -65,6 +86,7 @@ id="$(docker run -d --network host --user 65532:65532 \
 cleanup() {
   docker logs "$id" 2>&1 | tail -60 || true
   docker rm -f "$id" >/dev/null 2>&1 || true
+  rm -rf "$config"
 }
 trap cleanup EXIT
 
