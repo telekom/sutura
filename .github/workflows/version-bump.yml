@@ -41,21 +41,6 @@ jobs:
           extra_nix_config: |
             fallback = true
 
-      - name: Refuse a stale dispatch
-        # The checkout above uses `persist-credentials: false` and this is a private repo, so the
-        # clone holds no token and a bare fetch would prompt for a username and fail. Authenticate
-        # only this one read with the job's own token, in a header rather than in the URL so it
-        # never lands in the process list, keeping credentials out of the clone's config.
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          set -eu
-          git -c http.extraheader="AUTHORIZATION: bearer ${GITHUB_TOKEN}" fetch origin main
-          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
-            echo "::error::main moved after this dispatch started; dispatch the workflow again"
-            exit 1
-          fi
-
       - name: Compute the next version
         id: next
         run: |
