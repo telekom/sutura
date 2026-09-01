@@ -1,4 +1,4 @@
-//! Do the workflows reference flake outputs that exist?
+//! Do workflows reference flake outputs that exist, and does ordinary CI avoid release outputs?
 //!
 //! CI reaches every tool through `nix run .#name` or `nix build .#checks.<system>.name`. A
 //! renamed or deleted output is not a build error - it is a workflow that fails at the moment
@@ -19,6 +19,10 @@
 //!
 //! Text scanning on both sides, because this has to run where there is no nix. It cannot know
 //! whether an output BUILDS; it knows whether it is declared, which is the failure that recurs.
+//!
+//! Literal package builds and the two release-profile assertions are also refused in `ci.yml`.
+//! Pull requests use interpolated `-ci` packages for their link matrix; the tag-triggered release
+//! workflow owns everything that is published.
 
 use crate::Verdict;
 use crate::repo;
@@ -57,6 +61,23 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
         eprintln!("xtask check-workflows: could not locate the repo root");
         return Verdict::Fail;
     };
+
+    let ci = match std::fs::read_to_string(root.join(".github/workflows/ci.yml")) {
+        Ok(text) => text,
+        Err(error) => {
+            eprintln!("xtask check-workflows: could not read ci.yml: {error}");
+            return Verdict::Fail;
+        }
+    };
+    let release_builds = literal_release_builds(&ci);
+    if !release_builds.is_empty() {
+        eprintln!("xtask check-workflows: ci.yml builds release outputs");
+        for (line, output) in release_builds {
+            eprintln!("  ci.yml:{line}  {output}");
+        }
+        eprintln!("Release outputs belong to the tag-triggered release workflow, not ordinary CI.");
+        return Verdict::Fail;
+    }
 
     let flake = match std::fs::read_to_string(root.join("flake.nix")) {
         Ok(text) => text,
@@ -115,6 +136,31 @@ pub(crate) fn run(_args: &[String]) -> Verdict {
 
 fn joined(names: &BTreeSet<String>) -> String {
     names.iter().cloned().collect::<Vec<_>>().join(", ")
+}
+
+fn literal_release_builds(text: &str) -> Vec<(usize, String)> {
+    let mut found = Vec::new();
+    for (index, line) in text.lines().enumerate() {
+        if line.trim_start().starts_with('#') {
+            continue;
+        }
+        let Some((_, after)) = line.split_once("nix build ") else {
+            continue;
+        };
+        let after = after.trim_start().trim_start_matches('"');
+        let Some(after) = after.strip_prefix(".#") else {
+            continue;
+        };
+        let output: String = after
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            .collect();
+        let release_check = output.ends_with(".one-binary") || output.ends_with(".shipped-features");
+        if !output.is_empty() && (!output.starts_with("checks.") || release_check) {
+            found.push((index.saturating_add(1), output));
+        }
+    }
+    found
 }
 
 /// Every `apps.<name>` declaration. Comments are skipped: they name outputs in prose, and a
@@ -371,6 +417,25 @@ mod tests {
         let mut found = Vec::new();
         super::collect("          nix build .#sutura -L\n", "release.yml", &mut found);
         assert!(found.is_empty());
+    }
+
+    #[test]
+    fn literal_release_outputs_are_kept_out_of_ordinary_ci() {
+        let found = super::literal_release_builds(concat!(
+            "          nix build .#checks.x86_64-linux.hygiene -L\n",
+            "          nix build .#checks.x86_64-linux.one-binary -L\n",
+            "          nix build .#sutura-serve -L\n",
+            "          nix build \".#oci\" -L\n",
+            "          nix build \".#${bin}-${TARGET}-ci\" -L\n",
+        ));
+        assert_eq!(
+            found,
+            vec![
+                (2, String::from("checks.x86_64-linux.one-binary")),
+                (3, String::from("sutura-serve")),
+                (4, String::from("oci")),
+            ]
+        );
     }
 
     #[test]

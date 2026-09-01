@@ -1,7 +1,6 @@
-# Order: classify -> lints -> tests -> build. Explicit steps rather than one
-# `nix flake check`, because flake checks run in arbitrary order and the release build must
-# come after the lints meant to gate it. `flake.nix` excludes the package from `checks` for
-# the same reason.
+# Order: classify -> lints -> tests. Explicit steps rather than one `nix flake check`, because
+# flake checks run in arbitrary order and the classifications below deliberately skip work a diff
+# cannot affect. Release-profile builds and images belong to the tag-triggered release workflow.
 #
 # Steps are gated on the classification, which fails open. The structural gates never are:
 # they judge docs too.
@@ -63,9 +62,10 @@ name: ci
 # workflow file is read by nothing but Actions. That argument is wrong, and review caught it: the
 # only static analysis any workflow gets is `zizmor`, `actionlint` and `shellcheck`, and all three
 # are STEPS IN THIS FILE rather than part of `hygiene`. `cargo xtask check-workflows` does not
-# cover the gap either - it cross-checks referenced nix output names and nothing else. So excluding
-# docs.yml meant a change to it could merge with no workflow analysis at all, and invalid YAML in a
-# workflow can stop that workflow from running its own checks. A docs.yml-only pull request now
+# validate YAML either - it cross-checks referenced nix outputs and keeps release outputs out of
+# this workflow. So excluding docs.yml meant a change to it could merge with no workflow analysis,
+# and invalid YAML in a workflow can stop that workflow from running its own checks. A docs.yml-only
+# pull request now
 # pays for this chain, which is the honest price of linting the thing that decides what gets
 # linted. Any `.github/**` path is in the same class: do not add an exclusion for one.
 #
@@ -138,12 +138,11 @@ on:
   # lints, the tests, the coverage run or the build.
   #
   # EVERY OTHER REF TEST IN THIS FILE WAS CHECKED AGAINST THIS EVENT, because a `merge_group`
-  # run's `github.ref` is `refs/heads/gh-readonly-queue/...` and matches neither trunk nor the
-  # release ref. The three trunk-only steps - `Publish the CRAP baseline`, `Release build`,
-  # `Image` - test `== 'refs/heads/main'`, so a queue entry SKIPS them, which is right and is left
-  # alone: a queue entry is not a promotion and must not publish a baseline or an image. The
-  # `cross` job's test was the one that came out wrong under the same reading and it MOVED to the
-  # event - see its own comment. `concurrency` is right as it stands: `cancel-in-progress` is
+  # run's `github.ref` is `refs/heads/gh-readonly-queue/...` and is not the trunk. `Publish the
+  # CRAP baseline` tests `== 'refs/heads/main'`, so a queue entry SKIPS it, which is right and is
+  # left alone: a queue entry is not a promotion and must not publish a baseline. The `cross`
+  # job's test was the one that came out wrong under the same reading and it MOVED to the event -
+  # see its own comment. `concurrency` is right as it stands: `cancel-in-progress` is
   # `github.event_name == 'pull_request'`, so a merge-queue run is never cancelled, and the queue
   # ref is unique per entry so it shares no group with the pull request's own run.
   #
@@ -578,60 +577,6 @@ jobs:
           fi
           nix run .#causality -- --since "$BASE"
 
-      # MAIN ONLY: release-profile codegen, the one-binary assertion and the image. Branches
-      # build every target under the `ci` profile instead - see the `cross` job below - so what
-      # main adds is the profile and the container, not the target coverage.
-      #
-      # The remaining exposure, stated because it is real: a break that needs release codegen to
-      # appear - thin LTO, `opt-level = 1` - turns main red rather than the pull request. Cross
-      # and libc breakage does not, because `cross` builds all four, and `panic = "abort"` is no
-      # longer in that list: the `ci` profile sets it too.
-      - name: Release build
-        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
-        run: |
-          set -eu
-          # BOTH SHIPPED BINARIES. `nix/shipped.nix` lists them, and since #111 that list has two
-          # entries: the command-line tool and the server. Building only the first is how the
-          # HTTP surface came to ship in no artefact at all.
-          nix build .#sutura -L -o result-sutura
-          nix build .#sutura-serve -L -o result-sutura-serve
-          # One executable, with the expected name, and no toolchain in the closure - for every
-          # shipped binary at every shipped target. It shipped three binaries and a full cargo
-          # once; this is the assertion that stops that returning.
-          nix build .#checks.x86_64-linux.one-binary -L
-          # And which FEATURES the published binaries carry, read out of their own embedded
-          # dependency list rather than out of a manifest. `nix/shipped.nix` decides that both
-          # ship with default features - no `tls`, no `bigquery` - and this is what makes that a
-          # gate rather than a comment.
-          nix build .#checks.x86_64-linux.shipped-features -L
-          nix build .#sutura-aarch64-unknown-linux-gnu -L -o result-aarch64
-          nix build .#sutura-serve-aarch64-unknown-linux-gnu -L -o result-serve-aarch64
-          file result-sutura/bin/sutura result-aarch64/bin/sutura
-          file result-sutura-serve/bin/sutura-serve result-serve-aarch64/bin/sutura-serve
-
-      # ONE IMAGE PER SHIPPED BINARY, and the two smoke tests are deliberately not the same
-      # test. `--version` is all the two surfaces have in common and it proves the least
-      # interesting thing about either; for the server the claim worth making is #111's own
-      # provable outcome - that somebody runs the PUBLISHED IMAGE and asks a question over HTTP -
-      # so `.github/serve-smoke.sh` asks one, asserts the certified figure in the answer, and
-      # asserts that a question the catalog refuses comes back refused. `release.yml` runs the
-      # same script per target; this is the one that runs on every push to the trunk.
-      - name: Images
-        if: steps.classify.outputs.build == 'true' && github.ref == 'refs/heads/main'
-        run: |
-          set -eu
-          nix build .#oci -L -o result-oci
-          ./result-oci | docker load
-          docker run --rm sutura:latest --version
-          docker run --rm sutura:latest doctor
-          nix build .#oci-serve -L -o result-oci-serve
-          ./result-oci-serve | docker load
-          # The SAME script `release.yml` runs per target: start the image, ask the corpus
-          # question, assert the certified figure, and assert that a question the catalog
-          # refuses is refused. One file rather than two copies - they had already drifted on
-          # the catalog version while both were inline.
-          ./.github/serve-smoke.sh sutura-serve:latest
-
   # THE ONLY JOB IN THIS REPOSITORY THAT HOLDS A WRITE SCOPE, and it exists as a separate job for
   # exactly that reason.
   #
@@ -737,13 +682,13 @@ jobs:
             echo "posted a new comment on pull request $PR_NUMBER"
           fi
 
-  # PULL REQUESTS: every target, `ci` profile, no image. The counterpart to the two main-only
-  # steps above - main proves what SHIPS, a branch proves every arch still COMPILES AND LINKS.
+  # PULL REQUESTS: every target, `ci` profile, no image. A branch proves every arch still COMPILES
+  # AND LINKS; the tag-triggered release workflow alone builds and proves what ships.
   #
   # Why the archs are checked on the branch at all, rather than deferred with the release build:
   # the allocator is C, compiled once per target, and cross breakage lives there rather than in
-  # the Rust. A glibc-only run would not see it. So the coverage stays on the pull request and
-  # only the PROFILE moves to main.
+  # the Rust. A glibc-only run would not see it. So the link coverage stays on the pull request
+  # and the release profile remains a release concern.
   #
   # A MATRIX rather than four `nix build` lines in `ci`, and the reason is wall clock, not
   # cost: four runners is more total compute than one runner doing the same four builds in
@@ -966,7 +911,7 @@ jobs:
             file "result-ci-${bin}/bin/${bin}"
           done
           # Not a silent cap: a green branch must not read as having validated what ships.
-          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary and shipped-features assertions and the container images are built on main, not here."
+          echo "::notice::${TARGET}: ci profile, compile-speed settings. Release-profile codegen, the one-binary and shipped-features assertions and the container images are built only by the tag-triggered release workflow."
 
       # DOES EVERY SHIPPED BINARY CARRY ITS OWN DEPENDENCY LIST, and can the tool the release
       # path uses read it back out? A local composite action; its header says why it is not
