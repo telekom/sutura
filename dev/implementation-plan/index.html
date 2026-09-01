@@ -886,6 +886,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-the-backlog-lives-and-why-it-is-not-this-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the backlog lives, and why it is not this page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-original-thesis-and-where-each-piece-stands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2480,6 +2491,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#where-the-backlog-lives-and-why-it-is-not-this-page" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the backlog lives, and why it is not this page
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-original-thesis-and-where-each-piece-stands" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2780,17 +2802,23 @@
 <p>Operational, and expected to churn. The decisions it executes live in
 <a href="../adr/0009-the-plan-from-one-source-to-many/">the ADRs</a>; a step that turns out harder than it looked
 does not change them. If a step cannot be done as written, argue with the ADR, not the plan.</p>
-<p><strong>Twenty-six steps, ten done, six of which can start at once.</strong> Every number is counted off the table
-below rather than remembered - the fourth attempt at getting them right. A number typed by hand beside
-the table that owns it goes stale on the next row, and it has now gone stale three times: "eleven
-steps" in a pull-request body against fourteen rows, then "fifteen steps, seven of which" against
-eighteen rows and eight startable, then "twenty-two steps, one done" against twenty-four rows and
-seven done. <strong>If the table and this sentence ever disagree again, the table is right.</strong> The three
-commands that settle it are <code>grep -c '^| [0-9]'</code> for the rows, <code>grep -c '^| [0-9].*\*\*DONE\*\*'</code> for
-the finished ones and <code>grep -c '| \*\*yes\*\* |$'</code> for the startable ones. <strong>The middle command used
-to search for the strikethrough and it over-counted</strong>, because the needle appeared in the paragraph
-explaining the count as well as in the table - so every command anchors at the start of a row. Every
-step is one branch, one pull request, and green before the next depends on it. <code>stax</code> manages the
+<p><strong>Twenty-six steps, fifteen done.</strong> Every number is counted off the table below rather than
+remembered - the fourth attempt at getting them right. A number typed by hand beside the table that
+owns it goes stale on the next row, and it has now gone stale three times: "eleven steps" in a
+pull-request body against fourteen rows, then "fifteen steps, seven of which" against eighteen rows and
+eight startable, then "twenty-two steps, one done" against twenty-four rows and seven done. <strong>If the
+table and this sentence ever disagree again, the table is right.</strong> The two commands that settle it are
+<code>grep -c '^| [0-9]'</code> for the rows and <code>grep -c '^| [0-9].*\*\*DONE\*\*'</code> for the finished ones. <strong>The
+second command used to search for the strikethrough and it over-counted</strong>, because the needle appeared
+in the paragraph explaining the count as well as in the table - so both anchor at the start of a row.</p>
+<p><strong>There used to be a third count here - how many steps could start at once - and it is gone rather
+than corrected.</strong> It went stale twice on its own, and the honest reason is that it was never a fact
+about this page: what can start is a function of what has landed, what is blocked and what somebody
+picked up, and all three now live where they are read rather than in prose. The
+<a href="https://github.com/telekom/sutura/issues/134">tracker</a> carries the pull order and the priority tiers,
+and <em>blocked by</em> is a relationship on the issues themselves, so GitHub answers it. <strong>A count that
+cannot be derived from the thing it describes is a count that will lie again.</strong></p>
+<p>Every step is one branch, one pull request, and green before the next depends on it. <code>stax</code> manages the
 stack; the <code>git-ops/stacked-branches</code> skill has the mechanics.</p>
 <h2 id="the-stack">The stack<a class="headerlink" href="#the-stack" title="Permanent link">&para;</a></h2>
 <p><strong>Steps are named, not numbered, because the order moves and headings should not.</strong> This table is the
@@ -2863,27 +2891,27 @@ internal that a stable surface can grow behind.</p>
 </tr>
 <tr>
 <td>10</td>
-<td><code>feat/two-source-execution</code></td>
+<td>~~<code>feat/two-source-execution</code>~~</td>
 <td>8, 9 - both <strong>done</strong></td>
-<td><strong>yes</strong></td>
+<td><strong>DONE</strong> - #89. The splitter, the combiner and <code>answer_federated</code>; both SHIPPED adapters still decline a leg, which is #112</td>
 </tr>
 <tr>
 <td>11</td>
 <td><code>feat/conformance-packs</code></td>
-<td>10 for the execute half, nothing for the compile half</td>
-<td>partly</td>
+<td>10 - <strong>done</strong></td>
+<td><strong>#116</strong>. None of <a href="../adr/0012-conformance-packs-for-inputs-and-adapters/">0012</a> is built; the golden matrix is still a macro over three axes in one crate's tests</td>
 </tr>
 <tr>
 <td>12</td>
-<td><code>feat/credential-port</code></td>
+<td>~~<code>feat/credential-port</code>~~</td>
 <td>2, 5, 8 - all <strong>done</strong></td>
-<td><strong>yes</strong></td>
+<td><strong>DONE</strong>. <code>Warehouse::execute</code> takes a <code>&amp;Presented</code>, <code>LegCredentials</code> hoists one asker and one deadline over N legs, and a subject with no credential at a source is refused rather than answered as the process</td>
 </tr>
 <tr>
 <td>13</td>
 <td><code>feat/plan-spans-two-identities</code></td>
-<td>5, 10, 12 - the last assumption to move</td>
-<td>after 12</td>
+<td>5, 10, 12 - all <strong>done</strong></td>
+<td><strong>#113</strong>. A decision before a check: refuse a mixed-posture answer, disclose it, or make it configurable</td>
 </tr>
 <tr>
 <td>14</td>
@@ -2895,82 +2923,120 @@ internal that a stable surface can grow behind.</p>
 <td>15</td>
 <td><code>feat/bigquery-adapter</code></td>
 <td>8 - <strong>done</strong>; the fixture decision is <strong>made</strong>, <code>adr/0017</code>; the dependency decision is <strong>made</strong>, <code>adr/0018</code></td>
-<td><strong>MOSTLY DONE</strong> - the fourth dialect, its 88 goldens, the adapter, the source declaration, the registry entry, and now the WIRE: <code>jobs.query</code> over <code>ureq</code> behind a default-off feature, plus a credential port. <strong>A statement generated here IS now accepted by BigQuery</strong> - three tests green on 2026-08-30 against a real dataset, and <code>adr/0017</code>'s amendment puts the repeat in CI on a GitHub environment. <strong>What is still missing is the WIDER leg</strong>: this is one hand-built <code>SUM</code>, not the corpus compared against the engine (#78's importer shape), and identity is untouched. Nothing links the crate, and <code>sutura-serve</code> still refuses <code>kind: bigquery</code></td>
+<td><strong>MOSTLY DONE, and further than the previous text said.</strong> The fourth dialect and its goldens, the adapter, the source declaration, the registry entry, the WIRE (<code>jobs.query</code> over <code>ureq</code> behind a default-off feature) plus a credential port - and since then <strong>the CORPUS leg, green in CI</strong>: 22 statements accepted, 21 answers agreeing with the engine exactly, 9 refusals agreeing, 6 anchors reproduced, per <code>adr/0017</code>'s third and fourth amendments. <code>sutura-serve</code> <strong>opens</strong> <code>kind: bigquery</code> now, behind a default-off feature. What is left is not the adapter: no published artefact links it (#111, #121), a cross-dataset read has never been EXECUTED (#118), the acceptance leg races itself (#119), and a bundle naming a table the dataset does not hold still boots (#120)</td>
 </tr>
 <tr>
 <td>16</td>
 <td><code>feat/bigquery-impersonation</code></td>
 <td>12, 15, and the ID-token verification</td>
-<td>after 15</td>
+<td><strong>#87</strong>, and three of its five parts are built: the adapter declares <code>PerSubjectCredential</code>, <code>WorkloadIdentityBroker</code> really exchanges, and <code>sources.&lt;alias&gt;.workload_identity</code> is declarable. What is left is the composition plus the proof - #147 for the venue, #123 for the two-principal cell</td>
 </tr>
 <tr>
 <td>17</td>
 <td><code>feat/postgres-adapter</code></td>
 <td>8 - <strong>done</strong>, 14, and the artifact question</td>
-<td><strong>static-credential half built (18 remains)</strong></td>
+<td><strong>HALF DONE, and the halves are worth telling apart.</strong> The adapter is built and held to the corpus, the differential and the anchors against a real <code>postgresql_18</code> in the nix tier - as a <strong>dev-dependency</strong>. <code>SourceKind</code> has no <code>postgres</code>, so no deployment can declare one: that is <strong>#124</strong>, and TLS to it is <strong>#125</strong> (row 19)</td>
 </tr>
 <tr>
 <td>18</td>
 <td><code>feat/postgres-oauth</code></td>
-<td>12, 17, and the server-side validator decision</td>
-<td>after 17</td>
+<td>12, 17 - and the server-side validator decision, which is <strong>made</strong></td>
+<td><strong>#126</strong>, blocked by #124 and #125. The verification is answered and the answer is unwelcome: no Rust client speaks SASL <code>OAUTHBEARER</code>, so the step owes first-party protocol code, and core Postgres ships no validator that reads <code>aud</code></td>
 </tr>
 <tr>
 <td>19</td>
 <td><code>feat/source-mtls</code></td>
 <td>8 - <strong>done</strong>, 17</td>
-<td>after 17</td>
+<td><strong>#125</strong>. Nothing this repository connects OUT with verifies a certificate, and <code>sutura-exec-postgres</code> is <code>NoTls</code> unconditionally</td>
 </tr>
 <tr>
 <td>20</td>
 <td><code>feat/raw-sql-tool</code></td>
-<td>3, 8 - <strong>done</strong>, 12</td>
-<td>after 12</td>
+<td>3 - <strong>done</strong>, 8 - <strong>done</strong>, 12 - <strong>done</strong></td>
+<td><strong>#129</strong>, blocked by #128. Three of <a href="../adr/0013-a-raw-sql-tool-off-by-default/">0013</a>'s four prerequisites are now spent; the showcase is what moved it up the order</td>
 </tr>
 <tr>
 <td>21</td>
 <td><code>feat/demo-tasks</code></td>
 <td>14, and one example to demo</td>
-<td>after 14</td>
+<td><strong>#130</strong> step 4, beside the tutorial and the docs cleanup it belongs with</td>
 </tr>
 <tr>
 <td>22</td>
-<td><code>build/supply-chain</code></td>
+<td>~~<code>build/supply-chain</code>~~</td>
 <td>nothing - orthogonal</td>
-<td><strong>yes</strong></td>
+<td><strong>DONE</strong> - <a href="../adr/0021-how-a-published-artefact-proves-where-it-came-from/">0021</a>. A Sigstore bundle per asset, <code>cosign</code> on all six image references, CycloneDX and SPDX per leaf image from the auditable binary, SLSA provenance, ORT in <code>licence-review.yml</code>, and REUSE. <strong>One piece of the roadmap bullet is NOT built:</strong> the licence report is published as a CI artifact and is not signed</td>
 </tr>
 <tr>
 <td>23</td>
-<td><code>ci/prose-change-cost</code></td>
-<td>nothing - measure first. The path-filter half is DONE on this branch</td>
-<td><strong>yes</strong></td>
+<td>~~<code>ci/prose-change-cost</code>~~</td>
+<td>nothing - measure first</td>
+<td><strong>DONE</strong>. A prose-only change does not start a run (<code>paths</code> with <code>!</code> exceptions, since a semantic catalog is a directory of markdown), <code>classify</code> gates every expensive step inside the job, and the merge queue is answered. <strong>Per-CATEGORY selection is the widening, and it is #135</strong> - one filter per adapter, with the matrix derived from the registry rather than edited into a workflow</td>
 </tr>
 <tr>
 <td>24</td>
 <td><code>feat/metrics-endpoint</code></td>
-<td>6 for the memory series, nothing for the rest</td>
-<td>partly</td>
+<td>6 - <strong>done</strong> for the memory series, nothing for the rest</td>
+<td><strong>#132</strong>. A served deployment exports nothing, so a refusal and a fault look the same to an operator</td>
 </tr>
 <tr>
 <td>25</td>
-<td><code>feat/metadata-capabilities</code></td>
+<td>~~<code>feat/metadata-capabilities</code>~~</td>
 <td>nothing - <a href="../adr/0011-pluggable-by-declaration/">0011</a> decided it and <code>Warehouse::IMPERSONATION</code> is the shape to copy</td>
-<td><strong>yes</strong></td>
+<td><strong>DONE</strong>. <code>SemanticCatalog::capabilities</code> is a required associated item with no default, and <code>MetadataCapabilities::checked_against</code> runs over every registered catalog in both directions</td>
 </tr>
 <tr>
 <td>26</td>
 <td><code>feat/datahub-catalog</code></td>
-<td>25 for the declaration, 11 for the packs, 14 - <strong>done</strong> - for an instance to read</td>
-<td>after 25</td>
+<td>25 - <strong>done</strong>; 11 is <strong>no longer a prerequisite</strong> (#71 split the catalog axis by <code>CatalogKind</code>); 14 - <strong>done</strong> - for an instance to read</td>
+<td><strong>#114</strong>, and <strong>#115 beside it</strong>: a bundle of models with no metrics loads, pins and validates - and answers no question, because <code>Query</code> carries a <code>MetricName</code> and nothing else. Both roots also wire one hard-coded catalog TYPE, so nothing can open a second kind</td>
 </tr>
 </tbody>
 </table>
 <p><strong>Rows 1 to 11 have their branch sections on this page. Rows 15 and 16 are in
 <a href="../implementation-plan-bigquery/">BigQuery</a>, and rows 12 to 14 and 17 to 24 are in
 <a href="../implementation-plan-identity-and-services/">identity, services and the operational work</a></strong> - three
-file names, one document: this table stays the only owner of a step number, and the split is at the
+file names, one document: this table stays the only owner of <strong>these twenty-six</strong> step numbers, and the
+split is at the
 stack's own phase boundary - nothing up to and including the conformance packs needs a live service or
 an identity decision, and everything after it needs one or both.</p>
+<h2 id="where-the-backlog-lives-and-why-it-is-not-this-page">Where the backlog lives, and why it is not this page<a class="headerlink" href="#where-the-backlog-lives-and-why-it-is-not-this-page" title="Permanent link">&para;</a></h2>
+<p><strong>This table owns the twenty-six steps that produced the current tree. Everything raised since is an
+issue, and no row is added for it.</strong> That is a change of role rather than an oversight, and the reason
+is this page's own history: it has recorded a stale count three times, and a step number here beside an
+issue number there is two names for one piece of work - which drifts by construction, because only one
+of them is where somebody looks when they pick the work up.</p>
+<p>So the division is:</p>
+<table>
+<thead>
+<tr>
+<th></th>
+<th>Owner</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>The twenty-six numbered steps, their order, and the arguments for that order</td>
+<td>this table, and the two sibling pages</td>
+</tr>
+<tr>
+<td>Everything raised since, its priority, and what to pull next</td>
+<td><a href="https://github.com/telekom/sutura/issues/134">the tracker</a> and the board it indexes</td>
+</tr>
+<tr>
+<td>What blocks what</td>
+<td>the issues themselves - <em>blocked by</em> is a relationship GitHub answers, and it cannot go stale in prose</td>
+</tr>
+<tr>
+<td>Which record a piece of work needs, and its number</td>
+<td>the tracker's reserved-number table, so two branches cannot both mint <code>0022</code></td>
+</tr>
+</tbody>
+</table>
+<p><strong>A row that is DONE stays here</strong> - the argument for why a step went where it did is worth more after it
+lands than before, and deleting it would leave the next reader unable to tell a decision from an
+accident. A row that is still open now names the issue that owns it instead of a <em>can start now</em> verdict
+this page cannot keep current.</p>
 <p><strong>Six orderings in that table are decisions rather than convenience, and each replaced an earlier
 arrangement that would have gone wrong:</strong></p>
 <ul>

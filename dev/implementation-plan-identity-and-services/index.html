@@ -3365,9 +3365,11 @@ one is built:</p>
 <li><strong>The OpenAPI document, which ships today.</strong> <code>crates/sutura-http/src/openapi.rs</code> generates it from
   the handlers, so it is always current and needs nothing committed. A chat UI that can call an
   OpenAPI tool server talks to sutura over it with no new code on our side. This is the cheap route.</li>
-<li><strong>An MCP server, which is planned and absent.</strong> There is no <code>sutura-mcp</code> crate. When it exists it
-  becomes the better route, because MCP is the surface agents actually speak - but the demo must not
-  wait for it.</li>
+<li><strong>An MCP server, and the crate EXISTS now - what is absent is a binary that links it.</strong>
+  <code>sutura-mcp</code> is built: two tools, one per <code>Surface</code> operation, each schema generated from a wire type
+  and committed as a snapshot. <code>serve_stdio</code> is the entry point and <strong>no composition root calls it</strong>,
+  which is #110. So this is the better route the moment that decision lands - MCP is the surface agents
+  actually speak - and the demo must still not wait for it.</li>
 </ul>
 <p><strong>And the part that cannot be waved away: a chat interface needs a MODEL.</strong> Either a hosted provider,
 which means a key and egress from the demo environment, or a local one, which is heavy. Say which the
@@ -3667,9 +3669,13 @@ saying it is not the federation example. Rename it to what it demonstrates - two
   <a href="../adr/0008-a-credential-per-leg-for-the-calling-subject/">a credential per leg</a> has the full finding,
   the preference order for closing it, and the one option ruled out rather than deferred. Native driver
   is the committed transport.</li>
-<li><strong>BigQuery and Oracle adapters.</strong> Both wait on <code>feat/postgres-oauth</code> proving the shape, and Oracle additionally on a
-  generator question: its dialect exists upstream as an empty feature, and the rendering it needs lives
-  behind the transpile feature this workspace does not compile.</li>
+<li>~~<strong>BigQuery and Oracle adapters.</strong> Both wait on <code>feat/postgres-oauth</code> proving the shape.~~ <strong>Wrong
+  about BigQuery, and struck rather than quietly deleted:</strong> it did not wait, it went first - rows 15 and
+  16 - and its corpus is accepted by a real dataset. <strong>Oracle is still out of this plan</strong> and now has an
+  issue of its own, #127, plus the generator question this bullet was right about: its dialect exists
+  upstream as an empty feature, and the rendering it needs lives behind the transpile feature this
+  workspace does not compile. Its transport is undecided, and a native client does not build in the nix
+  sandbox at all.</li>
 <li><strong>Untrusted-content marking in the result envelope.</strong> Cheap before the first Arrow envelope, expensive
   after, so it lands with the envelope rather than after it.</li>
 <li><strong>The remaining metadata connectors</strong> - OKF, OpenMetadata, the RDBMS catalog, BPMN and RDF.
