@@ -263,7 +263,8 @@ mod tests {
     /// The bundle, read through the same catalog adapter every other suite here reads it through.
     fn bundle() -> PinnedDefinitions {
         let version = DefinitionVersion::parse(VERSION).expect("the pinned version is a version");
-        sutura_catalog_local::LocalCatalog::new(example_root().join("catalog"), version)
+        let name = SourceName::parse("local").expect("the example catalog name is a name");
+        sutura_catalog_local::LocalCatalog::new(name, example_root().join("catalog"), version)
             .load()
             .expect("the example catalog loads")
     }

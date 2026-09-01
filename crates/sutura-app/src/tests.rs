@@ -6,11 +6,12 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use sutura_domain::calendar::{Date, TimeRange};
+use sutura_domain::capabilities::MetadataCapabilities;
 use sutura_domain::catalog::{Anchor, Definitions, Description, Metric, Model};
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, Grain, ModelName, SourceName, TableName};
-use sutura_domain::pinned::{DefinitionVersion, NotValidated};
+use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, NotValidated};
 use sutura_domain::plan::MAX_ROWS;
 use sutura_domain::query::{Query, RefusalReason, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, SharedIdentityDeclared, SourcePosture};
@@ -122,6 +123,10 @@ pub(crate) fn bundle() -> PinnedDefinitions {
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         definitions,
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::nothing()),
+        ),
     )
     .expect("the test definitions hash")
 }

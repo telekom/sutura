@@ -200,10 +200,11 @@ mod tests {
     /// Assembled from empty definitions on purpose: what is under test is the identity half of the
     /// record, and a bundle with metrics in it would be a fixture to keep in step for no assertion.
     fn an_answer_on_a_shared_source() -> ToolOutcome {
+        use sutura_domain::capabilities::MetadataCapabilities;
         use sutura_domain::catalog::Definitions;
         use sutura_domain::knowledge::Knowledge;
         use sutura_domain::model::SourceName;
-        use sutura_domain::pinned::{DefinitionVersion, PinnedDefinitions};
+        use sutura_domain::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
         use sutura_domain::source::{AcknowledgementReason, ExecutedAs, SharedIdentityDeclared, SourcePosture};
         use sutura_domain::warehouse::{RowSet, Value};
 
@@ -211,6 +212,10 @@ mod tests {
             DefinitionVersion::parse("2026-08-29").expect("a test version is a version"),
             Definitions::assemble(Vec::new(), Vec::new(), Vec::new()).expect("empty definitions are consistent"),
             Knowledge::none(),
+            ContributionManifest::single(
+                SourceName::parse("local").expect("a test source is a source"),
+                Contribution::of(MetadataCapabilities::nothing()),
+            ),
         )
         .expect("the test definitions hash");
         let ran_as = ExecutedAs::of(

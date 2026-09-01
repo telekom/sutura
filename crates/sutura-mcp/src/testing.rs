@@ -31,7 +31,9 @@ use sutura_domain::identity::{
 use sutura_domain::knowledge::Knowledge;
 use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{Aggregate, ColumnName, DimensionName, Grain, MetricName, ModelName, SourceName, TableName};
-use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{
+    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+};
 use sutura_domain::plan::Executable;
 use sutura_domain::query::{Query, ToolOutcome};
 use sutura_domain::source::{AcknowledgementReason, ExecutedAs, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
@@ -96,8 +98,16 @@ pub(crate) fn bundle() -> PinnedDefinitions {
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        definitions,
+        definitions.clone(),
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            // The fixture bundle flows through `LocalService::start_composed`, which holds each
+            // contributor to its own declaration: the manifest record has to say what the content
+            // actually carries, or the fidelity check refuses a fixture with content "nothing"
+            // declared. Deriving it from the content is the honest shape.
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
     )
     .expect("the test definitions hash")
 }

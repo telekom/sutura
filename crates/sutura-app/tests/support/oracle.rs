@@ -61,7 +61,7 @@ use sutura_domain::measure::{AggregatedColumn, Measure, RequiredFilter, Term, Ze
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, TableName,
 };
-use sutura_domain::pinned::{CatalogKind, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{CatalogKind, Contribution, ContributionManifest, PinnedDefinitions, SemanticCatalog};
 
 use super::Never;
 use crate::adapters::{CatalogUnderTest, load, source, version};
@@ -613,7 +613,13 @@ impl SemanticCatalog for HandWrittenCatalog {
         // fails here rather than being compared successfully against a markdown one that also has it
         // wrong.
         let stated = knowledge::stated(&definitions);
-        Ok(PinnedDefinitions::pin(version(), definitions, stated).expect("the definitions hash"))
+        Ok(PinnedDefinitions::pin(
+            version(),
+            definitions,
+            stated,
+            ContributionManifest::single(source(), Contribution::of(<Self as SemanticCatalog>::capabilities())),
+        )
+        .expect("the definitions hash"))
     }
 }
 

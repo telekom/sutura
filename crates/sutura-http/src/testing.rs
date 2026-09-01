@@ -24,7 +24,9 @@ use sutura_domain::measure::{AggregatedColumn, Measure, Term};
 use sutura_domain::model::{
     Aggregate, ColumnName, DimensionName, Grain, JoinType, MetricName, ModelName, RelationshipName, SourceName, TableName,
 };
-use sutura_domain::pinned::{CatalogKind, DefinitionVersion, PinnedDefinitions, SemanticCatalog};
+use sutura_domain::pinned::{
+    CatalogKind, Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions, SemanticCatalog,
+};
 use sutura_domain::plan::{AnchorPlan, Executable};
 use sutura_domain::source::{AcknowledgementReason, ImpersonationCapability, SharedIdentityDeclared, SourcePosture};
 use sutura_domain::warehouse::{AnchorRows, PreFlight, RowSet, Value, Warehouse};
@@ -113,8 +115,12 @@ fn pinned(anchor: Option<Anchor>) -> PinnedDefinitions {
     let definitions = Definitions::assemble(vec![model], vec![], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        definitions,
+        definitions.clone(),
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
     )
     .expect("the test definitions hash")
 }
@@ -708,8 +714,12 @@ pub(crate) fn two_source_bundle() -> PinnedDefinitions {
         Definitions::assemble(vec![orders, customers], vec![joined], vec![revenue]).expect("the test bundle is consistent");
     PinnedDefinitions::pin(
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
-        definitions,
+        definitions.clone(),
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(MetadataCapabilities::produced(&definitions, &Knowledge::none())),
+        ),
     )
     .expect("the test definitions hash")
 }

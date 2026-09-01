@@ -116,7 +116,8 @@ mod tests {
     /// The example catalog, read the way the `catalog` command reads it.
     fn load() -> PinnedDefinitions {
         let version = DefinitionVersion::parse(VERSION).expect("the fixed version is a version");
-        LocalCatalog::new(catalog_root(), version)
+        let name = sutura_domain::model::SourceName::parse("local").expect("the example catalog name is a name");
+        LocalCatalog::new(name, catalog_root(), version)
             .load()
             .unwrap_or_else(|e| panic!("the example catalog does not load: {e}"))
     }

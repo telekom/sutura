@@ -11,7 +11,7 @@ cargo run -p sutura-cli -- \
 ```
 
 ```
--- definitions local-working-tree 2383faeaab05d6a4abd62d8701c5c6de970ec7f61e85043444e500e6908c73fc
+-- definitions local-working-tree 8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5
 period  recurring_revenue
 2026-01-01      237320
 2026-02-01      232822
@@ -342,7 +342,7 @@ content-length: 347
   "outcome": "answer",
   "provenance": {
     "definition_version": "local-1",
-    "definition_digest": "2383faeaab05d6a4abd62d8701c5c6de970ec7f61e85043444e500e6908c73fc"
+    "definition_digest": "8042ba92eaddce5e96e055cc43a635a64161d54ec21bd4f3367e7a1f58f5b4c5"
   },
   "columns": ["period", "recurring_revenue"],
   "rows": [

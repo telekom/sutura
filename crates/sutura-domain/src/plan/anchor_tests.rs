@@ -22,7 +22,7 @@ use crate::catalog::{Anchor, Definitions, Description, Metric, Model};
 use crate::knowledge::Knowledge;
 use crate::measure::{AggregatedColumn, Measure, Term};
 use crate::model::{Aggregate, ColumnName, Grain, MetricName, ModelName, SourceName, TableName};
-use crate::pinned::{DefinitionVersion, PinnedDefinitions};
+use crate::pinned::{Contribution, ContributionManifest, DefinitionVersion, PinnedDefinitions};
 
 fn metric() -> MetricName {
     MetricName::parse("mrr").expect("a test metric is a metric")
@@ -75,6 +75,10 @@ fn bundle(anchor: Option<Anchor>, grains: BTreeSet<Grain>) -> PinnedDefinitions 
         DefinitionVersion::parse("test-1").expect("a test version is a version"),
         Definitions::assemble(vec![model], vec![], vec![definition]).expect("the test bundle is consistent"),
         Knowledge::none(),
+        ContributionManifest::single(
+            SourceName::parse("local").expect("a test source is a source"),
+            Contribution::of(crate::capabilities::MetadataCapabilities::nothing()),
+        ),
     )
     .expect("the test definitions hash")
 }

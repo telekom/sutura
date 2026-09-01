@@ -208,11 +208,18 @@ pub fn cause_chain(error: &(dyn core::error::Error + 'static)) -> Vec<String> {
 /// Why a service could not be started.
 #[derive(Debug, thiserror::Error)]
 pub enum ServiceNotStarted {
-    /// The catalog adapter could not produce a bundle.
+    /// A catalog adapter could not produce a bundle.
     #[error("the catalog could not be loaded")]
     Catalog {
         #[source]
         cause: ErasedCause,
+    },
+    /// The catalog contributions do not compose: two sources define one element, certify different
+    /// versions, or one of them supplies a kind its declaration does not.
+    #[error("the catalog contributions do not compose")]
+    Composition {
+        #[source]
+        cause: crate::assemble::CompositionError,
     },
     /// The bundle loaded and an anchor did not reproduce the number its author certified, or could
     /// not be run at all.
@@ -265,14 +272,13 @@ where
     B: CredentialBroker + Send + Sync + 'static,
     B::Error: Send + Sync,
 {
-    /// Loads a catalog through its port, re-runs every anchor against `warehouse`, and returns a
+    /// Loads one catalog through its port, re-runs every anchor against `warehouse`, and returns a
     /// service only if all of them held.
     ///
-    /// Every port is consumed here, which is what lets a transport be transport-only: it never
-    /// reads a catalog directory, never opens a data system and never decides where a record goes.
-    ///
-    /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
-    /// startup failure is reported from wherever the composition root happens to be.
+    /// This is [`Self::start_composed`] over a single declared catalog - the metadata assembler is
+    /// what makes several compose, and a single-catalog deployment is that function's one-entry
+    /// case, so there is one code path to keep honest rather than a second one that happens to
+    /// serve.
     pub fn start<C>(
         catalog: &C,
         warehouses: Warehouses<W>,
@@ -284,9 +290,38 @@ where
         C: SemanticCatalog,
         C::Error: Send + Sync,
     {
-        let pinned = catalog
-            .load()
-            .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
+        Self::start_composed(core::slice::from_ref(catalog), warehouses, sink, broker, working_set_bytes)
+    }
+
+    /// Loads every declared catalog through its port, composes them into one bundle, re-runs every
+    /// anchor against `warehouse`, and returns a service only if all of them held.
+    ///
+    /// Every port is consumed here, which is what lets a transport be transport-only: it never
+    /// reads a catalog directory, never opens a data system and never decides where a record goes.
+    /// The buttons the serve/schema each press are the same, which is what keeps "the bundle this
+    /// validates is the bundle this serves" true for N sources rather than for one.
+    ///
+    /// `C::Error: Send + Sync` for the same reason `W::Error` is - the cause is kept, owned, and a
+    /// startup failure is reported from wherever the composition root happens to be.
+    pub fn start_composed<C>(
+        catalogs: &[C],
+        warehouses: Warehouses<W>,
+        sink: S,
+        broker: B,
+        working_set_bytes: u64,
+    ) -> Result<Self, ServiceNotStarted>
+    where
+        C: SemanticCatalog,
+        C::Error: Send + Sync,
+    {
+        let mut bundles = Vec::with_capacity(catalogs.len());
+        for catalog in catalogs {
+            let pinned = catalog
+                .load()
+                .map_err(|cause| ServiceNotStarted::Catalog { cause: Box::new(cause) })?;
+            bundles.push(pinned);
+        }
+        let pinned = crate::assemble::assemble(bundles).map_err(|cause| ServiceNotStarted::Composition { cause })?;
         // The broker is NOT consulted here, and that is the boot path's whole shape: an anchor runs
         // through `Warehouse::verify_anchor`, which takes no credential because there is no caller to
         // mint one for. `docs/adr/0008` part 1 decides it, and `sutura_domain::warehouse` records
