@@ -445,27 +445,19 @@ hooks *args:
 gcloud-login:
     pixi run --frozen -e gcloud gl
 
-# The BigQuery smoke leg, and it is NOT a gate - `just validate` does not run it and neither does CI.
+# The live BigQuery acceptance suite. It is outside `just validate` because nix checks have no
+# network. CI runs the same suite in its own `bq-test` environment job for pushes and same-repository
+# pull requests; fork pull requests skip it because they cannot receive that environment's secret.
 #
-# **Smoke rather than acceptance, and the file says so in its first line.** It submits ONE hand-built
-# `SUM` over a two-column table a developer supplies, so it exercises none of the constructs the parse
-# check was measured to be blind about. `docs/adr/0017` specifies a wider leg - the corpus, compared
-# against the engine - and that is #78's importer shape and is not built. `docs/adr/0017` decided that: this repository is public, so a workflow secret is
-# unavailable to a fork's pull request, and the nix check sandbox has no network at all. So the only
-# place acceptance evidence for this dialect exists is a developer's own terminal.
-#
-# `--run-ignored only` is the whole point: the three tests in
-# `crates/sutura-exec-bigquery/tests/acceptance.rs` carry `#[ignore]` so every other task skips
-# them. **An unconfigured run of THIS recipe FAILS rather than skipping**, naming the variable that
-# is missing - because `#[ignore]` already means nothing arrives here by accident, so typing this is
-# a statement of intent and three green ticks against no project would be a green nobody asked for.
-# The first version of that fixture did skip, and did exactly that.
+# `--run-ignored only` reaches the five endpoint tests in `tests/acceptance.rs` and the three corpus
+# tests in `tests/corpus.rs`; every other test task skips them. An unconfigured run fails rather than
+# reporting green without reaching a real project.
 #
 # Needs `just gcloud-login` once, and three values in the developer's own environment. Their names
 # are in that file's header; their values belong on the machine, which is what `.envrc` already
 # sources a file outside this repository for.
 
-# Ask a real BigQuery project ONE question. Opt-in smoke leg, not a gate; see the module header.
+# Run the live BigQuery acceptance suite against the configured project.
 bigquery-acceptance:
     #!/usr/bin/env bash
     set -euo pipefail
