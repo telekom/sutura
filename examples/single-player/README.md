@@ -610,6 +610,22 @@ Each of these is a refusal rather than a warning on purpose. A warning is read b
 happens to be looking at the log, in the format the collector was configured for. A process
 that does not start is read by everybody.
 
+## Over MCP
+
+A chat client points at the `sutura` binary's `mcp` command. It launches the process and
+speaks the Model Context Protocol on its pipes - the same two tools the HTTP surface serves
+(`describe_catalog` and `ask_metric`, from the same declaration), for a locally run, single
+player session over this same directory.
+
+```bash
+sutura mcp examples/single-player/catalog examples/single-player/data
+```
+
+Point the client at `sutura mcp <catalog-dir> <data-dir>` and it lists the catalog and answers
+certified questions exactly as `query` would. The process prints, on standard error, that it
+grants every capability to whoever can reach it: a pipe has no header a token could arrive in,
+so the limit is stated beside the mode rather than left as a default.
+
 ## The data
 
 It is synthetic, all of it. A seeded pseudo-random generator produced it, the customer
