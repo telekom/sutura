@@ -57,6 +57,12 @@ pub mod surface;
 // cites as holding up the rule that a driving port is not owned by one of its callers.
 pub mod prompt;
 
+// The shared prompt-injection corpus both transports walk - the hostile cells and the hostile
+// catalog prose `#128`'s forgeries are built from, so a third surface inherits the tests rather than
+// the mistake. Here rather than in either transport because `sutura-mcp` and `sutura-http` cannot
+// see each other, and both already depend on this crate.
+pub mod untrusted;
+
 // The data systems this process opened, keyed by the name a plan selects them with. Here rather than
 // in a composition root because the LOOKUP is application logic - which warehouse answers a plan, and
 // what an absence means - while which adapters exist is the root's.
