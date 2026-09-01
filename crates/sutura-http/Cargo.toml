@@ -75,6 +75,15 @@ base64 = { workspace = true }
 # for the same reason plus one more: a committed private key in a public repository is a committed
 # private key, whatever a comment beside it says, and `KeyPair::generate` costs a millisecond.
 rcgen = { workspace = true }
+# The mock authorization server: a generated key pair, a JWK set it PUBLISHES to a path, and a token
+# minter every claim of which is a parameter.
+#
+# In `sutura-dev` and not in this crate's own fixtures, which is the point of it: leg 1 is verified
+# here, minted-for in a broker and composed in a root, and a fixture inside any one of those three
+# cannot be driven from the other two. The feature is named because it is default-off in that crate -
+# `xtask` links the same library to learn a compose project name and should not compile a crypto
+# backend for it.
+sutura-dev = { workspace = true, features = ["mock-issuer"] }
 # The SAME dependency as above, with the log-capture writer turned on. The router's span is
 # observable only as bytes, so the harness builds a subscriber over a buffer and asserts on them -
 # and the writer comes from `sutura-runtime` rather than being copied here, because a second copy is

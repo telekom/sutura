@@ -43,6 +43,14 @@ is derived and the other is not.
 repo tool and is never packaged. Docker orchestration inside a shipped artifact is test
 scaffolding delivered to users; `sutura-dev` is not shipped either, but it is the crate a
 harness links, and a harness has no business being able to start a container.
+# A third half, and it answers a different question
+
+`issuer` is not about a provisioned service at all - it is a **mock authorization server in the
+test sandbox**, behind the default-off `mock-issuer` feature. It is here rather than in the crate
+that first needed it for the reason `discovery` is a library door: leg 1 is verified in the
+transport, minted-for in a broker and composed in a root, and a fixture living inside one of those
+three cannot be driven from the other two. What it may never be cited for is written where it is
+defined, because a venue that cannot state its limit is how *verified* drifts.
 
 ## Module `discovery`
 
@@ -242,6 +250,458 @@ Remove this worktree's discovery file, if there is one.
 
 Teardown's half of the contract: endpoints that no longer exist must not be readable, because a
 stale file is the one way discovery could hand back a wrong answer instead of an error.
+
+## Module `issuer`
+
+A mock authorization server, inside the test sandbox.
+
+Leg 1 is the product's first identity claim, and until now every test of it built its own key pair
+and its own tokens inside the crate that was being tested. That is right for a unit test and it
+stops one step short of the venue this module adds: **an issuer any crate can link**, so leg 1 and
+the credential path can be driven through an assembled router - and, later, through a composed
+binary - on every run, with no network, no docker and no secret.
+
+# What this venue can answer, and the two things it may never be cited for
+
+It is the default venue and it is not a substitute for an enterprise identity provider. The split
+is not a compromise; it is what each venue can honestly claim.
+
+**Answered here:** a signature, `kid` selection, algorithm confusion, a symmetric key refused, the
+issuer, the audience against this deployment's own resource identifier, expiry, the `iat` ceiling,
+the token class, and - the reason this hands back a *published document* rather than a struct - a
+**key rotation against a source that changes**, which is the one bound whose failure is silent.
+
+**Never cite this for:**
+
+1. **Whether a real identity provider will mint an ID token whose `aud` is a third party's client
+   id.** A mock answers *yes* by construction, because `Token` takes the audience as a parameter.
+   That question has exactly one venue - a real provider - and `docs/where-identity-is-proven.md`
+   says so.
+2. **Whether a token exchange endpoint accepts what we send it, or whether two subjects read two
+   row sets.** Nothing here talks to a data system.
+
+# The constraint that makes it worth having
+
+**It produces real signatures over real documents.** `rcgen` generates the key pair, `jsonwebtoken`
+signs the claim set, and the public half goes into a JWK the way an issuer publishes one - so a
+verifier under test runs its real code path. A mock handing back a decoded claim set would be
+testing our test, which `AGENTS.md` calls a test asserting on source text.
+
+**Every knob is a parameter**, because the useful tests are the negative ones: a wrong audience, a
+wrong issuer, an `alg` of `none`, a symmetric key in the set, an ID token where an access token is
+required, an `iat` dated forward, an `exp` past the lifetime ceiling. A fixture that could only
+mint a *good* token would leave every one of those to be hand-rolled again per crate.
+
+# Which algorithms are reachable, stated rather than implied
+
+`Curve` has three variants and they are the three the linked crypto backend can *generate* a key
+for: `ES256`, `ES384` and `EdDSA`. `RS*` and `PS*` are **not** mintable here - an RSA key needs a
+dependency nothing in this workspace wants, and a committed private key in a public repository is a
+committed private key whatever the comment beside it says. What covers those is the family refusal
+`MockIssuer::key_set_of_rsa_keys` provokes, an exhaustive match in the verifier, and a reviewer.
+Saying that plainly is the point; three of nine tested behind a list of nine would read as coverage.
+
+# Which knobs have a caller today, said out loud
+
+**A fixture is not exempt from this file's own rule about stating limits.** The first suite to use
+this module drives `kid` selection, the audience (one, none, and a wrong one), the issuer, `exp`,
+`nbf`, the `typ` in three states, `alg: none`, a stranger's signature and all three curves. What has
+**no caller yet** is the gateway-mode arithmetic - `Token::issued_ago`,
+`Token::stating_no_issued_at` and `Token::living_for` - plus `Token::for_audiences`,
+`Token::claiming`, `MockIssuer::key_ids`, `MockIssuer::issuer` and
+`MockIssuer::audience`. Those are the knobs `docs/where-identity-is-proven.md` marks **can**
+rather than **yes**: the standing test for the `iat` ceiling is at the gate, over in-crate fixtures,
+and moving it here is a later change rather than a claim this one makes.
+
+They are built now rather than when somebody wants them because the whole argument for a *builder*
+is that a negative test costs one call - and a builder that had to grow a method per negative would
+send the next author back to hand-rolling a claim set, which is the thing this module exists to stop.
+
+# Errors rather than panics, which is a lint and not a preference
+
+This is library code in a crate the workspace lints, so `expect_used` and `indexing_slicing` are
+denied here as everywhere else - the test-only exemption in `clippy.toml` does not reach it. Every
+fallible step therefore returns `IssuerDefect`, whose four variants are the four things that can
+go wrong and none of which a correct caller reaches.
+
+### `enum Curve`
+
+```rust
+pub enum Curve
+```
+
+The elliptic curves this issuer can generate a signing key for.
+
+Three, and each is one of the algorithms a deployment can pin. The name is the curve rather than
+the algorithm because the curve is what gets generated; `Curve::algorithm` is the mapping, and it
+is a match rather than a lookup so a fourth curve does not compile until somebody answers it.
+
+#### Variants
+
+- `P256` - `ES256`. What every fixture uses unless it is about something else.
+- `P384` - `ES384`.
+- `Ed25519` - `EdDSA` over Ed25519.
+
+#### Methods
+
+```rust
+pub const fn algorithm(self) -> &'static str
+```
+
+The JWS algorithm identifier a key on this curve signs with.
+
+#### Implements
+
+`Clone`, `Copy`, `Debug`, `Eq`, `PartialEq`
+
+### `enum IssuerDefect`
+
+```rust
+pub enum IssuerDefect
+```
+
+What went wrong, as four variants a correct caller does not reach.
+
+Hand-written `Display` and `Error`, the way `crate::discovery` does it: this crate carries no error
+derive, and four variants do not earn one.
+
+#### Variants
+
+- `KeyPairUngeneratable` - A key pair would not generate. The backend said so; there is nothing a caller can do.
+- `NoSuchKey` - A token named a key id this issuer does not hold.
+- `Unsignable` - The signing step failed, which for a generated key and a JSON claim set means a library defect.
+- `Unpublishable` - The key set could not be written where it was asked for.
+
+#### Implements
+
+`Debug`, `Display`, `Error`
+
+### `struct MockIssuer`
+
+```rust
+pub struct MockIssuer
+```
+
+An authorization server that exists for the length of a test.
+
+It holds an issuer identifier, the audience its tokens are for, and one or more signing keys. Both
+names are held rather than passed per token because they are what a deployment is *configured*
+with: a test about a wrong issuer should have to say so, and every other test should not have to
+repeat the right one.
+
+#### Methods
+
+```rust
+pub fn also_holding(self, key_id: &str, curve: Curve) -> Result<Self, IssuerDefect>
+```
+
+The same issuer, holding one more key.
+
+# Errors
+
+`IssuerDefect::KeyPairUngeneratable` if the crypto backend will not generate a key pair.
+
+```rust
+pub fn audience(&self) -> &str
+```
+
+Who its tokens are for - the value an `aud` claim carries.
+
+```rust
+pub fn generating(issuer: &str, audience: &str, key_id: &str) -> Result<Self, IssuerDefect>
+```
+
+An issuer with one `P-256` key under `key_id`.
+
+The ordinary constructor. A test that wants a second key, or another curve, adds one with
+`MockIssuer::also_holding`.
+
+# Errors
+
+`IssuerDefect::KeyPairUngeneratable` if the crypto backend will not generate a key pair.
+
+```rust
+pub fn issuer(&self) -> &str
+```
+
+What this issuer calls itself - the value an `iss` claim carries.
+
+```rust
+pub fn key_ids(&self) -> Vec<&str>
+```
+
+The ids of every key it publishes, in the order they were added.
+
+```rust
+pub fn key_set(&self) -> String
+```
+
+The JWK set holding every key.
+
+```rust
+pub fn key_set_naming_one_key_twice(&self, key_id: &str) -> String
+```
+
+The JWK set holding one key twice under one id, which a verifier must refuse rather than
+resolve by document order.
+
+```rust
+pub fn key_set_of_rsa_keys(key_id: &str) -> String
+```
+
+A JWK set holding one RSA key, for the family mismatch a deployment pinning `ES*` must refuse.
+
+**The modulus is not a real key and does not need to be.** What is asserted with it is that a
+key set of the wrong family is refused *at load*, which happens before anything verifies a
+signature - so the exponent and the modulus only have to be base64url a decoder will accept.
+This is also why `RS*` is not mintable here: the refusal is the coverage.
+
+```rust
+pub fn key_set_of_symmetric_keys() -> String
+```
+
+A JWK set holding one **symmetric** key, which is what must never be accepted.
+
+An associated function rather than a method: no signing key is involved, and the value of the
+fixture is that the document is otherwise well formed. Accepting it would make algorithm
+confusion reachable - the holder of a *published* key could sign with it.
+
+```rust
+pub fn key_set_without(&self, key_id: &str) -> String
+```
+
+The JWK set with one key **removed**, which is what a rotation looks like from outside.
+
+The whole reason this hands back a document rather than a struct: revocation is bounded only if
+a verifier re-reads its *source*, so the assertion has to be against a source whose content
+changed. An in-memory key set would test the cache and not the bound.
+
+```rust
+pub fn mint(&self, token: &Token) -> Result<String, IssuerDefect>
+```
+
+Signs `token` with the key it names, or with the first key if it names none.
+
+# Errors
+
+`IssuerDefect::NoSuchKey` if the named key is not held, and `IssuerDefect::Unsignable` if
+the library refuses the claim set - which for a generated key means a library defect.
+
+```rust
+pub fn mint_signed_by_a_stranger(&self, token: &Token) -> Result<String, IssuerDefect>
+```
+
+The same claim set, signed by a key this issuer does **not** publish.
+
+The forgery fixture, and the point is that it is correct in every other respect: the `kid` names
+a key the verifier holds, the issuer and the audience are right, and only the signature is
+somebody else's. A fixture that changed the `kid` as well would be asserting the unknown-key
+path instead.
+
+# Errors
+
+As `MockIssuer::mint`, plus `IssuerDefect::KeyPairUngeneratable` for the stranger's key.
+
+```rust
+pub fn mint_unsigned(&self, token: &Token) -> Result<String, IssuerDefect>
+```
+
+The same claim set with an `alg` of `none` and no signature at all.
+
+Hand-assembled, because the library will not encode it - which is itself the reassuring part.
+What this provokes is the oldest JWT defect there is: a verifier that reads the algorithm out of
+the header it was handed instead of out of what the deployment pinned.
+
+# Errors
+
+`IssuerDefect::NoSuchKey` if the token names a key this issuer does not hold. The `kid` is
+still resolved, so an unsigned token is refused for its algorithm rather than for its key id.
+
+```rust
+pub fn publish(&self, path: impl AsRef<Path>) -> Result<(), IssuerDefect>
+```
+
+Publishes the whole key set at `path`, replacing whatever was there.
+
+# Errors
+
+`IssuerDefect::Unpublishable` if the write fails.
+
+```rust
+pub fn publish_document(path: impl AsRef<Path>, document: &str) -> Result<(), IssuerDefect>
+```
+
+Publishes an arbitrary document at `path`, which is how a rotation is performed.
+
+# Errors
+
+`IssuerDefect::Unpublishable` if the write fails.
+
+### `struct Token`
+
+```rust
+pub struct Token
+```
+
+One token to mint, with every claim a negative test needs to be able to move.
+
+A builder rather than a struct literal, so the ORDINARY token is one call and each negative is one
+call plus the one thing it is about. That is what keeps such a suite readable: a reader can see what
+a test varies without diffing it against the good case.
+
+#### Methods
+
+```rust
+pub fn claiming(self, name: &str, value: serde_json::Value) -> Self
+```
+
+Carries one more claim, for anything this builder has no name for.
+
+```rust
+pub fn claiming_issuer(self, issuer: &str) -> Self
+```
+
+Claims an issuer of its own, which is how the wrong-issuer refusal is provoked.
+
+Named `claiming_issuer` and not `from_issuer` because a `from_*` method that takes `self` reads
+as a conversion and is not one - `clippy::wrong_self_convention` says so, and it is right.
+
+```rust
+pub fn classed(self, class: &str) -> Self
+```
+
+Sets the `typ` header, which is what decides a token's CLASS.
+
+```rust
+pub fn expired_since(self, seconds: i64) -> Self
+```
+
+Expired `seconds` ago.
+
+```rust
+pub fn for_audience(self, audience: &str) -> Self
+```
+
+Claims one named audience rather than the issuer's own.
+
+```rust
+pub fn for_audiences(self, audiences: &[&str]) -> Self
+```
+
+Claims an array of audiences, the form RFC 7519 permits.
+
+```rust
+pub fn for_nobody_in_particular(self) -> Self
+```
+
+Claims no audience at all, so there is nothing for a verifier to compare.
+
+```rust
+pub fn for_subject(subject: &str) -> Self
+```
+
+The ordinary token for `subject`: this issuer, this audience, an access token, valid for an hour.
+
+It states an `iat`, because the mode that needs one requires it and the mode that does not
+ignores it - so the default that is right in both places is to state it, and
+`Token::stating_no_issued_at` is the negative.
+
+```rust
+pub fn granting(self, scope: &str) -> Self
+```
+
+Carries a space-delimited `scope` claim, per RFC 6749.
+
+```rust
+pub fn issued_ago(self, seconds: i64) -> Self
+```
+
+Issued `seconds` ago. A negative value dates it forward, which is how a component would buy a
+longer replay window than the one this deployment chose.
+
+```rust
+pub fn living_for(self, seconds: i64) -> Self
+```
+
+Lives for `seconds` from its `iat`, which is what a lifetime ceiling is compared against.
+
+```rust
+pub fn not_before_in(self, seconds: i64) -> Self
+```
+
+Not valid until `seconds` from now.
+
+```rust
+pub fn signed_by(self, key_id: &str) -> Self
+```
+
+Signs with the named key rather than the issuer's first.
+
+```rust
+pub const fn stating_no_issued_at(self) -> Self
+```
+
+States no `iat`, which the gateway mode must refuse because its ceiling is `exp - iat`.
+
+```rust
+pub fn unclassed(self) -> Self
+```
+
+Carries no `typ` at all, which a class check must not be satisfiable by.
+
+#### Implements
+
+`Clone`, `Debug`
+
+### `struct PublishedKeySet`
+
+```rust
+pub struct PublishedKeySet
+```
+
+A key set on disk, removed when it goes out of scope.
+
+**The seam a rotation test needs.** The one key set source that ships reads a *file*, so an
+assertion about a revoked key stopping verifying has to change a file - and a test that left one
+behind in the temporary directory would be a test that passes on its second run for the wrong
+reason. `PublishedKeySet::rotate_to` is the whole vocabulary: publish a new document at the same
+path and let the verifier notice.
+
+#### Methods
+
+```rust
+pub fn of(issuer: &MockIssuer, label: &str) -> Result<Self, IssuerDefect>
+```
+
+Publishes `issuer`'s key set at a path named after `label` and this process.
+
+The process id is in the name because the suite runs test binaries concurrently and the
+temporary directory is shared; the label is in it because a failure naming the file should say
+which test wrote it.
+
+# Errors
+
+`IssuerDefect::Unpublishable` if the write fails.
+
+```rust
+pub fn path(&self) -> &Path
+```
+
+Where it is, which is what a deployment's `key_set_file` is set to.
+
+```rust
+pub fn rotate_to(&self, document: &str) -> Result<(), IssuerDefect>
+```
+
+Replaces the published document, which is what a rotation is.
+
+# Errors
+
+`IssuerDefect::Unpublishable` if the write fails.
+
+#### Implements
+
+`Drop`
 
 ## Module `provisioned`
 

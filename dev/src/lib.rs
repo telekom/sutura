@@ -35,7 +35,18 @@
 //! scaffolding delivered to users; `sutura-dev` is not shipped either, but it is the crate a
 //! harness links, and a harness has no business being able to start a container.
 
+//! # A third half, and it answers a different question
+//!
+//! [`issuer`] is not about a provisioned service at all - it is a **mock authorization server in the
+//! test sandbox**, behind the default-off `mock-issuer` feature. It is here rather than in the crate
+//! that first needed it for the reason [`discovery`] is a library door: leg 1 is verified in the
+//! transport, minted-for in a broker and composed in a root, and a fixture living inside one of those
+//! three cannot be driven from the other two. What it may never be cited for is written where it is
+//! defined, because a venue that cannot state its limit is how *verified* drifts.
+
 pub mod discovery;
+#[cfg(feature = "mock-issuer")]
+pub mod issuer;
 pub mod provisioned;
 pub mod requirement;
 pub mod scope;

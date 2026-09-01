@@ -993,5 +993,7 @@ fn nothing_in_this_module_is_sendable_by_accident() {
 /// are the ones a reviewer should be able to find, run and delete-if-wrong as a group.
 mod review;
 
+/// Leg 1 against an issuer that PUBLISHES its key set, so the rotation bound faces a source that changes.
+mod published;
 /// Leg 1 through the assembled router, which is what says the layer is installed at all.
 mod router;

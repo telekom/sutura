@@ -109,6 +109,14 @@ mod testing;
 #[cfg(test)]
 mod harness;
 
+/// The credential half of the identity path, driven through the assembled router.
+///
+/// Beside [`harness`] rather than under [`inbound`] because it is about what happens AFTER a caller is
+/// established: which credential a broker mints for which subject, and the refusal for a subject that
+/// has none.
+#[cfg(test)]
+mod identity_e2e;
+
 pub use crate::capability::{capability_of, governed, permitted_for, require_capability};
 pub use crate::client_address::ClientAddress;
 pub use crate::correlation::{CorrelationId, NotACorrelationId};

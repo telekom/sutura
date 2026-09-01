@@ -3727,6 +3727,9 @@ dependencies = [
 name = "sutura-dev"
 version = "0.4.1"
 dependencies = [
+ "base64 0.23.1",
+ "jsonwebtoken",
+ "rcgen",
  "serde_json",
  "sha2",
 ]
@@ -3807,6 +3810,7 @@ dependencies = [
  "serde_json",
  "sutura-app",
  "sutura-config",
+ "sutura-dev",
  "sutura-domain",
  "sutura-runtime",
  "thiserror 2.0.20",
